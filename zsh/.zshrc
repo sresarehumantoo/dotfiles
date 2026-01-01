@@ -119,27 +119,11 @@ source $ZSH/oh-my-zsh.sh
 
 unsetopt HIST_VERIFY
 
-#Set Hist File Size - Owen Pierce
 HISTFILE=~/.zsh_history
 HISTSIZE=999999999
 SAVEHIST=999999999
-#List of some aliases - Owen Pierce
-alias sudo="doas"
-alias update="sudo apt-get update"
-alias upgrade="sudo apt-get upgrade"
-alias updateDist="sudo apt-get dist-upgrade"
-alias updateAll="sudo apt-get update && sudo apt-get upgrade && sudo apt-get dist-upgrade"
-alias q="exit"
-alias max_bright="sudo sh -c 'echo 96000 > /sys/class/backlight/intel_backlight/brightness'"
-alias mid_bright="sudo sh -c 'echo 50000 > /sys/class/backlight/intel_backlight/brightness'"
-alias min_bright="sudo sh -c 'echo 1 > /sys/class/backlight/intel_backlight/brightness'"
-alias zzz="/bin/sudo /bin/systemctl suspend-then-hibernate"
-alias wg_up="sudo wg-quick up entry"
-alias wg_down="sudo wg-quick down entry"
-alias clip="tr '\n' '\0' | xclip -selection clipboard"
-alias vim='nvim'
-alias python="python3"
 
+source ~/.aliases
 source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
 export PATH=$PATH:/home/owen/.local/bin
 export PATH=$PATH:/usr/local/go/bin
