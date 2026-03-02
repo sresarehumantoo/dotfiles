@@ -7,3 +7,9 @@ skip_backup: true
 
 # Custom backup directory (default: ~/.local/share/dfinstall/backups)
 # backup_dir: /path/to/backups
+
+# Extended OMZ plugins (selected via dfinstall install omz --extended)
+# extended_plugins:
+#   - kubectl
+#   - aws
+#   - sudo

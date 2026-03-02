@@ -4,7 +4,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type TmuxModule struct{}

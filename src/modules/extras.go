@@ -8,7 +8,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type ExtrasModule struct{}
@@ -240,9 +240,9 @@ func (ExtrasModule) Status() core.ModuleStatus {
 		{"xclip", false},
 		{"tree", false},
 		{"fzf", false},
-		{"rg", false},       // ripgrep binary name
-		{"fdfind", false},   // fd-find binary name on Debian
-		{"batcat", false},   // bat binary name on Debian
+		{"rg", false},     // ripgrep binary name
+		{"fdfind", false}, // fd-find binary name on Debian
+		{"batcat", false}, // bat binary name on Debian
 		{"jq", false},
 		{"unzip", false},
 		{"make", false},

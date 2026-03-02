@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type DevtoolsModule struct{}

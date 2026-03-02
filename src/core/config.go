@@ -10,12 +10,16 @@ import (
 
 // Config holds user-tunable dfinstall settings.
 type Config struct {
-	SkipBackup bool   `yaml:"skip_backup"`
-	BackupDirP string `yaml:"backup_dir,omitempty"`
+	SkipBackup      bool     `yaml:"skip_backup"`
+	BackupDirP      string   `yaml:"backup_dir,omitempty"`
+	ExtendedPlugins []string `yaml:"extended_plugins,omitempty"`
 }
 
 // Cfg is the active configuration, loaded at startup.
 var Cfg Config
+
+// ExtendedMode is set by the --extended CLI flag.
+var ExtendedMode bool
 
 // CfgFileExists is true when the config file was present at load time.
 // Used to distinguish "first run" from "user explicitly set skip_backup: false".

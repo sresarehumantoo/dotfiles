@@ -1,11 +1,12 @@
 package modules
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type OmzModule struct{}
@@ -64,6 +65,13 @@ func (OmzModule) Install() error {
 		core.Ok("powerlevel10k already installed")
 	}
 
+	// Write extended plugins file if selections exist or --extended was used
+	if core.ExtendedMode || len(core.Cfg.ExtendedPlugins) > 0 {
+		if err := WriteExtendedPluginsFile(core.Cfg.ExtendedPlugins); err != nil {
+			core.Warn("extended plugins file: %v", err)
+		}
+	}
+
 	core.Ok("Oh My Zsh setup done")
 	return nil
 }
@@ -85,6 +93,10 @@ func (OmzModule) Status() core.ModuleStatus {
 		} else {
 			s.Missing++
 		}
+	}
+
+	if n := len(core.Cfg.ExtendedPlugins); n > 0 {
+		s.Extra = fmt.Sprintf("+%d extended", n)
 	}
 	return s
 }

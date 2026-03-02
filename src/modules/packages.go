@@ -3,7 +3,7 @@ package modules
 import (
 	"os/exec"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type PackagesModule struct{}

@@ -6,7 +6,7 @@ GO        := go
 .PHONY: build test install clean fmt lint
 
 build:
-	$(GO) build -ldflags "-X github.com/owenpierce/dotfiles/src/core.DefaultDotfilesDir=$(CURDIR)" \
+	$(GO) build -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(CURDIR)" \
 	  -o $(BUILD_DIR)/$(BINARY) ./$(SRC_DIR)
 
 test:

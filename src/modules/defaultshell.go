@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type DefaultShellModule struct{}

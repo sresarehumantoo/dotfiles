@@ -94,20 +94,22 @@ This keeps modules declarative and easy to extend.
 
 ## CLI
 
-Built with [Cobra](https://github.com/spf13/cobra). Five commands:
+Built with [Cobra](https://github.com/spf13/cobra). Six commands:
 
 | Command | Description |
 |---------|-------------|
 | `install <module\|all>` | Install one or all modules |
+| `update <module\|all>` | Alias for install — re-apply modules |
 | `status` | Print table of link counts per module |
 | `doctor` | Run 25+ health checks |
 | `restore [timestamp]` | Restore files from a backup snapshot |
 
-### Install Flags
+### Install / Update Flags
 
 | Flag | Behavior |
 |------|----------|
 | `--backup` | Force a backup snapshot regardless of config |
+| `--extended` | Show interactive menu to select extended OMZ plugins |
 
 ### Restore Flags
 
@@ -211,6 +213,7 @@ Checked in order:
 |-------|------|---------|-------------|
 | `skip_backup` | bool | `false` | Skip automatic backups on install |
 | `backup_dir` | string | *(empty)* | Custom backup directory (falls back to `~/.local/share/dfinstall/backups/`) |
+| `extended_plugins` | []string | *(empty)* | Extended OMZ plugins selected via `--extended` |
 
 ### Auto-Backup Logic
 

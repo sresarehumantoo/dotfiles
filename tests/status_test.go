@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/owenpierce/dotfiles/src/core"
-	"github.com/owenpierce/dotfiles/src/modules"
+	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/modules"
 )
 
 func TestFormatStatusLine(t *testing.T) {

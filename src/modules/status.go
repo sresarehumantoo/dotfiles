@@ -3,7 +3,7 @@ package modules
 import (
 	"fmt"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // PrintStatus prints a table showing the status of all modules.

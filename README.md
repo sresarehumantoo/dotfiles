@@ -22,6 +22,9 @@ dfinstall install shell           # install a single module
 dfinstall install all -v          # verbose output (detailed logs)
 dfinstall install all --debug     # debug output (verbose + internals)
 dfinstall install all --backup    # snapshot targets before modifying (restorable)
+dfinstall install omz --extended  # interactive menu to select extended OMZ plugins
+dfinstall update all              # re-apply all modules (alias for install)
+dfinstall update omz --extended   # update and select extended OMZ plugins
 dfinstall status                  # show link status for all modules
 dfinstall doctor                  # run environment health checks
 dfinstall restore                 # restore latest backup
@@ -61,7 +64,7 @@ Modules run in this order (dependencies first):
 | **extras** | CLI utilities (fzf, ripgrep, bat, jq, fd), Python tooling, Docker, Terraform |
 | **delta** | Installs [delta](https://github.com/dandavid/delta) git diff viewer |
 | **fonts** | Hack Nerd Font and MesloLGS NF (bundled or downloaded) |
-| **omz** | Oh My Zsh + zsh-autosuggestions + powerlevel10k |
+| **omz** | Oh My Zsh + zsh-autosuggestions + powerlevel10k + extended plugin support (`--extended`) |
 | **shell** | Symlinks zshrc, bashrc, aliases, p10k config, and modular zsh.d files |
 | **devtools** | Utility scripts to `~/.local/bin/` (sysinfo, docker-cleanup, git-prune-branches, etc.) |
 | **git** | Symlinks gitconfig (delta pager, histogram diff, aliases) |
