@@ -45,6 +45,9 @@ var activeBackup *backupManager
 
 // BackupDir returns the base directory for all backups.
 func BackupDir() string {
+	if Cfg.BackupDirP != "" {
+		return Cfg.BackupDirP
+	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".local", "share", "dfinstall", "backups")
 }
