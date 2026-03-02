@@ -1,0 +1,14 @@
+[wsl2]
+memory=10GB
+processors=8
+swap=4GB
+dnsTunneling=true
+localhostForwarding=true
+networkingMode=mirrored
+firewall=true
+autoProxy=true
+
+[experimental]
+autoMemoryReclaim=dropcache
+sparseVhd=true
+bestEffortDnsParsing=true

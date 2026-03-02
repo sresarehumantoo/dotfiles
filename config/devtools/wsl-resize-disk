@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    header "wsl-resize-disk"
+    echo "Compact the WSL2 virtual disk (ext4.vhdx)."
+    echo "Runs fstrim inside WSL, then prints instructions for the"
+    echo "Windows-side compaction step (must be run from elevated PowerShell)."
+    exit 0
+fi
+
+require_wsl
+
+# Resolve the VHDX path for the current distro
+step "Resolving VHDX path..."
+localappdata=$(cmd.exe /C "echo %LOCALAPPDATA%" 2>/dev/null | tr -d '\r')
+[[ -z "$localappdata" ]] && die "Could not determine Windows LOCALAPPDATA path."
+packages_wsl=$(wslpath "$localappdata")/Packages
+
+# Find all VHDX files, then prefer the one matching this distro
+mapfile -t all_vhdx < <(find "$packages_wsl" -maxdepth 3 -name 'ext4.vhdx' -path "*LocalState*" 2>/dev/null)
+[[ ${#all_vhdx[@]} -eq 0 ]] && die "Could not locate ext4.vhdx under $packages_wsl"
+
+distro="${WSL_DISTRO_NAME:-}"
+vhdx_path=""
+if [[ -n "$distro" ]]; then
+    for candidate in "${all_vhdx[@]}"; do
+        if echo "$candidate" | grep -qi "$distro"; then
+            vhdx_path="$candidate"
+            break
+        fi
+    done
+fi
+# Fallback to the first match if distro filtering didn't hit
+[[ -z "$vhdx_path" ]] && vhdx_path="${all_vhdx[0]}"
+
+vhdx_win=$(wslpath -w "$vhdx_path")
+
+ok "Detected VHDX: $vhdx_win"
+
+header "Trimming unused blocks"
+sudo fstrim -av
+ok "Trim complete"
+
+header "Next: compact from elevated PowerShell"
+info "1. Shut down WSL:"
+echo "      wsl --shutdown"
+echo ""
+info "2. Run one of the following:"
+echo ""
+echo "   # PowerShell (Hyper-V module):"
+echo "   Optimize-VHD -Path \"$vhdx_win\" -Mode Full"
+echo ""
+echo "   # Or via diskpart:"
+echo "   diskpart"
+echo "   select vdisk file=\"$vhdx_win\""
+echo "   attach vdisk readonly"
+echo "   compact vdisk"
+echo "   detach vdisk"
+
+echo ""
+ok "WSL side complete. Follow the steps above in Windows to finish."

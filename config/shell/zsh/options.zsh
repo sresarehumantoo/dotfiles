@@ -1,0 +1,12 @@
+# History
+unsetopt HIST_VERIFY
+setopt HIST_IGNORE_ALL_DUPS
+setopt HIST_SAVE_NO_DUPS
+setopt SHARE_HISTORY
+HISTFILE=~/.zsh_history
+HISTSIZE=999999999
+SAVEHIST=999999999
+
+# Zsh options
+setopt AUTO_CD
+setopt EXTENDED_GLOB

@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    header "sysinfo"
+    echo "Quick system resource overview: OS, CPU, memory, disk, and Docker usage."
+    exit 0
+fi
+
+_label() { printf "${_BOLD}  %-12s${_RESET} %s\n" "$1" "$2"; }
+
+header "System"
+
+# OS / kernel / WSL
+if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    os_name="${PRETTY_NAME:-$NAME}"
+else
+    os_name="Unknown"
+fi
+kernel=$(uname -r)
+if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+    env_label="WSL2"
+else
+    env_label="Native Linux"
+fi
+_label "OS:" "$os_name"
+_label "Kernel:" "$kernel"
+_label "Env:" "$env_label"
+
+# CPU
+header "CPU"
+if [[ -f /proc/cpuinfo ]]; then
+    cpu_model=$(grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | xargs)
+    cpu_cores=$(grep -c '^processor' /proc/cpuinfo)
+    _label "Model:" "$cpu_model"
+    _label "Cores:" "$cpu_cores"
+else
+    warn "Could not read /proc/cpuinfo"
+fi
+
+# Memory
+header "Memory"
+if command -v free &>/dev/null; then
+    read -r total used <<< "$(free -h --si | awk '/^Mem:/{print $2, $3}')"
+    _label "Used:" "$used / $total"
+else
+    warn "free command not available"
+fi
+
+# Disk usage
+header "Disk"
+df -h --output=target,size,used,avail,pcent / 2>/dev/null | head -2
+for mnt in /mnt/[a-z]; do
+    [[ -d "$mnt" ]] || continue
+    df -h --output=target,size,used,avail,pcent "$mnt" 2>/dev/null | tail -1
+done
+
+# Docker
+if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+    header "Docker"
+    docker system df 2>/dev/null
+fi
+
+echo ""

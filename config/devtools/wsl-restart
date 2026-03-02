@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    header "wsl-restart"
+    echo "Restart WSL from within WSL."
+    echo "This will terminate all WSL sessions immediately."
+    exit 0
+fi
+
+require_wsl
+
+warn "This will shut down WSL and terminate all sessions."
+confirm "Continue?" || { info "Aborted."; exit 0; }
+
+step "Shutting down WSL..."
+wsl.exe --shutdown
