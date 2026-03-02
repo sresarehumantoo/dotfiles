@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Generate the dfinstall SVG logo.
 
-Go-themed: uses the official Go color palette with a stylised gopher
-silhouette, symlink arrow motif, and dotfile dots.
+Go-themed: embeds the Go gopher PNG, symlink arrow motif, and dotfile dots.
 
 Usage:
     python3 assets/gen_logo.py          # writes assets/logo.svg
 """
 
+import base64
 import math
 import os
 
@@ -21,6 +21,9 @@ TEXT_DIM     = "#7AA2F7"
 ACCENT       = "#9ECE6A"   # green for the "ok" checkmark feel
 
 W, H = 800, 260
+
+# Path to the gopher PNG (relative to this script or home)
+GOPHER_PNG = os.path.expanduser("~/gopher.png")
 
 
 def n(v):
@@ -59,31 +62,19 @@ def symlink_arrow(x, y, length=50, color=GO_BLUE):
     )
 
 
-def gopher_silhouette(cx, cy, scale=1.0):
-    """Minimal gopher head silhouette built from ellipses & circles."""
-    s = scale
-    parts = []
-
-    # Head (main ellipse)
-    parts.append(
-        f'<ellipse cx="{n(cx)}" cy="{n(cy)}" rx="{n(28*s)}" ry="{n(32*s)}" fill="{GO_BLUE}"/>'
+def gopher_image():
+    """Embed the gopher PNG as a base64 data URI."""
+    with open(GOPHER_PNG, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+    # Position and size to fit nicely in the left area
+    # The gopher image is roughly square; fit it within ~160x220 with padding
+    img_w, img_h = 150, 200
+    x = 15
+    y = (H - img_h) // 2
+    return (
+        f'<image x="{x}" y="{y}" width="{img_w}" height="{img_h}" '
+        f'href="data:image/png;base64,{b64}" preserveAspectRatio="xMidYMid meet"/>'
     )
-    # Ears
-    for dx in [-20, 20]:
-        parts.append(circle(cx + dx * s, cy - 30 * s, 10 * s, GO_DARK_BLUE))
-        parts.append(circle(cx + dx * s, cy - 30 * s, 5 * s, "#F0C674"))
-    # Eyes (white circles with black pupils)
-    for dx in [-10, 10]:
-        parts.append(circle(cx + dx * s, cy - 8 * s, 8 * s, GO_WHITE))
-        parts.append(circle(cx + dx * s + 1.5 * s, cy - 8 * s, 4 * s, "#1A1B26"))
-    # Nose / mouth area
-    parts.append(
-        f'<ellipse cx="{n(cx)}" cy="{n(cy + 10*s)}" rx="{n(14*s)}" ry="{n(10*s)}" fill="{GO_LIGHT}"/>'
-    )
-    # Tooth
-    parts.append(rounded_rect(cx - 3 * s, cy + 6 * s, 6 * s, 8 * s, 1.5 * s, GO_WHITE))
-
-    return "\n    ".join(parts)
 
 
 def dot_pattern(x_start, y_start, cols, rows, spacing, r, color, base_opacity=0.15):
@@ -91,7 +82,6 @@ def dot_pattern(x_start, y_start, cols, rows, spacing, r, color, base_opacity=0.
     dots = []
     for row in range(rows):
         for col in range(cols):
-            # Fade opacity based on distance from top-left
             dist = math.sqrt(row**2 + col**2) / math.sqrt(rows**2 + cols**2)
             op = round(base_opacity * (1 - dist * 0.6), 3)
             cx = x_start + col * spacing
@@ -102,7 +92,7 @@ def dot_pattern(x_start, y_start, cols, rows, spacing, r, color, base_opacity=0.
 
 def build_svg():
     parts = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}">',
+        f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 {W} {H}" width="{W}" height="{H}">',
         f'  <defs>',
         f'    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">',
         f'      <stop offset="0%" stop-color="{BG_DARK}"/>',
@@ -119,34 +109,32 @@ def build_svg():
         f'  </g>',
         "",
         f'  <!-- gopher -->',
-        f'  <g>',
-        f'    {gopher_silhouette(80, 120, 1.6)}',
-        f'  </g>',
+        f'  {gopher_image()}',
         "",
         f'  <!-- title -->',
-        f'  {text(175, 100, "dfinstall", 52, GO_WHITE, weight="bold")}',
+        f'  {text(195, 100, "dfinstall", 52, GO_WHITE, weight="bold")}',
         "",
         f'  <!-- subtitle -->',
-        f'  {text(175, 135, "dotfiles manager", 22, GO_LIGHT)}',
+        f'  {text(195, 135, "dotfiles manager", 22, GO_LIGHT)}',
         "",
         f'  <!-- symlink arrows -->',
         f'  <g opacity="0.9">',
-        f'    {symlink_arrow(175, 168, 55, GO_BLUE)}',
-        f'    {symlink_arrow(240, 168, 55, GO_DARK_BLUE)}',
-        f'    {symlink_arrow(305, 168, 55, ACCENT)}',
+        f'    {symlink_arrow(195, 168, 55, GO_BLUE)}',
+        f'    {symlink_arrow(260, 168, 55, GO_DARK_BLUE)}',
+        f'    {symlink_arrow(325, 168, 55, ACCENT)}',
         f'  </g>',
         "",
         f'  <!-- tag line -->',
-        f'  {text(175, 205, "Symlink configs. Install tools. One command.", 15, TEXT_DIM)}',
+        f'  {text(195, 205, "Symlink configs. Install tools. One command.", 15, TEXT_DIM)}',
         "",
         f'  <!-- language badge -->',
         f'  <g>',
-        f'    {rounded_rect(175, 220, 52, 22, 6, GO_DARK_BLUE, 0.85)}',
-        f'    {text(201, 236, "Go", 13, GO_WHITE, anchor="middle", weight="bold")}',
-        f'    {rounded_rect(233, 220, 56, 22, 6, "#3B4261", 0.7)}',
-        f'    {text(261, 236, "CLI", 13, GO_LIGHT, anchor="middle")}',
-        f'    {rounded_rect(295, 220, 66, 22, 6, "#3B4261", 0.7)}',
-        f'    {text(328, 236, "WSL2", 13, GO_LIGHT, anchor="middle")}',
+        f'    {rounded_rect(195, 220, 52, 22, 6, GO_DARK_BLUE, 0.85)}',
+        f'    {text(221, 236, "Go", 13, GO_WHITE, anchor="middle", weight="bold")}',
+        f'    {rounded_rect(253, 220, 56, 22, 6, "#3B4261", 0.7)}',
+        f'    {text(281, 236, "CLI", 13, GO_LIGHT, anchor="middle")}',
+        f'    {rounded_rect(315, 220, 66, 22, 6, "#3B4261", 0.7)}',
+        f'    {text(348, 236, "WSL2", 13, GO_LIGHT, anchor="middle")}',
         f'  </g>',
         "",
         f'</svg>',

@@ -25,6 +25,7 @@ func (DefaultShellModule) Install() error {
 	}
 
 	core.Info("Changing default shell to zsh...")
+	core.PauseSpinner()
 	cmd := exec.Command("chsh", "-s", zshPath)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -32,6 +33,7 @@ func (DefaultShellModule) Install() error {
 	if err := cmd.Run(); err != nil {
 		core.Warn("Could not change shell — run: chsh -s $(which zsh)")
 	}
+	core.ResumeSpinner()
 	return nil
 }
 
