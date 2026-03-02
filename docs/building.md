@@ -115,11 +115,12 @@ src/
     output.go        #   Logging (Info/Ok/Warn/Err/Status/Debug)
     spinner.go       #   Animated progress with pause/resume
   modules/           # One file per module
-    register.go      #   Module registration (order matters)
-    omz_extended.go  #   Extended plugin menu and file writer
-    packages.go      #   Shared package manager helpers (runCmd, installPkg)
-    ...              #   14 modules total
-tests/               # Unit tests (6 files)
+    register.go        #   Module registration (order matters)
+    omz_extended.go    #   Extended plugin menu and file writer
+    shell_preserve.go  #   Custom shell file preservation menu and writer
+    packages.go        #   Shared package manager helpers (runCmd, installPkg)
+    ...                #   14 modules total
+tests/                 # Unit tests (7 files)
 ```
 
 ## Testing
@@ -138,3 +139,4 @@ make test
 | `config_test.go` | Config load/save, missing file defaults, BackupDir override |
 | `env_test.go` | WSL detection from /proc/version |
 | `status_test.go` | Status line formatting |
+| `shell_preserve_test.go` | Custom file scan/filter, managed/non-shell/symlink exclusion, path validation, injection rejection |

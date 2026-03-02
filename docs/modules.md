@@ -112,7 +112,7 @@ Subsequent installs (without `--extended`) regenerate the `plugins.zsh` file fro
 
 ## shell
 
-**File:** `modules/shell.go`
+**File:** `modules/shell.go`, `modules/shell_preserve.go`
 
 Symlinks shell configuration files:
 
@@ -127,10 +127,21 @@ Symlinks shell configuration files:
 | `shell/zsh/keybinds.zsh` | `~/.zsh.d/keybinds.zsh` |
 | `shell/zsh/path.zsh` | `~/.zsh.d/path.zsh` |
 | `shell/zsh/exports.zsh` | `~/.zsh.d/exports.zsh` |
+| `shell/zsh/ssh.zsh` | `~/.zsh.d/ssh.zsh` |
 
 The zshrc sources p10k instant prompt, loads oh-my-zsh, then sources all `~/.zsh.d/*.zsh` files for modular configuration.
 
-**Status:** Checks 9 symlinks.
+### Custom Shell File Preservation
+
+Before linking, the shell module scans `$HOME` for custom shell files that aren't managed by dfinstall (e.g. `.companyrc`, `.work_env`, `.localrc`). If new files are found, an interactive multi-select menu lets the user choose which to keep sourcing after dfinstall replaces `~/.zshrc`.
+
+Preserved files are written to `~/.config/dfinstall/custom-sources.zsh`, which the zshrc sources after aliases. Each entry uses a guard: `[[ -f ~/.companyrc ]] && source ~/.companyrc`.
+
+User choices are saved to `.config.yaml` as `preserved_files` and `dismissed_files` so the menu isn't re-shown for already-classified files. Paths are validated against `^\.[a-zA-Z0-9][a-zA-Z0-9._-]*$` before writing to the shell-sourced file.
+
+The scan filters out: managed shell destinations (`.zshrc`, `.aliases`, etc.), known non-shell dotfiles (`.vimrc`, `.npmrc`, `.netrc`, etc.), symlinks, directories, and files over 1MB.
+
+**Status:** Checks 10 symlinks. Shows `+N preserved` when preserved files are configured.
 
 ---
 

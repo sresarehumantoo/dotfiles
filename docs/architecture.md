@@ -220,6 +220,8 @@ Checked in order:
 | `skip_backup` | bool | `false` | Skip automatic backups on install |
 | `backup_dir` | string | *(empty)* | Custom backup directory (falls back to `~/.local/share/dfinstall/backups/`) |
 | `extended_plugins` | []string | *(empty)* | Extended OMZ plugins selected via `--extended` |
+| `preserved_files` | []string | *(empty)* | Custom shell files the user chose to keep sourcing after dfinstall replaces zshrc |
+| `dismissed_files` | []string | *(empty)* | Custom shell files the user chose not to preserve (prevents re-prompting) |
 
 ### Auto-Backup Logic
 
