@@ -1,6 +1,6 @@
 # dfinstall configuration
-# Copy to ~/.config/dfinstall/config.yaml to customize.
 # Auto-generated after first install run.
+# Lives at <dotfiles>/.config.yaml
 
 # Skip automatic backups on install (set to false to backup every time)
 skip_backup: true

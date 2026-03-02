@@ -7,7 +7,7 @@ Built for WSL2 (Debian/Ubuntu) but works on native Linux with apt, dnf, pacman, 
 ## Quick Start
 
 ```bash
-git clone https://github.com/owenpierce/dotfiles ~/dotfiles
+git clone https://github.com/sresarehumantoo/dotfiles ~/dotfiles
 cd ~/dotfiles
 make install
 ```
@@ -33,10 +33,18 @@ By default the CLI shows an animated spinner. Pass `-v` for the full log output 
 
 ### Backup & Restore
 
-Pass `--backup` to any install command to snapshot every target file before it's modified. Backups are stored under `~/.local/share/dfinstall/backups/<timestamp>/` and can be restored at any time:
+On the very first `install` run, dfinstall automatically creates a backup before modifying anything. After that first run, a `.config.yaml` is saved in the dotfiles root with `skip_backup: true`, so subsequent runs skip backups by default.
+
+You can override this behavior:
+
+- **`--backup` flag** — always creates a backup, regardless of config
+- **`skip_backup: false`** in `.config.yaml` — backup on every install
+- **`backup_dir`** in `.config.yaml` — custom backup location (default: `~/.local/share/dfinstall/backups/`)
+
+See `.config.yaml.example` for all available options.
 
 ```bash
-dfinstall install all --backup    # install with snapshot
+dfinstall install all --backup    # force a backup
 dfinstall restore --list          # see available snapshots
 dfinstall restore                 # revert to latest snapshot
 ```
@@ -67,6 +75,7 @@ Modules run in this order (dependencies first):
 ## Project Layout
 
 ```
+.config.yaml.example     # Example dfinstall config (copied on first run)
 config/                  # Config files symlinked into ~
   shell/                 #   zsh/bash dotfiles
   devtools/              #   utility scripts -> ~/.local/bin/

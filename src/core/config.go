@@ -23,7 +23,7 @@ var CfgFileExists bool
 
 // ConfigFilePath returns the path to the dfinstall config file.
 func ConfigFilePath() string {
-	return filepath.Join(DotfilesDir(), "config.yaml")
+	return filepath.Join(DotfilesDir(), ".config.yaml")
 }
 
 // LoadConfig reads the config file into Cfg.

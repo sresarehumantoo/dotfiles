@@ -8,13 +8,19 @@ This document covers the core systems that make up `dfinstall`.
 dfinstall install all [--backup]
         |
         v
+  LoadConfig()             <- core/config.go (.config.yaml)
+        |
+        v
   RegisterAllModules()     <- modules/register.go (sets order)
         |
         v
   DetectEnvironment()      <- core/env.go (WSL? Git Bash?)
         |
         v
-  [StartBackup()]          <- core/backup.go (if --backup)
+  shouldBackup()           <- first run / --backup / config
+        |
+        v
+  [StartBackup()]          <- core/backup.go (if backup needed)
         |
         v
   for each module:
@@ -25,6 +31,9 @@ dfinstall install all [--backup]
         |
         v
   [FinishBackup()]         <- core/backup.go (writes manifest)
+        |
+        v
+  [SaveConfig()]           <- core/config.go (first run only)
         |
         v
   spinner / summary        <- core/spinner.go
@@ -85,7 +94,7 @@ This keeps modules declarative and easy to extend.
 
 ## CLI
 
-Built with [Cobra](https://github.com/spf13/cobra). Four commands:
+Built with [Cobra](https://github.com/spf13/cobra). Five commands:
 
 | Command | Description |
 |---------|-------------|
@@ -98,7 +107,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Four commands:
 
 | Flag | Behavior |
 |------|----------|
-| `--backup` | Snapshot every target before modification (restorable with `restore`) |
+| `--backup` | Force a backup snapshot regardless of config |
 
 ### Restore Flags
 
@@ -192,6 +201,38 @@ Checked in order:
 
 `core/hash.go` provides SHA-256 file hashing used by the `fonts` and `wsl` modules to detect whether installed files match the source. This avoids unnecessary writes and enables status checks without reading full file contents.
 
+## Configuration
+
+`core/config.go` manages a YAML config file at `<dotfiles>/.config.yaml`. Loaded in `PersistentPreRun` before any command runs.
+
+### Config Fields
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `skip_backup` | bool | `false` | Skip automatic backups on install |
+| `backup_dir` | string | *(empty)* | Custom backup directory (falls back to `~/.local/share/dfinstall/backups/`) |
+
+### Auto-Backup Logic
+
+Three states drive backup behavior on `install`:
+
+| Condition | Backup? | Then |
+|-----------|---------|------|
+| `--backup` flag | Yes | nothing extra |
+| No config file (first run) | Yes | save config with `skip_backup: true` |
+| Config exists, `skip_backup: false` | Yes | respect user preference |
+| Config exists, `skip_backup: true` | No | -- |
+
+The key distinction is `CfgFileExists` — whether the config file was present at load time. This separates "first run, no config" from "user explicitly set `skip_backup: false`". On first run, after the auto-backup, the config is saved with `skip_backup: true` so subsequent runs skip by default. An existing config's `skip_backup` value is never overwritten.
+
+### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `LoadConfig()` | Read and parse `.config.yaml`, set `CfgFileExists` |
+| `SaveConfig()` | Write `Cfg` to `.config.yaml` with comment header |
+| `ConfigFilePath()` | Return full path to the config file |
+
 ## Backup & Restore
 
 `core/backup.go` provides a structured backup system that can snapshot target files before dfinstall modifies them.
@@ -237,7 +278,7 @@ Individual failures are warned but don't stop the restore. A summary error is re
 | `BackupActive()` | Check if a session is running |
 | `ListBackups()` | Return available backups, newest first |
 | `RestoreBackup(ts)` | Restore from a specific backup |
-| `BackupDir()` | Base directory (`~/.local/share/dfinstall/backups/`) |
+| `BackupDir()` | Base directory (config `backup_dir` or `~/.local/share/dfinstall/backups/`) |
 
 ## Error Handling
 

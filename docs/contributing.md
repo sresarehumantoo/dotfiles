@@ -171,6 +171,7 @@ Tests live in `tests/` and cover:
 | `env_test.go` | WSL detection from /proc/version |
 | `status_test.go` | Status line formatting |
 | `backup_test.go` | Backup/restore: path flattening, system path detection, entry types, dedup, empty cleanup, round-trip |
+| `config_test.go` | Config: load/save round-trip, missing file defaults, BackupDir override |
 
 Run with:
 

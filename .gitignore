@@ -31,7 +31,7 @@ CLAUDE.md
 *.code-workspace
 
 # dfinstall runtime config (example file is tracked)
-config.yaml
+.config.yaml
 
 # Go
 *.exe
