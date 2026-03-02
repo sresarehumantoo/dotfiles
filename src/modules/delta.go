@@ -73,13 +73,17 @@ func installDeltaDeb() error {
 	core.PauseSpinner()
 	cmd = exec.Command("sudo", "dpkg", "-i", debPath)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if core.Level >= core.LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Run(); err != nil {
 		fixCmd := exec.Command("sudo", "apt-get", "install", "-f", "-y")
 		fixCmd.Stdin = os.Stdin
-		fixCmd.Stdout = os.Stdout
-		fixCmd.Stderr = os.Stderr
+		if core.Level >= core.LogVerbose {
+			fixCmd.Stdout = os.Stdout
+			fixCmd.Stderr = os.Stderr
+		}
 		fixCmd.Run()
 	}
 	core.ResumeSpinner()
