@@ -21,11 +21,27 @@ dfinstall install all             # install everything
 dfinstall install shell           # install a single module
 dfinstall install all -v          # verbose output (detailed logs)
 dfinstall install all --debug     # debug output (verbose + internals)
+dfinstall install all --backup    # snapshot targets before modifying (restorable)
 dfinstall status                  # show link status for all modules
 dfinstall doctor                  # run environment health checks
+dfinstall restore                 # restore latest backup
+dfinstall restore <timestamp>     # restore a specific backup
+dfinstall restore --list          # list available backups
 ```
 
 By default the CLI shows an animated spinner. Pass `-v` for the full log output or `--debug` for additional detail.
+
+### Backup & Restore
+
+Pass `--backup` to any install command to snapshot every target file before it's modified. Backups are stored under `~/.local/share/dfinstall/backups/<timestamp>/` and can be restored at any time:
+
+```bash
+dfinstall install all --backup    # install with snapshot
+dfinstall restore --list          # see available snapshots
+dfinstall restore                 # revert to latest snapshot
+```
+
+Each entry records the original state (missing, symlink, or regular file) so restore can precisely undo what dfinstall changed.
 
 ## Modules
 
@@ -59,7 +75,7 @@ config/                  # Config files symlinked into ~
   fonts/                 #   bundled font files
 src/
   cmd/dfinstall/         # CLI entry point (Cobra)
-  core/                  # Module interface, linking, output, spinner, env detection
+  core/                  # Module interface, linking, backup/restore, output, spinner, env detection
   modules/               # One file per module
 tests/                   # Unit tests
 docs/                    # In-depth documentation
