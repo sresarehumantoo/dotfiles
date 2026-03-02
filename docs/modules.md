@@ -12,9 +12,9 @@ Installs core system packages using the detected package manager (apt-get, dnf, 
 
 **Packages:** git, zsh, curl, wget, htop, neovim, tmux, nodejs, npm, python3, golang, zsh-syntax-highlighting
 
-Skips packages that are already installed. External command output is suppressed (stdout/stderr nil).
+Skips packages that are already installed. External command output is suppressed in default mode (shown with `-v`). Spinner pauses automatically for sudo password prompts.
 
-**Status:** Checks 10 tool binaries via `$PATH`.
+**Status:** Checks 11 tool binaries via `$PATH`.
 
 ---
 
@@ -74,9 +74,9 @@ If a bundled font is missing, falls back to downloading the Hack Nerd Font zip f
 
 ## omz
 
-**File:** `modules/omz.go`
+**File:** `modules/omz.go`, `modules/omz_extended.go`
 
-Sets up Oh My Zsh and two plugins:
+Sets up Oh My Zsh, two custom plugins, and optional extended plugins:
 
 | Component | Install method | Destination |
 |-----------|---------------|-------------|
@@ -84,9 +84,29 @@ Sets up Oh My Zsh and two plugins:
 | zsh-autosuggestions | git clone | `$ZSH_CUSTOM/plugins/zsh-autosuggestions` |
 | powerlevel10k | git clone --depth=1 | `$ZSH_CUSTOM/themes/powerlevel10k` |
 
-Skips anything already installed.
+Skips anything already installed. Git clone output is suppressed in default mode (shown with `-v`).
 
-**Status:** Checks 3 directories.
+### Core Plugins
+
+These are always loaded in the zshrc `plugins=()` array: `git`, `zsh-autosuggestions`, `docker`, `terraform`, `fzf`, `golang`.
+
+### Extended Plugins (`--extended`)
+
+Running `dfinstall install omz --extended` or `dfinstall install all --extended` opens an interactive multi-select menu with 22 optional OMZ plugins across 5 categories:
+
+| Category | Plugins |
+|----------|---------|
+| Container & Orchestration | kubectl, helm, docker-compose |
+| Cloud | aws, gcloud, azure |
+| Languages & Tools | npm, yarn, pip, rust, python, ruby, dotnet |
+| DevOps | ansible, vagrant |
+| Utilities | sudo, rsync, systemd, encode64, jsontools, urltools, command-not-found |
+
+Selections are saved to `.config.yaml` under `extended_plugins` and written to `~/.config/dfinstall/plugins.zsh`, which the zshrc sources before the `plugins=()` declaration. Plugin names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` before writing to prevent shell injection.
+
+Subsequent installs (without `--extended`) regenerate the `plugins.zsh` file from the saved config. To change selections, re-run with `--extended`.
+
+**Status:** Checks 3 directories. Shows `+N extended` when extended plugins are configured.
 
 ---
 

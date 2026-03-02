@@ -153,7 +153,9 @@ func FinishBackup() error {
 	// If nothing was recorded, clean up the empty directory
 	if len(activeBackup.entries) == 0 {
 		Info("backup: no entries recorded, cleaning up")
-		os.RemoveAll(activeBackup.dir)
+		if err := os.RemoveAll(activeBackup.dir); err != nil {
+			Warn("backup: failed to clean up empty backup dir: %v", err)
+		}
 		return nil
 	}
 

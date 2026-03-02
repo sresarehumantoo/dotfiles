@@ -46,14 +46,8 @@ func installDeltaDeb() error {
 	}
 	defer os.RemoveAll(tmp)
 
+	// Prefer dpkg for accurate arch detection, fall back to GOARCH
 	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "amd64"
-	} else if arch == "arm64" {
-		arch = "arm64"
-	}
-
-	// Try dpkg --print-architecture for more accurate detection
 	if out, err := exec.Command("dpkg", "--print-architecture").Output(); err == nil {
 		arch = string(out[:len(out)-1]) // trim newline
 	}

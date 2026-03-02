@@ -107,9 +107,35 @@ make install    # build + dfinstall install all
 make clean      # rm -rf bin/
 ```
 
+## Building from Source
+
+**Requirements:**
+
+- Go 1.24+ ([install](https://go.dev/doc/install))
+- Git
+- Make (optional, for convenience targets)
+
+```bash
+git clone https://github.com/sresarehumantoo/dotfiles ~/dotfiles
+cd ~/dotfiles
+make build          # compiles to bin/dfinstall
+```
+
+Or without Make:
+
+```bash
+go build -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(pwd)" \
+  -o bin/dfinstall ./src/cmd/dfinstall
+```
+
+The `-ldflags` flag bakes the dotfiles directory path into the binary so it can find config files regardless of where it's run from. Dependencies are vendored via `go.sum` and fetched automatically on first build.
+
+See [Building from Source](docs/building.md) for more detail on dependencies, cross-compilation, and development setup.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md) -- core systems, module interface, output pipeline, linking
+- [Building from Source](docs/building.md) -- requirements, dependencies, cross-compilation
 - [Module Reference](docs/modules.md) -- detailed breakdown of every module
 - [Devtools Scripts](docs/devtools.md) -- utility scripts and shared helpers
 - [Contributing](docs/contributing.md) -- adding modules, conventions, testing

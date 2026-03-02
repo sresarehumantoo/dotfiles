@@ -51,7 +51,9 @@ func (OmzModule) Install() error {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			core.Warn("zsh-autosuggestions clone failed: %v", err)
+		}
 	} else {
 		core.Ok("zsh-autosuggestions already installed")
 	}
@@ -66,7 +68,9 @@ func (OmzModule) Install() error {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
-		cmd.Run()
+		if err := cmd.Run(); err != nil {
+			core.Warn("powerlevel10k clone failed: %v", err)
+		}
 	} else {
 		core.Ok("powerlevel10k already installed")
 	}
