@@ -8,7 +8,7 @@ import (
 // LinkFile creates a symlink at dst pointing to src.
 // - Existing correct symlink -> no-op
 // - Existing wrong symlink -> repoint
-// - Existing regular file -> backup to .bak, then link
+// - Existing regular file -> backup via backup manager, then .bak fallback, then link
 // - Missing parent dirs -> create them
 func LinkFile(src, dst string) error {
 	Debug("link: %s -> %s", src, dst)

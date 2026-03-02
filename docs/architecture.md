@@ -94,7 +94,7 @@ This keeps modules declarative and easy to extend.
 
 ## CLI
 
-Built with [Cobra](https://github.com/spf13/cobra). Six commands:
+Built with [Cobra](https://github.com/spf13/cobra). Seven commands:
 
 | Command | Description |
 |---------|-------------|
@@ -103,6 +103,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Six commands:
 | `status` | Print table of link counts per module |
 | `doctor` | Run 25+ health checks |
 | `restore [timestamp]` | Restore files from a backup snapshot |
+| `root` | Symlink configs into `/root/` via sudo |
 
 ### Install / Update Flags
 
@@ -135,9 +136,12 @@ Defined in `core/output.go`. Five log functions, each with a colored prefix:
 |----------|-------|------------|----------|
 | `Info()` | blue | suppressed | printed |
 | `Ok()` | green | suppressed | printed |
+| `Status()` | green | **always printed** | always printed |
 | `Warn()` | yellow | buffered | printed immediately |
 | `Err()` | red | **always printed** | always printed |
 | `Debug()` | magenta | suppressed | suppressed (debug only) |
+
+`Status()` is for direct user-facing feedback after interactive prompts (e.g. the extended plugin menu). It prints with a green checkmark regardless of log level.
 
 In quiet mode, warnings are buffered and flushed after the spinner stops via `FlushWarnings()`. Errors always print and will clear the spinner line first (using an atomic `spinnerRunning` flag for thread safety).
 
@@ -151,10 +155,12 @@ In quiet mode, warnings are buffered and flushed after the spinner stops via `Fl
 
 - 10-frame animation at 80ms intervals
 - Thread-safe text updates via mutex
+- `Pause()` / `Resume()` — temporarily suspend the spinner for interactive prompts (e.g. sudo password)
+- `PauseSpinner()` / `ResumeSpinner()` — package-level helpers that safely pause/resume the active spinner (no-op if none running)
 - `PrintResult(total, failed)` renders the final line (`✓ Done` or `⚠ Done with errors`)
 - `PrintHint(msg)` renders a dimmed follow-up message
 
-The spinner runs in a background goroutine and is only used when `core.Level == LogQuiet`.
+The spinner runs in a background goroutine and is only used when `core.Level == LogQuiet`. Modules that invoke commands requiring terminal access (sudo, chsh) call `PauseSpinner()` before and `ResumeSpinner()` after to ensure prompts are visible.
 
 ## Linking
 

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -25,7 +26,7 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 	core.Info("Adding %s apt repository...", name)
 
 	// Download GPG key
-	if err := runCmd("sudo", "mkdir", "-p", fmt.Sprintf("%s", dir(keyPath))); err != nil {
+	if err := runCmd("sudo", "mkdir", "-p", filepath.Dir(keyPath)); err != nil {
 		return fmt.Errorf("creating keyring dir: %w", err)
 	}
 	dl := fmt.Sprintf("curl -fsSL %s | sudo tee %s > /dev/null", keyURL, keyPath)
@@ -46,16 +47,6 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 
 	core.Ok("%s repo added", name)
 	return nil
-}
-
-// dir returns the directory portion of a path.
-func dir(path string) string {
-	for i := len(path) - 1; i >= 0; i-- {
-		if path[i] == '/' {
-			return path[:i]
-		}
-	}
-	return "."
 }
 
 // dpkgInstalled checks if a Debian package is installed.
@@ -127,22 +118,7 @@ func (ExtrasModule) Install() error {
 
 func installDocker() error {
 	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "amd64"
-	} else if arch == "arm64" {
-		arch = "arm64"
-	}
-
-	// Detect distro codename
-	codename := "bookworm" // default for Debian
-	if data, err := os.ReadFile("/etc/os-release"); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			if strings.HasPrefix(line, "VERSION_CODENAME=") {
-				codename = strings.TrimPrefix(line, "VERSION_CODENAME=")
-				break
-			}
-		}
-	}
+	codename := distroCodename()
 
 	repoContent := fmt.Sprintf(`Types: deb
 URIs: https://download.docker.com/linux/debian
@@ -188,11 +164,6 @@ Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
 
 func installHashicorp() error {
 	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "amd64"
-	} else if arch == "arm64" {
-		arch = "arm64"
-	}
 
 	repoContent := fmt.Sprintf(
 		"deb [arch=%s signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com %s main",

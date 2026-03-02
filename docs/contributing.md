@@ -154,11 +154,21 @@ The output system has three levels. Code should use the right function:
 |-----|----------|-----------|
 | Starting a task | `Info()` | verbose+ |
 | Task completed | `Ok()` | verbose+ |
+| User-facing feedback | `Status()` | always |
 | Non-fatal issue | `Warn()` | always (buffered in quiet mode) |
 | Fatal issue | `Err()` | always |
 | Internal detail | `Debug()` | debug only |
 
-In default (quiet) mode, the CLI shows a spinner. `Info`/`Ok` calls are suppressed. `Warn` calls are buffered and printed after the spinner stops. `Err` calls always print immediately.
+In default (quiet) mode, the CLI shows a spinner. `Info`/`Ok` calls are suppressed. `Warn` calls are buffered and printed after the spinner stops. `Err` and `Status` calls always print immediately. Use `Status()` for direct feedback after interactive prompts (like the extended plugin menu).
+
+### External Commands
+
+When running external commands (`exec.Command`):
+
+- **Always check errors:** `if err := cmd.Run(); err != nil { core.Warn(...) }`
+- **Suppress output in quiet mode:** only set `cmd.Stdout`/`cmd.Stderr` when `core.Level >= core.LogVerbose`
+- **Spinner + sudo:** Call `core.PauseSpinner()` before and `core.ResumeSpinner()` after commands that need terminal access (sudo, chsh). Always connect `cmd.Stdin = os.Stdin` for these.
+- **Validate before writing to shell files:** Any values written to files that are later `source`d must be validated (alphanumeric + hyphens/underscores only).
 
 ## Testing
 

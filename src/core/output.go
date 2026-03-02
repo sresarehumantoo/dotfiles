@@ -66,6 +66,12 @@ func Err(msg string, args ...any) {
 	fmt.Printf("  %s %s\n", errSymbol("✗"), fmt.Sprintf(msg, args...))
 }
 
+// Status prints a success message. Always visible regardless of log level.
+// Use for direct user-facing feedback (e.g. after interactive prompts).
+func Status(msg string, args ...any) {
+	fmt.Printf("  %s %s\n", okSymbol("✓"), fmt.Sprintf(msg, args...))
+}
+
 // Debug prints a debug message. Only shown in debug mode.
 func Debug(msg string, args ...any) {
 	if Level < LogDebug {

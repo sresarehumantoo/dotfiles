@@ -173,8 +173,12 @@ func configureGitFsmonitor() {
 	if _, err := exec.LookPath("git"); err != nil {
 		return
 	}
-	exec.Command("git", "config", "--global", "core.fsmonitor", "true").Run()
-	exec.Command("git", "config", "--global", "core.untrackedcache", "true").Run()
+	if err := exec.Command("git", "config", "--global", "core.fsmonitor", "true").Run(); err != nil {
+		core.Warn("failed to enable git fsmonitor: %v", err)
+	}
+	if err := exec.Command("git", "config", "--global", "core.untrackedcache", "true").Run(); err != nil {
+		core.Warn("failed to enable git untrackedcache: %v", err)
+	}
 	core.Ok("git fsmonitor + untrackedcache enabled")
 }
 

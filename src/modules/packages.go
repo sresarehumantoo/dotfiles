@@ -98,7 +98,7 @@ func (PackagesModule) Install() error {
 
 	// zsh-syntax-highlighting
 	syntaxHL := "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-	if _, err := exec.LookPath(syntaxHL); err != nil {
+	if _, err := os.Stat(syntaxHL); err != nil {
 		if err := installPkg("zsh-syntax-highlighting"); err != nil {
 			core.Warn("Install zsh-syntax-highlighting manually")
 		}
