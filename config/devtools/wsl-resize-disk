@@ -2,28 +2,28 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
-SCRIPT_MODE=false
+COMPACT_MODE=false
 for arg in "$@"; do
     case "$arg" in
         -h|--help)
             header "wsl-resize-disk"
             echo "Compact the WSL2 virtual disk (ext4.vhdx)."
-            echo "Runs fstrim inside WSL, enables sparse mode, then prints"
-            echo "instructions for the Windows-side compaction step."
+            echo "Runs fstrim inside WSL, enables sparse mode, reports disk"
+            echo "sizes, and offers compaction options."
             echo ""
             echo "Options:"
             echo "  -h, --help    Show this help"
-            echo "  --script      Generate a PowerShell script instead of"
-            echo "                printing manual instructions"
+            echo "  --compact     Generate a .bat script that compacts the"
+            echo "                disk via export/re-import (no admin required)"
             exit 0
             ;;
-        --script) SCRIPT_MODE=true ;;
+        --compact) COMPACT_MODE=true ;;
     esac
 done
 
 require_wsl
 
-# Resolve the VHDX path for the current distro
+# ── Resolve the VHDX path for the current distro ───────────────
 step "Resolving VHDX path..."
 localappdata=$(cmd.exe /C "echo %LOCALAPPDATA%" 2>/dev/null | tr -d '\r')
 [[ -z "$localappdata" ]] && die "Could not determine Windows LOCALAPPDATA path."
@@ -47,14 +47,34 @@ fi
 [[ -z "$vhdx_path" ]] && vhdx_path="${all_vhdx[0]}"
 
 vhdx_win=$(wslpath -w "$vhdx_path")
+vhdx_dir_win=$(wslpath -w "$(dirname "$vhdx_path")")
 
 ok "Detected VHDX: $vhdx_win"
 
+# ── Size reporting ──────────────────────────────────────────────
+header "Disk usage"
+
+vhdx_size_bytes=$(stat -c%s "$vhdx_path" 2>/dev/null || echo 0)
+vhdx_size_mb=$(( vhdx_size_bytes / 1048576 ))
+info "VHDX file size: ${vhdx_size_mb} MB ($(( vhdx_size_mb / 1024 )) GB)"
+
+# Show actual filesystem usage inside WSL
+used_mb=$(df -BM --output=used / 2>/dev/null | tail -1 | tr -d ' M')
+total_mb=$(df -BM --output=size / 2>/dev/null | tail -1 | tr -d ' M')
+if [[ -n "$used_mb" && -n "$total_mb" ]]; then
+    info "Filesystem usage: ${used_mb} MB used of ${total_mb} MB total"
+    savings=$(( vhdx_size_mb - used_mb ))
+    if (( savings > 100 )); then
+        info "Potential savings: ~${savings} MB"
+    fi
+fi
+
+# ── Trim ────────────────────────────────────────────────────────
 header "Trimming unused blocks"
 sudo fstrim -av
 ok "Trim complete"
 
-# Enable sparse mode for automatic disk reclamation
+# ── Sparse mode ─────────────────────────────────────────────────
 header "Enabling sparse mode"
 if wsl.exe --manage "${distro:-$WSL_DISTRO_NAME}" --set-sparse true 2>/dev/null; then
     ok "Sparse mode enabled — WSL will automatically reclaim disk space going forward."
@@ -62,75 +82,138 @@ else
     warn "Could not enable sparse mode (requires WSL 2.0.4+). Skipping."
 fi
 
-header "Non-elevated alternative"
-info "If you don't have access to an elevated Windows prompt,"
-info "you can use wslcompact (no admin required):"
-echo ""
-echo "   Install-Module -Name WslCompact"
-echo "   WslCompact"
-echo ""
-info "See: https://github.com/okibcn/wslcompact"
+# ── Compaction ──────────────────────────────────────────────────
+if $COMPACT_MODE; then
+    header "Generating compaction script"
 
-if $SCRIPT_MODE; then
-    header "Generating PowerShell script"
+    read -r -d '' bat_content <<BAT || true
+@echo off
+setlocal
 
-    # Escape backslashes for the PS1 content (vhdx_win already uses backslashes)
-    read -r -d '' ps1_content <<PS1 || true
-# wsl-resize-disk.ps1
-# Compacts the WSL2 virtual disk after fstrim has been run inside WSL.
-# Run from an elevated (Administrator) PowerShell.
+set DISTRO=${distro}
+set VHDX_DIR=${vhdx_dir_win}
+set TMPDIR=%TEMP%\\wslcompact
 
-Write-Host "Shutting down WSL..." -ForegroundColor Cyan
+echo ============================================================
+echo  WSL Disk Compaction - %DISTRO%
+echo ============================================================
+echo.
+echo  Original VHDX: %VHDX_DIR%\\ext4.vhdx
+echo  Original size:  ${vhdx_size_mb} MB
+echo.
+echo  This will export and re-import your distro to create a
+echo  fresh, compacted disk image. No admin required.
+echo.
+echo  WARNING: WSL will be shut down during this process.
+echo  Close any running WSL sessions before continuing.
+echo.
+pause
+
+echo.
+echo Shutting down WSL...
 wsl --shutdown
-Start-Sleep -Seconds 2
+timeout /t 3 /nobreak >nul
 
-\$vhdxPath = "${vhdx_win}"
+echo Cleaning up any previous temp files...
+if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%"
+mkdir "%TMPDIR%"
 
-# Try Optimize-VHD first (requires Hyper-V PowerShell module)
-try {
-    Write-Host "Compacting with Optimize-VHD..." -ForegroundColor Cyan
-    Optimize-VHD -Path \$vhdxPath -Mode Full
-    Write-Host "Compaction complete." -ForegroundColor Green
-} catch {
-    Write-Host "Optimize-VHD not available, falling back to diskpart..." -ForegroundColor Yellow
-    \$diskpartScript = @"
-select vdisk file="\$vhdxPath"
-attach vdisk readonly
-compact vdisk
-detach vdisk
-"@
-    \$tmpFile = [System.IO.Path]::GetTempFileName()
-    Set-Content -Path \$tmpFile -Value \$diskpartScript
-    diskpart /s \$tmpFile
-    Remove-Item \$tmpFile
-    Write-Host "Compaction complete (diskpart)." -ForegroundColor Green
-}
+echo.
+echo Compacting %DISTRO% (export + re-import)...
+echo This may take several minutes depending on disk size.
+echo.
+wsl --export "%DISTRO%" - | wsl --import wslcompact "%TMPDIR%" -
 
-# Restart the distro
-Write-Host "Starting WSL distro: ${distro}..." -ForegroundColor Cyan
-wsl -d ${distro}
-PS1
+if not exist "%TMPDIR%\\ext4.vhdx" (
+    echo.
+    echo ERROR: Compaction failed - no image produced.
+    echo Original image is unchanged.
+    wsl --unregister wslcompact >nul 2>&1
+    if exist "%TMPDIR%" rmdir /s /q "%TMPDIR%"
+    pause
+    exit /b 1
+)
 
-    write_ps1 "wsl-resize-disk.ps1" "$ps1_content"
+for %%A in ("%TMPDIR%\\ext4.vhdx") do set NEWSIZE=%%~zA
+set /a NEWSIZE_MB=%NEWSIZE% / 1048576
+set /a SAVED_MB=${vhdx_size_mb} - %NEWSIZE_MB%
+
+echo.
+echo ============================================================
+echo  Original:  ${vhdx_size_mb} MB
+echo  Compacted: %NEWSIZE_MB% MB
+echo  Saved:     %SAVED_MB% MB
+echo ============================================================
+echo.
+
+set /p CONFIRM=Replace original image with compacted version? (y/N):
+if /i not "%CONFIRM%"=="y" (
+    echo.
+    echo Cancelled. Cleaning up temp files...
+    wsl --unregister wslcompact >nul 2>&1
+    rmdir /s /q "%TMPDIR%"
+    pause
+    exit /b 0
+)
+
+echo.
+echo Unregistering temp distro...
+wsl --unregister wslcompact >nul 2>&1
+
+echo Replacing original image...
+copy /y "%TMPDIR%\\ext4.vhdx" "%VHDX_DIR%\\ext4.vhdx"
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: Could not replace the original image.
+    echo The compacted image is still at: %TMPDIR%\\ext4.vhdx
+    echo You can manually copy it to: %VHDX_DIR%\\ext4.vhdx
+    pause
+    exit /b 1
+)
+
+echo Cleaning up...
+rmdir /s /q "%TMPDIR%"
+
+echo.
+echo ============================================================
+echo  Done! Starting %DISTRO%...
+echo ============================================================
+wsl -d %DISTRO%
+BAT
+
+    write_bat "wsl-compact.bat" "$bat_content"
 else
-    header "Next: compact from elevated PowerShell"
-    info "1. Shut down WSL:"
+    header "Compaction options"
+
+    info "Option 1: Export/re-import (no admin required)"
+    echo ""
+    echo "      wsl-resize-disk --compact"
+    echo ""
+    info "   Generates a .bat script that compacts the disk by"
+    info "   exporting and re-importing your distro. Safe, no"
+    info "   admin privileges needed."
+    echo ""
+
+    rule
+
+    echo ""
+    info "Option 2: Optimize-VHD / diskpart (admin required)"
+    echo ""
+    info "   Shut down WSL, then run from elevated PowerShell:"
+    echo ""
     echo "      wsl --shutdown"
     echo ""
-    info "2. Run one of the following:"
+    echo "      # PowerShell (Hyper-V module):"
+    echo "      Optimize-VHD -Path \"$vhdx_win\" -Mode Full"
     echo ""
-    echo "   # PowerShell (Hyper-V module):"
-    echo "   Optimize-VHD -Path \"$vhdx_win\" -Mode Full"
-    echo ""
-    echo "   # Or via diskpart:"
-    echo "   diskpart"
-    echo "   select vdisk file=\"$vhdx_win\""
-    echo "   attach vdisk readonly"
-    echo "   compact vdisk"
-    echo "   detach vdisk"
+    echo "      # Or via diskpart:"
+    echo "      diskpart"
+    echo "      select vdisk file=\"$vhdx_win\""
+    echo "      attach vdisk readonly"
+    echo "      compact vdisk"
+    echo "      detach vdisk"
 
     echo ""
-    info "Tip: use --script to generate a PowerShell script you can run directly."
-    echo ""
-    ok "WSL side complete. Follow the steps above in Windows to finish."
+    ok "WSL side complete. Choose an option above to finish compaction."
 fi
