@@ -1,4 +1,6 @@
-# Dotfiles
+<p align="center">
+  <img src="assets/logo.svg" alt="dfinstall logo" width="800">
+</p>
 
 Personal dotfiles manager built in Go. A single `dfinstall` CLI symlinks config files into place, installs packages and tools, and keeps everything reproducible across machines.
 
@@ -79,6 +81,7 @@ Modules run in this order (dependencies first):
 
 ```
 .config.yaml.example     # Example dfinstall config (copied on first run)
+assets/                  # Logo SVG and generator script
 config/                  # Config files symlinked into ~
   shell/                 #   zsh/bash dotfiles
   devtools/              #   utility scripts -> ~/.local/bin/
