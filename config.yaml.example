@@ -1,0 +1,9 @@
+# dfinstall configuration
+# Copy to ~/.config/dfinstall/config.yaml to customize.
+# Auto-generated after first install run.
+
+# Skip automatic backups on install (set to false to backup every time)
+skip_backup: true
+
+# Custom backup directory (default: ~/.local/share/dfinstall/backups)
+# backup_dir: /path/to/backups

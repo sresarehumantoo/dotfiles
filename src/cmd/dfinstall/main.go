@@ -29,6 +29,7 @@ func main() {
 			case flagVerbose:
 				core.Level = core.LogVerbose
 			}
+			core.LoadConfig()
 			core.PrintBanner()
 		},
 	}
@@ -198,7 +199,9 @@ func main() {
 }
 
 func installAll() error {
-	if flagBackup {
+	doBackup, firstRun := shouldBackup()
+
+	if doBackup {
 		if err := core.StartBackup(); err != nil {
 			return fmt.Errorf("start backup: %w", err)
 		}
@@ -217,6 +220,9 @@ func installAll() error {
 			}
 		}
 		fmt.Println()
+		if firstRun {
+			saveFirstRunConfig()
+		}
 		core.Info("Done! Open a new terminal or run: exec zsh")
 		return nil
 	}
@@ -240,7 +246,10 @@ func installAll() error {
 		core.Err("%s", f)
 	}
 
-	if flagBackup {
+	if firstRun {
+		saveFirstRunConfig()
+	}
+	if doBackup {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
 	core.PrintResult(total, len(failures))
@@ -249,7 +258,9 @@ func installAll() error {
 }
 
 func installOne(m core.Module) error {
-	if flagBackup {
+	doBackup, firstRun := shouldBackup()
+
+	if doBackup {
 		if err := core.StartBackup(); err != nil {
 			return fmt.Errorf("start backup: %w", err)
 		}
@@ -258,7 +269,11 @@ func installOne(m core.Module) error {
 
 	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
-		return m.Install()
+		err := m.Install()
+		if firstRun {
+			saveFirstRunConfig()
+		}
+		return err
 	}
 
 	// Default: spinner mode
@@ -276,9 +291,43 @@ func installOne(m core.Module) error {
 		return err
 	}
 
-	if flagBackup {
+	if firstRun {
+		saveFirstRunConfig()
+	}
+	if doBackup {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
 	core.PrintResult(1, 0)
 	return nil
+}
+
+// shouldBackup decides whether to create a backup and whether this is a first run.
+func shouldBackup() (doBackup bool, firstRun bool) {
+	// --backup flag always wins
+	if flagBackup {
+		return true, false
+	}
+
+	// No config file → first run, auto-backup
+	if !core.CfgFileExists {
+		core.Info("first run detected — creating automatic backup")
+		return true, true
+	}
+
+	// Config exists — respect skip_backup preference
+	if !core.Cfg.SkipBackup {
+		return true, false
+	}
+
+	return false, false
+}
+
+// saveFirstRunConfig writes the config with skip_backup: true after first-run auto-backup.
+func saveFirstRunConfig() {
+	core.Cfg.SkipBackup = true
+	if err := core.SaveConfig(); err != nil {
+		core.Warn("failed to save config: %v", err)
+	} else {
+		core.Info("config saved: %s (skip_backup: true)", core.ConfigFilePath())
+	}
 }
