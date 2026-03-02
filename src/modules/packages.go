@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"os"
 	"os/exec"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -39,9 +40,28 @@ func installPkg(pkgs ...string) error {
 
 func runCmd(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	cmd.Stdin = nil
-	cmd.Stdout = nil
-	cmd.Stderr = nil
+
+	// Detect if this command needs sudo (password prompt requires terminal)
+	needsTTY := name == "sudo"
+	if !needsTTY {
+		for _, a := range args {
+			if a == "sudo" {
+				needsTTY = true
+				break
+			}
+		}
+	}
+
+	if needsTTY {
+		core.PauseSpinner()
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		err := cmd.Run()
+		core.ResumeSpinner()
+		return err
+	}
+
 	return cmd.Run()
 }
 

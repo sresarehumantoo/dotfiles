@@ -3,6 +3,7 @@ package core
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fatih/color"
@@ -26,11 +27,17 @@ type Spinner struct {
 	done   chan struct{}
 }
 
+// activeSpinner holds the current spinner so modules can pause it for
+// interactive prompts (e.g. sudo password).
+var activeSpinner *Spinner
+
 // NewSpinner creates a new Spinner (call Start to begin).
 func NewSpinner() *Spinner {
-	return &Spinner{
+	s := &Spinner{
 		done: make(chan struct{}),
 	}
+	activeSpinner = s
+	return s
 }
 
 // Start begins the spinner animation in a background goroutine.
@@ -66,14 +73,54 @@ func (s *Spinner) Update(msg string, args ...any) {
 	s.mu.Unlock()
 }
 
+// Pause temporarily suspends the spinner animation and clears its line.
+// The spinner can be resumed with Resume. This is used to allow interactive
+// prompts (like sudo password) to be visible.
+func (s *Spinner) Pause() {
+	s.mu.Lock()
+	s.active = false
+	s.mu.Unlock()
+	spinnerRunning.Store(false)
+	fmt.Print("\r\033[K")
+}
+
+// Resume restarts the spinner animation after a Pause.
+func (s *Spinner) Resume() {
+	s.mu.Lock()
+	s.active = true
+	s.mu.Unlock()
+	spinnerRunning.Store(true)
+}
+
 // Stop halts the spinner and clears its line.
 func (s *Spinner) Stop() {
 	s.mu.Lock()
 	s.active = false
 	s.mu.Unlock()
 	spinnerRunning.Store(false)
+	activeSpinner = nil
 	close(s.done)
 	fmt.Print("\r\033[K")
+}
+
+// spinnerPaused tracks whether PauseSpinner actually paused a running spinner.
+var spinnerPaused atomic.Bool
+
+// PauseSpinner temporarily suspends the active spinner so interactive
+// prompts (like sudo password) are visible. No-op if no spinner is running.
+func PauseSpinner() {
+	if activeSpinner != nil && spinnerRunning.Load() {
+		activeSpinner.Pause()
+		spinnerPaused.Store(true)
+	}
+}
+
+// ResumeSpinner restarts the active spinner after a PauseSpinner call.
+// No-op if no spinner was paused.
+func ResumeSpinner() {
+	if spinnerPaused.CompareAndSwap(true, false) && activeSpinner != nil {
+		activeSpinner.Resume()
+	}
 }
 
 // PrintResult prints the final success/failure summary after Stop.

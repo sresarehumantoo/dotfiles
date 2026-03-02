@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/spf13/cobra"
 	"github.com/sresarehumantoo/dotfiles/src/core"
 	"github.com/sresarehumantoo/dotfiles/src/modules"
-	"github.com/spf13/cobra"
 )
 
 var (
