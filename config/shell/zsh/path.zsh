@@ -1,0 +1,3 @@
+# PATH
+export PATH="$PATH:$HOME/.local/bin"
+export PATH="$PATH:/usr/local/go/bin"

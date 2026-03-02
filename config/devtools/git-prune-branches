@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    header "git-prune-branches"
+    echo "Remove local branches whose remote tracking branch is gone."
+    echo "Never deletes the current branch or main/master."
+    echo "Must be run inside a git repository."
+    exit 0
+fi
+
+require_git_repo
+
+header "Fetching remote tracking info"
+step "Running git fetch --prune..."
+git fetch --prune
+ok "Fetch complete"
+
+current=$(git branch --show-current)
+
+gone_branches=()
+while IFS= read -r branch; do
+    name=$(echo "$branch" | sed 's/^[ *]*//' | awk '{print $1}')
+    [[ -z "$name" ]] && continue
+    [[ "$name" == "$current" ]] && continue
+    [[ "$name" == "main" || "$name" == "master" ]] && continue
+    gone_branches+=("$name")
+done < <(git branch -vv | grep ': gone]')
+
+if [[ ${#gone_branches[@]} -eq 0 ]]; then
+    ok "No stale branches found."
+    exit 0
+fi
+
+header "Stale branches"
+for b in "${gone_branches[@]}"; do
+    info "$b"
+done
+echo ""
+
+confirm "Delete these ${#gone_branches[@]} branch(es)?" || { info "Aborted."; exit 0; }
+
+echo ""
+failed=0
+for b in "${gone_branches[@]}"; do
+    if git branch -D "$b" >/dev/null 2>&1; then
+        ok "Deleted $b"
+    else
+        warn "Failed to delete $b"
+        ((failed++)) || true
+    fi
+done
+
+echo ""
+if [[ $failed -gt 0 ]]; then
+    warn "Done with $failed failure(s)."
+else
+    ok "All stale branches removed."
+fi

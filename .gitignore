@@ -1,0 +1,28 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor swap/backup
+*.swp
+*.swo
+*~
+
+# Build output
+bin/
+
+# Claude Code
+.claude/
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor configs
+.vscode/
+.idea/
+*.code-workspace
+
+# Go
+*.exe
+*.test
+*.out

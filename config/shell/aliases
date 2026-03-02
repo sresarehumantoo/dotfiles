@@ -1,0 +1,58 @@
+# Doas → sudo (only if doas is installed)
+command -v doas &>/dev/null && alias sudo="doas"
+
+# Package management (apt-get only if available)
+if command -v apt-get &>/dev/null; then
+  alias update="sudo apt-get update"
+  alias upgrade="sudo apt-get upgrade"
+  alias updateDist="sudo apt-get dist-upgrade"
+  alias updateAll="sudo apt-get update && sudo apt-get upgrade && sudo apt-get dist-upgrade"
+fi
+
+# Clipboard (detect xclip vs wl-copy)
+if command -v wl-copy &>/dev/null; then
+  alias clip="wl-copy"
+elif command -v xclip &>/dev/null; then
+  alias clip="tr '\n' '\0' | xclip -selection clipboard"
+fi
+
+# Navigation
+alias ..="cd .."
+alias ...="cd ../.."
+alias ll="ls -lAh"
+alias la="ls -A"
+
+# General
+alias q="exit"
+alias vim='nvim'
+alias python="python3"
+alias gitssh="eval \"$(ssh-agent -s)\" && ssh-add ~/.ssh/github_ed25519"
+alias docker-compose="docker compose"
+
+# Quick config editing
+alias zshrc="$EDITOR ~/.zshrc"
+alias vimrc="$EDITOR ~/.config/nvim/init.lua"
+alias tmuxrc="$EDITOR ~/.config/tmux/tmux.conf"
+
+# Debian binary corrections (bat/fd install under different names)
+command -v batcat &>/dev/null && ! command -v bat &>/dev/null && alias bat="batcat"
+command -v fdfind &>/dev/null && ! command -v fd &>/dev/null && alias fd="fdfind"
+
+# Docker
+alias dps="docker ps"
+alias dimg="docker images"
+alias dlog="docker logs -f"
+alias dex="docker exec -it"
+alias dcp="docker compose"
+alias dcup="docker compose up -d"
+alias dcdn="docker compose down"
+
+# Terraform
+alias tf="terraform"
+alias tfi="terraform init"
+alias tfp="terraform plan"
+alias tfa="terraform apply"
+
+# System
+alias ports="ss -tulnp"
+alias myip="curl -s ifconfig.me"

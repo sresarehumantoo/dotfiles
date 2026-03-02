@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    header "docker-cleanup"
+    echo "Full Docker system purge to reclaim disk space."
+    echo "Stops all running containers then removes all stopped containers,"
+    echo "unused images, build cache, volumes, and networks."
+    exit 0
+fi
+
+require_cmd docker
+
+header "Current Docker disk usage"
+docker system df
+echo ""
+
+confirm "This will remove ALL Docker data (containers, images, volumes, cache). Continue?" || {
+    info "Aborted."
+    exit 0
+}
+
+running=$(docker ps -q || true)
+if [[ -n "$running" ]]; then
+    header "Stopping running containers"
+    # Stop individually so one failure doesn't block the rest
+    failed=0
+    for cid in $running; do
+        name=$(docker inspect --format '{{.Name}}' "$cid" 2>/dev/null | sed 's|^/||')
+        step "Stopping ${name:-$cid}..."
+        if docker stop "$cid" >/dev/null 2>&1; then
+            ok "Stopped ${name:-$cid}"
+        else
+            warn "Failed to stop ${name:-$cid}"
+            ((failed++)) || true
+        fi
+    done
+    [[ $failed -gt 0 ]] && warn "$failed container(s) could not be stopped"
+else
+    info "No running containers."
+fi
+
+header "Pruning everything"
+docker system prune -af --volumes
+
+header "Docker disk usage after cleanup"
+docker system df
+
+echo ""
+ok "Docker cleanup complete."
