@@ -94,7 +94,7 @@ func installSysctl() {
 }
 
 // resolveWinHome returns the WSL mount path for the Windows user home directory
-// (e.g. /mnt/c/Users/owen), or empty string on failure.
+// (e.g. /mnt/c/Users/<username>), or empty string on failure.
 func resolveWinHome() string {
 	cmd := exec.Command("cmd.exe", "/C", "echo %USERPROFILE%")
 	out, err := cmd.Output()
@@ -153,7 +153,7 @@ func installWslconfig() {
 }
 
 // linkWinHome creates a symlink at ~/username pointing to the Windows home
-// directory (e.g. /home/owen/owen -> /mnt/c/Users/owen).
+// directory (e.g. /home/user/user -> /mnt/c/Users/user).
 func linkWinHome() {
 	wslWinHome := resolveWinHome()
 	if wslWinHome == "" {
