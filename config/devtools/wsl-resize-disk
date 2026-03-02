@@ -2,13 +2,24 @@
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    header "wsl-resize-disk"
-    echo "Compact the WSL2 virtual disk (ext4.vhdx)."
-    echo "Runs fstrim inside WSL, then prints instructions for the"
-    echo "Windows-side compaction step (must be run from elevated PowerShell)."
-    exit 0
-fi
+SCRIPT_MODE=false
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help)
+            header "wsl-resize-disk"
+            echo "Compact the WSL2 virtual disk (ext4.vhdx)."
+            echo "Runs fstrim inside WSL, enables sparse mode, then prints"
+            echo "instructions for the Windows-side compaction step."
+            echo ""
+            echo "Options:"
+            echo "  -h, --help    Show this help"
+            echo "  --script      Generate a PowerShell script instead of"
+            echo "                printing manual instructions"
+            exit 0
+            ;;
+        --script) SCRIPT_MODE=true ;;
+    esac
+done
 
 require_wsl
 
@@ -43,21 +54,74 @@ header "Trimming unused blocks"
 sudo fstrim -av
 ok "Trim complete"
 
-header "Next: compact from elevated PowerShell"
-info "1. Shut down WSL:"
-echo "      wsl --shutdown"
-echo ""
-info "2. Run one of the following:"
-echo ""
-echo "   # PowerShell (Hyper-V module):"
-echo "   Optimize-VHD -Path \"$vhdx_win\" -Mode Full"
-echo ""
-echo "   # Or via diskpart:"
-echo "   diskpart"
-echo "   select vdisk file=\"$vhdx_win\""
-echo "   attach vdisk readonly"
-echo "   compact vdisk"
-echo "   detach vdisk"
+# Enable sparse mode for automatic disk reclamation
+header "Enabling sparse mode"
+if wsl.exe --manage "${distro:-$WSL_DISTRO_NAME}" --set-sparse true 2>/dev/null; then
+    ok "Sparse mode enabled — WSL will automatically reclaim disk space going forward."
+else
+    warn "Could not enable sparse mode (requires WSL 2.0.4+). Skipping."
+fi
 
-echo ""
-ok "WSL side complete. Follow the steps above in Windows to finish."
+if $SCRIPT_MODE; then
+    header "Generating PowerShell script"
+
+    # Escape backslashes for the PS1 content (vhdx_win already uses backslashes)
+    read -r -d '' ps1_content <<PS1 || true
+# wsl-resize-disk.ps1
+# Compacts the WSL2 virtual disk after fstrim has been run inside WSL.
+# Run from an elevated (Administrator) PowerShell.
+
+Write-Host "Shutting down WSL..." -ForegroundColor Cyan
+wsl --shutdown
+Start-Sleep -Seconds 2
+
+\$vhdxPath = "${vhdx_win}"
+
+# Try Optimize-VHD first (requires Hyper-V PowerShell module)
+try {
+    Write-Host "Compacting with Optimize-VHD..." -ForegroundColor Cyan
+    Optimize-VHD -Path \$vhdxPath -Mode Full
+    Write-Host "Compaction complete." -ForegroundColor Green
+} catch {
+    Write-Host "Optimize-VHD not available, falling back to diskpart..." -ForegroundColor Yellow
+    \$diskpartScript = @"
+select vdisk file="\$vhdxPath"
+attach vdisk readonly
+compact vdisk
+detach vdisk
+"@
+    \$tmpFile = [System.IO.Path]::GetTempFileName()
+    Set-Content -Path \$tmpFile -Value \$diskpartScript
+    diskpart /s \$tmpFile
+    Remove-Item \$tmpFile
+    Write-Host "Compaction complete (diskpart)." -ForegroundColor Green
+}
+
+# Restart the distro
+Write-Host "Starting WSL distro: ${distro}..." -ForegroundColor Cyan
+wsl -d ${distro}
+PS1
+
+    write_ps1 "wsl-resize-disk.ps1" "$ps1_content"
+else
+    header "Next: compact from elevated PowerShell"
+    info "1. Shut down WSL:"
+    echo "      wsl --shutdown"
+    echo ""
+    info "2. Run one of the following:"
+    echo ""
+    echo "   # PowerShell (Hyper-V module):"
+    echo "   Optimize-VHD -Path \"$vhdx_win\" -Mode Full"
+    echo ""
+    echo "   # Or via diskpart:"
+    echo "   diskpart"
+    echo "   select vdisk file=\"$vhdx_win\""
+    echo "   attach vdisk readonly"
+    echo "   compact vdisk"
+    echo "   detach vdisk"
+
+    echo ""
+    info "Tip: use --script to generate a PowerShell script you can run directly."
+    echo ""
+    ok "WSL side complete. Follow the steps above in Windows to finish."
+fi
