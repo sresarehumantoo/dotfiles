@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // rootLink defines a symlink from a config source to a destination under /root/.

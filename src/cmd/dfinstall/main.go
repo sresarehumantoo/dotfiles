@@ -5,15 +5,16 @@ import (
 	"os"
 	"strings"
 
-	"github.com/owenpierce/dotfiles/src/core"
-	"github.com/owenpierce/dotfiles/src/modules"
+	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/modules"
 	"github.com/spf13/cobra"
 )
 
 var (
-	flagVerbose bool
-	flagDebug   bool
-	flagBackup  bool
+	flagVerbose  bool
+	flagDebug    bool
+	flagBackup   bool
+	flagExtended bool
 )
 
 func main() {
@@ -37,38 +38,64 @@ func main() {
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Show detailed output")
 	rootCmd.PersistentFlags().BoolVar(&flagDebug, "debug", false, "Show debug output (implies verbose)")
 
+	runInstall := func(cmd *cobra.Command, args []string) error {
+		if os.Geteuid() == 0 {
+			core.Err("Running as root is not supported.")
+			core.Err("Run as your normal user instead. To apply configs to /root, use:")
+			core.Err("    dfinstall root")
+			return fmt.Errorf("refusing to install as root")
+		}
+
+		core.DetectEnvironment()
+		core.AssertEnvironment()
+
+		core.ExtendedMode = flagExtended
+
+		// Run extended plugin menu before install (before spinner starts)
+		if flagExtended {
+			selected, err := modules.RunExtendedPluginMenu()
+			if err != nil {
+				return fmt.Errorf("extended plugin menu: %w", err)
+			}
+			core.Cfg.ExtendedPlugins = selected
+		}
+
+		target := args[0]
+
+		if target == "all" {
+			return installAll()
+		}
+
+		m, ok := core.GetModule(target)
+		if !ok {
+			return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
+		}
+		return installOne(m)
+	}
+
 	installCmd := &cobra.Command{
 		Use:   "install <module|all>",
 		Short: "Install dotfile modules",
 		Long: fmt.Sprintf("Install one or all dotfile modules.\n\n%s",
 			modules.ValidModuleNames()),
 		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if os.Geteuid() == 0 {
-				core.Err("Running as root is not supported.")
-				core.Err("Run as your normal user instead. To apply configs to /root, use:")
-				core.Err("    dfinstall root")
-				return fmt.Errorf("refusing to install as root")
-			}
-
-			core.DetectEnvironment()
-			core.AssertEnvironment()
-
-			target := args[0]
-
-			if target == "all" {
-				return installAll()
-			}
-
-			m, ok := core.GetModule(target)
-			if !ok {
-				return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
-			}
-			return installOne(m)
-		},
+		RunE: runInstall,
 	}
 
 	installCmd.Flags().BoolVar(&flagBackup, "backup", false, "Snapshot targets before modification (restorable)")
+	installCmd.Flags().BoolVar(&flagExtended, "extended", false, "Interactive menu to select extended OMZ plugins")
+
+	updateCmd := &cobra.Command{
+		Use:   "update <module|all>",
+		Short: "Update dotfile modules (alias for install)",
+		Long: fmt.Sprintf("Re-apply one or all dotfile modules. This is an alias for install.\n\n%s",
+			modules.ValidModuleNames()),
+		Args: cobra.ExactArgs(1),
+		RunE: runInstall,
+	}
+
+	updateCmd.Flags().BoolVar(&flagBackup, "backup", false, "Snapshot targets before modification (restorable)")
+	updateCmd.Flags().BoolVar(&flagExtended, "extended", false, "Interactive menu to select extended OMZ plugins")
 
 	var flagList bool
 
@@ -176,8 +203,8 @@ func main() {
 		},
 	}
 
-	// Add completions for install command
-	installCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	// Add completions for install and update commands
+	completeModules := func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
@@ -190,8 +217,10 @@ func main() {
 		}
 		return matches, cobra.ShellCompDirectiveNoFileComp
 	}
+	installCmd.ValidArgsFunction = completeModules
+	updateCmd.ValidArgsFunction = completeModules
 
-	rootCmd.AddCommand(installCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd)
+	rootCmd.AddCommand(installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -222,6 +251,10 @@ func installAll() error {
 		fmt.Println()
 		if firstRun {
 			saveFirstRunConfig()
+		} else if core.ExtendedMode {
+			if err := core.SaveConfig(); err != nil {
+				core.Warn("failed to save config: %v", err)
+			}
 		}
 		core.Info("Done! Open a new terminal or run: exec zsh")
 		return nil
@@ -248,6 +281,10 @@ func installAll() error {
 
 	if firstRun {
 		saveFirstRunConfig()
+	} else if core.ExtendedMode {
+		if err := core.SaveConfig(); err != nil {
+			core.Warn("failed to save config: %v", err)
+		}
 	}
 	if doBackup {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
@@ -272,6 +309,10 @@ func installOne(m core.Module) error {
 		err := m.Install()
 		if firstRun {
 			saveFirstRunConfig()
+		} else if core.ExtendedMode {
+			if err := core.SaveConfig(); err != nil {
+				core.Warn("failed to save config: %v", err)
+			}
 		}
 		return err
 	}
@@ -293,6 +334,10 @@ func installOne(m core.Module) error {
 
 	if firstRun {
 		saveFirstRunConfig()
+	} else if core.ExtendedMode {
+		if err := core.SaveConfig(); err != nil {
+			core.Warn("failed to save config: %v", err)
+		}
 	}
 	if doBackup {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type WslModule struct{}

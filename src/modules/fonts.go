@@ -5,7 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 type FontsModule struct{}

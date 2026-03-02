@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 func TestLinkFile_CreateNew(t *testing.T) {

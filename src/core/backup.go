@@ -34,11 +34,11 @@ type BackupListEntry struct {
 
 // backupManager tracks the active backup session.
 type backupManager struct {
-	dir     string
+	dir      string
 	filesDir string
-	entries []BackupEntry
-	seen    map[string]bool
-	ts      string
+	entries  []BackupEntry
+	seen     map[string]bool
+	ts       string
 }
 
 var activeBackup *backupManager

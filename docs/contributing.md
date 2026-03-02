@@ -11,7 +11,7 @@ Create `src/modules/<name>.go`:
 ```go
 package modules
 
-import "github.com/owenpierce/dotfiles/src/core"
+import "github.com/sresarehumantoo/dotfiles/src/core"
 
 type FooModule struct{}
 

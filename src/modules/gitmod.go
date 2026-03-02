@@ -1,6 +1,6 @@
 package modules
 
-import "github.com/owenpierce/dotfiles/src/core"
+import "github.com/sresarehumantoo/dotfiles/src/core"
 
 type GitModule struct{}
 

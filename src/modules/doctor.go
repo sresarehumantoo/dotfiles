@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // RunDoctor performs health checks on the environment.
@@ -52,6 +52,13 @@ func RunDoctor() {
 			core.ConfigPath("tmux", "tmux.conf"),
 			filepath.Join(core.XDGConfigHome(), "tmux", "tmux.conf"),
 		)},
+	}
+
+	if len(core.Cfg.ExtendedPlugins) > 0 {
+		checks = append(checks, struct {
+			name  string
+			check func() string
+		}{"extended plugins", checkFile(ExtendedPluginsFilePath())})
 	}
 
 	if core.IsWSL() {
@@ -113,6 +120,15 @@ func checkDir(path string) func() string {
 	return func() string {
 		fi, err := os.Stat(path)
 		if err != nil || !fi.IsDir() {
+			return "not found"
+		}
+		return ""
+	}
+}
+
+func checkFile(path string) func() string {
+	return func() string {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return "not found"
 		}
 		return ""

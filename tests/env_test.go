@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/owenpierce/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 func TestParseProcVersion_WSL(t *testing.T) {
