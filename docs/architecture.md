@@ -5,7 +5,7 @@ This document covers the core systems that make up `dfinstall`.
 ## Overview
 
 ```
-dfinstall install all
+dfinstall install all [--backup]
         |
         v
   RegisterAllModules()     <- modules/register.go (sets order)
@@ -14,10 +14,17 @@ dfinstall install all
   DetectEnvironment()      <- core/env.go (WSL? Git Bash?)
         |
         v
+  [StartBackup()]          <- core/backup.go (if --backup)
+        |
+        v
   for each module:
     module.Install()       <- modules/<name>.go
       -> core.LinkFile()   <- core/link.go (symlink with backup)
+        -> BackupFile()    <- core/backup.go (records pre-install state)
       -> core.Info/Ok()    <- core/output.go (respects log level)
+        |
+        v
+  [FinishBackup()]         <- core/backup.go (writes manifest)
         |
         v
   spinner / summary        <- core/spinner.go
@@ -78,13 +85,26 @@ This keeps modules declarative and easy to extend.
 
 ## CLI
 
-Built with [Cobra](https://github.com/spf13/cobra). Three commands:
+Built with [Cobra](https://github.com/spf13/cobra). Four commands:
 
 | Command | Description |
 |---------|-------------|
 | `install <module\|all>` | Install one or all modules |
 | `status` | Print table of link counts per module |
 | `doctor` | Run 25+ health checks |
+| `restore [timestamp]` | Restore files from a backup snapshot |
+
+### Install Flags
+
+| Flag | Behavior |
+|------|----------|
+| `--backup` | Snapshot every target before modification (restorable with `restore`) |
+
+### Restore Flags
+
+| Flag | Behavior |
+|------|----------|
+| `--list` | List available backups (timestamp + entry count) |
 
 ### Global Flags
 
@@ -131,11 +151,12 @@ The spinner runs in a background goroutine and is only used when `core.Level == 
 
 ### LinkFile(src, dst)
 
-1. Create parent directories if missing
-2. If `dst` is already a correct symlink -- no-op
-3. If `dst` is a wrong symlink -- repoint it
-4. If `dst` is a regular file -- back it up to `dst.bak`
-5. Create the symlink
+1. Record pre-install state via `BackupFile(dst)` (no-op if no backup session)
+2. Create parent directories if missing
+3. If `dst` is already a correct symlink -- no-op
+4. If `dst` is a wrong symlink -- repoint it
+5. If `dst` is a regular file -- back it up to `dst.bak`
+6. Create the symlink
 
 Every operation is idempotent. Running `dfinstall install all` twice produces the same result.
 
@@ -170,6 +191,53 @@ Checked in order:
 ## File Hashing
 
 `core/hash.go` provides SHA-256 file hashing used by the `fonts` and `wsl` modules to detect whether installed files match the source. This avoids unnecessary writes and enables status checks without reading full file contents.
+
+## Backup & Restore
+
+`core/backup.go` provides a structured backup system that can snapshot target files before dfinstall modifies them.
+
+### Storage Layout
+
+```
+~/.local/share/dfinstall/backups/<timestamp>/
+  manifest.json
+  files/
+    home--owen--.zshrc          # flattened path (/ -> --)
+    home--owen--.gitconfig
+```
+
+### Session Lifecycle
+
+1. `StartBackup()` -- creates a timestamped directory and initializes the session
+2. `BackupFile(dst)` -- called from `LinkFile` for each target path. Records the pre-install state:
+   - **missing** -- path didn't exist (restore will delete whatever dfinstall places)
+   - **symlink** -- records the original target (restore recreates it)
+   - **file** -- copies to backup dir with SHA-256 hash (restore copies it back)
+3. `FinishBackup()` -- writes `manifest.json`, cleans up if no entries were recorded
+
+`BackupFile` is a no-op when no session is active, so the call in `LinkFile` has zero cost during normal installs. It also deduplicates paths and skips `/etc/` (system paths need sudo and are handled separately by the wsl module).
+
+### Restore
+
+`RestoreBackup(timestamp)` reads the manifest and reverses each entry:
+
+- `missing` -> `os.Remove()` the dfinstall symlink
+- `symlink` -> remove current, recreate original symlink
+- `file` -> remove current, copy backup file back
+
+Individual failures are warned but don't stop the restore. A summary error is returned if any entries failed.
+
+### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `StartBackup()` | Begin a new session |
+| `BackupFile(dst)` | Record state of one path |
+| `FinishBackup()` | Write manifest, clean up empty |
+| `BackupActive()` | Check if a session is running |
+| `ListBackups()` | Return available backups, newest first |
+| `RestoreBackup(ts)` | Restore from a specific backup |
+| `BackupDir()` | Base directory (`~/.local/share/dfinstall/backups/`) |
 
 ## Error Handling
 

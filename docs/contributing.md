@@ -170,6 +170,7 @@ Tests live in `tests/` and cover:
 | `link_test.go` | Symlink creation, idempotency, backup, nested dirs |
 | `env_test.go` | WSL detection from /proc/version |
 | `status_test.go` | Status line formatting |
+| `backup_test.go` | Backup/restore: path flattening, system path detection, entry types, dedup, empty cleanup, round-trip |
 
 Run with:
 

@@ -10,9 +10,15 @@ Thumbs.db
 # Build output
 bin/
 
-# Claude Code
+# AI assistants
 .claude/
 CLAUDE.md
+.continue/
+.cursorrules
+.cursorignore
+.aider*
+.copilot/
+.github/copilot-*
 
 # Environment / secrets
 .env
