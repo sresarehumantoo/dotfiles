@@ -12,6 +12,7 @@ bin/
 
 # Claude Code
 .claude/
+CLAUDE.md
 
 # Environment / secrets
 .env
