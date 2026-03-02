@@ -29,6 +29,7 @@ func main() {
 			case flagVerbose:
 				core.Level = core.LogVerbose
 			}
+			core.PrintBanner()
 		},
 	}
 

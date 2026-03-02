@@ -9,6 +9,7 @@ Thumbs.db
 
 # Build output
 bin/
+powershell/
 
 # AI assistants
 .claude/

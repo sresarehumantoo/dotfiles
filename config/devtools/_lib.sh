@@ -18,7 +18,20 @@ ok()     { printf "${_GREEN}${_BOLD}  ✓${_RESET} %s\n" "$*"; }
 warn()   { printf "${_YELLOW}${_BOLD}  ⚠${_RESET} %s\n" "$*" >&2; }
 err()    { printf "${_RED}${_BOLD}  ✗${_RESET} %s\n" "$*" >&2; }
 die()    { err "$@"; exit 1; }
-header() { printf "\n${_BOLD}${_CYAN}── %s ──${_RESET}\n\n" "$*"; }
+header() {
+    local label="── $* ──"
+    local width=60
+    local pad=$(( width - ${#label} ))
+    (( pad < 0 )) && pad=0
+    local trail=""
+    for (( i=0; i<pad; i++ )); do trail+="─"; done
+    printf "\n${_BOLD}${_CYAN}%s%s${_RESET}\n\n" "$label" "$trail"
+}
+rule() {
+    local line=""
+    for (( i=0; i<60; i++ )); do line+="─"; done
+    printf "${_DIM}%s${_RESET}\n" "$line"
+}
 step()   { printf "${_DIM}  …${_RESET} %s\n" "$*"; }
 
 # ── Guard helpers ────────────────────────────────────────────────
@@ -40,4 +53,34 @@ confirm() {
     printf "${_YELLOW}${_BOLD}  ? ${_RESET}%s [y/N] " "$msg"
     read -r answer
     [[ "${answer,,}" == "y" ]]
+}
+
+# ── Dotfiles root ───────────────────────────────────────────────
+dotfiles_dir() {
+    local dir
+    dir="$(cd "$(dirname "${BASH_SOURCE[1]}")" && pwd)"
+    while [[ "$dir" != "/" ]]; do
+        [[ -f "$dir/go.mod" ]] && { echo "$dir"; return 0; }
+        dir="$(dirname "$dir")"
+    done
+    die "Could not locate dotfiles root (no go.mod found)."
+}
+
+# ── PowerShell script generation ────────────────────────────────
+# Usage: write_ps1 <filename> <content>
+write_ps1() {
+    local filename="$1" content="$2"
+    local root
+    root="$(dotfiles_dir)"
+    local dir="$root/powershell"
+    mkdir -p "$dir"
+    local filepath="$dir/$filename"
+    printf '%s\n' "$content" > "$filepath"
+    local win_path
+    win_path="$(wslpath -w "$filepath")"
+    ok "Generated: $filepath"
+    echo ""
+    info "Copy to a convenient Windows location and run from elevated PowerShell:"
+    echo "      cp \"$filepath\" /mnt/c/Users/\$(cmd.exe /C 'echo %USERNAME%' 2>/dev/null | tr -d '\\r')/"
+    echo "      # Then in PowerShell: .\\$filename"
 }
