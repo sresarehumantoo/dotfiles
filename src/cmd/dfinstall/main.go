@@ -42,6 +42,13 @@ func main() {
 			modules.ValidModuleNames()),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if os.Geteuid() == 0 {
+				core.Err("Running as root is not supported.")
+				core.Err("Run as your normal user instead. To apply configs to /root, use:")
+				core.Err("    dfinstall root")
+				return fmt.Errorf("refusing to install as root")
+			}
+
 			core.DetectEnvironment()
 			core.AssertEnvironment()
 
@@ -130,6 +137,43 @@ func main() {
 		},
 	}
 
+	rootSetupCmd := &cobra.Command{
+		Use:   "root",
+		Short: "Symlink configs into /root/ via sudo",
+		Long:  "Apply a curated subset of dotfiles (shell, git, nvim, tmux, htop) to the root user via sudo.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if os.Geteuid() == 0 {
+				core.Err("Do not run this command as root directly.")
+				core.Err("Run as your normal user — sudo will be invoked automatically.")
+				return fmt.Errorf("refusing to run as root")
+			}
+
+			core.DetectEnvironment()
+
+			if core.Level >= core.LogVerbose {
+				return modules.InstallRoot()
+			}
+
+			sp := core.NewSpinner()
+			sp.Update("Linking root configs (sudo)")
+			sp.Start()
+
+			err := modules.InstallRoot()
+			sp.Stop()
+
+			core.FlushWarnings()
+
+			if err != nil {
+				core.Err("root: %v", err)
+				return err
+			}
+
+			linked, missing := modules.RootStatus()
+			core.PrintResult(linked+missing, missing)
+			return nil
+		},
+	}
+
 	// Add completions for install command
 	installCmd.ValidArgsFunction = func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		if len(args) != 0 {
@@ -145,7 +189,7 @@ func main() {
 		return matches, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	rootCmd.AddCommand(installCmd, statusCmd, doctorCmd, restoreCmd)
+	rootCmd.AddCommand(installCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)

@@ -48,7 +48,7 @@ func runCmd(name string, args ...string) error {
 func (PackagesModule) Install() error {
 	core.Info("Installing core packages...")
 
-	pkgs := []string{"git", "zsh", "curl", "wget", "htop"}
+	pkgs := []string{"git", "zsh", "curl", "wget", "htop", "rsync"}
 
 	if _, err := exec.LookPath("nvim"); err != nil {
 		pkgs = append(pkgs, "neovim")
@@ -84,7 +84,7 @@ func (PackagesModule) Install() error {
 
 func (PackagesModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "packages"}
-	tools := []string{"git", "zsh", "curl", "wget", "htop", "nvim", "tmux", "node", "python3", "go"}
+	tools := []string{"git", "zsh", "curl", "wget", "htop", "rsync", "nvim", "tmux", "node", "python3", "go"}
 	for _, t := range tools {
 		if _, err := exec.LookPath(t); err == nil {
 			s.Linked++
