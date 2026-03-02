@@ -66,21 +66,22 @@ dotfiles_dir() {
     die "Could not locate dotfiles root (no go.mod found)."
 }
 
-# ── PowerShell script generation ────────────────────────────────
-# Usage: write_ps1 <filename> <content>
-write_ps1() {
+# ── Batch script generation ─────────────────────────────────────
+# Usage: write_bat <filename> <content>
+write_bat() {
     local filename="$1" content="$2"
     local root
     root="$(dotfiles_dir)"
     local dir="$root/powershell"
     mkdir -p "$dir"
     local filepath="$dir/$filename"
-    printf '%s\n' "$content" > "$filepath"
-    local win_path
-    win_path="$(wslpath -w "$filepath")"
+    printf '%s\n' "$content" | sed 's/$/\r/' > "$filepath"
     ok "Generated: $filepath"
     echo ""
-    info "Copy to a convenient Windows location and run from elevated PowerShell:"
-    echo "      cp \"$filepath\" /mnt/c/Users/\$(cmd.exe /C 'echo %USERNAME%' 2>/dev/null | tr -d '\\r')/"
-    echo "      # Then in PowerShell: .\\$filename"
+    local win_path
+    win_path="$(wslpath -w "$filepath")"
+    info "Run from Windows (no admin required):"
+    echo "      explorer.exe \"$(wslpath -w "$dir")\""
+    echo "      # Then double-click $filename, or from cmd.exe:"
+    echo "      $win_path"
 }

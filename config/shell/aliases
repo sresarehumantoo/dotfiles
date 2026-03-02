@@ -26,7 +26,6 @@ alias la="ls -A"
 alias q="exit"
 alias vim='nvim'
 alias python="python3"
-alias gitssh="eval \"$(ssh-agent -s)\" && ssh-add ~/.ssh/github_ed25519"
 alias docker-compose="docker compose"
 
 # Quick config editing
