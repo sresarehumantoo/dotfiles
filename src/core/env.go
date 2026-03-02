@@ -90,6 +90,12 @@ func IsGitBash() bool {
 	return isGitBash
 }
 
+// ResetDotfilesDir clears the cached dotfiles directory so it is re-resolved
+// on the next call to DotfilesDir. Exported for testing.
+func ResetDotfilesDir() {
+	dotfilesDir = ""
+}
+
 // DotfilesDir returns the root of the dotfiles repository.
 func DotfilesDir() string {
 	if dotfilesDir != "" {

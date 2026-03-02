@@ -146,7 +146,9 @@ Compacts the WSL2 virtual disk (ext4.vhdx). WSL-only.
 
 - Auto-detects the VHDX path for the current distro
 - Runs `fstrim` inside WSL
-- Prints PowerShell commands for the Windows-side compaction step
+- Enables sparse mode for automatic future reclamation
+- Suggests [wslcompact](https://github.com/okibcn/wslcompact) for non-elevated compaction
+- Prints PowerShell commands for the Windows-side compaction step (elevated)
 
 ```
 $ wsl-resize-disk
