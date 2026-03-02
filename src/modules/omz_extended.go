@@ -72,6 +72,11 @@ func RunExtendedPluginMenu() ([]string, error) {
 	}
 
 	// Pre-select from saved config
+	previous := make(map[string]bool, len(core.Cfg.ExtendedPlugins))
+	for _, p := range core.Cfg.ExtendedPlugins {
+		previous[p] = true
+	}
+
 	selected := make([]string, len(core.Cfg.ExtendedPlugins))
 	copy(selected, core.Cfg.ExtendedPlugins)
 
@@ -79,7 +84,7 @@ func RunExtendedPluginMenu() ([]string, error) {
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title("Extended OMZ Plugins").
-				Description("Select workflow-specific plugins to enable (Space to toggle, Enter to confirm)").
+				Description("Space to toggle, Enter to confirm, Esc to cancel").
 				Options(options...).
 				Value(&selected),
 		),
@@ -91,6 +96,40 @@ func RunExtendedPluginMenu() ([]string, error) {
 			return core.Cfg.ExtendedPlugins, nil
 		}
 		return nil, fmt.Errorf("plugin menu: %w", err)
+	}
+
+	// Show feedback about what changed
+	newSet := make(map[string]bool, len(selected))
+	for _, p := range selected {
+		newSet[p] = true
+	}
+
+	var added, removed []string
+	for _, p := range selected {
+		if !previous[p] {
+			added = append(added, p)
+		}
+	}
+	for p := range previous {
+		if !newSet[p] {
+			removed = append(removed, p)
+		}
+	}
+
+	if len(added) == 0 && len(removed) == 0 {
+		if len(selected) > 0 {
+			core.Info("extended plugins unchanged (%d selected)", len(selected))
+		} else {
+			core.Info("no extended plugins selected")
+		}
+	} else {
+		if len(added) > 0 {
+			core.Ok("added: %s", strings.Join(added, ", "))
+		}
+		if len(removed) > 0 {
+			core.Info("removed: %s", strings.Join(removed, ", "))
+		}
+		core.Info("total extended plugins: %d", len(selected))
 	}
 
 	return selected, nil

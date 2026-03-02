@@ -55,13 +55,19 @@ func runCmd(name string, args ...string) error {
 	if needsTTY {
 		core.PauseSpinner()
 		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		if core.Level >= core.LogVerbose {
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+		}
 		err := cmd.Run()
 		core.ResumeSpinner()
 		return err
 	}
 
+	if core.Level >= core.LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 

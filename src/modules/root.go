@@ -105,8 +105,10 @@ func sudoMkdir(dir string) error {
 	defer core.ResumeSpinner()
 	cmd := exec.Command("sudo", "mkdir", "-p", dir)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if core.Level >= core.LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
 
@@ -115,7 +117,9 @@ func sudoLink(src, dst string) error {
 	defer core.ResumeSpinner()
 	cmd := exec.Command("sudo", "ln", "-sfn", src, dst)
 	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	if core.Level >= core.LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	return cmd.Run()
 }
