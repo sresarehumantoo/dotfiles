@@ -1,6 +1,9 @@
-[user]
-	email = you@example.com
-	name = Owen Pierce
+# [user]
+# 	email = you@example.com
+# 	name = Your Name
+# Uncomment and set your identity above, or run:
+#   git config --global user.email "you@example.com"
+#   git config --global user.name "Your Name"
 
 [init]
 	defaultBranch = main
