@@ -92,7 +92,7 @@ func RunExtendedPluginMenu() ([]string, error) {
 				Options(options...).
 				Value(&selected),
 		),
-	)
+	).WithKeyMap(escKeyMap())
 
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
