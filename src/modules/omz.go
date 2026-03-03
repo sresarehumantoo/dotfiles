@@ -14,6 +14,11 @@ type OmzModule struct{}
 func (OmzModule) Name() string { return "omz" }
 
 func (OmzModule) Install() error {
+	if core.DryRun {
+		core.Info("would install oh-my-zsh, zsh-autosuggestions, powerlevel10k")
+		return nil
+	}
+
 	core.Info("Setting up Oh My Zsh...")
 
 	home, _ := os.UserHomeDir()

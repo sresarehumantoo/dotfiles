@@ -60,6 +60,27 @@ type ModuleStatus struct {
 }
 ```
 
+### Optional Interfaces
+
+Link-based modules can optionally implement these interfaces for uninstall and diff support:
+
+```go
+type Uninstaller interface {
+    Uninstall() error
+}
+
+type LinkExporter interface {
+    Links() []LinkPair
+}
+
+type LinkPair struct {
+    Src string
+    Dst string
+}
+```
+
+Non-link modules (packages, extras, delta, fonts, omz, wsl, defaultshell) don't implement either interface because their side effects can't be cleanly reversed via symlink removal.
+
 ### Registry
 
 Modules are registered in `modules/register.go` via `core.RegisterModule()`. **Order matters** -- earlier modules are installed first, so dependencies (packages, fonts, omz) come before things that need them (shell, nvim).
@@ -94,12 +115,14 @@ This keeps modules declarative and easy to extend.
 
 ## CLI
 
-Built with [Cobra](https://github.com/spf13/cobra). Seven commands:
+Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 
 | Command | Description |
 |---------|-------------|
 | `install <module\|all>` | Install one or all modules |
 | `update <module\|all>` | Alias for install — re-apply modules |
+| `uninstall <module\|all>` | Remove symlinks created by dfinstall |
+| `diff` | Show drift between config and filesystem |
 | `status` | Print table of link counts per module |
 | `doctor` | Run 25+ health checks |
 | `restore [timestamp]` | Restore files from a backup snapshot |
@@ -111,6 +134,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Seven commands:
 |------|----------|
 | `--backup` | Force a backup snapshot regardless of config |
 | `--extended` | Show interactive menu to select extended OMZ plugins |
+| `--dry-run` | Preview changes without modifying the filesystem (forces verbose output) |
 
 ### Restore Flags
 
@@ -222,6 +246,7 @@ Checked in order:
 | `extended_plugins` | []string | *(empty)* | Extended OMZ plugins selected via `--extended` |
 | `preserved_files` | []string | *(empty)* | Custom shell files the user chose to keep sourcing after dfinstall replaces zshrc |
 | `dismissed_files` | []string | *(empty)* | Custom shell files the user chose not to preserve (prevents re-prompting) |
+| `skip_modules` | []string | *(empty)* | Modules to skip during `install all` (machine profiles) |
 
 ### Auto-Backup Logic
 

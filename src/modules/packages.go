@@ -72,6 +72,11 @@ func runCmd(name string, args ...string) error {
 }
 
 func (PackagesModule) Install() error {
+	if core.DryRun {
+		core.Info("would install packages: git, zsh, curl, wget, htop, rsync, ...")
+		return nil
+	}
+
 	core.Info("Installing core packages...")
 
 	pkgs := []string{"git", "zsh", "curl", "wget", "htop", "rsync"}

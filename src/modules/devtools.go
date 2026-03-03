@@ -30,10 +30,12 @@ func (DevtoolsModule) Install() error {
 	var failed int
 	for _, s := range devtoolsScripts {
 		src := core.ConfigPath(s.src)
-		if err := os.Chmod(src, 0755); err != nil {
-			core.Warn("chmod failed for %s: %v", s.src, err)
-			failed++
-			continue
+		if !core.DryRun {
+			if err := os.Chmod(src, 0755); err != nil {
+				core.Warn("chmod failed for %s: %v", s.src, err)
+				failed++
+				continue
+			}
 		}
 		if err := core.LinkFile(src, core.HomeTarget(s.dst)); err != nil {
 			core.Warn("link failed for %s: %v", s.dst, err)
@@ -47,6 +49,24 @@ func (DevtoolsModule) Install() error {
 	}
 	core.Ok("Devtools scripts done")
 	return nil
+}
+
+func (DevtoolsModule) Uninstall() error {
+	for _, s := range devtoolsScripts {
+		if err := core.UnlinkFile(core.ConfigPath(s.src), core.HomeTarget(s.dst)); err != nil {
+			return err
+		}
+	}
+	core.Ok("Devtools scripts uninstalled")
+	return nil
+}
+
+func (DevtoolsModule) Links() []core.LinkPair {
+	pairs := make([]core.LinkPair, len(devtoolsScripts))
+	for i, s := range devtoolsScripts {
+		pairs[i] = core.LinkPair{Src: core.ConfigPath(s.src), Dst: core.HomeTarget(s.dst)}
+	}
+	return pairs
 }
 
 func (DevtoolsModule) Status() core.ModuleStatus {

@@ -77,6 +77,9 @@ make build && make test && make lint
 # Run all modules with verbose output
 ./bin/dfinstall install all -v
 
+# Dry-run mode (preview without changes)
+./bin/dfinstall install all --dry-run
+
 # Debug mode (verbose + internal details)
 ./bin/dfinstall install all --debug
 ```
@@ -120,7 +123,7 @@ src/
     shell_preserve.go  #   Custom shell file preservation menu and writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
     ...                #   14 modules total
-tests/                 # Unit tests (7 files)
+tests/                 # Unit tests (10 files)
 ```
 
 ## Testing
@@ -140,3 +143,6 @@ make test
 | `env_test.go` | WSL detection from /proc/version |
 | `status_test.go` | Status line formatting |
 | `shell_preserve_test.go` | Custom file scan/filter, managed/non-shell/symlink exclusion, path validation, injection rejection |
+| `unlink_test.go` | UnlinkFile: correct/wrong/missing/regular-file cases |
+| `dryrun_test.go` | DryRun mode: LinkFile, EnsureDir, UnlinkFile skip filesystem changes |
+| `config_skip_test.go` | IsModuleSkipped helper with skip_modules config |
