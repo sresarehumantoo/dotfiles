@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Generate the dfinstall SVG logo.
 
-Go-themed: embeds the Go gopher SVG paths inline, symlink arrow motif, and dotfile dots.
+Go-themed: embeds the Go gopher SVG paths inline with a hardhat and wrench,
+wrapped in terminal window chrome.
 
 Usage:
     python3 assets/gen_logo.py          # writes assets/logo.svg
@@ -19,10 +20,11 @@ BG_DARK      = "#1A1B26"   # Tokyo Night-ish background
 TEXT_DIM     = "#7AA2F7"
 ACCENT       = "#9ECE6A"   # green for the "ok" checkmark feel
 
-W, H = 800, 260
+TITLE_H = 32
+CONTENT_H = 260
+W, H = 800, TITLE_H + CONTENT_H  # 800 x 292
 
 # ── Gopher SVG elements (from gopher.svg, 402x559 original) ─────
-# Extracted paths grouped logically for embedding in a <g> with transform.
 GOPHER_PATHS = """\
 <!-- left hand -->
 <path fill-rule="evenodd" clip-rule="evenodd" fill="#F6D2A2" stroke="#000" stroke-width="3" stroke-linecap="round" d="
@@ -104,6 +106,18 @@ GOPHER_PATHS = """\
   C225.247,149.475,178.874,153.527,176.913,138.045C175.348,125.682,176.913,138.045,176.913,138.045z"/>
 """
 
+# ── Gopher positioning constants ─────────────────────────────────
+# Original: 402x559 → scale 0.394 → ~158x220, placed at (20, 20) in content space.
+GOPHER_SCALE = 0.394
+GOPHER_TX, GOPHER_TY = 20, 20
+# Derived positions in content-space coordinates:
+GOPHER_HEAD_CX = GOPHER_TX + 195 * GOPHER_SCALE   # ≈ 97
+GOPHER_HEAD_TOP_Y = GOPHER_TX + 13 * GOPHER_SCALE  # ≈ 25
+GOPHER_RHAND_X = GOPHER_TX + 392 * GOPHER_SCALE    # ≈ 174
+GOPHER_RHAND_Y = GOPHER_TY + 290 * GOPHER_SCALE    # ≈ 134
+GOPHER_BELLY_CX = GOPHER_TX + 195 * GOPHER_SCALE   # ≈ 97
+GOPHER_BELLY_CY = GOPHER_TY + 350 * GOPHER_SCALE   # ≈ 158
+
 
 def n(v):
     """Round a float to 1 decimal, drop trailing .0 for integers."""
@@ -151,67 +165,94 @@ def dot_pattern(x_start, y_start, cols, rows, spacing, r, color, base_opacity=0.
             cx = x_start + col * spacing
             cy = y_start + row * spacing
             dots.append(circle(cx, cy, r, color, op))
-    return "\n    ".join(dots)
+    return "\n      ".join(dots)
 
 
 def gopher_group():
-    """Embed gopher SVG paths scaled and positioned for the left side of the logo.
-
-    Original gopher: 402x559. Target area: ~160x220, centered vertically.
-    Scale = 220/559 ≈ 0.394.  Translate so the gopher sits in the left ~200px.
-    """
-    scale = 0.394
-    # Center the scaled gopher vertically: (260 - 559*0.394) / 2 ≈ 20
-    # Horizontally: offset ~20px from left edge
-    tx = 20
-    ty = 20
+    """Embed gopher SVG paths scaled and positioned for the left side."""
     return (
-        f'<g transform="translate({tx},{ty}) scale({scale})">\n'
+        f'<g transform="translate({GOPHER_TX},{GOPHER_TY}) scale({GOPHER_SCALE})">\n'
         f'{GOPHER_PATHS}'
         f'</g>'
     )
 
 
-def gopher_glow():
-    """Radial gradient glow behind the gopher."""
-    # Center of the gopher area (roughly 100, 130)
+def gopher_glow_def():
+    """Radial gradient definition for the glow behind the gopher."""
+    cx, cy = n(GOPHER_HEAD_CX), 130
     return (
-        '<radialGradient id="gopherGlow" cx="100" cy="130" r="120" '
-        'gradientUnits="userSpaceOnUse">\n'
-        f'  <stop offset="0%" stop-color="{GO_BLUE}" stop-opacity="0.18"/>\n'
-        f'  <stop offset="100%" stop-color="{GO_BLUE}" stop-opacity="0"/>\n'
-        '</radialGradient>'
+        f'<radialGradient id="gopherGlow" cx="{cx}" cy="{cy}" r="120" '
+        f'gradientUnits="userSpaceOnUse">\n'
+        f'      <stop offset="0%" stop-color="{GO_BLUE}" stop-opacity="0.18"/>\n'
+        f'      <stop offset="100%" stop-color="{GO_BLUE}" stop-opacity="0"/>\n'
+        f'    </radialGradient>'
     )
 
 
-def gopher_overlays():
-    """Overlay elements on/near the gopher: symlink arrow + dotfile dots."""
-    parts = []
+def hardhat():
+    """Construction hardhat sitting on the gopher's head."""
+    cx = round(GOPHER_HEAD_CX)     # ≈ 97
+    brim_y = round(GOPHER_HEAD_TOP_Y)  # ≈ 25
+    dome_top = brim_y - 17
+    hw = 26  # half-width of dome
+    brim_hw = 31  # half-width of brim
 
-    # Symlink arrow near the right hand — positioned to the right of the gopher
-    # Right hand is at roughly x=392*0.394+20 ≈ 174, y=298*0.394+20 ≈ 137
-    # Place arrow starting just past the hand
-    parts.append(
-        f'<g opacity="0.9">'
-        f'  <text x="170" y="138" font-family="monospace, \'SF Mono\', Consolas, monospace" '
-        f'font-size="18" font-weight="bold" fill="{GO_WHITE}" opacity="0.95">-&gt;</text>'
+    return (
+        f'<g>\n'
+        # Dome
+        f'  <path d="M{cx - hw},{brim_y} '
+        f'Q{cx - hw},{dome_top} {cx},{dome_top} '
+        f'Q{cx + hw},{dome_top} {cx + hw},{brim_y} Z" '
+        f'fill="#F5A623" stroke="#D4940A" stroke-width="1"/>\n'
+        # Brim
+        f'  <rect x="{cx - brim_hw}" y="{brim_y - 1}" width="{brim_hw * 2}" '
+        f'height="5" rx="2.5" fill="#F5A623" stroke="#D4940A" stroke-width="0.8"/>\n'
+        # Highlight stripe
+        f'  <rect x="{cx - 8}" y="{dome_top + 5}" width="16" height="2.5" '
+        f'rx="1" fill="{GO_WHITE}" opacity="0.3"/>\n'
         f'</g>'
     )
 
-    # Three small colored dots on the gopher's belly (the "dotfiles" motif)
-    # Belly center is roughly x=195*0.394+20 ≈ 97, y=350*0.394+20 ≈ 158
-    belly_cx, belly_cy = 97, 162
-    dot_colors = [GO_BLUE, ACCENT, TEXT_DIM]
-    dot_spacing = 14
-    for i, color in enumerate(dot_colors):
-        dx = belly_cx + (i - 1) * dot_spacing
-        parts.append(circle(dx, belly_cy, 4, color, 0.9))
 
-    return "\n  ".join(parts)
+def wrench():
+    """Small wrench near the gopher's right hand."""
+    # Position near the right hand, angled as if being held
+    wx = round(GOPHER_RHAND_X - 6)  # ≈ 168
+    wy = round(GOPHER_RHAND_Y - 8)  # ≈ 126
+    return (
+        f'<g transform="translate({wx},{wy}) rotate(-30)">\n'
+        # Handle
+        f'  <rect x="0" y="-3" width="24" height="6" rx="2.5" '
+        f'fill="#B8B8B8" stroke="#888" stroke-width="0.6"/>\n'
+        # Open-end wrench head
+        f'  <path d="M24,-6.5 L33,-6.5 L33,-2 L27.5,-2 L27.5,2 L33,2 L33,6.5 L24,6.5 Z" '
+        f'fill="#B8B8B8" stroke="#888" stroke-width="0.6"/>\n'
+        f'</g>'
+    )
+
+
+def belly_dots():
+    """Three colored dots on the gopher's belly — the 'dotfiles' motif."""
+    cx, cy = round(GOPHER_BELLY_CX), round(GOPHER_BELLY_CY)
+    colors = [GO_BLUE, ACCENT, TEXT_DIM]
+    spacing = 14
+    parts = []
+    for i, color in enumerate(colors):
+        dx = cx + (i - 1) * spacing
+        parts.append(circle(dx, cy, 4.5, color, 0.85))
+    return "\n    ".join(parts)
+
+
+def terminal_dots():
+    """Traffic light dots for the terminal title bar."""
+    y = TITLE_H // 2
+    parts = []
+    for color, x in [("#FF5F56", 20), ("#FFBD2E", 38), ("#27C93F", 56)]:
+        parts.append(circle(x, y, 5.5, color))
+    return "\n    ".join(parts)
 
 
 def build_svg():
-    # Text area starts after the gopher region
     text_x = 210
 
     parts = [
@@ -221,51 +262,76 @@ def build_svg():
         f'      <stop offset="0%" stop-color="{BG_DARK}"/>',
         f'      <stop offset="100%" stop-color="#24283B"/>',
         f'    </linearGradient>',
-        f'    {gopher_glow()}',
+        f'    {gopher_glow_def()}',
+        f'    <clipPath id="frame"><rect width="{W}" height="{H}" rx="12"/></clipPath>',
         f'  </defs>',
         "",
-        f'  <!-- background -->',
-        f'  {rounded_rect(0, 0, W, H, 16, "url(#bg)")}',
+        f'  <!-- terminal window -->',
+        f'  <g clip-path="url(#frame)">',
         "",
-        f'  <!-- dot pattern (dotfiles motif) -->',
-        f'  <g>',
-        f'    {dot_pattern(580, 30, 12, 12, 20, 2.5, GO_LIGHT, 0.18)}',
+        f'    <!-- background -->',
+        f'    <rect width="{W}" height="{H}" fill="url(#bg)"/>',
+        "",
+        f'    <!-- title bar -->',
+        f'    <rect width="{W}" height="{TITLE_H}" fill="#1F2030"/>',
+        f'    {terminal_dots()}',
+        f'    {text(W // 2, TITLE_H // 2 + 5, "~/dotfiles", 13, "#565A6E", anchor="middle")}',
+        f'    <line x1="0" y1="{TITLE_H}" x2="{W}" y2="{TITLE_H}" stroke="#3B3C50" stroke-width="1"/>',
+        "",
+        f'    <!-- content area -->',
+        f'    <g transform="translate(0,{TITLE_H})">',
+        "",
+        f'      <!-- dot pattern -->',
+        f'      <g>',
+        f'        {dot_pattern(580, 30, 12, 12, 20, 2.5, GO_LIGHT, 0.18)}',
+        f'      </g>',
+        "",
+        f'      <!-- gopher glow -->',
+        f'      <circle cx="{n(GOPHER_HEAD_CX)}" cy="130" r="120" fill="url(#gopherGlow)"/>',
+        "",
+        f'      <!-- gopher -->',
+        f'      {gopher_group()}',
+        "",
+        f'      <!-- hardhat -->',
+        f'      {hardhat()}',
+        "",
+        f'      <!-- wrench -->',
+        f'      {wrench()}',
+        "",
+        f'      <!-- belly dots (dotfiles motif) -->',
+        f'      {belly_dots()}',
+        "",
+        f'      <!-- title -->',
+        f'      {text(text_x, 100, "dfinstall", 52, GO_WHITE, weight="bold")}',
+        "",
+        f'      <!-- subtitle -->',
+        f'      {text(text_x, 135, "dotfiles manager", 22, GO_LIGHT)}',
+        "",
+        f'      <!-- symlink arrows -->',
+        f'      <g opacity="0.9">',
+        f'        {symlink_arrow(text_x, 168, 55, GO_BLUE)}',
+        f'        {symlink_arrow(text_x + 65, 168, 55, GO_DARK_BLUE)}',
+        f'        {symlink_arrow(text_x + 130, 168, 55, ACCENT)}',
+        f'      </g>',
+        "",
+        f'      <!-- tag line -->',
+        f'      {text(text_x, 205, "Symlink configs. Install tools. One command.", 15, TEXT_DIM)}',
+        "",
+        f'      <!-- language badges -->',
+        f'      <g>',
+        f'        {rounded_rect(text_x, 220, 52, 22, 6, GO_DARK_BLUE, 0.85)}',
+        f'        {text(text_x + 26, 236, "Go", 13, GO_WHITE, anchor="middle", weight="bold")}',
+        f'        {rounded_rect(text_x + 58, 220, 56, 22, 6, "#3B4261", 0.7)}',
+        f'        {text(text_x + 86, 236, "CLI", 13, GO_LIGHT, anchor="middle")}',
+        f'        {rounded_rect(text_x + 120, 220, 66, 22, 6, "#3B4261", 0.7)}',
+        f'        {text(text_x + 153, 236, "WSL2", 13, GO_LIGHT, anchor="middle")}',
+        f'      </g>',
+        "",
+        f'    </g>',
         f'  </g>',
         "",
-        f'  <!-- gopher glow -->',
-        f'  <circle cx="100" cy="130" r="120" fill="url(#gopherGlow)"/>',
-        "",
-        f'  <!-- gopher -->',
-        f'  {gopher_group()}',
-        "",
-        f'  <!-- gopher overlays (symlink arrow + dotfile dots) -->',
-        f'  {gopher_overlays()}',
-        "",
-        f'  <!-- title -->',
-        f'  {text(text_x, 100, "dfinstall", 52, GO_WHITE, weight="bold")}',
-        "",
-        f'  <!-- subtitle -->',
-        f'  {text(text_x, 135, "dotfiles manager", 22, GO_LIGHT)}',
-        "",
-        f'  <!-- symlink arrows -->',
-        f'  <g opacity="0.9">',
-        f'    {symlink_arrow(text_x, 168, 55, GO_BLUE)}',
-        f'    {symlink_arrow(text_x + 65, 168, 55, GO_DARK_BLUE)}',
-        f'    {symlink_arrow(text_x + 130, 168, 55, ACCENT)}',
-        f'  </g>',
-        "",
-        f'  <!-- tag line -->',
-        f'  {text(text_x, 205, "Symlink configs. Install tools. One command.", 15, TEXT_DIM)}',
-        "",
-        f'  <!-- language badges -->',
-        f'  <g>',
-        f'    {rounded_rect(text_x, 220, 52, 22, 6, GO_DARK_BLUE, 0.85)}',
-        f'    {text(text_x + 26, 236, "Go", 13, GO_WHITE, anchor="middle", weight="bold")}',
-        f'    {rounded_rect(text_x + 58, 220, 56, 22, 6, "#3B4261", 0.7)}',
-        f'    {text(text_x + 86, 236, "CLI", 13, GO_LIGHT, anchor="middle")}',
-        f'    {rounded_rect(text_x + 120, 220, 66, 22, 6, "#3B4261", 0.7)}',
-        f'    {text(text_x + 153, 236, "WSL2", 13, GO_LIGHT, anchor="middle")}',
-        f'  </g>',
+        f'  <!-- window border -->',
+        f'  <rect width="{W}" height="{H}" rx="12" fill="none" stroke="#3B3C50" stroke-width="1.5"/>',
         "",
         f'</svg>',
     ]
