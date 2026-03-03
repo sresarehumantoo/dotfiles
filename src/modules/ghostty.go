@@ -18,6 +18,20 @@ func (GhosttyModule) Install() error {
 	return nil
 }
 
+func (GhosttyModule) Uninstall() error {
+	if err := core.UnlinkFile(core.ConfigPath("ghostty", "config"), core.XDGTarget("ghostty", "config")); err != nil {
+		return err
+	}
+	core.Ok("Ghostty config uninstalled")
+	return nil
+}
+
+func (GhosttyModule) Links() []core.LinkPair {
+	return []core.LinkPair{
+		{Src: core.ConfigPath("ghostty", "config"), Dst: core.XDGTarget("ghostty", "config")},
+	}
+}
+
 func (GhosttyModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "ghostty"}
 	if core.CheckLink(core.ConfigPath("ghostty", "config"), core.XDGTarget("ghostty", "config")) == "ok" {

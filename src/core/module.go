@@ -15,6 +15,22 @@ type Module interface {
 	Status() ModuleStatus
 }
 
+// Uninstaller is an optional interface for modules that support removal.
+type Uninstaller interface {
+	Uninstall() error
+}
+
+// LinkPair describes a single source → destination symlink.
+type LinkPair struct {
+	Src string
+	Dst string
+}
+
+// LinkExporter is an optional interface for modules that manage symlinks.
+type LinkExporter interface {
+	Links() []LinkPair
+}
+
 var modules []Module
 var moduleMap map[string]Module
 

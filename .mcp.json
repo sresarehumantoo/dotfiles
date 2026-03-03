@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "dfinstall": {
+      "command": "./bin/dfinstall-mcp"
+    }
+  }
+}

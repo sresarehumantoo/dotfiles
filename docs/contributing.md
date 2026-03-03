@@ -60,7 +60,31 @@ func RegisterAllModules() {
 }
 ```
 
-### 4. Update the test
+### 4. (Optional) Add uninstall support
+
+For link-based modules, implement `Uninstaller` and `LinkExporter`:
+
+```go
+func (FooModule) Uninstall() error {
+    for _, l := range fooLinks {
+        if err := core.UnlinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
+            return err
+        }
+    }
+    core.Ok("Foo uninstalled")
+    return nil
+}
+
+func (FooModule) Links() []core.LinkPair {
+    pairs := make([]core.LinkPair, len(fooLinks))
+    for i, l := range fooLinks {
+        pairs[i] = core.LinkPair{Src: core.ConfigPath(l.src), Dst: core.HomeTarget(l.dst)}
+    }
+    return pairs
+}
+```
+
+### 5. Update the test
 
 Add `"foo"` to the expected order in `tests/module_test.go`:
 
@@ -73,7 +97,7 @@ expected := []string{
 }
 ```
 
-### 5. Build and test
+### 6. Build and test
 
 ```bash
 make build && make test && make lint
@@ -182,6 +206,10 @@ Tests live in `tests/` and cover:
 | `status_test.go` | Status line formatting |
 | `backup_test.go` | Backup/restore: path flattening, system path detection, entry types, dedup, empty cleanup, round-trip |
 | `config_test.go` | Config: load/save round-trip, missing file defaults, BackupDir override |
+| `shell_preserve_test.go` | Custom file scan/filter, managed/non-shell/symlink exclusion, path validation, injection rejection |
+| `unlink_test.go` | UnlinkFile: correct/wrong/missing/regular-file cases |
+| `dryrun_test.go` | DryRun mode: LinkFile, EnsureDir, UnlinkFile skip filesystem changes |
+| `config_skip_test.go` | IsModuleSkipped helper with skip_modules config |
 
 Run with:
 

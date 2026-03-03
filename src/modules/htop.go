@@ -18,6 +18,20 @@ func (HtopModule) Install() error {
 	return nil
 }
 
+func (HtopModule) Uninstall() error {
+	if err := core.UnlinkFile(core.ConfigPath("htop", "htoprc"), core.XDGTarget("htop", "htoprc")); err != nil {
+		return err
+	}
+	core.Ok("htop config uninstalled")
+	return nil
+}
+
+func (HtopModule) Links() []core.LinkPair {
+	return []core.LinkPair{
+		{Src: core.ConfigPath("htop", "htoprc"), Dst: core.XDGTarget("htop", "htoprc")},
+	}
+}
+
 func (HtopModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "htop"}
 	if core.CheckLink(core.ConfigPath("htop", "htoprc"), core.XDGTarget("htop", "htoprc")) == "ok" {

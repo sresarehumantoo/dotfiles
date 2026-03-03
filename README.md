@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="dfinstall logo" width="800">
+  <img src="assets/logo.svg?v=2" alt="dfinstall logo" width="800">
 </p>
 
 Personal dotfiles manager built in Go. A single `dfinstall` CLI symlinks config files into place, installs packages and tools, and keeps everything reproducible across machines.
@@ -23,18 +23,22 @@ dfinstall install all             # install everything
 dfinstall install shell           # install a single module
 dfinstall install all -v          # verbose output (detailed logs)
 dfinstall install all --debug     # debug output (verbose + internals)
+dfinstall install all --dry-run   # show what would change without modifying anything
 dfinstall install all --backup    # snapshot targets before modifying (restorable)
 dfinstall install omz --extended  # interactive menu to select extended OMZ plugins
 dfinstall update all              # re-apply all modules (alias for install)
 dfinstall update omz --extended   # update and select extended OMZ plugins
+dfinstall uninstall shell         # remove symlinks for a module
+dfinstall uninstall all           # remove all managed symlinks
 dfinstall status                  # show link status for all modules
+dfinstall diff                    # show drift between config and filesystem
 dfinstall doctor                  # run environment health checks
 dfinstall restore                 # restore latest backup
 dfinstall restore <timestamp>     # restore a specific backup
 dfinstall restore --list          # list available backups
 ```
 
-By default the CLI shows an animated spinner. Pass `-v` for the full log output or `--debug` for additional detail.
+By default the CLI shows an animated spinner. Pass `-v` for the full log output, `--debug` for additional detail, or `--dry-run` to preview changes without touching the filesystem.
 
 ### Backup & Restore
 
@@ -90,6 +94,7 @@ config/                  # Config files symlinked into ~
   fonts/                 #   bundled font files
 src/
   cmd/dfinstall/         # CLI entry point (Cobra)
+  cmd/mcp/               # MCP server (stdio JSON-RPC)
   core/                  # Module interface, linking, backup/restore, output, spinner, env detection
   modules/               # One file per module
 tests/                   # Unit tests
@@ -100,6 +105,7 @@ docs/                    # In-depth documentation
 
 ```
 make build      # compile to bin/dfinstall
+make build-mcp  # compile MCP server to bin/dfinstall-mcp
 make test       # go test ./src/... ./tests/...
 make lint       # go vet
 make fmt        # gofmt -s -w
@@ -131,6 +137,16 @@ go build -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfil
 The `-ldflags` flag bakes the dotfiles directory path into the binary so it can find config files regardless of where it's run from. Dependencies are vendored via `go.sum` and fetched automatically on first build.
 
 See [Building from Source](docs/building.md) for more detail on dependencies, cross-compilation, and development setup.
+
+## MCP Server
+
+dfinstall includes an [MCP](https://modelcontextprotocol.io/) server for AI-assisted dotfiles management. It exposes the same operations as the CLI over a stdio JSON-RPC transport.
+
+```bash
+make build-mcp    # compile to bin/dfinstall-mcp
+```
+
+The server is configured via `.mcp.json` in the project root. Available tools: `dfinstall_status`, `dfinstall_install`, `dfinstall_uninstall`, `dfinstall_diff`, `dfinstall_doctor`, `dfinstall_list_modules`, `dfinstall_list_backups`, `dfinstall_restore`, `dfinstall_config`.
 
 ## Documentation
 

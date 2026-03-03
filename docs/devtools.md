@@ -145,27 +145,45 @@ $ git-prune-branches
 Compacts the WSL2 virtual disk (ext4.vhdx). WSL-only.
 
 - Auto-detects the VHDX path for the current distro
+- Reports VHDX file size and actual filesystem usage
 - Runs `fstrim` inside WSL
 - Enables sparse mode for automatic future reclamation
-- Suggests [wslcompact](https://github.com/okibcn/wslcompact) for non-elevated compaction
-- Prints PowerShell commands for the Windows-side compaction step (elevated)
+- `--compact` generates a `.bat` script that compacts the disk via export/re-import (no admin required)
+- Also prints elevated Optimize-VHD / diskpart commands as an alternative
 
 ```
 $ wsl-resize-disk
   … Resolving VHDX path...
   ✓ Detected VHDX: C:\Users\owen\AppData\Local\Packages\...\ext4.vhdx
 
+── Disk usage ──
+  ▸ VHDX file size: 25600 MB (25 GB)
+  ▸ Filesystem usage: 12000 MB used of 20000 MB total
+  ▸ Potential savings: ~13600 MB
+
 ── Trimming unused blocks ──
 /: 1.2 GiB (1234567890 bytes) trimmed
   ✓ Trim complete
 
-── Next: compact from elevated PowerShell ──
-  ▸ 1. Shut down WSL:
-      wsl --shutdown
-
-  ▸ 2. Run one of the following:
-   ...
+── Compaction options ──
+  ▸ Option 1: Export/re-import (no admin required)
+      wsl-resize-disk --compact
+  ...
 ```
+
+Use `--compact` to generate a `.bat` file that performs the compaction:
+
+```
+$ wsl-resize-disk --compact
+  ...
+  ✓ Generated: /path/to/dotfiles/powershell/wsl-compact.bat
+
+  ▸ Run from Windows (no admin required):
+      explorer.exe "\\wsl$\..."
+      # Then double-click wsl-compact.bat
+```
+
+The generated script shuts down WSL, exports the distro, re-imports it to create a fresh compacted image, then swaps the VHDX file. No PowerShell modules or admin privileges required.
 
 ### wsl-restart
 
