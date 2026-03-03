@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="dfinstall logo" width="800">
+  <img src="assets/logo.svg?v=2" alt="dfinstall logo" width="800">
 </p>
 
 Personal dotfiles manager built in Go. A single `dfinstall` CLI symlinks config files into place, installs packages and tools, and keeps everything reproducible across machines.
