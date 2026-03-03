@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/sresarehumantoo/dotfiles/src/core"
 	"golang.org/x/term"
@@ -74,6 +75,13 @@ var nonShellFiles = map[string]bool{
 
 // validPreservePath matches safe relative paths (dotfiles in $HOME, no slashes, no injection).
 var validPreservePath = regexp.MustCompile(`^\.[a-zA-Z0-9][a-zA-Z0-9._-]*$`)
+
+// escKeyMap returns the default huh keymap with ESC added to the Quit binding.
+func escKeyMap() *huh.KeyMap {
+	km := huh.NewDefaultKeyMap()
+	km.Quit = key.NewBinding(key.WithKeys("esc", "ctrl+c"))
+	return km
+}
 
 // ScanCustomShellFiles globs $HOME for shell-like dotfiles that aren't managed by dfinstall.
 func ScanCustomShellFiles() []DiscoveredFile {
@@ -185,7 +193,7 @@ func RunPreserveMenu(files []DiscoveredFile) (preserved, dismissed []string, err
 				Options(options...).
 				Value(&selected),
 		),
-	)
+	).WithKeyMap(escKeyMap())
 
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
