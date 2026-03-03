@@ -13,6 +13,8 @@ type Config struct {
 	SkipBackup      bool     `yaml:"skip_backup"`
 	BackupDirP      string   `yaml:"backup_dir,omitempty"`
 	ExtendedPlugins []string `yaml:"extended_plugins,omitempty"`
+	PreservedFiles  []string `yaml:"preserved_files,omitempty"`
+	DismissedFiles  []string `yaml:"dismissed_files,omitempty"`
 }
 
 // Cfg is the active configuration, loaded at startup.

@@ -182,6 +182,7 @@ Tests live in `tests/` and cover:
 | `status_test.go` | Status line formatting |
 | `backup_test.go` | Backup/restore: path flattening, system path detection, entry types, dedup, empty cleanup, round-trip |
 | `config_test.go` | Config: load/save round-trip, missing file defaults, BackupDir override |
+| `shell_preserve_test.go` | Custom file scan/filter, managed/non-shell/symlink exclusion, path validation, injection rejection |
 
 Run with:
 
