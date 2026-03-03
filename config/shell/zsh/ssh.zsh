@@ -16,7 +16,7 @@ if [[ $agent_status -eq 2 ]]; then
   eval "$(ssh-agent -a "$SSH_AGENT_SOCK")" >/dev/null
 fi
 
-# Add key if not already loaded
+# Add key if not already loaded (suppress askpass stderr for P10k instant prompt)
 if ! ssh-add -l 2>/dev/null | grep -q "github_ed25519"; then
-  SSH_ASKPASS="" ssh-add "$SSH_KEY" 2>/dev/null
+  ssh-add "$SSH_KEY" 2>/dev/null
 fi
