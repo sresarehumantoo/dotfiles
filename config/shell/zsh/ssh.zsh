@@ -18,5 +18,5 @@ fi
 
 # Add key if not already loaded
 if ! ssh-add -l 2>/dev/null | grep -q "github_ed25519"; then
-  ssh-add "$SSH_KEY"
+  SSH_ASKPASS="" ssh-add "$SSH_KEY" 2>/dev/null
 fi
