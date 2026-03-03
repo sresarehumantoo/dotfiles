@@ -141,6 +141,8 @@ User choices are saved to `.config.yaml` as `preserved_files` and `dismissed_fil
 
 The scan filters out: managed shell destinations (`.zshrc`, `.aliases`, etc.), known non-shell dotfiles (`.vimrc`, `.npmrc`, `.netrc`, etc.), symlinks, directories, and files over 1MB.
 
+After linking, the shell module auto-generates zsh completions for dfinstall and writes them to `~/.zsh.d/_dfinstall.zsh`.
+
 **Status:** Checks 10 symlinks. Shows `+N preserved` when preserved files are configured.
 
 ---

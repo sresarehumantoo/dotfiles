@@ -15,6 +15,17 @@ type Config struct {
 	ExtendedPlugins []string `yaml:"extended_plugins,omitempty"`
 	PreservedFiles  []string `yaml:"preserved_files,omitempty"`
 	DismissedFiles  []string `yaml:"dismissed_files,omitempty"`
+	SkipModules     []string `yaml:"skip_modules,omitempty"`
+}
+
+// IsModuleSkipped returns true if the named module is in the SkipModules list.
+func IsModuleSkipped(name string) bool {
+	for _, s := range Cfg.SkipModules {
+		if s == name {
+			return true
+		}
+	}
+	return false
 }
 
 // Cfg is the active configuration, loaded at startup.

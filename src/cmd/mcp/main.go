@@ -98,6 +98,27 @@ func registerTools(s *server.MCPServer) {
 	)
 
 	s.AddTool(
+		mcp.NewTool("dfinstall_uninstall",
+			mcp.WithDescription("Remove symlinks for a dotfile module or all modules"),
+			mcp.WithString("module",
+				mcp.Required(),
+				mcp.Description("Module name to uninstall, or 'all' for everything"),
+			),
+			mcp.WithDestructiveHintAnnotation(true),
+		),
+		handleUninstall,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_diff",
+			mcp.WithDescription("Show drift between config and filesystem"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+		),
+		handleDiff,
+	)
+
+	s.AddTool(
 		mcp.NewTool("dfinstall_config",
 			mcp.WithDescription("Read or write dfinstall configuration"),
 			mcp.WithString("action",
@@ -105,7 +126,7 @@ func registerTools(s *server.MCPServer) {
 				mcp.Description("'get' to read config, 'set' to write a value"),
 			),
 			mcp.WithString("key",
-				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files"),
+				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules"),
 			),
 			mcp.WithString("value",
 				mcp.Description("Value to set (required for 'set' action)"),
@@ -124,6 +145,13 @@ func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult
 
 	for _, m := range core.AllModules() {
 		s := m.Status()
+		if core.IsModuleSkipped(m.Name()) {
+			if s.Extra != "" {
+				s.Extra += ", skipped"
+			} else {
+				s.Extra = "skipped"
+			}
+		}
 		fmt.Fprintf(&b, "%-15s  %7d  %7d  %s\n", s.Name, s.Linked, s.Missing, s.Extra)
 	}
 	return mcp.NewToolResultText(b.String()), nil
@@ -143,6 +171,9 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 
 		var failures []string
 		for _, m := range core.AllModules() {
+			if core.IsModuleSkipped(m.Name()) {
+				continue
+			}
 			if err := m.Install(); err != nil {
 				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
@@ -328,6 +359,7 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			fmt.Fprintf(&b, "extended_plugins: %v\n", core.Cfg.ExtendedPlugins)
 			fmt.Fprintf(&b, "preserved_files: %v\n", core.Cfg.PreservedFiles)
 			fmt.Fprintf(&b, "dismissed_files: %v\n", core.Cfg.DismissedFiles)
+			fmt.Fprintf(&b, "skip_modules: %v\n", core.Cfg.SkipModules)
 			fmt.Fprintf(&b, "\nconfig file: %s\n", core.ConfigFilePath())
 			return mcp.NewToolResultText(b.String()), nil
 		}
@@ -346,9 +378,11 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.PreservedFiles)), nil
 		case "dismissed_files":
 			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.DismissedFiles)), nil
+		case "skip_modules":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.SkipModules)), nil
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules)", key),
 			), nil
 		}
 
@@ -379,9 +413,15 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			} else {
 				core.Cfg.DismissedFiles = strings.Split(value, ",")
 			}
+		case "skip_modules":
+			if value == "" {
+				core.Cfg.SkipModules = nil
+			} else {
+				core.Cfg.SkipModules = strings.Split(value, ",")
+			}
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules)", key),
 			), nil
 		}
 		if err := core.SaveConfig(); err != nil {
@@ -392,6 +432,114 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	default:
 		return mcp.NewToolResultError("action must be 'get' or 'set'"), nil
 	}
+}
+
+func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name := request.GetString("module", "")
+	if name == "" {
+		return mcp.NewToolResultError("module parameter is required"), nil
+	}
+
+	if name == "all" {
+		var b strings.Builder
+		for _, m := range core.AllModules() {
+			before := m.Status()
+			u, ok := m.(core.Uninstaller)
+			if !ok {
+				fmt.Fprintf(&b, "%s: no uninstall support\n", m.Name())
+				continue
+			}
+			if err := u.Uninstall(); err != nil {
+				fmt.Fprintf(&b, "%s: error: %v\n", m.Name(), err)
+				continue
+			}
+			after := m.Status()
+			removed := before.Linked - after.Linked
+			fmt.Fprintf(&b, "%s: removed %d links\n", m.Name(), removed)
+		}
+		return mcp.NewToolResultText(b.String()), nil
+	}
+
+	m, ok := core.GetModule(name)
+	if !ok {
+		return mcp.NewToolResultError(
+			fmt.Sprintf("unknown module %q — valid: %s", name, strings.Join(core.ModuleNames(), ", ")),
+		), nil
+	}
+
+	u, uOk := m.(core.Uninstaller)
+	if !uOk {
+		return mcp.NewToolResultError(fmt.Sprintf("%s does not support uninstall", name)), nil
+	}
+
+	before := m.Status()
+	if err := u.Uninstall(); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("uninstall %s: %v", name, err)), nil
+	}
+	after := m.Status()
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "before: %d linked, %d missing\n", before.Linked, before.Missing)
+	fmt.Fprintf(&b, "after:  %d linked, %d missing\n", after.Linked, after.Missing)
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	var b strings.Builder
+	var issues int
+
+	for _, m := range core.AllModules() {
+		if core.IsModuleSkipped(m.Name()) {
+			fmt.Fprintf(&b, "%-15s  skipped\n", m.Name())
+			continue
+		}
+
+		if le, ok := m.(core.LinkExporter); ok {
+			links := le.Links()
+			modOk := true
+			for _, lp := range links {
+				status := core.CheckLink(lp.Src, lp.Dst)
+				if status != "ok" {
+					if modOk {
+						fmt.Fprintf(&b, "%-15s\n", m.Name())
+						modOk = false
+					}
+					switch status {
+					case "missing":
+						fmt.Fprintf(&b, "  missing: %s\n", lp.Dst)
+					case "wrong":
+						fmt.Fprintf(&b, "  wrong target: %s\n", lp.Dst)
+					case "file":
+						fmt.Fprintf(&b, "  regular file (not symlinked): %s\n", lp.Dst)
+					}
+					issues++
+				}
+			}
+			if modOk {
+				fmt.Fprintf(&b, "%-15s  ok (%d links)\n", m.Name(), len(links))
+			}
+		} else {
+			s := m.Status()
+			if s.Missing > 0 {
+				fmt.Fprintf(&b, "%-15s  %d missing\n", m.Name(), s.Missing)
+				issues += s.Missing
+			} else {
+				extra := ""
+				if s.Extra != "" {
+					extra = " (" + s.Extra + ")"
+				}
+				fmt.Fprintf(&b, "%-15s  ok%s\n", m.Name(), extra)
+			}
+		}
+	}
+
+	fmt.Fprintln(&b)
+	if issues == 0 {
+		fmt.Fprintln(&b, "No drift detected.")
+	} else {
+		fmt.Fprintf(&b, "%d issue(s) — run dfinstall_install with module 'all' to fix\n", issues)
+	}
+	return mcp.NewToolResultText(b.String()), nil
 }
 
 // --- Doctor check helpers ---

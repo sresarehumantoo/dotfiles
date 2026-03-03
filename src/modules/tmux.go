@@ -44,6 +44,26 @@ func (TmuxModule) Install() error {
 	return nil
 }
 
+func (TmuxModule) Uninstall() error {
+	tmuxConf := core.XDGTarget("tmux", "tmux.conf")
+	if err := core.UnlinkFile(core.ConfigPath("tmux", "tmux.conf"), tmuxConf); err != nil {
+		return err
+	}
+	if err := core.UnlinkFile(tmuxConf, core.HomeTarget(".tmux.conf")); err != nil {
+		return err
+	}
+	core.Ok("tmux config uninstalled")
+	return nil
+}
+
+func (TmuxModule) Links() []core.LinkPair {
+	tmuxConf := core.XDGTarget("tmux", "tmux.conf")
+	return []core.LinkPair{
+		{Src: core.ConfigPath("tmux", "tmux.conf"), Dst: tmuxConf},
+		{Src: tmuxConf, Dst: core.HomeTarget(".tmux.conf")},
+	}
+}
+
 func (TmuxModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "tmux"}
 	if core.CheckLink(core.ConfigPath("tmux", "tmux.conf"), core.XDGTarget("tmux", "tmux.conf")) == "ok" {

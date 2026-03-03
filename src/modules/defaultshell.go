@@ -24,6 +24,11 @@ func (DefaultShellModule) Install() error {
 		return nil
 	}
 
+	if core.DryRun {
+		core.Info("would change default shell to %s", zshPath)
+		return nil
+	}
+
 	core.Info("Changing default shell to zsh...")
 	core.PauseSpinner()
 	cmd := exec.Command("chsh", "-s", zshPath)

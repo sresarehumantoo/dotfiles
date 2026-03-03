@@ -20,6 +20,11 @@ func (DeltaModule) Install() error {
 		return nil
 	}
 
+	if core.DryRun {
+		core.Info("would install delta")
+		return nil
+	}
+
 	core.Info("Installing delta...")
 
 	if _, err := exec.LookPath("apt-get"); err == nil {

@@ -2,6 +2,10 @@ package modules
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -24,39 +28,41 @@ var shellLinks = []struct{ src, dst string }{
 }
 
 func (ShellModule) Install() error {
-	// Scan for custom shell files before linking overwrites zshrc
-	discovered := ScanCustomShellFiles()
-	newFiles := FilterNewFiles(discovered)
+	if !core.DryRun {
+		// Scan for custom shell files before linking overwrites zshrc
+		discovered := ScanCustomShellFiles()
+		newFiles := FilterNewFiles(discovered)
 
-	if len(newFiles) > 0 {
-		core.PauseSpinner()
-		preserved, dismissed, err := RunPreserveMenu(newFiles)
-		core.ResumeSpinner()
+		if len(newFiles) > 0 {
+			core.PauseSpinner()
+			preserved, dismissed, err := RunPreserveMenu(newFiles)
+			core.ResumeSpinner()
 
-		if err != nil {
-			core.Warn("custom file preservation: %v", err)
-		} else {
-			changed := false
-			if len(preserved) > 0 {
-				core.Cfg.PreservedFiles = MergeUnique(core.Cfg.PreservedFiles, preserved)
-				changed = true
-			}
-			if len(dismissed) > 0 {
-				core.Cfg.DismissedFiles = MergeUnique(core.Cfg.DismissedFiles, dismissed)
-				changed = true
-			}
-			if changed {
-				if err := core.SaveConfig(); err != nil {
-					core.Warn("failed to save config: %v", err)
+			if err != nil {
+				core.Warn("custom file preservation: %v", err)
+			} else {
+				changed := false
+				if len(preserved) > 0 {
+					core.Cfg.PreservedFiles = MergeUnique(core.Cfg.PreservedFiles, preserved)
+					changed = true
+				}
+				if len(dismissed) > 0 {
+					core.Cfg.DismissedFiles = MergeUnique(core.Cfg.DismissedFiles, dismissed)
+					changed = true
+				}
+				if changed {
+					if err := core.SaveConfig(); err != nil {
+						core.Warn("failed to save config: %v", err)
+					}
 				}
 			}
 		}
-	}
 
-	// Write custom-sources.zsh if there are any preserved files
-	if len(core.Cfg.PreservedFiles) > 0 {
-		if err := WriteCustomSourcesFile(core.Cfg.PreservedFiles); err != nil {
-			core.Warn("failed to write custom-sources.zsh: %v", err)
+		// Write custom-sources.zsh if there are any preserved files
+		if len(core.Cfg.PreservedFiles) > 0 {
+			if err := WriteCustomSourcesFile(core.Cfg.PreservedFiles); err != nil {
+				core.Warn("failed to write custom-sources.zsh: %v", err)
+			}
 		}
 	}
 
@@ -66,8 +72,87 @@ func (ShellModule) Install() error {
 			return err
 		}
 	}
+
+	installCompletions()
+
 	core.Ok("Shell dotfiles done")
 	return nil
+}
+
+// completionDst returns the path where zsh completions are installed.
+func completionDst() string {
+	return core.HomeTarget(".zsh.d", "_dfinstall.zsh")
+}
+
+// installCompletions generates and installs zsh completions for dfinstall.
+func installCompletions() {
+	if core.DryRun {
+		core.Info("would install completions to %s", completionDst())
+		return
+	}
+
+	// Find the dfinstall executable
+	exe, err := os.Executable()
+	if err != nil {
+		core.Debug("completions: could not find executable: %v", err)
+		return
+	}
+
+	// Prefer the built binary if running via go run
+	builtExe := filepath.Join(core.DotfilesDir(), "bin", "dfinstall")
+	if _, err := os.Stat(builtExe); err == nil {
+		exe = builtExe
+	}
+
+	raw, err := exec.Command(exe, "completion", "zsh").Output()
+	if err != nil {
+		core.Debug("completions: generation failed: %v", err)
+		return
+	}
+
+	// Strip any banner output before the actual completion script
+	out := raw
+	if idx := strings.Index(string(raw), "#compdef"); idx >= 0 {
+		out = raw[idx:]
+	}
+
+	dst := completionDst()
+	if err := core.EnsureDir(filepath.Dir(dst)); err != nil {
+		core.Warn("completions: %v", err)
+		return
+	}
+
+	if err := os.WriteFile(dst, out, 0644); err != nil {
+		core.Warn("completions: %v", err)
+		return
+	}
+	core.Ok("installed completions: %s", dst)
+}
+
+func (ShellModule) Uninstall() error {
+	for _, l := range shellLinks {
+		if err := core.UnlinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
+			return err
+		}
+	}
+	// Remove generated files
+	for _, f := range []string{CustomSourcesFilePath(), completionDst()} {
+		if !core.DryRun {
+			os.Remove(f)
+		} else {
+			core.Info("would remove: %s", f)
+		}
+	}
+	core.Ok("Shell dotfiles uninstalled")
+	return nil
+}
+
+func (ShellModule) Links() []core.LinkPair {
+	pairs := make([]core.LinkPair, len(shellLinks))
+	for i, l := range shellLinks {
+		pairs[i] = core.LinkPair{Src: core.ConfigPath(l.src), Dst: core.HomeTarget(l.dst)}
+	}
+	return pairs
 }
 
 func (ShellModule) Status() core.ModuleStatus {

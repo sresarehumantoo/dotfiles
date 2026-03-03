@@ -13,6 +13,13 @@ func PrintStatus() {
 
 	for _, m := range core.AllModules() {
 		s := m.Status()
+		if core.IsModuleSkipped(m.Name()) {
+			if s.Extra != "" {
+				s.Extra += ", skipped"
+			} else {
+				s.Extra = "skipped"
+			}
+		}
 		fmt.Printf("%-15s  %7d  %7d  %s\n", s.Name, s.Linked, s.Missing, s.Extra)
 	}
 }

@@ -15,6 +15,20 @@ func (GitModule) Install() error {
 	return nil
 }
 
+func (GitModule) Uninstall() error {
+	if err := core.UnlinkFile(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")); err != nil {
+		return err
+	}
+	core.Ok("Git config uninstalled")
+	return nil
+}
+
+func (GitModule) Links() []core.LinkPair {
+	return []core.LinkPair{
+		{Src: core.ConfigPath("git", "gitconfig"), Dst: core.HomeTarget(".gitconfig")},
+	}
+}
+
 func (GitModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "git"}
 	if core.CheckLink(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")) == "ok" {

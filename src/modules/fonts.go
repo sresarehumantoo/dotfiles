@@ -13,6 +13,11 @@ type FontsModule struct{}
 func (FontsModule) Name() string { return "fonts" }
 
 func (FontsModule) Install() error {
+	if core.DryRun {
+		core.Info("would install fonts to ~/.local/share/fonts/")
+		return nil
+	}
+
 	core.Info("Installing fonts...")
 
 	fontDir := core.HomeTarget(".local", "share", "fonts")

@@ -78,6 +78,11 @@ func userInGroup(group string) bool {
 }
 
 func (ExtrasModule) Install() error {
+	if core.DryRun {
+		core.Info("would install: CLI utils, Python tooling, Docker, Terraform")
+		return nil
+	}
+
 	// --- CLI utils ---
 	core.Info("Installing CLI utilities...")
 	cliPkgs := []string{
