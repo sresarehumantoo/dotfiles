@@ -13,6 +13,7 @@ import (
 var (
 	flagVerbose  bool
 	flagDebug    bool
+	flagDryRun   bool
 	flagBackup   bool
 	flagExtended bool
 )
@@ -30,6 +31,12 @@ func main() {
 			case flagVerbose:
 				core.Level = core.LogVerbose
 			}
+			if flagDryRun {
+				core.DryRun = true
+				if core.Level < core.LogVerbose {
+					core.Level = core.LogVerbose
+				}
+			}
 			core.LoadConfig()
 			core.PrintBanner()
 		},
@@ -37,6 +44,7 @@ func main() {
 
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "Show detailed output")
 	rootCmd.PersistentFlags().BoolVar(&flagDebug, "debug", false, "Show debug output (implies verbose)")
+	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "Preview changes without modifying the filesystem")
 
 	runInstall := func(cmd *cobra.Command, args []string) error {
 		if os.Geteuid() == 0 {
@@ -220,7 +228,38 @@ func main() {
 	installCmd.ValidArgsFunction = completeModules
 	updateCmd.ValidArgsFunction = completeModules
 
-	rootCmd.AddCommand(installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd)
+	uninstallCmd := &cobra.Command{
+		Use:   "uninstall <module|all>",
+		Short: "Remove symlinks created by dfinstall",
+		Long: fmt.Sprintf("Uninstall one or all link-based modules.\n\n%s",
+			modules.ValidModuleNames()),
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			core.DetectEnvironment()
+			target := args[0]
+			if target == "all" {
+				return uninstallAll()
+			}
+			m, ok := core.GetModule(target)
+			if !ok {
+				return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
+			}
+			return uninstallOne(m)
+		},
+	}
+	uninstallCmd.ValidArgsFunction = completeModules
+
+	diffCmd := &cobra.Command{
+		Use:   "diff",
+		Short: "Show drift between config and filesystem",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			core.DetectEnvironment()
+			core.LoadConfig()
+			return runDiff()
+		},
+	}
+
+	rootCmd.AddCommand(installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd, uninstallCmd, diffCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
@@ -241,8 +280,14 @@ func installAll() error {
 	total := len(all)
 
 	// Verbose/debug: full detailed output
+	var skipped int
 	if core.Level >= core.LogVerbose {
 		for _, m := range all {
+			if core.IsModuleSkipped(m.Name()) {
+				core.Info("--- %s --- (skipped)", m.Name())
+				skipped++
+				continue
+			}
 			core.Info("--- %s ---", m.Name())
 			if err := m.Install(); err != nil {
 				core.Err("%s failed: %v", m.Name(), err)
@@ -266,6 +311,10 @@ func installAll() error {
 
 	var failures []string
 	for i, m := range all {
+		if core.IsModuleSkipped(m.Name()) {
+			skipped++
+			continue
+		}
 		sp.Update("Installing %s (%d/%d)", m.Name(), i+1, total)
 		core.Debug("starting module %s", m.Name())
 		if err := m.Install(); err != nil {
@@ -289,7 +338,7 @@ func installAll() error {
 	if doBackup {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
-	core.PrintResult(total, len(failures))
+	core.PrintResult(total-skipped, len(failures))
 	core.PrintHint("Open a new terminal or run: exec zsh")
 	return nil
 }
@@ -348,6 +397,10 @@ func installOne(m core.Module) error {
 
 // shouldBackup decides whether to create a backup and whether this is a first run.
 func shouldBackup() (doBackup bool, firstRun bool) {
+	if core.DryRun {
+		return false, false
+	}
+
 	// --backup flag always wins
 	if flagBackup {
 		return true, false
@@ -369,10 +422,144 @@ func shouldBackup() (doBackup bool, firstRun bool) {
 
 // saveFirstRunConfig writes the config with skip_backup: true after first-run auto-backup.
 func saveFirstRunConfig() {
+	if core.DryRun {
+		return
+	}
 	core.Cfg.SkipBackup = true
 	if err := core.SaveConfig(); err != nil {
 		core.Warn("failed to save config: %v", err)
 	} else {
 		core.Info("config saved: %s (skip_backup: true)", core.ConfigFilePath())
 	}
+}
+
+func uninstallAll() error {
+	all := core.AllModules()
+	total := len(all)
+
+	if core.Level >= core.LogVerbose {
+		for _, m := range all {
+			u, ok := m.(core.Uninstaller)
+			if !ok {
+				core.Info("--- %s --- (no uninstall support)", m.Name())
+				continue
+			}
+			core.Info("--- %s ---", m.Name())
+			if err := u.Uninstall(); err != nil {
+				core.Err("%s: %v", m.Name(), err)
+			}
+		}
+		return nil
+	}
+
+	sp := core.NewSpinner()
+	sp.Start()
+
+	var failures []string
+	for i, m := range all {
+		u, ok := m.(core.Uninstaller)
+		if !ok {
+			continue
+		}
+		sp.Update("Uninstalling %s (%d/%d)", m.Name(), i+1, total)
+		if err := u.Uninstall(); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
+		}
+	}
+	sp.Stop()
+
+	core.FlushWarnings()
+	for _, f := range failures {
+		core.Err("%s", f)
+	}
+
+	core.PrintResult(total, len(failures))
+	return nil
+}
+
+func uninstallOne(m core.Module) error {
+	u, ok := m.(core.Uninstaller)
+	if !ok {
+		core.Warn("%s does not support uninstall", m.Name())
+		return nil
+	}
+
+	if core.Level >= core.LogVerbose {
+		return u.Uninstall()
+	}
+
+	sp := core.NewSpinner()
+	sp.Update("Uninstalling %s", m.Name())
+	sp.Start()
+
+	err := u.Uninstall()
+	sp.Stop()
+
+	core.FlushWarnings()
+
+	if err != nil {
+		core.Err("%s: %v", m.Name(), err)
+		return err
+	}
+
+	core.PrintResult(1, 0)
+	return nil
+}
+
+func runDiff() error {
+	all := core.AllModules()
+	var issues int
+
+	for _, m := range all {
+		if core.IsModuleSkipped(m.Name()) {
+			fmt.Printf("%-15s  skipped\n", m.Name())
+			continue
+		}
+
+		if le, ok := m.(core.LinkExporter); ok {
+			links := le.Links()
+			modOk := true
+			for _, lp := range links {
+				status := core.CheckLink(lp.Src, lp.Dst)
+				if status != "ok" {
+					if modOk {
+						fmt.Printf("%-15s\n", m.Name())
+						modOk = false
+					}
+					switch status {
+					case "missing":
+						fmt.Printf("  missing: %s\n", lp.Dst)
+					case "wrong":
+						fmt.Printf("  wrong target: %s\n", lp.Dst)
+					case "file":
+						fmt.Printf("  regular file (not symlinked): %s\n", lp.Dst)
+					}
+					issues++
+				}
+			}
+			if modOk {
+				fmt.Printf("%-15s  ok (%d links)\n", m.Name(), len(links))
+			}
+		} else {
+			s := m.Status()
+			if s.Missing > 0 {
+				fmt.Printf("%-15s  %d missing\n", m.Name(), s.Missing)
+				issues += s.Missing
+			} else {
+				extra := ""
+				if s.Extra != "" {
+					extra = " (" + s.Extra + ")"
+				}
+				fmt.Printf("%-15s  ok%s\n", m.Name(), extra)
+			}
+		}
+	}
+
+	fmt.Println()
+	if issues == 0 {
+		fmt.Println("No drift detected.")
+	} else {
+		fmt.Printf("%d issue(s) — run dfinstall install all to fix\n", issues)
+	}
+	return nil
 }

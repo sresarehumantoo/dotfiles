@@ -1,9 +1,13 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
+
+// DryRun prevents filesystem modifications when true.
+var DryRun bool
 
 // LinkFile creates a symlink at dst pointing to src.
 // - Existing correct symlink -> no-op
@@ -11,6 +15,11 @@ import (
 // - Existing regular file -> backup via backup manager, then .bak fallback, then link
 // - Missing parent dirs -> create them
 func LinkFile(src, dst string) error {
+	if DryRun {
+		Info("would link: %s -> %s", dst, src)
+		return nil
+	}
+
 	Debug("link: %s -> %s", src, dst)
 
 	if err := BackupFile(dst); err != nil {
@@ -70,7 +79,49 @@ func CheckLink(src, dst string) string {
 
 // EnsureDir creates a directory (and parents) if it doesn't exist.
 func EnsureDir(dir string) error {
+	if DryRun {
+		Debug("would create dir: %s", dir)
+		return nil
+	}
 	return os.MkdirAll(dir, 0755)
+}
+
+// UnlinkFile removes the symlink at dst only if it points to src.
+// Returns nil if dst is missing, not a symlink, or points elsewhere (with warning).
+func UnlinkFile(src, dst string) error {
+	fi, err := os.Lstat(dst)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", dst, err)
+	}
+
+	if fi.Mode()&os.ModeSymlink == 0 {
+		Warn("not a symlink, skipping: %s", dst)
+		return nil
+	}
+
+	current, err := os.Readlink(dst)
+	if err != nil {
+		return fmt.Errorf("readlink %s: %w", dst, err)
+	}
+
+	if current != src {
+		Warn("symlink points elsewhere (%s), skipping: %s", current, dst)
+		return nil
+	}
+
+	if DryRun {
+		Info("would unlink: %s", dst)
+		return nil
+	}
+
+	if err := os.Remove(dst); err != nil {
+		return fmt.Errorf("remove %s: %w", dst, err)
+	}
+	Ok("unlinked: %s", dst)
+	return nil
 }
 
 // ConfigPath returns the absolute path to a file under config/.

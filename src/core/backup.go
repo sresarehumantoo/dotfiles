@@ -85,6 +85,10 @@ func BackupFile(dst string) error {
 		return nil
 	}
 
+	if DryRun {
+		return nil
+	}
+
 	if IsSystemPath(dst) {
 		Debug("backup: skipping system path %s", dst)
 		return nil

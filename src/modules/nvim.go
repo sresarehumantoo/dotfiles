@@ -86,20 +86,47 @@ func (NvimModule) Install() error {
 	}
 
 	// Sync plugins headlessly
-	if _, err := exec.LookPath("nvim"); err == nil {
-		core.Info("Syncing Neovim plugins...")
-		cmd := exec.Command("nvim", "--headless", "+Lazy! sync", "+qa")
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		if err := cmd.Run(); err != nil {
-			core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
+	if !core.DryRun {
+		if _, err := exec.LookPath("nvim"); err == nil {
+			core.Info("Syncing Neovim plugins...")
+			cmd := exec.Command("nvim", "--headless", "+Lazy! sync", "+qa")
+			if core.Level >= core.LogVerbose {
+				cmd.Stdout = os.Stdout
+				cmd.Stderr = os.Stderr
+			}
+			if err := cmd.Run(); err != nil {
+				core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
+			}
 		}
 	}
 
 	core.Ok("Neovim config done")
 	return nil
+}
+
+func (NvimModule) Uninstall() error {
+	nvimDir := core.XDGTarget("nvim")
+	for _, l := range nvimLinks {
+		src := core.ConfigPath(l.Src)
+		dst := filepath.Join(nvimDir, l.Dst)
+		if err := core.UnlinkFile(src, dst); err != nil {
+			return err
+		}
+	}
+	core.Ok("Neovim config uninstalled")
+	return nil
+}
+
+func (NvimModule) Links() []core.LinkPair {
+	nvimDir := core.XDGTarget("nvim")
+	pairs := make([]core.LinkPair, len(nvimLinks))
+	for i, l := range nvimLinks {
+		pairs[i] = core.LinkPair{
+			Src: core.ConfigPath(l.Src),
+			Dst: filepath.Join(nvimDir, l.Dst),
+		}
+	}
+	return pairs
 }
 
 func (NvimModule) Status() core.ModuleStatus {

@@ -21,6 +21,11 @@ func (WslModule) Install() error {
 		return nil
 	}
 
+	if core.DryRun {
+		core.Info("would configure WSL: wsl.conf, sysctl, wslconfig, win-home symlink, git fsmonitor")
+		return nil
+	}
+
 	core.Info("Configuring WSL environment...")
 
 	installWslConf()
