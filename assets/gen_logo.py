@@ -112,11 +112,9 @@ GOPHER_SCALE = 0.394
 GOPHER_TX, GOPHER_TY = 20, 20
 # Derived positions in content-space coordinates:
 GOPHER_HEAD_CX = GOPHER_TX + 195 * GOPHER_SCALE   # ≈ 97
-GOPHER_HEAD_TOP_Y = GOPHER_TX + 13 * GOPHER_SCALE  # ≈ 25
-GOPHER_RHAND_X = GOPHER_TX + 392 * GOPHER_SCALE    # ≈ 174
-GOPHER_RHAND_Y = GOPHER_TY + 290 * GOPHER_SCALE    # ≈ 134
-GOPHER_BELLY_CX = GOPHER_TX + 195 * GOPHER_SCALE   # ≈ 97
-GOPHER_BELLY_CY = GOPHER_TY + 350 * GOPHER_SCALE   # ≈ 158
+# Right hand center (original ~375, 288 → scaled)
+GOPHER_RHAND_CX = GOPHER_TX + 375 * GOPHER_SCALE  # ≈ 168
+GOPHER_RHAND_CY = GOPHER_TY + 288 * GOPHER_SCALE  # ≈ 133
 
 
 def n(v):
@@ -189,58 +187,26 @@ def gopher_glow_def():
     )
 
 
-def hardhat():
-    """Construction hardhat sitting on the gopher's head."""
-    cx = round(GOPHER_HEAD_CX)     # ≈ 97
-    brim_y = round(GOPHER_HEAD_TOP_Y)  # ≈ 25
-    dome_top = brim_y - 17
-    hw = 26  # half-width of dome
-    brim_hw = 31  # half-width of brim
-
-    return (
-        f'<g>\n'
-        # Dome
-        f'  <path d="M{cx - hw},{brim_y} '
-        f'Q{cx - hw},{dome_top} {cx},{dome_top} '
-        f'Q{cx + hw},{dome_top} {cx + hw},{brim_y} Z" '
-        f'fill="#F5A623" stroke="#D4940A" stroke-width="1"/>\n'
-        # Brim
-        f'  <rect x="{cx - brim_hw}" y="{brim_y - 1}" width="{brim_hw * 2}" '
-        f'height="5" rx="2.5" fill="#F5A623" stroke="#D4940A" stroke-width="0.8"/>\n'
-        # Highlight stripe
-        f'  <rect x="{cx - 8}" y="{dome_top + 5}" width="16" height="2.5" '
-        f'rx="1" fill="{GO_WHITE}" opacity="0.3"/>\n'
-        f'</g>'
-    )
-
-
 def wrench():
-    """Small wrench near the gopher's right hand."""
-    # Position near the right hand, angled as if being held
-    wx = round(GOPHER_RHAND_X - 6)  # ≈ 168
-    wy = round(GOPHER_RHAND_Y - 8)  # ≈ 126
+    """Wrench held in the gopher's right hand.
+
+    The handle midpoint overlaps the hand center so the gopher appears to grip it,
+    with the wrench head extending outward to the right.
+    """
+    # Hand center in content space ≈ (168, 133)
+    hx = round(GOPHER_RHAND_CX)
+    hy = round(GOPHER_RHAND_CY)
     return (
-        f'<g transform="translate({wx},{wy}) rotate(-30)">\n'
-        # Handle
-        f'  <rect x="0" y="-3" width="24" height="6" rx="2.5" '
-        f'fill="#B8B8B8" stroke="#888" stroke-width="0.6"/>\n'
+        # Rotate around the hand center so the wrench angles upward-right
+        f'<g transform="translate({hx},{hy}) rotate(-35)">\n'
+        # Handle — centered on origin so hand grips the middle
+        f'  <rect x="-12" y="-3.5" width="30" height="7" rx="3" '
+        f'fill="#B0B0B0" stroke="#808080" stroke-width="0.8"/>\n'
         # Open-end wrench head
-        f'  <path d="M24,-6.5 L33,-6.5 L33,-2 L27.5,-2 L27.5,2 L33,2 L33,6.5 L24,6.5 Z" '
-        f'fill="#B8B8B8" stroke="#888" stroke-width="0.6"/>\n'
+        f'  <path d="M18,-8 L28,-8 L28,-2.5 L22,-2.5 L22,2.5 L28,2.5 L28,8 L18,8 Z" '
+        f'fill="#B0B0B0" stroke="#808080" stroke-width="0.8"/>\n'
         f'</g>'
     )
-
-
-def belly_dots():
-    """Three colored dots on the gopher's belly — the 'dotfiles' motif."""
-    cx, cy = round(GOPHER_BELLY_CX), round(GOPHER_BELLY_CY)
-    colors = [GO_BLUE, ACCENT, TEXT_DIM]
-    spacing = 14
-    parts = []
-    for i, color in enumerate(colors):
-        dx = cx + (i - 1) * spacing
-        parts.append(circle(dx, cy, 4.5, color, 0.85))
-    return "\n    ".join(parts)
 
 
 def terminal_dots():
@@ -292,14 +258,8 @@ def build_svg():
         f'      <!-- gopher -->',
         f'      {gopher_group()}',
         "",
-        f'      <!-- hardhat -->',
-        f'      {hardhat()}',
-        "",
-        f'      <!-- wrench -->',
+        f'      <!-- wrench in right hand -->',
         f'      {wrench()}',
-        "",
-        f'      <!-- belly dots (dotfiles motif) -->',
-        f'      {belly_dots()}',
         "",
         f'      <!-- title -->',
         f'      {text(text_x, 100, "dfinstall", 52, GO_WHITE, weight="bold")}',

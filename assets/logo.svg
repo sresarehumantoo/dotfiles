@@ -261,23 +261,11 @@
   C225.247,149.475,178.874,153.527,176.913,138.045C175.348,125.682,176.913,138.045,176.913,138.045z"/>
 </g>
 
-      <!-- hardhat -->
-      <g>
-  <path d="M71,25 Q71,8 97,8 Q123,8 123,25 Z" fill="#F5A623" stroke="#D4940A" stroke-width="1"/>
-  <rect x="66" y="24" width="62" height="5" rx="2.5" fill="#F5A623" stroke="#D4940A" stroke-width="0.8"/>
-  <rect x="89" y="13" width="16" height="2.5" rx="1" fill="#FFFFFF" opacity="0.3"/>
+      <!-- wrench in right hand -->
+      <g transform="translate(168,133) rotate(-35)">
+  <rect x="-12" y="-3.5" width="30" height="7" rx="3" fill="#B0B0B0" stroke="#808080" stroke-width="0.8"/>
+  <path d="M18,-8 L28,-8 L28,-2.5 L22,-2.5 L22,2.5 L28,2.5 L28,8 L18,8 Z" fill="#B0B0B0" stroke="#808080" stroke-width="0.8"/>
 </g>
-
-      <!-- wrench -->
-      <g transform="translate(168,126) rotate(-30)">
-  <rect x="0" y="-3" width="24" height="6" rx="2.5" fill="#B8B8B8" stroke="#888" stroke-width="0.6"/>
-  <path d="M24,-6.5 L33,-6.5 L33,-2 L27.5,-2 L27.5,2 L33,2 L33,6.5 L24,6.5 Z" fill="#B8B8B8" stroke="#888" stroke-width="0.6"/>
-</g>
-
-      <!-- belly dots (dotfiles motif) -->
-      <circle cx="83" cy="158" r="4.5" fill="#00ADD8" opacity="0.85"/>
-    <circle cx="97" cy="158" r="4.5" fill="#9ECE6A" opacity="0.85"/>
-    <circle cx="111" cy="158" r="4.5" fill="#7AA2F7" opacity="0.85"/>
 
       <!-- title -->
       <text x="210" y="100" font-family="monospace, 'SF Mono', Consolas, monospace" font-size="52" font-weight="bold" fill="#FFFFFF" text-anchor="start">dfinstall</text>
