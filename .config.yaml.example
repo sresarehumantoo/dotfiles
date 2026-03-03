@@ -13,3 +13,18 @@ skip_backup: true
 #   - kubectl
 #   - aws
 #   - sudo
+
+# Skip specific modules during 'install all' / 'update all'
+# skip_modules:
+#   - wsl
+#   - fonts
+
+# Shell files preserved when the shell module replaces ~/.zshrc
+# (managed automatically via interactive prompt on first install)
+# preserved_files:
+#   - .companyrc
+#   - .work_env
+
+# Shell files the user chose NOT to preserve (won't be prompted again)
+# dismissed_files:
+#   - .old_aliases
