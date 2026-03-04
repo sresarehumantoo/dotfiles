@@ -11,6 +11,7 @@ import (
 func RegisterAllModules() {
 	core.RegisterModule(&PackagesModule{})
 	core.RegisterModule(&ExtrasModule{})
+	core.RegisterModule(&ToolkitModule{})
 	core.RegisterModule(&DeltaModule{})
 	core.RegisterModule(&FontsModule{})
 	core.RegisterModule(&OmzModule{})
