@@ -212,7 +212,7 @@ Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
 **File:** `modules/tmux.go`
 
-Symlinks tmux configuration:
+Symlinks tmux configuration and installs TPM with plugins:
 
 | Source | Destination |
 |--------|-------------|
@@ -221,9 +221,27 @@ Symlinks tmux configuration:
 
 Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 
-Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color theme.
+**TPM (Tmux Plugin Manager):**
+- Clones `tmux-plugins/tpm` to `~/.tmux/plugins/tpm` (skips if already present)
+- Sets `TMUX_PLUGIN_MANAGER_PATH` in the tmux global environment before running the install script
+- Runs `tpm/bin/install_plugins` to install declared plugins
 
-**Status:** Checks 2 symlinks.
+**Plugins:**
+
+| Plugin | Purpose |
+|--------|---------|
+| tmux-resurrect | Save/restore tmux sessions (prefix+Ctrl+s / prefix+Ctrl+r) |
+| tmux-continuum | Automatic session save/restore on tmux start |
+| tmux-yank | Clipboard copy from copy mode |
+| tmux-logging | Pane logging, screen capture, history save (`~/.local/share/tmux/logs/`) |
+
+**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar with a powerline theme.
+
+Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
+
+**Uninstall:** Removes symlinks and deletes `~/.tmux/plugins/`.
+
+**Status:** Checks 2 symlinks. Shows `tpm +N plugins` when TPM is installed with plugins.
 
 ---
 
