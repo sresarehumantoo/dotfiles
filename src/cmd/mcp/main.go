@@ -126,7 +126,7 @@ func registerTools(s *server.MCPServer) {
 				mcp.Description("'get' to read config, 'set' to write a value"),
 			),
 			mcp.WithString("key",
-				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules"),
+				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url"),
 			),
 			mcp.WithString("value",
 				mcp.Description("Value to set (required for 'set' action)"),
@@ -360,6 +360,8 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			fmt.Fprintf(&b, "preserved_files: %v\n", core.Cfg.PreservedFiles)
 			fmt.Fprintf(&b, "dismissed_files: %v\n", core.Cfg.DismissedFiles)
 			fmt.Fprintf(&b, "skip_modules: %v\n", core.Cfg.SkipModules)
+			fmt.Fprintf(&b, "toolkit_tools: %v\n", core.Cfg.ToolkitTools)
+			fmt.Fprintf(&b, "toolkit_registry_url: %s\n", core.Cfg.ToolkitRegistryURL)
 			fmt.Fprintf(&b, "\nconfig file: %s\n", core.ConfigFilePath())
 			return mcp.NewToolResultText(b.String()), nil
 		}
@@ -380,9 +382,17 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.DismissedFiles)), nil
 		case "skip_modules":
 			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.SkipModules)), nil
+		case "toolkit_tools":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.ToolkitTools)), nil
+		case "toolkit_registry_url":
+			url := core.Cfg.ToolkitRegistryURL
+			if url == "" {
+				url = core.DefaultRegistryURL
+			}
+			return mcp.NewToolResultText(url), nil
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url)", key),
 			), nil
 		}
 
@@ -419,9 +429,17 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			} else {
 				core.Cfg.SkipModules = strings.Split(value, ",")
 			}
+		case "toolkit_tools":
+			if value == "" {
+				core.Cfg.ToolkitTools = nil
+			} else {
+				core.Cfg.ToolkitTools = strings.Split(value, ",")
+			}
+		case "toolkit_registry_url":
+			core.Cfg.ToolkitRegistryURL = value
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url)", key),
 			), nil
 		}
 		if err := core.SaveConfig(); err != nil {
