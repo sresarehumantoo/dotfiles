@@ -3,8 +3,9 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
 COMPACT_MODE=false
-for arg in "$@"; do
-    case "$arg" in
+VHDX_PATH_OVERRIDE=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         -h|--help)
             header "wsl-resize-disk"
             echo "Compact the WSL2 virtual disk (ext4.vhdx)."
@@ -12,44 +13,67 @@ for arg in "$@"; do
             echo "sizes, and offers compaction options."
             echo ""
             echo "Options:"
-            echo "  -h, --help    Show this help"
-            echo "  --compact     Generate a .bat script that compacts the"
-            echo "                disk via export/re-import (no admin required)"
+            echo "  -h, --help          Show this help"
+            echo "  --compact           Generate a .bat script that compacts the"
+            echo "                      disk via export/re-import (no admin required)"
+            echo "  --vhdx-path PATH    Use a specific VHDX file instead of"
+            echo "                      auto-detecting (accepts WSL or Windows paths)"
             exit 0
             ;;
         --compact) COMPACT_MODE=true ;;
+        --vhdx-path)
+            [[ -z "${2:-}" ]] && die "--vhdx-path requires a path argument"
+            VHDX_PATH_OVERRIDE="$2"
+            shift
+            ;;
+        *) die "Unknown option: $1" ;;
     esac
+    shift
 done
 
 require_wsl
 
 # ── Resolve the VHDX path for the current distro ───────────────
-step "Resolving VHDX path..."
-localappdata=$(cmd.exe /C "echo %LOCALAPPDATA%" 2>/dev/null | tr -d '\r')
-[[ -z "$localappdata" ]] && die "Could not determine Windows LOCALAPPDATA path."
-packages_wsl=$(wslpath "$localappdata")/Packages
-
-# Find all VHDX files, then prefer the one matching this distro
-mapfile -t all_vhdx < <(find "$packages_wsl" -maxdepth 3 -name 'ext4.vhdx' -path "*LocalState*" 2>/dev/null)
-[[ ${#all_vhdx[@]} -eq 0 ]] && die "Could not locate ext4.vhdx under $packages_wsl"
-
 distro="${WSL_DISTRO_NAME:-}"
-vhdx_path=""
-if [[ -n "$distro" ]]; then
-    for candidate in "${all_vhdx[@]}"; do
-        if echo "$candidate" | grep -qi "$distro"; then
-            vhdx_path="$candidate"
-            break
-        fi
-    done
+
+if [[ -n "$VHDX_PATH_OVERRIDE" ]]; then
+    step "Using specified VHDX path..."
+    # Accept both Windows and WSL paths
+    if [[ "$VHDX_PATH_OVERRIDE" =~ ^[A-Za-z]:\\ ]]; then
+        vhdx_path=$(wslpath "$VHDX_PATH_OVERRIDE")
+    else
+        vhdx_path="$VHDX_PATH_OVERRIDE"
+    fi
+    [[ -f "$vhdx_path" ]] || die "VHDX file not found: $vhdx_path"
+    vhdx_win=$(wslpath -w "$vhdx_path")
+    vhdx_dir_win=$(wslpath -w "$(dirname "$vhdx_path")")
+    ok "Using VHDX: $vhdx_win"
+else
+    step "Resolving VHDX path..."
+    localappdata=$(cmd.exe /C "echo %LOCALAPPDATA%" 2>/dev/null | tr -d '\r')
+    [[ -z "$localappdata" ]] && die "Could not determine Windows LOCALAPPDATA path."
+    packages_wsl=$(wslpath "$localappdata")/Packages
+
+    # Find all VHDX files, then prefer the one matching this distro
+    mapfile -t all_vhdx < <(find "$packages_wsl" -maxdepth 3 -name 'ext4.vhdx' -path "*LocalState*" 2>/dev/null)
+    [[ ${#all_vhdx[@]} -eq 0 ]] && die "Could not locate ext4.vhdx under $packages_wsl"
+
+    vhdx_path=""
+    if [[ -n "$distro" ]]; then
+        for candidate in "${all_vhdx[@]}"; do
+            if echo "$candidate" | grep -qi "$distro"; then
+                vhdx_path="$candidate"
+                break
+            fi
+        done
+    fi
+    # Fallback to the first match if distro filtering didn't hit
+    [[ -z "$vhdx_path" ]] && vhdx_path="${all_vhdx[0]}"
+
+    vhdx_win=$(wslpath -w "$vhdx_path")
+    vhdx_dir_win=$(wslpath -w "$(dirname "$vhdx_path")")
+    ok "Detected VHDX: $vhdx_win"
 fi
-# Fallback to the first match if distro filtering didn't hit
-[[ -z "$vhdx_path" ]] && vhdx_path="${all_vhdx[0]}"
-
-vhdx_win=$(wslpath -w "$vhdx_path")
-vhdx_dir_win=$(wslpath -w "$(dirname "$vhdx_path")")
-
-ok "Detected VHDX: $vhdx_win"
 
 # ── Size reporting ──────────────────────────────────────────────
 header "Disk usage"

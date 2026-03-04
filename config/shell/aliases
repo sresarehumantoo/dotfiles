@@ -52,6 +52,12 @@ alias tfi="terraform init"
 alias tfp="terraform plan"
 alias tfa="terraform apply"
 
+# Tmux logging (requires tmux-logging plugin)
+alias tlog="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/toggle_logging.sh"
+alias tcap="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/screen_capture.sh"
+alias thist="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/save_complete_history.sh"
+alias tclear="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/clear_history.sh"
+
 # System
 alias ports="ss -tulnp"
 alias myip="curl -s ifconfig.me"
