@@ -10,17 +10,107 @@ import (
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
+// distroIcons maps /etc/os-release ID values to Nerd Font v3 icons.
+// Same mapping as powerlevel10k (internal/icons.zsh + internal/p10k.zsh).
+var distroIcons = map[string]string{
+	"arch":        "\uF303",
+	"debian":      "\uF306",
+	"ubuntu":      "\uF31b",
+	"fedora":      "\uF30a",
+	"centos":      "\uF304",
+	"rhel":        "\U000F111B",
+	"rocky":       "\U000F032B",
+	"almalinux":   "\U000F031D",
+	"amzn":        "\uF270",
+	"kali":        "\uF327",
+	"alpine":      "\uF300",
+	"nixos":       "\uF313",
+	"manjaro":     "\uF312",
+	"opensuse":    "\uF314",
+	"tumbleweed":  "\uF314",
+	"gentoo":      "\uF30d",
+	"void":        "\U000F032E",
+	"artix":       "\U000F031F",
+	"linuxmint":   "\uF30e",
+	"elementary":  "\uF309",
+	"raspbian":    "\uF315",
+	"slackware":   "\uF319",
+	"devuan":      "\uF307",
+	"coreos":      "\uF305",
+	"mageia":      "\uF310",
+	"sabayon":     "\uF317",
+	"aosc":        "\uF301",
+	"endeavouros": "\U000F0322",
+	"guix":        "\U000F0325",
+	"neon":        "\uF17C",
+}
+
+// detectDistroIcon reads /etc/os-release and returns the Nerd Font icon
+// for the current Linux distribution. Falls back to the generic Linux icon.
+func detectDistroIcon() string {
+	genericLinux := "\uF17C" //
+
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return genericLinux
+	}
+
+	var id string
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, "ID=") {
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"'")
+			break
+		}
+	}
+
+	if id == "" {
+		return genericLinux
+	}
+
+	// Check exact match first
+	if icon, ok := distroIcons[id]; ok {
+		return icon
+	}
+
+	// Check substring match (e.g. ID=opensuse-tumbleweed matches opensuse)
+	for distro, icon := range distroIcons {
+		if strings.Contains(id, distro) {
+			return icon
+		}
+	}
+
+	return genericLinux
+}
+
+// writeDistroIcon detects the distro and writes the icon to
+// ~/.config/dfinstall/distro-icon for tmux status bar consumption.
+func writeDistroIcon() {
+	icon := detectDistroIcon()
+	dir := filepath.Join(core.XDGConfigHome(), "dfinstall")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		core.Debug("create dfinstall config dir: %v", err)
+		return
+	}
+	path := filepath.Join(dir, "distro-icon")
+	if err := os.WriteFile(path, []byte(icon), 0644); err != nil {
+		core.Debug("write distro icon: %v", err)
+	}
+}
+
 type TmuxModule struct{}
 
 func (TmuxModule) Name() string { return "tmux" }
 
 func (TmuxModule) Install() error {
 	if core.DryRun {
-		core.Info("would link tmux.conf, clone TPM, install plugins")
+		core.Info("would link tmux.conf, write distro icon, clone TPM, install plugins")
 		return nil
 	}
 
 	core.Info("Setting up tmux...")
+
+	// Detect distro and write icon for tmux status bar
+	writeDistroIcon()
 
 	tmuxDir := core.XDGTarget("tmux")
 	if err := core.EnsureDir(tmuxDir); err != nil {

@@ -16,6 +16,8 @@ var (
 	flagDryRun   bool
 	flagBackup   bool
 	flagExtended bool
+	flagToolkit  bool
+	flagRegistry string
 )
 
 func main() {
@@ -58,6 +60,7 @@ func main() {
 		core.AssertEnvironment()
 
 		core.ExtendedMode = flagExtended
+		core.ToolkitMode = flagToolkit
 
 		// Run extended plugin menu before install (before spinner starts)
 		if flagExtended {
@@ -68,7 +71,32 @@ func main() {
 			core.Cfg.ExtendedPlugins = selected
 		}
 
-		target := args[0]
+		// Apply registry override before toolkit operations
+		if flagRegistry != "" {
+			core.Cfg.ToolkitRegistryURL = flagRegistry
+		}
+
+		// Run toolkit menu before install (before spinner starts)
+		if flagToolkit {
+			selected, err := modules.RunToolkitMenu()
+			if err != nil {
+				return fmt.Errorf("toolkit menu: %w", err)
+			}
+			core.Cfg.ToolkitTools = selected
+		}
+
+		// Infer module from standalone flags when no positional arg given
+		var target string
+		switch {
+		case len(args) > 0:
+			target = args[0]
+		case flagToolkit:
+			target = "toolkit"
+		case flagExtended:
+			target = "omz"
+		default:
+			return fmt.Errorf("module argument required — %s", modules.ValidModuleNames())
+		}
 
 		if target == "all" {
 			return installAll()
@@ -82,28 +110,32 @@ func main() {
 	}
 
 	installCmd := &cobra.Command{
-		Use:   "install <module|all>",
+		Use:   "install [module|all]",
 		Short: "Install dotfile modules",
-		Long: fmt.Sprintf("Install one or all dotfile modules.\n\n%s",
+		Long: fmt.Sprintf("Install one or all dotfile modules.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
 			modules.ValidModuleNames()),
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: runInstall,
 	}
 
 	installCmd.Flags().BoolVar(&flagBackup, "backup", false, "Snapshot targets before modification (restorable)")
 	installCmd.Flags().BoolVar(&flagExtended, "extended", false, "Interactive menu to select extended OMZ plugins")
+	installCmd.Flags().BoolVar(&flagToolkit, "toolkit", false, "Interactive menu to select security/CTF/dev toolkit tools")
+	installCmd.Flags().StringVar(&flagRegistry, "registry", "", "Path or URL to toolkit registry (overrides config)")
 
 	updateCmd := &cobra.Command{
-		Use:   "update <module|all>",
+		Use:   "update [module|all]",
 		Short: "Update dotfile modules (alias for install)",
-		Long: fmt.Sprintf("Re-apply one or all dotfile modules. This is an alias for install.\n\n%s",
+		Long: fmt.Sprintf("Re-apply one or all dotfile modules. This is an alias for install.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
 			modules.ValidModuleNames()),
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MaximumNArgs(1),
 		RunE: runInstall,
 	}
 
 	updateCmd.Flags().BoolVar(&flagBackup, "backup", false, "Snapshot targets before modification (restorable)")
 	updateCmd.Flags().BoolVar(&flagExtended, "extended", false, "Interactive menu to select extended OMZ plugins")
+	updateCmd.Flags().BoolVar(&flagToolkit, "toolkit", false, "Interactive menu to select security/CTF/dev toolkit tools")
+	updateCmd.Flags().StringVar(&flagRegistry, "registry", "", "Path or URL to toolkit registry (overrides config)")
 
 	var flagList bool
 
@@ -296,7 +328,7 @@ func installAll() error {
 		fmt.Println()
 		if firstRun {
 			saveFirstRunConfig()
-		} else if core.ExtendedMode {
+		} else if core.ExtendedMode || core.ToolkitMode {
 			if err := core.SaveConfig(); err != nil {
 				core.Warn("failed to save config: %v", err)
 			}
@@ -330,7 +362,7 @@ func installAll() error {
 
 	if firstRun {
 		saveFirstRunConfig()
-	} else if core.ExtendedMode {
+	} else if core.ExtendedMode || core.ToolkitMode {
 		if err := core.SaveConfig(); err != nil {
 			core.Warn("failed to save config: %v", err)
 		}
@@ -358,7 +390,7 @@ func installOne(m core.Module) error {
 		err := m.Install()
 		if firstRun {
 			saveFirstRunConfig()
-		} else if core.ExtendedMode {
+		} else if core.ExtendedMode || core.ToolkitMode {
 			if err := core.SaveConfig(); err != nil {
 				core.Warn("failed to save config: %v", err)
 			}
@@ -383,7 +415,7 @@ func installOne(m core.Module) error {
 
 	if firstRun {
 		saveFirstRunConfig()
-	} else if core.ExtendedMode {
+	} else if core.ExtendedMode || core.ToolkitMode {
 		if err := core.SaveConfig(); err != nil {
 			core.Warn("failed to save config: %v", err)
 		}
