@@ -87,11 +87,20 @@ func (ExtrasModule) Install() error {
 	core.Info("Installing CLI utilities...")
 	cliPkgs := []string{
 		"xclip", "tree", "fzf", "ripgrep", "fd-find",
-		"bat", "jq", "unzip", "make", "build-essential",
+		"bat", "jq", "unzip", "make", "build-essential", "tealdeer",
 	}
 	if err := installPkg(cliPkgs...); err != nil {
 		core.Warn("Some CLI utils may have failed: %v", err)
 	}
+
+	// Update tldr page cache
+	if _, err := exec.LookPath("tldr"); err == nil {
+		core.Info("Updating tldr page cache...")
+		if out, err := exec.Command("tldr", "--update").CombinedOutput(); err != nil {
+			core.Warn("tldr update failed: %s", strings.TrimSpace(string(out)))
+		}
+	}
+
 	core.Ok("CLI utilities done")
 
 	// --- Python tooling ---
@@ -223,6 +232,7 @@ func (ExtrasModule) Status() core.ModuleStatus {
 		{"unzip", false},
 		{"make", false},
 		{"build-essential", true}, // check via dpkg
+		{"tldr", false},          // tealdeer
 	}
 	for _, c := range cliChecks {
 		if c.dpkg {

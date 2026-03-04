@@ -58,6 +58,11 @@ alias tcap="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/screen_capture.s
 alias thist="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/save_complete_history.sh"
 alias tclear="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/clear_history.sh"
 
+# tldr (tealdeer) — colorized with pager
+if command -v tldr &>/dev/null; then
+  tldr() { command tldr --color always "$@" | less -RFX; }
+fi
+
 # System
 alias ports="ss -tulnp"
 alias myip="curl -s ifconfig.me"
