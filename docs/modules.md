@@ -24,7 +24,7 @@ Skips packages that are already installed. External command output is suppressed
 
 Three groups of additional tooling:
 
-**CLI Utilities:** xclip, tree, fzf, ripgrep, fd-find, bat, jq, unzip, make, build-essential
+**CLI Utilities:** xclip, tree, fzf, ripgrep, fd-find, bat, jq, unzip, make, build-essential, tealdeer
 
 **Python Tooling:** python3, pip3, python3-venv, pipx
 
@@ -39,7 +39,9 @@ Three groups of additional tooling:
 
 Reads `/etc/os-release` for `VERSION_CODENAME` to construct apt repo URLs.
 
-**Status:** Checks 18 binaries/packages.
+After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
+
+**Status:** Checks 19 binaries/packages.
 
 ---
 
@@ -206,12 +208,15 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `docker-cleanup` | Full Docker system purge |
 | `git-prune-branches` | Remove local branches with deleted remotes |
 | `sysinfo` | System resource overview |
+| `tlog-clean` | Strip ANSI escapes and powerline glyphs from tmux log captures |
+
+`tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
 
 All scripts are `chmod 755` before linking. Individual failures are warned and counted rather than stopping the whole module.
 
 See [Devtools Scripts](devtools.md) for detailed script documentation.
 
-**Status:** Checks 6 symlinks.
+**Status:** Checks 7 symlinks.
 
 ---
 
