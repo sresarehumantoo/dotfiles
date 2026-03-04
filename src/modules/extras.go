@@ -93,11 +93,11 @@ func (ExtrasModule) Install() error {
 		core.Warn("Some CLI utils may have failed: %v", err)
 	}
 
-	// Update tldr page cache
+	// Update tldr page cache (best-effort — may fail on spotty networks)
 	if _, err := exec.LookPath("tldr"); err == nil {
 		core.Info("Updating tldr page cache...")
-		if out, err := exec.Command("tldr", "--update").CombinedOutput(); err != nil {
-			core.Warn("tldr update failed: %s", strings.TrimSpace(string(out)))
+		if _, err := exec.Command("tldr", "--update").CombinedOutput(); err != nil {
+			core.Info("tldr cache update skipped (network unavailable — run 'tldr --update' later)")
 		}
 	}
 
