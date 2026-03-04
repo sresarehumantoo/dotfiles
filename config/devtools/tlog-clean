@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# tlog-clean — strip ANSI escapes, powerline glyphs, and terminal noise from tmux logs
+# Usage: tlog-clean <logfile> [...]
+#        cat logfile | tlog-clean
+set -euo pipefail
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat <<'EOF'
+Usage: tlog-clean [FILE...]
+       command | tlog-clean
+
+Strip ANSI escape codes, powerline/nerd-font glyphs, and terminal
+noise from tmux-logging captures. Outputs clean, grep-friendly text.
+
+Simulates a virtual terminal line buffer to correctly resolve cursor
+movements and edits. Detects powerlevel10k-style prompts and replaces
+them with a simple "directory $ command" format.
+
+With no FILE, or when FILE is -, read from stdin.
+
+Examples:
+  tlog-clean ~/.local/share/tmux/logs/tmux-*.log
+  tlog-clean session.log | grep -i error
+  cat session.log | tlog-clean
+EOF
+    exit 0
+fi
+
+clean() {
+    perl -e '
+        my $pua_re = qr/\xEE[\x80-\xBF][\x80-\xBF]|\xEF[\x80-\xA3][\x80-\xBF]/;
+
+        sub process_line {
+            my ($line) = @_;
+            my @buf;
+            my $pos = 0;
+            my $i = 0;
+            my $len = length($line);
+
+            while ($i < $len) {
+                my $byte = ord(substr($line, $i, 1));
+
+                if ($byte == 0x1B) {
+                    last if $i + 1 >= $len;
+                    my $next = ord(substr($line, $i + 1, 1));
+
+                    if ($next == 0x5B) {
+                        $i += 2;
+                        my $params = "";
+                        while ($i < $len) {
+                            my $b = ord(substr($line, $i, 1));
+                            last if $b >= 0x40 && $b <= 0x7E;
+                            $params .= substr($line, $i, 1);
+                            $i++;
+                        }
+                        if ($i < $len) {
+                            my $final = substr($line, $i, 1);
+                            $i++;
+                            my $n = ($params =~ /(\d+)/) ? $1 : 1;
+                            if    ($final eq "D") { $pos -= $n; $pos = 0 if $pos < 0; }
+                            elsif ($final eq "C") { $pos += $n; }
+                            elsif ($final eq "G") { $pos = $n - 1; $pos = 0 if $pos < 0; }
+                        }
+                    } elsif ($next == 0x5D) {
+                        $i += 2;
+                        while ($i < $len) {
+                            if (ord(substr($line, $i, 1)) == 0x07) { $i++; last; }
+                            if (ord(substr($line, $i, 1)) == 0x1B
+                                && $i + 1 < $len
+                                && substr($line, $i + 1, 1) eq "\\") { $i += 2; last; }
+                            $i++;
+                        }
+                    } elsif ($next == 0x6B) {
+                        $i += 2;
+                        while ($i < $len) {
+                            if (ord(substr($line, $i, 1)) == 0x1B
+                                && $i + 1 < $len
+                                && substr($line, $i + 1, 1) eq "\\") { $i += 2; last; }
+                            $i++;
+                        }
+                    } else {
+                        $i += 2;
+                    }
+                } elsif ($byte == 0x08) {
+                    $pos-- if $pos > 0;
+                    $i++;
+                } elsif ($byte == 0x0D) {
+                    $pos = 0;
+                    $i++;
+                } elsif ($byte >= 0x20) {
+                    my $clen;
+                    if    ($byte < 0x80) { $clen = 1; }
+                    elsif ($byte < 0xC0) { $clen = 1; }
+                    elsif ($byte < 0xE0) { $clen = 2; }
+                    elsif ($byte < 0xF0) { $clen = 3; }
+                    else                 { $clen = 4; }
+                    $buf[$pos] = substr($line, $i, $clen);
+                    $i += $clen;
+                    $pos++;
+                } else {
+                    $i++;
+                }
+            }
+            return @buf;
+        }
+
+        while (my $line = <STDIN>) {
+            chomp $line;
+            my @buf = process_line($line);
+            next unless @buf;
+
+            # Classify each cell as PUA or not, build the full string
+            my @cells;     # individual characters
+            my @is_pua;    # flag per cell
+            for my $j (0 .. $#buf) {
+                my $ch = defined($buf[$j]) ? $buf[$j] : " ";
+                push @cells, $ch;
+                push @is_pua, ($ch =~ /^(?:$pua_re)/) ? 1 : 0;
+            }
+
+            my $has_pua = grep { $_ } @is_pua;
+
+            if ($has_pua) {
+                # Split into segments of PUA vs non-PUA
+                my @segments;
+                my $cur = "";
+                my $cur_pua = $is_pua[0];
+                for my $j (0 .. $#cells) {
+                    if ($is_pua[$j] != $cur_pua) {
+                        push @segments, [$cur_pua, $cur] if length($cur);
+                        $cur = "";
+                        $cur_pua = $is_pua[$j];
+                    }
+                    $cur .= $cells[$j];
+                }
+                push @segments, [$cur_pua, $cur] if length($cur);
+
+                # Extract directory: first path in any non-PUA segment
+                my $dir = "~";
+                for my $seg (@segments) {
+                    next if $seg->[0]; # skip PUA segments
+                    if ($seg->[1] =~ /((?:~|\/)\S+)/) {
+                        $dir = $1;
+                        last;
+                    }
+                }
+
+                # Find command: longest non-PUA segment that is not prompt text
+                # Prompt text segments contain: path, "on", branch name, status
+                # Command is the segment between left and right prompt PUA groups
+                my $cmd = "";
+                for my $seg (@segments) {
+                    next if $seg->[0]; # skip PUA segments
+                    my $text = $seg->[1];
+                    $text =~ s/^\s+//; $text =~ s/\s+$//;
+                    next unless length($text);
+                    # Skip segments that look like prompt info
+                    next if $text =~ /^(?:~|\/)\S*$/;                          # bare path
+                    next if $text =~ /^\s*on\s*$/;                             # git "on"
+                    next if $text =~ /^\S+\s+[!?+]\d*$/;                       # branch + dirty
+                    next if $text =~ /^[^\s\/]{1,30}\s+[!?+~]\d*\s*$/;         # branch status
+                    next if $text =~ /^\s*\x{2714}\s*$/;                        # checkmark ✔
+                    next if $text =~ /^[\x{2700}-\x{27BF}\s]+$/;               # dingbats only
+                    # This is likely the command
+                    if (length($text) > length($cmd)) {
+                        $cmd = $text;
+                    }
+                }
+
+                print "$dir \$ $cmd\n" if length($cmd);
+            } elsif (join("", @cells) =~ /^%\s*$/) {
+                # PROMPT_EOL_MARK — skip
+            } else {
+                my $text = join("", @cells);
+                $text =~ s/ {2,}/ /g;
+                $text =~ s/^\s+//; $text =~ s/\s+$//;
+                print "$text\n" if length($text);
+            }
+        }
+    '
+}
+
+if [[ $# -eq 0 ]] || [[ "$1" == "-" ]]; then
+    clean
+else
+    cat "$@" | clean
+fi

@@ -18,6 +18,7 @@ var devtoolsScripts = []struct{ src, dst string }{
 	{"devtools/docker-cleanup", ".local/bin/docker-cleanup"},
 	{"devtools/git-prune-branches", ".local/bin/git-prune-branches"},
 	{"devtools/sysinfo", ".local/bin/sysinfo"},
+	{"devtools/tlog-clean", ".local/bin/tlog-clean"},
 }
 
 func (DevtoolsModule) Install() error {
