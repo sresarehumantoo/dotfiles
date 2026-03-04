@@ -43,6 +43,51 @@ Reads `/etc/os-release` for `VERSION_CODENAME` to construct apt repo URLs.
 
 ---
 
+## toolkit
+
+**File:** `modules/toolkit.go`, `modules/toolkit_menu.go`
+
+Optional security, CTF, development, and productivity tools. Running `dfinstall install toolkit --toolkit` or `dfinstall install all --toolkit` opens an interactive multi-select menu.
+
+### External Registry
+
+Tool metadata (names, descriptions, install methods) is stored in a separate GitHub repository ([dotfiles-toolkit](https://github.com/sresarehumantoo/dotfiles-toolkit)) and fetched at runtime. This keeps the main dfinstall binary free of security tool names that might trigger EDR string-based heuristics.
+
+**Registry URL:** `https://raw.githubusercontent.com/sresarehumantoo/dotfiles-toolkit/main/registry.json`
+
+**Cache:** `~/.local/share/dfinstall/toolkit-registry.json`
+
+**Fetch behavior:**
+- `--toolkit` flag: always fetches the latest registry before showing the menu
+- Normal install (no `--toolkit`): uses the cached registry; fetches if no cache exists
+- If no cache and no `--toolkit`: warns and skips toolkit installation
+
+**Offline / custom registries:**
+- `--registry <path>` CLI flag overrides the registry URL for a single run
+- `toolkit_registry_url` in `.config.yaml` sets a persistent override
+- Supports `file://` paths, plain file paths, and HTTP(S) URLs
+
+### Tool Categories
+
+The registry defines tools across 11 categories (recon, web testing, password cracking, network tools, forensics, reverse engineering, active directory, post-exploitation, wordlists, development, applications). See the [registry repository](https://github.com/sresarehumantoo/dotfiles-toolkit) for the full tool list.
+
+### Install Methods
+
+- **apt:** Bulk-installed via the detected package manager
+- **go install:** Installed to `$GOPATH/bin`, skipped if binary already in PATH
+- **cargo install:** Installed to `~/.cargo/bin/`, skipped if binary already in PATH (requires Rust toolchain)
+- **pipx:** Installed via `pipx install`, skipped if already in `pipx list`
+- **git clone:** Shallow-cloned to `~/.local/share/toolkit/<name>`, skipped if directory exists
+- **AppImage:** Downloaded from GitHub releases API to `~/.local/bin/`, chmod +x
+
+Selections are saved to `.config.yaml` under `toolkit_tools`. Subsequent installs (without `--toolkit`) use the saved selections. To change, re-run with `--toolkit`.
+
+**Status:** Shows `N/M tools` when tools are configured. Shows "run --toolkit to configure" when no tools are selected. Shows "registry not fetched" when no cache exists.
+
+**Uninstall:** Removes AppImage files from `~/.local/bin/` and git clone directories from `~/.local/share/toolkit/`. apt/go/cargo/pipx tools must be removed manually.
+
+---
+
 ## delta
 
 **File:** `modules/delta.go`
@@ -235,7 +280,7 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 | tmux-yank | Clipboard copy from copy mode |
 | tmux-logging | Pane logging, screen capture, history save (`~/.local/share/tmux/logs/`) |
 
-**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar with a powerline theme.
+**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar with a powerline theme. The left side shows a distro icon detected at install time (same Nerd Font v3 icons as powerlevel10k), read from `~/.config/dfinstall/distro-icon`.
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 
