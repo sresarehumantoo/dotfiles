@@ -90,16 +90,22 @@ func (ToolkitModule) Install() error {
 	}
 
 	// Install go tools
-	for _, t := range goTools {
-		if _, err := exec.LookPath(t.Binary); err == nil {
-			core.Ok("%s already installed", t.Binary)
-			continue
-		}
-		core.Info("Installing %s via go install...", t.Binary)
-		if err := runCmd("go", "install", t.Package); err != nil {
-			core.Warn("Failed to install %s: %v", t.Binary, err)
+	if len(goTools) > 0 {
+		if _, err := exec.LookPath("go"); err != nil {
+			core.Warn("go not found — skipping %d go tools (install Go first)", len(goTools))
 		} else {
-			core.Ok("%s installed", t.Binary)
+			for _, t := range goTools {
+				if _, err := exec.LookPath(t.Binary); err == nil {
+					core.Ok("%s already installed", t.Binary)
+					continue
+				}
+				core.Info("Installing %s via go install...", t.Binary)
+				if err := runCmd("go", "install", t.Package); err != nil {
+					core.Warn("Failed to install %s: %v", t.Binary, err)
+				} else {
+					core.Ok("%s installed", t.Binary)
+				}
+			}
 		}
 	}
 
@@ -122,30 +128,48 @@ func (ToolkitModule) Install() error {
 	}
 
 	// Install pipx tools
-	for _, t := range pipxTools {
-		if pipxHasPkg(t.Package) {
-			core.Ok("%s already installed via pipx", t.Package)
-			continue
-		}
-		core.Info("Installing %s via pipx...", t.Package)
-		if err := runCmd("pipx", "install", t.Package); err != nil {
-			core.Warn("Failed to install %s: %v", t.Package, err)
+	if len(pipxTools) > 0 {
+		if _, err := exec.LookPath("pipx"); err != nil {
+			core.Warn("pipx not found — skipping %d pipx tools (install pipx first)", len(pipxTools))
 		} else {
-			core.Ok("%s installed", t.Package)
+			for _, t := range pipxTools {
+				if pipxHasPkg(t.Package) {
+					core.Ok("%s already installed via pipx", t.Package)
+					continue
+				}
+				core.Info("Installing %s via pipx...", t.Package)
+				if err := runCmd("pipx", "install", t.Package); err != nil {
+					core.Warn("Failed to install %s: %v", t.Package, err)
+				} else {
+					core.Ok("%s installed", t.Package)
+				}
+			}
 		}
 	}
 
 	// Install git clone tools
-	for _, t := range gitCloneTools {
-		if err := installGitClone(t.Binary, t.GitRepo); err != nil {
-			core.Warn("Failed to clone %s: %v", t.Binary, err)
+	if len(gitCloneTools) > 0 {
+		if _, err := exec.LookPath("git"); err != nil {
+			core.Warn("git not found — skipping %d git-clone tools", len(gitCloneTools))
+		} else {
+			for _, t := range gitCloneTools {
+				if err := installGitClone(t.Binary, t.GitRepo); err != nil {
+					core.Warn("Failed to clone %s: %v", t.Binary, err)
+				}
+			}
 		}
 	}
 
 	// Install AppImage tools
-	for _, t := range appImageTools {
-		if err := installAppImage(t.Binary, t.AppRepo); err != nil {
-			core.Warn("Failed to install %s AppImage: %v", t.Binary, err)
+	if len(appImageTools) > 0 {
+		if _, err := exec.LookPath("curl"); err != nil {
+			core.Warn("curl not found — skipping %d AppImage tools", len(appImageTools))
+		} else {
+			for _, t := range appImageTools {
+				if err := installAppImage(t.Binary, t.AppRepo); err != nil {
+					core.Warn("Failed to install %s AppImage: %v", t.Binary, err)
+				}
+			}
 		}
 	}
 
