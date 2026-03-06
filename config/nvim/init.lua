@@ -3,6 +3,10 @@ vim.g.maplocalleader = ' '
 
 vim.g.have_nerd_font = true
 
+-- Disable netrw so neo-tree owns directory browsing (must be set before plugins load)
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
 -- [[ Setting options ]]
 vim.o.number = true
 vim.o.relativenumber = true
