@@ -93,6 +93,15 @@ func RunDoctor() {
 		}
 	}
 
+	// Check alias collisions between managed and preserved shell files
+	if len(core.Cfg.PreservedFiles) > 0 {
+		if ReportAliasCollisions() {
+			allOk = false
+		} else {
+			core.Ok("alias collisions: none")
+		}
+	}
+
 	fmt.Println()
 	if allOk {
 		core.Ok("All checks passed!")
