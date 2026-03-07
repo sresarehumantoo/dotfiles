@@ -1,6 +1,28 @@
 # Keybindings Reference
 
-Quick reference for all custom keybindings across tmux, neovim, zsh, and shell aliases.
+Quick reference for all custom keybindings across interactive menus, tmux, neovim, zsh, and shell aliases.
+
+---
+
+## Interactive Menus (Toolkit, OMZ Extended, Shell Preserve)
+
+### Category Navigation
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` or `j` / `k` | Navigate options |
+| `Enter` | Browse into category |
+| `q` | Quit menu (keep existing config) |
+| `Esc` / `Ctrl+C` | Quit menu (keep existing config) |
+
+### Tool / Plugin Selection
+
+| Key | Action |
+|-----|--------|
+| `↑` / `↓` or `j` / `k` | Navigate options |
+| `Space` | Toggle selection |
+| `Enter` | Confirm selections |
+| `Esc` / `q` | Go back to categories (no changes) |
 
 ---
 
