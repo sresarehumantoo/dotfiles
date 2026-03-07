@@ -6,14 +6,33 @@ return {
   version = '*',
   dependencies = {
     'nvim-lua/plenary.nvim',
-    'nvim-tree/nvim-web-devicons', -- not strictly required, but recommended
+    'nvim-tree/nvim-web-devicons',
     'MunifTanjim/nui.nvim',
   },
   lazy = false,
+  init = function()
+    -- When nvim is opened with a directory, wipe the dir buffer and open neo-tree
+    vim.api.nvim_create_autocmd('VimEnter', {
+      callback = function(data)
+        if vim.fn.isdirectory(data.file) ~= 1 then
+          return
+        end
+        vim.cmd.cd(data.file)
+        vim.cmd.enew()
+        vim.cmd.bw(data.buf)
+        require('neo-tree.command').execute { toggle = false, dir = vim.uv.cwd() }
+      end,
+    })
+  end,
   keys = {
-    { '\\', ':Neotree reveal<CR>', desc = 'NeoTree reveal', silent = true },
+    { '\\', ':Neotree toggle<CR>', desc = 'NeoTree toggle', silent = true },
   },
   opts = {
+    open_files_do_not_replace_types = { 'terminal', 'trouble', 'qf' },
+    window = {
+      position = 'left',
+      width = 30,
+    },
     filesystem = {
       filtered_items = {
         hide_dotfiles = false,

@@ -1,9 +1,5 @@
-# [user]
-# 	email = you@example.com
-# 	name = Your Name
-# Uncomment and set your identity above, or run:
-#   git config --global user.email "you@example.com"
-#   git config --global user.name "Your Name"
+[include]
+	path = ~/.gitconfig.local
 
 [init]
 	defaultBranch = main
@@ -49,8 +45,5 @@
 	helper = 
 	helper = !/usr/bin/gh auth git-credential
 [credential "https://gist.github.com"]
-	helper = 
+	helper =
 	helper = !/usr/bin/gh auth git-credential
-[user]
-	name = sresarehumantoo
-	email = owenpierceee@gmail.com

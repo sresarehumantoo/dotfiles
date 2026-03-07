@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -56,7 +57,21 @@ var extendedPluginOptions = []pluginOption{
 	{"command-not-found", "Suggest packages for unknown commands", "Utilities"},
 }
 
-// RunExtendedPluginMenu shows an interactive multi-select for extended OMZ plugins.
+// isOmzPluginAvailable checks whether an OMZ plugin directory exists.
+func isOmzPluginAvailable(name string) bool {
+	home, _ := os.UserHomeDir()
+	bundled := filepath.Join(home, ".oh-my-zsh", "plugins", name)
+	if fi, err := os.Stat(bundled); err == nil && fi.IsDir() {
+		return true
+	}
+	custom := filepath.Join(home, ".oh-my-zsh", "custom", "plugins", name)
+	if fi, err := os.Stat(custom); err == nil && fi.IsDir() {
+		return true
+	}
+	return false
+}
+
+// RunExtendedPluginMenu shows an interactive category-based menu for extended OMZ plugins.
 // Returns the selected plugin names.
 func RunExtendedPluginMenu() ([]string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
@@ -64,65 +79,181 @@ func RunExtendedPluginMenu() ([]string, error) {
 		return core.Cfg.ExtendedPlugins, nil
 	}
 
-	// Build options grouped by category
-	var options []huh.Option[string]
-	lastCat := ""
+	// Group plugins by category, sorted alphabetically
+	type catGroup struct {
+		name    string
+		plugins []pluginOption
+	}
+	var cats []catGroup
+	catIndex := make(map[string]int)
 	for _, p := range extendedPluginOptions {
-		if p.Category != lastCat {
-			lastCat = p.Category
+		idx, ok := catIndex[p.Category]
+		if !ok {
+			idx = len(cats)
+			catIndex[p.Category] = idx
+			cats = append(cats, catGroup{name: p.Category})
 		}
-		label := fmt.Sprintf("%s — %s", p.Name, p.Desc)
-		options = append(options, huh.NewOption(label, p.Name))
+		cats[idx].plugins = append(cats[idx].plugins, p)
+	}
+	sort.Slice(cats, func(i, j int) bool { return cats[i].name < cats[j].name })
+	for i := range cats {
+		sort.Slice(cats[i].plugins, func(a, b int) bool {
+			return cats[i].plugins[a].Name < cats[i].plugins[b].Name
+		})
+	}
+
+	// Check which plugins are available (OMZ dir exists)
+	available := make(map[string]bool)
+	for _, p := range extendedPluginOptions {
+		if isOmzPluginAvailable(p.Name) {
+			available[p.Name] = true
+		}
 	}
 
 	// Pre-select from saved config
+	selected := make(map[string]bool, len(core.Cfg.ExtendedPlugins))
+	for _, p := range core.Cfg.ExtendedPlugins {
+		selected[p] = true
+	}
+
+	// Persists across iterations so the cursor stays on the last-visited category
+	catChoice := ""
+
+	// Category navigation loop
+	for {
+		// Clear screen between form transitions
+		fmt.Print("\033[2J\033[H")
+
+		// Build category options with enabled counts
+		var catOptions []huh.Option[string]
+		for _, cat := range cats {
+			count := 0
+			for _, p := range cat.plugins {
+				if selected[p.Name] {
+					count++
+				}
+			}
+			label := fmt.Sprintf("%s (%d/%d enabled)", cat.name, count, len(cat.plugins))
+			catOptions = append(catOptions, huh.NewOption(label, cat.name))
+		}
+
+		total := 0
+		for range selected {
+			total++
+		}
+		doneLabel := fmt.Sprintf("Done (%d plugins enabled)", total)
+		catOptions = append(catOptions, huh.NewOption(doneLabel, "_done"))
+
+		catForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().
+					Title("Extended OMZ Plugins — Select a category").
+					Description("Enter to browse, q to quit").
+					Options(catOptions...).
+					Value(&catChoice),
+			),
+		).WithKeyMap(escKeyMap())
+
+		if err := catForm.Run(); err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				core.PrintHint("Selection cancelled — keeping existing config")
+				return core.Cfg.ExtendedPlugins, nil
+			}
+			return nil, fmt.Errorf("category menu: %w", err)
+		}
+
+		if catChoice == "_done" {
+			break
+		}
+
+		// Find the selected category
+		var cat *catGroup
+		for i := range cats {
+			if cats[i].name == catChoice {
+				cat = &cats[i]
+				break
+			}
+		}
+		if cat == nil {
+			continue
+		}
+
+		// Build plugin options with availability indicator
+		var pluginOptions []huh.Option[string]
+		var catSelected []string
+		for _, p := range cat.plugins {
+			indicator := "  "
+			if available[p.Name] {
+				indicator = "✓ "
+			}
+			label := fmt.Sprintf("%s%s — %s", indicator, p.Name, p.Desc)
+			pluginOptions = append(pluginOptions, huh.NewOption(label, p.Name))
+			if selected[p.Name] {
+				catSelected = append(catSelected, p.Name)
+			}
+		}
+
+		pluginForm := huh.NewForm(
+			huh.NewGroup(
+				huh.NewMultiSelect[string]().
+					Title(fmt.Sprintf("OMZ Plugins — %s", cat.name)).
+					Description("Space to toggle, Enter to confirm, Esc to go back").
+					Options(pluginOptions...).
+					Value(&catSelected),
+			),
+		).WithKeyMap(escKeyMap())
+
+		if err := pluginForm.Run(); err != nil {
+			if errors.Is(err, huh.ErrUserAborted) {
+				continue
+			}
+			return nil, fmt.Errorf("plugin menu: %w", err)
+		}
+
+		// Update selections: clear this category, add back selected
+		for _, p := range cat.plugins {
+			delete(selected, p.Name)
+		}
+		for _, name := range catSelected {
+			selected[name] = true
+		}
+	}
+
+	// Convert map to sorted slice
+	var result []string
+	for name := range selected {
+		result = append(result, name)
+	}
+	sort.Strings(result)
+
+	// Validate plugin names
+	for _, p := range result {
+		if !validPluginName.MatchString(p) {
+			return nil, fmt.Errorf("invalid plugin name %q — must be alphanumeric with hyphens/underscores", p)
+		}
+	}
+
+	// Show feedback about what changed
 	previous := make(map[string]bool, len(core.Cfg.ExtendedPlugins))
 	for _, p := range core.Cfg.ExtendedPlugins {
 		previous[p] = true
 	}
 
-	selected := make([]string, len(core.Cfg.ExtendedPlugins))
-	copy(selected, core.Cfg.ExtendedPlugins)
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title("Extended OMZ Plugins").
-				Description("Space to toggle, Enter to confirm, Esc to cancel").
-				Options(options...).
-				Value(&selected),
-		),
-	).WithKeyMap(escKeyMap())
-
-	if err := form.Run(); err != nil {
-		if errors.Is(err, huh.ErrUserAborted) {
-			core.PrintHint("Selection cancelled — keeping existing config")
-			return core.Cfg.ExtendedPlugins, nil
-		}
-		return nil, fmt.Errorf("plugin menu: %w", err)
-	}
-
-	// Show feedback about what changed
-	newSet := make(map[string]bool, len(selected))
-	for _, p := range selected {
-		newSet[p] = true
-	}
-
 	var added, removed []string
-	for _, p := range selected {
+	for _, p := range result {
 		if !previous[p] {
 			added = append(added, p)
 		}
 	}
 	for p := range previous {
-		if !newSet[p] {
+		if !selected[p] {
 			removed = append(removed, p)
 		}
 	}
 
 	if len(added) == 0 && len(removed) == 0 {
-		if len(selected) > 0 {
-			core.PrintHint(fmt.Sprintf("Extended plugins unchanged (%d enabled)", len(selected)))
+		if len(result) > 0 {
+			core.PrintHint(fmt.Sprintf("Extended plugins unchanged (%d enabled)", len(result)))
 		} else {
 			core.PrintHint("No extended plugins selected")
 		}
@@ -133,11 +264,11 @@ func RunExtendedPluginMenu() ([]string, error) {
 		if len(removed) > 0 {
 			core.Status("Disabling: %s", strings.Join(removed, ", "))
 		}
-		core.Status("Extended plugins: %d enabled", len(selected))
+		core.Status("Extended plugins: %d enabled", len(result))
 		core.PrintHint("Changes take effect after: exec zsh")
 	}
 
-	return selected, nil
+	return result, nil
 }
 
 // WriteExtendedPluginsFile writes the generated plugins.zsh sourced by zshrc.
