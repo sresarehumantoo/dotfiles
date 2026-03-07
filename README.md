@@ -26,6 +26,7 @@ dfinstall install all --debug     # debug output (verbose + internals)
 dfinstall install all --dry-run   # show what would change without modifying anything
 dfinstall install all --backup    # snapshot targets before modifying (restorable)
 dfinstall install omz --extended  # interactive menu to select extended OMZ plugins
+dfinstall install all --toolkit   # interactive menu to select toolkit tools
 dfinstall update all              # re-apply all modules (alias for install)
 dfinstall update omz --extended   # update and select extended OMZ plugins
 dfinstall uninstall shell         # remove symlinks for a module

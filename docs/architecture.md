@@ -134,6 +134,8 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 |------|----------|
 | `--backup` | Force a backup snapshot regardless of config |
 | `--extended` | Show interactive menu to select extended OMZ plugins |
+| `--toolkit` | Show interactive menu to select toolkit tools |
+| `--registry <path\|url>` | Override toolkit registry URL for a single run |
 | `--dry-run` | Preview changes without modifying the filesystem (forces verbose output) |
 
 ### Restore Flags
@@ -247,6 +249,8 @@ Checked in order:
 | `preserved_files` | []string | *(empty)* | Custom shell files the user chose to keep sourcing after dfinstall replaces zshrc |
 | `dismissed_files` | []string | *(empty)* | Custom shell files the user chose not to preserve (prevents re-prompting) |
 | `skip_modules` | []string | *(empty)* | Modules to skip during `install all` (machine profiles) |
+| `toolkit_tools` | []string | *(empty)* | Toolkit tools selected via `--toolkit` |
+| `toolkit_registry_url` | string | *(empty)* | Custom toolkit registry URL override |
 
 ### Auto-Backup Logic
 
