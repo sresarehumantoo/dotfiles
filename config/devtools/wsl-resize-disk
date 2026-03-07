@@ -3,6 +3,7 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
 COMPACT_MODE=false
+DANGEROUS_MODE=false
 VHDX_PATH_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -16,11 +17,16 @@ while [[ $# -gt 0 ]]; do
             echo "  -h, --help          Show this help"
             echo "  --compact           Generate a .bat script that compacts the"
             echo "                      disk via export/re-import (no admin required)"
+            echo "  --dangerous         With --compact: skip the backup step and"
+            echo "                      compact in-place (export, unregister,"
+            echo "                      re-import). Use when disk space is too low"
+            echo "                      for a full backup. DATA LOSS RISK."
             echo "  --vhdx-path PATH    Use a specific VHDX file instead of"
             echo "                      auto-detecting (accepts WSL or Windows paths)"
             exit 0
             ;;
         --compact) COMPACT_MODE=true ;;
+        --dangerous) DANGEROUS_MODE=true ;;
         --vhdx-path)
             [[ -z "${2:-}" ]] && die "--vhdx-path requires a path argument"
             VHDX_PATH_OVERRIDE="$2"
@@ -107,7 +113,116 @@ else
 fi
 
 # ── Compaction ──────────────────────────────────────────────────
-if $COMPACT_MODE; then
+if ! $COMPACT_MODE && $DANGEROUS_MODE; then
+    die "--dangerous requires --compact"
+fi
+
+if $COMPACT_MODE && $DANGEROUS_MODE; then
+    header "Generating DANGEROUS compaction script"
+    warn "This script compacts in-place with NO backup."
+    warn "If interrupted, you may lose your distro."
+    confirm "Generate the dangerous compaction script?" || { info "Cancelled."; exit 0; }
+
+    read -r -d '' bat_content <<BAT || true
+@echo off
+setlocal
+
+set DISTRO=${distro}
+set VHDX_DIR=${vhdx_dir_win}
+set EXPORT_FILE=%TEMP%\\wsl-dangerous-export.tar
+
+echo ============================================================
+echo  WSL Disk Compaction - %DISTRO% (DANGEROUS MODE)
+echo ============================================================
+echo.
+echo  Original VHDX: %VHDX_DIR%\\ext4.vhdx
+echo  Original size:  ${vhdx_size_mb} MB
+echo.
+echo  WARNING: This compacts IN-PLACE with NO backup.
+echo  The distro will be unregistered and re-imported from a
+echo  tar export. If this process is interrupted, your distro
+echo  will be LOST. Ensure you have power and a stable system.
+echo.
+echo  The export file will be written to:
+echo    %EXPORT_FILE%
+echo.
+set /p CONFIRM=Type YES to continue (anything else cancels):
+if /i not "%CONFIRM%"=="YES" (
+    echo Cancelled.
+    pause
+    exit /b 0
+)
+
+echo.
+echo Shutting down WSL...
+wsl --shutdown
+timeout /t 3 /nobreak >nul
+
+echo.
+echo Exporting %DISTRO% to tar...
+echo This may take several minutes.
+wsl --export "%DISTRO%" "%EXPORT_FILE%"
+
+if not exist "%EXPORT_FILE%" (
+    echo.
+    echo ERROR: Export failed - no tar file produced.
+    echo Your distro is still registered and unchanged.
+    pause
+    exit /b 1
+)
+
+for %%A in ("%EXPORT_FILE%") do set TARSIZE=%%~zA
+set /a TARSIZE_MB=%TARSIZE% / 1048576
+echo Export complete: %TARSIZE_MB% MB
+
+echo.
+echo Unregistering %DISTRO%...
+wsl --unregister "%DISTRO%"
+
+echo.
+echo Re-importing %DISTRO% from tar...
+wsl --import "%DISTRO%" "%VHDX_DIR%" "%EXPORT_FILE%"
+
+if errorlevel 1 (
+    echo.
+    echo ERROR: Re-import failed!
+    echo Your export tar is preserved at: %EXPORT_FILE%
+    echo You can manually re-import with:
+    echo   wsl --import %DISTRO% "%VHDX_DIR%" "%EXPORT_FILE%"
+    pause
+    exit /b 1
+)
+
+echo.
+echo Cleaning up export tar...
+del "%EXPORT_FILE%"
+
+echo Setting default user back to normal...
+echo NOTE: After re-import, WSL defaults to root.
+echo You may need to run:
+echo   %DISTRO% config --default-user YOUR_USERNAME
+echo Or add this to /etc/wsl.conf inside the distro:
+echo   [user]
+echo   default=YOUR_USERNAME
+
+for %%A in ("%VHDX_DIR%\\ext4.vhdx") do set NEWSIZE=%%~zA
+set /a NEWSIZE_MB=%NEWSIZE% / 1048576
+set /a SAVED_MB=${vhdx_size_mb} - %NEWSIZE_MB%
+
+echo.
+echo ============================================================
+echo  Original:  ${vhdx_size_mb} MB
+echo  Compacted: %NEWSIZE_MB% MB
+echo  Saved:     %SAVED_MB% MB
+echo ============================================================
+echo.
+echo Done! Starting %DISTRO%...
+wsl -d %DISTRO%
+BAT
+
+    write_bat "wsl-compact-dangerous.bat" "$bat_content"
+
+elif $COMPACT_MODE; then
     header "Generating compaction script"
 
     read -r -d '' bat_content <<BAT || true
@@ -217,6 +332,13 @@ else
     info "   Generates a .bat script that compacts the disk by"
     info "   exporting and re-importing your distro. Safe, no"
     info "   admin privileges needed."
+    echo ""
+    info "   Low disk space? Add --dangerous to skip the backup:"
+    echo ""
+    echo "      wsl-resize-disk --compact --dangerous"
+    echo ""
+    info "   Exports to tar, unregisters, re-imports in-place."
+    info "   Requires less free space but risks data loss if interrupted."
     echo ""
 
     rule
