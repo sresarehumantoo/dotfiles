@@ -64,6 +64,9 @@ func (ShellModule) Install() error {
 				core.Warn("failed to write custom-sources.zsh: %v", err)
 			}
 		}
+
+		// Check for alias/function collisions between managed and preserved files
+		ReportAliasCollisions()
 	}
 
 	core.Info("Linking shell dotfiles...")

@@ -3,6 +3,10 @@ vim.g.maplocalleader = ' '
 
 vim.g.have_nerd_font = true
 
+-- Disable netrw so neo-tree owns directory browsing (must be set before plugins load)
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
 -- [[ Setting options ]]
 vim.o.number = true
 vim.o.relativenumber = true
@@ -60,6 +64,35 @@ vim.api.nvim_create_autocmd('TextYankPost', {
     vim.hl.on_yank()
   end,
 })
+
+-- [[ Tmux status bar: collapse fancy gap while in nvim ]]
+if vim.env.TMUX then
+  local tmux_group = vim.api.nvim_create_augroup('tmux-status-toggle', { clear = true })
+
+  local saved_bar = nil
+
+  local function tmux_single_bar()
+    saved_bar = vim.fn.system({ 'tmux', 'show', '-gv', 'status-format[1]' }):gsub('\n$', '')
+    vim.fn.system({ 'tmux', 'set', 'status-format[0]', saved_bar })
+    vim.fn.system({ 'tmux', 'set', 'status', 'on' })
+  end
+
+  local function tmux_double_bar()
+    local bar = saved_bar or vim.fn.system({ 'tmux', 'show', '-gv', 'status-format[1]' }):gsub('\n$', '')
+    vim.fn.system({ 'tmux', 'set', 'status-format[0]', '#[bg=terminal,fill=terminal] ' })
+    vim.fn.system({ 'tmux', 'set', 'status-format[1]', bar })
+    vim.fn.system({ 'tmux', 'set', 'status', '2' })
+  end
+
+  vim.api.nvim_create_autocmd({ 'VimEnter', 'VimResume' }, {
+    group = tmux_group,
+    callback = tmux_single_bar,
+  })
+  vim.api.nvim_create_autocmd({ 'VimLeave', 'VimSuspend' }, {
+    group = tmux_group,
+    callback = tmux_double_bar,
+  })
+end
 
 -- [[ Install `lazy.nvim` plugin manager ]]
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'

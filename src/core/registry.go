@@ -169,6 +169,10 @@ func ValidateRegistry(r *Registry) error {
 		}
 		seen[t.Name] = true
 
+		if t.Category == "" {
+			return fmt.Errorf("tool %q: category is required", t.Name)
+		}
+
 		if !validMethods[t.Method] {
 			return fmt.Errorf("tool %q: unknown method %q", t.Name, t.Method)
 		}
