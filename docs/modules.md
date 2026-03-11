@@ -49,7 +49,7 @@ After installing tealdeer, updates the tldr page cache (best-effort — skipped 
 
 **File:** `modules/toolkit.go`, `modules/toolkit_menu.go`
 
-Optional security, CTF, development, and productivity tools. Running `dfinstall install toolkit --toolkit` or `dfinstall install all --toolkit` opens an interactive multi-select menu.
+Optional security, CTF, DFIR, development, and productivity tools. Running `dfinstall install toolkit --toolkit` or `dfinstall install all --toolkit` opens a two-level interactive menu (category picker → tool multi-select). Installed tools are shown with `✓` and pre-selected. Deselecting an installed tool marks it for removal. The Done option shows summary stats: installed, to install, to remove.
 
 ### External Registry
 
@@ -71,7 +71,7 @@ Tool metadata (names, descriptions, install methods) is stored in a separate Git
 
 ### Tool Categories
 
-The registry defines tools across 11 categories (recon, web testing, password cracking, network tools, forensics, reverse engineering, active directory, post-exploitation, wordlists, development, applications). See the [registry repository](https://github.com/sresarehumantoo/dotfiles-toolkit) for the full tool list.
+The registry defines 50 tools across 15 categories: Active Directory, Applications, Browsers, DFIR, Development, Forensics & Stego, Network Tools, Office, Password Cracking, Post-Exploitation, Recon & Scanning, Reverse Engineering, System, Web Testing, Wordlists. See the [registry repository](https://github.com/sresarehumantoo/dotfiles-toolkit) for the full tool list.
 
 ### Install Methods
 
@@ -139,7 +139,7 @@ These are always loaded in the zshrc `plugins=()` array: `git`, `zsh-autosuggest
 
 ### Extended Plugins (`--extended`)
 
-Running `dfinstall install omz --extended` or `dfinstall install all --extended` opens an interactive multi-select menu with 22 optional OMZ plugins across 5 categories:
+Running `dfinstall install omz --extended` or `dfinstall install all --extended` opens a two-level interactive menu (category picker → plugin multi-select) with 22 optional OMZ plugins across 5 categories. Available plugins (OMZ directory exists) are shown with `✓`:
 
 | Category | Plugins |
 |----------|---------|
@@ -203,7 +203,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | Script | Purpose |
 |--------|---------|
 | `_lib.sh` | Shared output helpers (colors, guards, confirmation) |
-| `wsl-resize-disk` | Compact WSL2 virtual disk |
+| `wsl-resize-disk` | Compact WSL2 virtual disk (`--compact`, `--compact --dangerous` for in-place without backup) |
 | `wsl-restart` | Restart WSL from within WSL |
 | `docker-cleanup` | Full Docker system purge |
 | `git-prune-branches` | Remove local branches with deleted remotes |
