@@ -5,6 +5,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 COMPACT_MODE=false
 DANGEROUS_MODE=false
 VHDX_PATH_OVERRIDE=""
+EXPORT_DIR_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -h|--help)
@@ -23,6 +24,10 @@ while [[ $# -gt 0 ]]; do
             echo "                      for a full backup. DATA LOSS RISK."
             echo "  --vhdx-path PATH    Use a specific VHDX file instead of"
             echo "                      auto-detecting (accepts WSL or Windows paths)"
+            echo "  --export-dir DIR    Write temporary export files to DIR instead"
+            echo "                      of %%TEMP%%. Useful when local disk is low but"
+            echo "                      OneDrive or a network share has space."
+            echo "                      Accepts WSL or Windows paths."
             exit 0
             ;;
         --compact) COMPACT_MODE=true ;;
@@ -30,6 +35,11 @@ while [[ $# -gt 0 ]]; do
         --vhdx-path)
             [[ -z "${2:-}" ]] && die "--vhdx-path requires a path argument"
             VHDX_PATH_OVERRIDE="$2"
+            shift
+            ;;
+        --export-dir)
+            [[ -z "${2:-}" ]] && die "--export-dir requires a path argument"
+            EXPORT_DIR_OVERRIDE="$2"
             shift
             ;;
         *) die "Unknown option: $1" ;;
@@ -112,6 +122,21 @@ else
     warn "Could not enable sparse mode (requires WSL 2.0.4+). Skipping."
 fi
 
+# ── Resolve export directory ────────────────────────────────────
+export_dir_win=""
+if [[ -n "$EXPORT_DIR_OVERRIDE" ]]; then
+    # Accept both Windows and WSL paths
+    if [[ "$EXPORT_DIR_OVERRIDE" =~ ^[A-Za-z]:\\ ]]; then
+        export_dir_wsl=$(wslpath "$EXPORT_DIR_OVERRIDE")
+        export_dir_win="$EXPORT_DIR_OVERRIDE"
+    else
+        export_dir_wsl="$EXPORT_DIR_OVERRIDE"
+        export_dir_win=$(wslpath -w "$EXPORT_DIR_OVERRIDE")
+    fi
+    [[ -d "$export_dir_wsl" ]] || die "Export directory not found: $export_dir_wsl"
+    ok "Export directory: $export_dir_win"
+fi
+
 # ── Compaction ──────────────────────────────────────────────────
 if ! $COMPACT_MODE && $DANGEROUS_MODE; then
     die "--dangerous requires --compact"
@@ -129,7 +154,7 @@ setlocal
 
 set DISTRO=${distro}
 set VHDX_DIR=${vhdx_dir_win}
-set EXPORT_FILE=%TEMP%\\wsl-dangerous-export.tar
+set EXPORT_FILE=${export_dir_win:-%%TEMP%%}\\wsl-dangerous-export.tar
 
 echo ============================================================
 echo  WSL Disk Compaction - %DISTRO% (DANGEROUS MODE)
@@ -231,7 +256,7 @@ setlocal
 
 set DISTRO=${distro}
 set VHDX_DIR=${vhdx_dir_win}
-set TMPDIR=%TEMP%\\wslcompact
+set TMPDIR=${export_dir_win:-%%TEMP%%}\\wslcompact
 
 echo ============================================================
 echo  WSL Disk Compaction - %DISTRO%
@@ -339,6 +364,11 @@ else
     echo ""
     info "   Exports to tar, unregisters, re-imports in-place."
     info "   Requires less free space but risks data loss if interrupted."
+    echo ""
+    info "   No local disk space at all? Redirect exports to OneDrive"
+    info "   or a network share with --export-dir:"
+    echo ""
+    echo "      wsl-resize-disk --compact --dangerous --export-dir ~/OneDrive"
     echo ""
 
     rule
