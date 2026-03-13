@@ -20,10 +20,31 @@ func (GitModule) Install() error {
 	}
 
 	localCfg := core.HomeTarget(".gitconfig.local")
-	if _, err := os.Stat(localCfg); os.IsNotExist(err) {
-		if core.DryRun {
-			core.Info("[dry-run] Would prompt for git identity and write %s", localCfg)
+	exists := false
+	if _, err := os.Stat(localCfg); err == nil {
+		exists = true
+	}
+
+	if core.DryRun {
+		if exists {
+			core.Info("[dry-run] Would prompt to override %s", localCfg)
 		} else {
+			core.Info("[dry-run] Would prompt for git identity and write %s", localCfg)
+		}
+	} else {
+		run := true
+		if exists {
+			core.PauseSpinner()
+			reader := bufio.NewReader(os.Stdin)
+			fmt.Print("  ~/.gitconfig.local already exists. Override? [y/N]: ")
+			answer, err := reader.ReadString('\n')
+			core.ResumeSpinner()
+			if err != nil || strings.TrimSpace(strings.ToLower(answer)) != "y" {
+				run = false
+				core.Info("Keeping existing .gitconfig.local")
+			}
+		}
+		if run {
 			core.PauseSpinner()
 			if err := promptGitIdentity(localCfg); err != nil {
 				core.ResumeSpinner()
@@ -61,6 +82,17 @@ func promptGitIdentity(path string) error {
 	}
 
 	content := fmt.Sprintf("[user]\n\tname = %s\n\temail = %s\n", name, email)
+
+	fmt.Print("  Use git credential store? (for HTTPS auth e.g. GitLab) [y/N]: ")
+	credAnswer, err := reader.ReadString('\n')
+	if err != nil {
+		return err
+	}
+	credAnswer = strings.TrimSpace(strings.ToLower(credAnswer))
+	if credAnswer == "y" || credAnswer == "yes" {
+		content += "\n[credential]\n\thelper = store\n"
+	}
+
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
