@@ -20,6 +20,7 @@ func RegisterAllModules() {
 	core.RegisterModule(&GitModule{})
 	core.RegisterModule(&NvimModule{})
 	core.RegisterModule(&TmuxModule{})
+	core.RegisterModule(&KonsoleModule{})
 	core.RegisterModule(&GhosttyModule{})
 	core.RegisterModule(&HtopModule{})
 	core.RegisterModule(&WslModule{})

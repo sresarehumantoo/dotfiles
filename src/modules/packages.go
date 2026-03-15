@@ -7,6 +7,63 @@ import (
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
+// pacmanNames maps canonical (apt) package names to pacman equivalents.
+// Empty string means the package is not needed on Arch (bundled with another).
+var pacmanNames = map[string]string{
+	"fd-find":                 "fd",
+	"build-essential":         "base-devel",
+	"golang":                  "go",
+	"python3-pip":             "python-pip",
+	"python3-venv":            "", // part of python on Arch
+	"pipx":                    "python-pipx",
+	"bat":                     "bat",
+	"tealdeer":                "tealdeer",
+	"neovim":                  "neovim",
+	"nodejs":                  "nodejs",
+	"npm":                     "npm",
+	"xclip":                   "xclip",
+	"zsh-syntax-highlighting": "zsh-syntax-highlighting",
+	"docker-ce":               "docker",
+	"docker-ce-cli":           "",
+	"containerd.io":           "",
+	"docker-buildx-plugin":    "docker-buildx",
+	"docker-compose-plugin":   "docker-compose",
+}
+
+// ResolvePkgs translates canonical package names for the given package manager.
+// Exported for testing.
+func ResolvePkgs(mgr string, pkgs []string) []string {
+	return resolvePkgs(mgr, pkgs)
+}
+
+// resolvePkgs translates canonical package names for the given package manager.
+func resolvePkgs(mgr string, pkgs []string) []string {
+	if mgr != "pacman" {
+		return pkgs
+	}
+	var out []string
+	for _, p := range pkgs {
+		if mapped, ok := pacmanNames[p]; ok {
+			if mapped == "" {
+				continue // skip — not needed on Arch
+			}
+			out = append(out, mapped)
+		} else {
+			out = append(out, p) // no mapping — use as-is
+		}
+	}
+	return out
+}
+
+// resolvePkg translates a single canonical package name for the given package manager.
+func resolvePkg(mgr string, pkg string) string {
+	result := resolvePkgs(mgr, []string{pkg})
+	if len(result) == 0 {
+		return ""
+	}
+	return result[0]
+}
+
 type PackagesModule struct{}
 
 func (PackagesModule) Name() string { return "packages" }
@@ -34,7 +91,11 @@ func installPkg(pkgs ...string) error {
 		core.Err("No supported package manager found. Install manually: %v", pkgs)
 		return nil
 	}
-	cmdArgs := append(args, pkgs...)
+	resolved := resolvePkgs(name, pkgs)
+	if len(resolved) == 0 {
+		return nil
+	}
+	cmdArgs := append(args, resolved...)
 	return runCmd(cmdArgs[0], cmdArgs[1:]...)
 }
 

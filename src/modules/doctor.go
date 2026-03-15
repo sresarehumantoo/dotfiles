@@ -61,6 +61,19 @@ func RunDoctor() {
 		}{"extended plugins", checkFile(ExtendedPluginsFilePath())})
 	}
 
+	if core.IsSteamOS() {
+		checks = append(checks,
+			struct {
+				name  string
+				check func() string
+			}{"steamos-readonly", checkCommand("steamos-readonly")},
+			struct {
+				name  string
+				check func() string
+			}{"pacman", checkCommand("pacman")},
+		)
+	}
+
 	if core.IsWSL() {
 		checks = append(checks,
 			struct {

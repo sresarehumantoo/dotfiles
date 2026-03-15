@@ -136,6 +136,30 @@ func TestRegistryValidation_MissingBinary(t *testing.T) {
 	}
 }
 
+func TestRegistryValidation_MissingDebRepo(t *testing.T) {
+	reg := &core.Registry{
+		Version: 1,
+		Tools: []core.RegistryTool{
+			{Name: "test", Description: "test", Category: "test", Method: "deb", Binary: "x"},
+		},
+	}
+	if err := core.ValidateRegistry(reg); err == nil {
+		t.Error("expected error for missing deb_repo")
+	}
+}
+
+func TestRegistryValidation_BadDistro(t *testing.T) {
+	reg := &core.Registry{
+		Version: 1,
+		Tools: []core.RegistryTool{
+			{Name: "test", Description: "test", Category: "test", Method: "apt", Package: "x", Binary: "x", Distros: []string{"windows"}},
+		},
+	}
+	if err := core.ValidateRegistry(reg); err == nil {
+		t.Error("expected error for invalid distro filter")
+	}
+}
+
 func TestRegistryValidation_Valid(t *testing.T) {
 	reg := &core.Registry{
 		Version: 1,
@@ -146,6 +170,19 @@ func TestRegistryValidation_Valid(t *testing.T) {
 			{Name: "tool-d", Description: "D", Category: "Cat", Method: "appimage", Binary: "d", AppRepo: "x/y"},
 			{Name: "tool-e", Description: "E", Category: "Cat", Method: "pipx", Package: "e", Binary: "e"},
 			{Name: "tool-f", Description: "F", Category: "Cat", Method: "cargo", Package: "f", Binary: "f"},
+			{Name: "tool-g", Description: "G", Category: "Cat", Method: "deb", Binary: "g", DebRepo: "x/y"},
+		},
+	}
+	if err := core.ValidateRegistry(reg); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestRegistryValidation_ValidDistros(t *testing.T) {
+	reg := &core.Registry{
+		Version: 1,
+		Tools: []core.RegistryTool{
+			{Name: "test", Description: "test", Category: "test", Method: "deb", Binary: "x", DebRepo: "x/y", Distros: []string{"debian"}},
 		},
 	}
 	if err := core.ValidateRegistry(reg); err != nil {
