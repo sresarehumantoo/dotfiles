@@ -52,7 +52,7 @@ func RunToolkitMenu() ([]string, error) {
 		}
 	}
 
-	// Group tools by category, sorted alphabetically
+	// Group tools by category, sorted alphabetically (filtered by distro)
 	type catGroup struct {
 		name  string
 		tools []core.RegistryTool
@@ -60,6 +60,9 @@ func RunToolkitMenu() ([]string, error) {
 	catIndex := make(map[string]int)
 	var cats []catGroup
 	for _, t := range reg.Tools {
+		if !core.ToolMatchesDistro(t) {
+			continue
+		}
 		idx, ok := catIndex[t.Category]
 		if !ok {
 			idx = len(cats)
@@ -92,16 +95,22 @@ func RunToolkitMenu() ([]string, error) {
 		// Clear screen between form transitions to prevent leftover renders
 		fmt.Print("\033[2J\033[H")
 
-		// Build category options with installed counts
+		// Build category options with installed/queued counts
 		var catOptions []huh.Option[string]
 		for _, cat := range cats {
 			catInstalled := 0
+			catQueued := 0
 			for _, t := range cat.tools {
 				if installed[t.Name] {
 					catInstalled++
+				} else if selected[t.Name] {
+					catQueued++
 				}
 			}
 			label := fmt.Sprintf("%s (%d/%d installed)", cat.name, catInstalled, len(cat.tools))
+			if catQueued > 0 {
+				label = fmt.Sprintf("%s (%d/%d installed · ~%d queued)", cat.name, catInstalled, len(cat.tools), catQueued)
+			}
 			catOptions = append(catOptions, huh.NewOption(label, cat.name))
 		}
 
@@ -157,13 +166,15 @@ func RunToolkitMenu() ([]string, error) {
 			continue
 		}
 
-		// Build tool options — installed tools get ✓ prefix and are pre-selected
+		// Build tool options — ✓ = installed, ~ = queued (selected but not installed)
 		var toolOptions []huh.Option[string]
 		var catSelected []string
 		for _, t := range cat.tools {
 			indicator := "  "
 			if installed[t.Name] {
 				indicator = "✓ "
+			} else if selected[t.Name] {
+				indicator = "~ "
 			}
 			label := fmt.Sprintf("%s%s — %s", indicator, t.Name, t.Description)
 			toolOptions = append(toolOptions, huh.NewOption(label, t.Name))

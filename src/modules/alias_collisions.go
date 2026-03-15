@@ -44,7 +44,7 @@ func shellNames(path string) (map[string]bool, error) {
 
 // AliasCollision represents a naming conflict between managed and preserved files.
 type AliasCollision struct {
-	Name         string
+	Name          string
 	PreservedFile string
 }
 
@@ -73,7 +73,7 @@ func CheckAliasCollisions() []AliasCollision {
 		for name := range names {
 			if managed[name] {
 				collisions = append(collisions, AliasCollision{
-					Name:         name,
+					Name:          name,
 					PreservedFile: p,
 				})
 			}

@@ -1,7 +1,9 @@
 package core
 
 import (
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -9,10 +11,22 @@ import (
 // DefaultDotfilesDir is set at build time via -ldflags.
 var DefaultDotfilesDir string
 
+// Distro represents a Linux distribution family.
+type Distro int
+
+const (
+	DistroUnknown Distro = iota
+	DistroDebian         // debian, ubuntu, raspbian, etc.
+	DistroFedora         // fedora, rhel, centos, rocky, etc.
+	DistroArch           // arch, manjaro, endeavouros, etc.
+	DistroSteamOS        // steamos (Arch-based, readonly root)
+)
+
 var (
 	dotfilesDir string
 	isWSL       bool
 	isGitBash   bool
+	distro      Distro
 	envDetected bool
 )
 
@@ -31,6 +45,9 @@ func DetectEnvironment() {
 
 	// WSL detection via /proc/version
 	isWSL = checkWSL()
+
+	// Distro detection via /etc/os-release
+	distro = detectDistro()
 }
 
 func checkWSL() bool {
@@ -78,6 +95,110 @@ func AssertEnvironment() {
 		}
 		Info("WSL detected (%s)", version)
 	}
+
+	if distro == DistroSteamOS {
+		Info("SteamOS detected (Arch-based, readonly root)")
+	}
+}
+
+// detectDistro reads /etc/os-release to determine the Linux distribution.
+func detectDistro() Distro {
+	data, err := os.ReadFile("/etc/os-release")
+	if err != nil {
+		return DistroUnknown
+	}
+	return ParseOsRelease(string(data))
+}
+
+// ParseOsRelease parses /etc/os-release content and returns the detected distro.
+// Exported for testing.
+func ParseOsRelease(content string) Distro {
+	var id, idLike string
+	for _, line := range strings.Split(content, "\n") {
+		if strings.HasPrefix(line, "ID=") {
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"'")
+		}
+		if strings.HasPrefix(line, "ID_LIKE=") {
+			idLike = strings.Trim(strings.TrimPrefix(line, "ID_LIKE="), "\"'")
+		}
+	}
+
+	switch id {
+	case "steamos":
+		return DistroSteamOS
+	case "arch", "manjaro", "endeavouros", "artix":
+		return DistroArch
+	case "debian", "ubuntu", "raspbian", "linuxmint", "kali", "devuan", "elementary":
+		return DistroDebian
+	case "fedora", "rhel", "centos", "rocky", "almalinux":
+		return DistroFedora
+	}
+
+	// Fallback to ID_LIKE
+	for _, like := range strings.Fields(idLike) {
+		switch like {
+		case "arch":
+			return DistroArch
+		case "debian", "ubuntu":
+			return DistroDebian
+		case "fedora", "rhel":
+			return DistroFedora
+		}
+	}
+
+	return DistroUnknown
+}
+
+// GetDistro returns the detected distribution.
+func GetDistro() Distro {
+	return distro
+}
+
+// IsSteamOS returns true if running on SteamOS.
+func IsSteamOS() bool {
+	return distro == DistroSteamOS
+}
+
+// IsArchBased returns true for Arch Linux and SteamOS.
+func IsArchBased() bool {
+	return distro == DistroArch || distro == DistroSteamOS
+}
+
+// IsDebianBased returns true for Debian, Ubuntu, and derivatives.
+func IsDebianBased() bool {
+	return distro == DistroDebian
+}
+
+// DisableReadonly disables the SteamOS readonly filesystem.
+func DisableReadonly() error {
+	PauseSpinner()
+	defer ResumeSpinner()
+	cmd := exec.Command("sudo", "steamos-readonly", "disable")
+	cmd.Stdin = os.Stdin
+	if Level >= LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("steamos-readonly disable: %w", err)
+	}
+	return nil
+}
+
+// EnableReadonly re-enables the SteamOS readonly filesystem.
+func EnableReadonly() error {
+	PauseSpinner()
+	defer ResumeSpinner()
+	cmd := exec.Command("sudo", "steamos-readonly", "enable")
+	cmd.Stdin = os.Stdin
+	if Level >= LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("steamos-readonly enable: %w", err)
+	}
+	return nil
 }
 
 // IsWSL returns true if running under Windows Subsystem for Linux.

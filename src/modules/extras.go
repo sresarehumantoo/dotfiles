@@ -55,6 +55,23 @@ func dpkgInstalled(pkg string) bool {
 	return cmd.Run() == nil
 }
 
+// pacmanInstalled checks if a pacman package is installed.
+func pacmanInstalled(pkg string) bool {
+	return exec.Command("pacman", "-Qi", pkg).Run() == nil
+}
+
+// pkgInstalled checks if a package is installed using the appropriate package manager.
+func pkgInstalled(pkg string) bool {
+	if core.IsArchBased() {
+		resolved := resolvePkg("pacman", pkg)
+		if resolved == "" {
+			return true // not needed on Arch
+		}
+		return pacmanInstalled(resolved)
+	}
+	return dpkgInstalled(pkg)
+}
+
 // userInGroup checks if the current user belongs to the given group.
 func userInGroup(group string) bool {
 	u, err := user.Current()
@@ -131,6 +148,13 @@ func (ExtrasModule) Install() error {
 }
 
 func installDocker() error {
+	if core.IsArchBased() {
+		return installDockerPacman()
+	}
+	return installDockerApt()
+}
+
+func installDockerApt() error {
 	arch := runtime.GOARCH
 	codename := distroCodename()
 
@@ -159,11 +183,25 @@ Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
 		return fmt.Errorf("installing docker packages: %w", err)
 	}
 
-	// Add current user to docker group if not already a member
+	addDockerGroup()
+	return nil
+}
+
+func installDockerPacman() error {
+	if err := installPkg("docker", "docker-compose", "docker-buildx"); err != nil {
+		return fmt.Errorf("installing docker packages: %w", err)
+	}
+
+	addDockerGroup()
+	return nil
+}
+
+func addDockerGroup() {
 	if !userInGroup("docker") {
 		u, err := user.Current()
 		if err != nil {
-			return fmt.Errorf("getting current user: %w", err)
+			core.Warn("Failed to get current user: %v", err)
+			return
 		}
 		core.Info("Adding %s to docker group...", u.Username)
 		if err := runCmd("sudo", "usermod", "-aG", "docker", u.Username); err != nil {
@@ -172,11 +210,16 @@ Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
 			core.Ok("Added %s to docker group (log out and back in to take effect)", u.Username)
 		}
 	}
-
-	return nil
 }
 
 func installHashicorp() error {
+	if core.IsArchBased() {
+		return installHashicorpBinary()
+	}
+	return installHashicorpApt()
+}
+
+func installHashicorpApt() error {
 	arch := runtime.GOARCH
 
 	repoContent := fmt.Sprintf(
@@ -200,6 +243,41 @@ func installHashicorp() error {
 	return nil
 }
 
+func installHashicorpBinary() error {
+	if _, err := exec.LookPath("terraform"); err == nil {
+		core.Ok("Terraform already installed")
+		return nil
+	}
+
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		arch = "amd64"
+	} else if arch == "arm64" {
+		arch = "arm64"
+	}
+
+	home, _ := os.UserHomeDir()
+	binDir := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		return fmt.Errorf("creating bin dir: %w", err)
+	}
+
+	// Download latest terraform zip and extract to ~/.local/bin
+	url := fmt.Sprintf("https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_%s.zip", arch)
+	tmpZip := filepath.Join(os.TempDir(), "terraform.zip")
+	if err := runCmd("curl", "-fsSL", "-o", tmpZip, url); err != nil {
+		return fmt.Errorf("downloading terraform: %w", err)
+	}
+	defer os.Remove(tmpZip)
+
+	if err := runCmd("unzip", "-o", tmpZip, "-d", binDir); err != nil {
+		return fmt.Errorf("extracting terraform: %w", err)
+	}
+
+	core.Ok("Terraform installed to %s", binDir)
+	return nil
+}
+
 // distroCodename reads VERSION_CODENAME from /etc/os-release.
 func distroCodename() string {
 	data, err := os.ReadFile("/etc/os-release")
@@ -217,26 +295,33 @@ func distroCodename() string {
 func (ExtrasModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "extras"}
 
-	// CLI utils (10 checks)
+	// CLI utils — binary names differ by distro
+	fdBin := "fdfind"
+	batBin := "batcat"
+	if core.IsArchBased() {
+		fdBin = "fd"
+		batBin = "bat"
+	}
+
 	cliChecks := []struct {
 		binary string
-		dpkg   bool
+		pkg    bool // check via package manager instead of binary
 	}{
 		{"xclip", false},
 		{"tree", false},
 		{"fzf", false},
-		{"rg", false},     // ripgrep binary name
-		{"fdfind", false}, // fd-find binary name on Debian
-		{"batcat", false}, // bat binary name on Debian
+		{"rg", false},
+		{fdBin, false},
+		{batBin, false},
 		{"jq", false},
 		{"unzip", false},
 		{"make", false},
-		{"build-essential", true}, // check via dpkg
-		{"tldr", false},          // tealdeer
+		{"build-essential", true},
+		{"tldr", false},
 	}
 	for _, c := range cliChecks {
-		if c.dpkg {
-			if dpkgInstalled(c.binary) {
+		if c.pkg {
+			if pkgInstalled(c.binary) {
 				s.Linked++
 			} else {
 				s.Missing++
@@ -250,7 +335,7 @@ func (ExtrasModule) Status() core.ModuleStatus {
 		}
 	}
 
-	// Python tooling (4 checks)
+	// Python tooling
 	pythonBins := []string{"python3", "pip3", "pipx"}
 	for _, b := range pythonBins {
 		if _, err := exec.LookPath(b); err == nil {
@@ -259,7 +344,7 @@ func (ExtrasModule) Status() core.ModuleStatus {
 			s.Missing++
 		}
 	}
-	if dpkgInstalled("python3-venv") {
+	if pkgInstalled("python3-venv") {
 		s.Linked++
 	} else {
 		s.Missing++
