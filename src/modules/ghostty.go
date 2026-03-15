@@ -1,12 +1,20 @@
 package modules
 
-import "github.com/sresarehumantoo/dotfiles/src/core"
+import (
+	"os/exec"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
+)
 
 type GhosttyModule struct{}
 
 func (GhosttyModule) Name() string { return "ghostty" }
 
 func (GhosttyModule) Install() error {
+	if _, err := exec.LookPath("ghostty"); err != nil {
+		core.Debug("ghostty not installed — skipping config")
+		return nil
+	}
 	core.Info("Linking Ghostty config...")
 	if err := core.EnsureDir(core.XDGTarget("ghostty")); err != nil {
 		return err
@@ -34,6 +42,9 @@ func (GhosttyModule) Links() []core.LinkPair {
 
 func (GhosttyModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "ghostty"}
+	if _, err := exec.LookPath("ghostty"); err != nil {
+		return s
+	}
 	if core.CheckLink(core.ConfigPath("ghostty", "config"), core.XDGTarget("ghostty", "config")) == "ok" {
 		s.Linked++
 	} else {

@@ -60,7 +60,11 @@ alias tclear="tmux run-shell ~/.tmux/plugins/tmux-logging/scripts/clear_history.
 
 # tldr (tealdeer) — colorized with pager
 if command -v tldr &>/dev/null; then
-  tldr() { command tldr --color always "$@" | less -RFX; }
+  if [[ "$TERM" != "linux" && "$TERM" != "dumb" ]]; then
+    tldr() { command tldr --color always "$@" | less -RFX; }
+  else
+    tldr() { command tldr --color never "$@" | less -FX; }
+  fi
 fi
 
 # System

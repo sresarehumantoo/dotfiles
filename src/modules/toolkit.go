@@ -57,11 +57,16 @@ func (ToolkitModule) Install() error {
 	var appImageTools []core.RegistryTool
 	var cargoTools []core.RegistryTool
 	var gitCloneTools []core.RegistryTool
+	var debTools []core.RegistryTool
 
 	for _, name := range tools {
 		info, ok := lookup[name]
 		if !ok {
 			core.Warn("Unknown toolkit tool %q — skipping", name)
+			continue
+		}
+		if !core.ToolMatchesDistro(info) {
+			core.Debug("skipping %s — not available on this distro", name)
 			continue
 		}
 		switch info.Method {
@@ -77,6 +82,8 @@ func (ToolkitModule) Install() error {
 			cargoTools = append(cargoTools, info)
 		case "git_clone":
 			gitCloneTools = append(gitCloneTools, info)
+		case "deb":
+			debTools = append(debTools, info)
 		}
 	}
 
@@ -173,6 +180,19 @@ func (ToolkitModule) Install() error {
 		}
 	}
 
+	// Install deb packages from GitHub releases
+	if len(debTools) > 0 {
+		if _, err := exec.LookPath("curl"); err != nil {
+			core.Warn("curl not found — skipping %d deb tools", len(debTools))
+		} else {
+			for _, t := range debTools {
+				if err := installDeb(t.Binary, t.DebRepo); err != nil {
+					core.Warn("Failed to install %s deb: %v", t.Binary, err)
+				}
+			}
+		}
+	}
+
 	// Clean registry cache — tool names should not persist on disk
 	core.CleanRegistryCache()
 
@@ -205,6 +225,9 @@ func (ToolkitModule) Status() core.ModuleStatus {
 		info, ok := lookup[name]
 		if !ok {
 			s.Missing++
+			continue
+		}
+		if !core.ToolMatchesDistro(info) {
 			continue
 		}
 		switch info.Method {
@@ -285,6 +308,19 @@ func (ToolkitModule) Uninstall() error {
 					core.Ok("Removed %s", clonePath)
 				}
 			}
+		case "deb":
+			if _, err := exec.LookPath(info.Binary); err == nil {
+				if core.DryRun {
+					core.Info("would run: sudo dpkg -r %s", info.Name)
+					continue
+				}
+				core.Info("Removing %s via dpkg...", info.Name)
+				if err := runCmd("sudo", "dpkg", "-r", info.Name); err != nil {
+					core.Warn("Failed to remove %s: %v", info.Name, err)
+				} else {
+					core.Ok("Removed %s", info.Name)
+				}
+			}
 		}
 	}
 
@@ -335,6 +371,90 @@ func installGitClone(name, repoURL string) error {
 	}
 
 	core.Ok("%s cloned to %s", name, destPath)
+	return nil
+}
+
+// installDeb downloads a .deb from a GitHub release and installs it via dpkg.
+func installDeb(name, repo string) error {
+	// Skip if already installed
+	if _, err := exec.LookPath(name); err == nil {
+		core.Ok("%s already installed", name)
+		return nil
+	}
+
+	core.Info("Downloading %s .deb from GitHub...", name)
+
+	// Query GitHub releases API
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	out, err := exec.Command("curl", "-fsSL", apiURL).Output()
+	if err != nil {
+		return fmt.Errorf("fetch releases for %s: %w", repo, err)
+	}
+
+	var release struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(out, &release); err != nil {
+		return fmt.Errorf("parse releases JSON for %s: %w", repo, err)
+	}
+
+	// Find the right .deb for the current architecture
+	arch := runtime.GOARCH
+	archPatterns := map[string][]string{
+		"amd64": {"amd64", "x86_64", "x64"},
+		"arm64": {"arm64", "aarch64"},
+	}
+	patterns, ok := archPatterns[arch]
+	if !ok {
+		patterns = []string{arch}
+	}
+
+	var downloadURL string
+	for _, asset := range release.Assets {
+		lower := strings.ToLower(asset.Name)
+		if !strings.HasSuffix(lower, ".deb") {
+			continue
+		}
+		for _, p := range patterns {
+			if strings.Contains(lower, p) {
+				downloadURL = asset.BrowserDownloadURL
+				break
+			}
+		}
+		if downloadURL != "" {
+			break
+		}
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no .deb found for %s/%s", arch, name)
+	}
+
+	// Download to temp file
+	tmpFile, err := os.CreateTemp("", name+"-*.deb")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	if err := runCmd("curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
+		return fmt.Errorf("download %s: %w", name, err)
+	}
+
+	// Install with dpkg, then fix any missing dependencies with apt
+	if err := runCmd("sudo", "dpkg", "-i", tmpPath); err != nil {
+		core.Info("Fixing dependencies for %s...", name)
+		if fixErr := runCmd("sudo", "apt-get", "install", "-f", "-y"); fixErr != nil {
+			return fmt.Errorf("install %s (dpkg failed and apt fix failed): dpkg: %w, apt: %v", name, err, fixErr)
+		}
+	}
+
+	core.Ok("%s installed via deb", name)
 	return nil
 }
 

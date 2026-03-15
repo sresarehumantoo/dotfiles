@@ -1,0 +1,12 @@
+[Desktop Entry]
+DefaultProfile=Dotfiles.profile
+
+[General]
+ConfigVersion=1
+
+[KonsoleWindow]
+RememberWindowSize=false
+ShowMenuBarByDefault=false
+
+[TabBar]
+TabBarVisibility=ShowTabBarWhenNeeded

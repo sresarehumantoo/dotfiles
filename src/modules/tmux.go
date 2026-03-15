@@ -40,6 +40,7 @@ var distroIcons = map[string]string{
 	"mageia":      "\uF310",
 	"sabayon":     "\uF317",
 	"aosc":        "\uF301",
+	"steamos":     "\uF1B6",
 	"endeavouros": "\U000F0322",
 	"guix":        "\U000F0325",
 	"neon":        "\uF17C",

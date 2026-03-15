@@ -59,6 +59,17 @@ func main() {
 		core.DetectEnvironment()
 		core.AssertEnvironment()
 
+		if core.IsSteamOS() && !core.DryRun {
+			core.Info("SteamOS detected — disabling readonly filesystem...")
+			if err := core.DisableReadonly(); err != nil {
+				return fmt.Errorf("failed to disable readonly mode: %w", err)
+			}
+			defer func() {
+				core.Info("Re-enabling readonly filesystem...")
+				core.EnableReadonly()
+			}()
+		}
+
 		core.ExtendedMode = flagExtended
 		core.ToolkitMode = flagToolkit
 

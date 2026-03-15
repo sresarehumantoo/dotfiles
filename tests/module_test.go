@@ -13,7 +13,7 @@ func TestRegistryOrder(t *testing.T) {
 	expected := []string{
 		"packages", "extras", "toolkit", "delta", "fonts", "omz",
 		"shell", "devtools", "git", "nvim", "tmux",
-		"ghostty", "htop", "wsl", "defaultshell",
+		"konsole", "ghostty", "htop", "wsl", "defaultshell",
 	}
 
 	names := core.ModuleNames()

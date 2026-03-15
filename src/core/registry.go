@@ -24,18 +24,28 @@ var validMethods = map[string]bool{
 	"cargo":     true,
 	"git_clone": true,
 	"appimage":  true,
+	"deb":       true,
+}
+
+// validDistros lists the allowed distro filter strings.
+var validDistros = map[string]bool{
+	"debian": true,
+	"arch":   true,
+	"fedora": true,
 }
 
 // RegistryTool describes a single toolkit tool's metadata.
 type RegistryTool struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Category    string `json:"category"`
-	Method      string `json:"method"`
-	Package     string `json:"package,omitempty"`
-	Binary      string `json:"binary"`
-	AppRepo     string `json:"app_repo,omitempty"`
-	GitRepo     string `json:"git_repo,omitempty"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Category    string   `json:"category"`
+	Method      string   `json:"method"`
+	Package     string   `json:"package,omitempty"`
+	Binary      string   `json:"binary"`
+	AppRepo     string   `json:"app_repo,omitempty"`
+	GitRepo     string   `json:"git_repo,omitempty"`
+	DebRepo     string   `json:"deb_repo,omitempty"`
+	Distros     []string `json:"distros,omitempty"`
 }
 
 // Registry is the top-level structure of the toolkit registry JSON.
@@ -206,8 +216,44 @@ func ValidateRegistry(r *Registry) error {
 			if t.AppRepo == "" {
 				return fmt.Errorf("tool %q: app_repo is required for appimage method", t.Name)
 			}
+		case "deb":
+			if t.DebRepo == "" {
+				return fmt.Errorf("tool %q: deb_repo is required for deb method", t.Name)
+			}
+		}
+
+		for _, d := range t.Distros {
+			if !validDistros[d] {
+				return fmt.Errorf("tool %q: unknown distro filter %q", t.Name, d)
+			}
 		}
 	}
 
 	return nil
+}
+
+// ToolMatchesDistro returns true if the tool is available on the current distro.
+// Tools with no distros filter match all distros.
+func ToolMatchesDistro(t RegistryTool) bool {
+	if len(t.Distros) == 0 {
+		return true
+	}
+	d := GetDistro()
+	for _, filter := range t.Distros {
+		switch filter {
+		case "debian":
+			if d == DistroDebian {
+				return true
+			}
+		case "arch":
+			if d == DistroArch || d == DistroSteamOS {
+				return true
+			}
+		case "fedora":
+			if d == DistroFedora {
+				return true
+			}
+		}
+	}
+	return false
 }
