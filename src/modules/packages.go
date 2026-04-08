@@ -86,12 +86,24 @@ func detectPkgManager() (name string, args []string) {
 	return "", nil
 }
 
+var aptUpdated bool
+
 func installPkg(pkgs ...string) error {
 	name, args := detectPkgManager()
 	if name == "" {
 		core.Err("No supported package manager found. Install manually: %v", pkgs)
 		return nil
 	}
+
+	// Ensure apt cache is fresh on first use (minimal systems ship with empty lists)
+	if name == "apt-get" && !aptUpdated {
+		core.Info("Refreshing package lists...")
+		if err := runCmd("sudo", "apt-get", "update"); err != nil {
+			core.Warn("apt-get update failed: %v", err)
+		}
+		aptUpdated = true
+	}
+
 	resolved := resolvePkgs(name, pkgs)
 	if len(resolved) == 0 {
 		return nil
