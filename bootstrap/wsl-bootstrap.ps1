@@ -223,7 +223,8 @@ function Copy-SetupScript {
 
     # Read with LF line endings and pipe into WSL
     $content = [System.IO.File]::ReadAllText($setupScript).Replace("`r`n", "`n")
-    $content | wsl.exe -d $DistroName -u root -- bash -c "cat > /tmp/wsl-setup.sh && chmod +x /tmp/wsl-setup.sh"
+    $cmd = 'cat > /tmp/wsl-setup.sh; chmod +x /tmp/wsl-setup.sh'
+    $content | wsl.exe -d $DistroName -u root -- bash -c $cmd
 
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to copy setup script into distro"
@@ -254,7 +255,8 @@ function Copy-RepoToDistro {
     $targetPath = "/home/$LinuxUser/dotfiles"
 
     # Copy from the Windows mount into the Linux filesystem (much faster I/O)
-    wsl.exe -d $DistroName -u root -- bash -c "rm -rf $targetPath && cp -a '$wslRepoPath' '$targetPath' && chown -R ${LinuxUser}:${LinuxUser} '$targetPath'"
+    $cmd = "rm -rf $targetPath; cp -a '$wslRepoPath' '$targetPath'; chown -R ${LinuxUser}:${LinuxUser} '$targetPath'"
+    wsl.exe -d $DistroName -u root -- bash -c $cmd
 
     if ($LASTEXITCODE -ne 0) {
         Write-Warn "Repo copy failed — will clone from GitHub instead"
