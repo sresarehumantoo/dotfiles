@@ -299,7 +299,7 @@ function Invoke-Phase {
 # ── Banner ───────────────────────────────────────────────────────
 
 function Show-Banner {
-    $banner = @"
+    $banner = @'
 
      _  __ _         _        _ _
   __| |/ _(_)_ _  __| |_ __ _| | |
@@ -308,7 +308,7 @@ function Show-Banner {
 
           WSL Bootstrap Wizard
 
-"@
+'@
     Write-Host $banner -ForegroundColor Cyan
 }
 
