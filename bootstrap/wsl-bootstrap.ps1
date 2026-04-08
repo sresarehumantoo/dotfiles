@@ -221,9 +221,9 @@ function Copy-SetupScript {
 
     Write-Step "Copying setup script into distro..."
 
-    # Read with LF line endings and pipe into WSL
-    $content = [System.IO.File]::ReadAllText($setupScript).Replace("`r`n", "`n")
-    $cmd = 'cat > /tmp/wsl-setup.sh; chmod +x /tmp/wsl-setup.sh'
+    # Pipe script into WSL, stripping \r on the Linux side (PS pipeline adds CRLF)
+    $content = [System.IO.File]::ReadAllText($setupScript)
+    $cmd = 'sed "s/\r$//" > /tmp/wsl-setup.sh; chmod +x /tmp/wsl-setup.sh'
     $content | wsl.exe -d $DistroName -u root -- bash -c $cmd
 
     if ($LASTEXITCODE -ne 0) {
