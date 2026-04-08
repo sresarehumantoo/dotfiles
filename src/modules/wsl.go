@@ -61,7 +61,7 @@ func installWslConf() {
 			core.Ok("/etc/wsl.conf already up to date")
 			return
 		}
-		core.Warn("Updating /etc/wsl.conf (backing up to /etc/wsl.conf.bak)")
+		core.Notice("Updating /etc/wsl.conf (backing up to /etc/wsl.conf.bak)")
 		sudoCopy(dstPath, dstPath+".bak")
 	}
 
@@ -145,7 +145,7 @@ func installWslconfig() {
 			core.Ok(".wslconfig already up to date")
 			return
 		}
-		core.Warn("Updating %s (backing up to .wslconfig.bak)", dst)
+		core.Notice("Updating %s (backing up to .wslconfig.bak)", dst)
 		// Regular copy since this is in user's Windows home
 		os.Rename(dst, dst+".bak")
 	}
