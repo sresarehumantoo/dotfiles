@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Suppress noisy warnings on minimal systems (fixed once packages are installed)
+export DEBIAN_FRONTEND=noninteractive
+export PERL_BADLANG=0
+export LC_ALL=C
+
 # ── Colors & symbols ─────────────────────────────────────────────
 _BOLD='\033[1m'  _DIM='\033[2m'  _RESET='\033[0m'
 _BLUE='\033[34m' _GREEN='\033[32m' _YELLOW='\033[33m'
@@ -25,9 +30,6 @@ step() { printf "${_DIM}  …${_RESET} %s\n" "$*"; }
 # ── Phase: Root Setup ────────────────────────────────────────────
 setup_root() {
     local username="${1:?usage: setup-root <username>}"
-
-    # Prevent debconf dialog errors on minimal systems
-    export DEBIAN_FRONTEND=noninteractive
 
     header "Updating system packages"
     apt-get update -y
