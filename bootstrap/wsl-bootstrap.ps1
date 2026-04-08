@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     Bootstrap a fresh WSL Debian distro for dotfiles installation.
@@ -247,7 +247,7 @@ function Copy-RepoToDistro {
     # Convert Windows path to WSL path for the distro
     $wslRepoPath = wsl.exe -d $DistroName -- wslpath -u $repoRoot.Replace('\', '/')
     if ($LASTEXITCODE -ne 0) {
-        Write-Warn "Could not resolve WSL path — will clone from GitHub instead"
+        Write-Warn "Could not resolve WSL path - will clone from GitHub instead"
         return ""
     }
 
@@ -259,7 +259,7 @@ function Copy-RepoToDistro {
     wsl.exe -d $DistroName -u root -- bash -c $cmd
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Warn "Repo copy failed — will clone from GitHub instead"
+        Write-Warn "Repo copy failed - will clone from GitHub instead"
         return ""
     }
 
@@ -353,7 +353,7 @@ function Main {
         Write-Step "Terminating '$selectedDistro' to apply wsl.conf changes..."
         wsl.exe --terminate $selectedDistro
         Start-Sleep -Seconds 3
-        Write-Ok "Distro restarted — interop and systemd now active"
+        Write-Ok "Distro restarted - interop and systemd now active"
 
         # Re-copy setup script (/tmp may not survive terminate)
         Copy-SetupScript -DistroName $selectedDistro
@@ -403,7 +403,7 @@ function Main {
     Write-Header "Done"
     Write-Ok "WSL distro '$selectedDistro' is ready"
     Write-Host ""
-    Write-Warn "Your initial password is 'root' — you will be prompted to change it on first login."
+    Write-Warn "Your initial password is 'root' - you will be prompted to change it on first login."
     Write-Host ""
     Write-Info "Next steps:"
     Write-Host "    1. Open a new terminal for $selectedDistro"
