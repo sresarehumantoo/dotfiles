@@ -14,6 +14,7 @@ var pacmanNames = map[string]string{
 	"build-essential":         "base-devel",
 	"golang":                  "go",
 	"python3-pip":             "python-pip",
+	"locales":                 "", // glibc provides locales on Arch
 	"python3-venv":            "", // part of python on Arch
 	"pipx":                    "python-pipx",
 	"bat":                     "bat",
@@ -140,7 +141,7 @@ func (PackagesModule) Install() error {
 
 	core.Info("Installing core packages...")
 
-	pkgs := []string{"git", "zsh", "curl", "wget", "htop", "rsync"}
+	pkgs := []string{"git", "zsh", "curl", "wget", "htop", "rsync", "locales"}
 
 	if _, err := exec.LookPath("nvim"); err != nil {
 		pkgs = append(pkgs, "neovim")

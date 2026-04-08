@@ -9,6 +9,7 @@ import (
 // RegisterAllModules registers every module in the correct install order.
 // Called once from main — avoids per-file init() non-determinism.
 func RegisterAllModules() {
+	core.RegisterModule(&LocaleModule{})
 	core.RegisterModule(&PackagesModule{})
 	core.RegisterModule(&ExtrasModule{})
 	core.RegisterModule(&ToolkitModule{})

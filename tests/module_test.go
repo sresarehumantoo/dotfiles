@@ -11,7 +11,7 @@ func TestRegistryOrder(t *testing.T) {
 	modules.RegisterAllModules()
 
 	expected := []string{
-		"packages", "extras", "toolkit", "delta", "fonts", "omz",
+		"locale", "packages", "extras", "toolkit", "delta", "fonts", "omz",
 		"shell", "devtools", "git", "nvim", "tmux",
 		"konsole", "ghostty", "htop", "wsl", "defaultshell",
 	}
