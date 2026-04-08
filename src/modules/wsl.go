@@ -2,7 +2,6 @@ package modules
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -28,38 +27,51 @@ func (WslModule) Install() error {
 
 	core.Info("Configuring WSL environment...")
 
-	installWslConf()
+	confChanged := installWslConf()
 	installSysctl()
-	installWslconfig()
-	linkWinHome()
-	configureGitFsmonitor()
 
-	fmt.Println()
-	core.Info("WSL config changes applied.")
-	core.Info("To fully apply .wslconfig and wsl.conf, restart WSL from PowerShell:")
-	core.Info("    wsl --shutdown")
-	core.Info("Then relaunch your terminal.")
-	fmt.Println()
+	// interop-dependent steps require cmd.exe, which is only available
+	// after wsl.conf enables interop and WSL is restarted.
+	hasInterop := hasInterop()
+	if hasInterop {
+		installWslconfig()
+		linkWinHome()
+	} else if confChanged {
+		core.Warn("Interop not yet available — wsl.conf was just installed.")
+		core.Warn("Shutdown WSL from PowerShell with: wsl --shutdown")
+		core.Warn("Then relaunch and run: dfinstall install wsl")
+	} else {
+		core.Warn("cmd.exe interop not available. Enable it in /etc/wsl.conf under [interop]")
+	}
+
+	configureGitFsmonitor()
 
 	return nil
 }
 
-func installWslConf() {
+// hasInterop returns true if Windows interop (cmd.exe) is available.
+func hasInterop() bool {
+	_, err := exec.LookPath("cmd.exe")
+	return err == nil
+}
+
+// installWslConf installs /etc/wsl.conf and returns true if the file was changed.
+func installWslConf() bool {
 	wslConf := core.ConfigPath("wsl", "wsl.conf")
 	if _, err := os.Stat(wslConf); err != nil {
-		return
+		return false
 	}
 
 	srcData, err := os.ReadFile(wslConf)
 	if err != nil {
-		return
+		return false
 	}
 
 	dstPath := "/etc/wsl.conf"
 	if dstData, err := os.ReadFile(dstPath); err == nil {
 		if bytes.Equal(srcData, dstData) {
 			core.Ok("/etc/wsl.conf already up to date")
-			return
+			return false
 		}
 		core.Notice("Updating /etc/wsl.conf (backing up to /etc/wsl.conf.bak)")
 		sudoCopy(dstPath, dstPath+".bak")
@@ -67,6 +79,7 @@ func installWslConf() {
 
 	sudoCopyFrom(wslConf, dstPath)
 	core.Ok("/etc/wsl.conf installed")
+	return true
 }
 
 func installSysctl() {
@@ -134,7 +147,7 @@ func installWslconfig() {
 
 	wslWinHome := resolveWinHome()
 	if wslWinHome == "" {
-		core.Warn("cmd.exe interop not available. Copy wsl/wslconfig to C:\\Users\\<you>\\.wslconfig manually")
+		core.Warn("Could not resolve Windows home — copy wsl/wslconfig to C:\\Users\\<you>\\.wslconfig manually")
 		return
 	}
 
