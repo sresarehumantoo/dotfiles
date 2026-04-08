@@ -223,7 +223,7 @@ function Copy-SetupScript {
 
     # Pipe script into WSL, stripping \r on the Linux side (PS pipeline adds CRLF)
     $content = [System.IO.File]::ReadAllText($setupScript)
-    $cmd = 'sed "s/\r$//" > /tmp/wsl-setup.sh; chmod +x /tmp/wsl-setup.sh'
+    $cmd = 'tr -d \015 > /tmp/wsl-setup.sh; chmod +x /tmp/wsl-setup.sh'
     $content | wsl.exe -d $DistroName -u root -- bash -c $cmd
 
     if ($LASTEXITCODE -ne 0) {
