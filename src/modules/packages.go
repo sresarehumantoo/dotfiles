@@ -128,6 +128,7 @@ func installPkg(pkgs ...string) error {
 	if len(resolved) == 0 {
 		return nil
 	}
+	core.SpinnerDetail("Installing: %s", strings.Join(resolved, ", "))
 	cmdArgs := append(args, resolved...)
 	return runCmd(cmdArgs[0], cmdArgs[1:]...)
 }
@@ -178,26 +179,42 @@ func (PackagesModule) Install() error {
 
 	core.Info("Installing core packages...")
 
-	pkgs := []string{"git", "zsh", "curl", "wget", "htop", "rsync", "locales"}
+	// binary → package(s) mapping; only install what's missing
+	wanted := []struct {
+		bin  string
+		pkgs []string
+	}{
+		{"git", []string{"git"}},
+		{"zsh", []string{"zsh"}},
+		{"curl", []string{"curl"}},
+		{"wget", []string{"wget"}},
+		{"htop", []string{"htop"}},
+		{"rsync", []string{"rsync"}},
+		{"nvim", []string{"neovim"}},
+		{"tmux", []string{"tmux"}},
+		{"node", []string{"nodejs", "npm"}},
+		{"python3", []string{"python3"}},
+		{"go", []string{"golang"}},
+	}
 
-	if _, err := exec.LookPath("nvim"); err != nil {
-		pkgs = append(pkgs, "neovim")
+	var pkgs []string
+	for _, w := range wanted {
+		if _, err := exec.LookPath(w.bin); err != nil {
+			pkgs = append(pkgs, w.pkgs...)
+		}
 	}
-	if _, err := exec.LookPath("tmux"); err != nil {
-		pkgs = append(pkgs, "tmux")
-	}
-	if _, err := exec.LookPath("node"); err != nil {
-		pkgs = append(pkgs, "nodejs", "npm")
-	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		pkgs = append(pkgs, "python3")
-	}
-	if _, err := exec.LookPath("go"); err != nil {
-		pkgs = append(pkgs, "golang")
+	// locales has no binary to check — ensure the package is present
+	if !dpkgInstalled("locales") {
+		pkgs = append(pkgs, "locales")
 	}
 
-	if err := installPkg(pkgs...); err != nil {
-		core.Warn("Some packages may have failed to install: %v", err)
+	if len(pkgs) == 0 {
+		core.Ok("All core packages already installed")
+	} else {
+		core.Info("Installing: %s", strings.Join(pkgs, ", "))
+		if err := installPkg(pkgs...); err != nil {
+			core.Warn("Some packages may have failed to install: %v", err)
+		}
 	}
 
 	// zsh-syntax-highlighting
