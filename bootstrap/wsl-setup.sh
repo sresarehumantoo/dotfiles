@@ -26,19 +26,23 @@ step() { printf "${_DIM}  …${_RESET} %s\n" "$*"; }
 setup_root() {
     local username="${1:?usage: setup-root <username>}"
 
+    # Prevent debconf dialog errors on minimal systems
+    export DEBIAN_FRONTEND=noninteractive
+
     header "Updating system packages"
     apt-get update -y
     apt-get full-upgrade -y
 
     header "Installing base packages"
+    # dialog + readline first so debconf works for subsequent installs
+    apt-get install -y dialog perl
     apt-get install -y \
         sudo vim nano curl wget git make \
         build-essential cmake ninja-build gettext \
         golang python3 python3-pip python3-venv pipx \
         zsh htop rsync locales ca-certificates gnupg \
         iputils-ping dnsutils traceroute net-tools \
-        dbus-x11 gdebi-core unzip tar jq \
-        software-properties-common lsb-release
+        dbus-x11 gdebi-core unzip tar jq lsb-release
 
     header "Creating user: ${username}"
     if id "$username" &>/dev/null; then
