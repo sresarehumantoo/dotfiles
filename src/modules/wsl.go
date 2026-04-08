@@ -27,21 +27,18 @@ func (WslModule) Install() error {
 
 	core.Info("Configuring WSL environment...")
 
-	confChanged := installWslConf()
+	installWslConf()
 	installSysctl()
 
 	// interop-dependent steps require cmd.exe, which is only available
 	// after wsl.conf enables interop and WSL is restarted.
-	hasInterop := hasInterop()
-	if hasInterop {
+	if hasInterop() {
 		installWslconfig()
 		linkWinHome()
-	} else if confChanged {
-		core.Warn("Interop not yet available — wsl.conf was just installed.")
-		core.Warn("Shutdown WSL from PowerShell with: wsl --shutdown")
-		core.Warn("Then relaunch and run: dfinstall install wsl")
 	} else {
-		core.Warn("cmd.exe interop not available. Enable it in /etc/wsl.conf under [interop]")
+		core.Warn("Windows interop not yet available — restart WSL to apply wsl.conf changes.")
+		core.Warn("From PowerShell run: wsl --shutdown")
+		core.Warn("Then relaunch and run: dfinstall install wsl")
 	}
 
 	configureGitFsmonitor()
