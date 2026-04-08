@@ -39,12 +39,12 @@ func LinkFile(src, dst string) error {
 			Ok("already linked: %s", dst)
 			return nil
 		}
-		Warn("repointing symlink: %s", dst)
+		Notice("repointing symlink: %s", dst)
 		os.Remove(dst)
 	} else if err == nil {
 		// Regular file or directory exists — back it up
 		bak := dst + ".bak"
-		Warn("backing up existing: %s -> %s", dst, bak)
+		Notice("backing up existing: %s -> %s", dst, bak)
 		if err := os.Rename(dst, bak); err != nil {
 			return err
 		}

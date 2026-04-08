@@ -18,9 +18,12 @@ func (ExtrasModule) Name() string { return "extras" }
 
 // addAptRepo sets up a third-party apt repository if not already configured.
 func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
-	if _, err := os.Stat(repoPath); err == nil {
-		core.Ok("%s repo already configured", name)
-		return nil
+	if existing, err := os.ReadFile(repoPath); err == nil {
+		if strings.TrimSpace(string(existing)) == strings.TrimSpace(repoContent) {
+			core.Ok("%s repo already configured", name)
+			return nil
+		}
+		core.Notice("Updating %s repo (content changed)", name)
 	}
 
 	core.Info("Adding %s apt repository...", name)
@@ -34,8 +37,8 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 		return fmt.Errorf("downloading %s GPG key: %w", name, err)
 	}
 
-	// Write repo file
-	write := fmt.Sprintf("echo %q | sudo tee %s > /dev/null", repoContent, repoPath)
+	// Write repo file (heredoc preserves newlines in DEB822 format)
+	write := fmt.Sprintf("cat <<'REPO' | sudo tee %s > /dev/null\n%s\nREPO", repoPath, repoContent)
 	if err := runCmd("bash", "-c", write); err != nil {
 		return fmt.Errorf("writing %s repo file: %w", name, err)
 	}

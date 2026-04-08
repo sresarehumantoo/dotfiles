@@ -121,9 +121,14 @@ func runCmd(name string, args ...string) error {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
-		err := cmd.Run()
+		if err := cmd.Start(); err != nil {
+			core.ResumeSpinner()
+			return err
+		}
+		// Resume spinner while the command runs — sudo has already
+		// read any password prompt by the time Start returns control.
 		core.ResumeSpinner()
-		return err
+		return cmd.Wait()
 	}
 
 	if core.Level >= core.LogVerbose {
