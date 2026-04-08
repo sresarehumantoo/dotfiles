@@ -3,6 +3,8 @@ package modules
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -88,6 +90,23 @@ func detectPkgManager() (name string, args []string) {
 
 var aptUpdated bool
 
+// repairAptSources removes corrupt DEB822 .sources files left by a prior
+// dfinstall bug that wrote literal \n instead of real newlines.
+func repairAptSources() {
+	matches, _ := filepath.Glob("/etc/apt/sources.list.d/*.sources")
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		// A valid DEB822 file is multiline; a corrupt one has everything on one line with literal \n
+		if strings.Contains(string(data), `\nURIs:`) || strings.Contains(string(data), `\nSuites:`) {
+			core.Notice("Removing corrupt apt source: %s", path)
+			runCmd("sudo", "rm", path)
+		}
+	}
+}
+
 func installPkg(pkgs ...string) error {
 	name, args := detectPkgManager()
 	if name == "" {
@@ -97,6 +116,7 @@ func installPkg(pkgs ...string) error {
 
 	// Ensure apt cache is fresh on first use (minimal systems ship with empty lists)
 	if name == "apt-get" && !aptUpdated {
+		repairAptSources()
 		core.Info("Refreshing package lists...")
 		if err := runCmd("sudo", "apt-get", "update"); err != nil {
 			core.Warn("apt-get update failed: %v", err)
