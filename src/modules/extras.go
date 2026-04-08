@@ -105,12 +105,34 @@ func (ExtrasModule) Install() error {
 
 	// --- CLI utils ---
 	core.Info("Installing CLI utilities...")
-	cliPkgs := []string{
-		"xclip", "tree", "fzf", "ripgrep", "fd-find",
-		"bat", "jq", "unzip", "make", "build-essential", "tealdeer",
+	cliWanted := []struct {
+		bin  string
+		pkgs []string
+	}{
+		{"xclip", []string{"xclip"}},
+		{"tree", []string{"tree"}},
+		{"fzf", []string{"fzf"}},
+		{"rg", []string{"ripgrep"}},
+		{"fdfind", []string{"fd-find"}},
+		{"batcat", []string{"bat"}},
+		{"jq", []string{"jq"}},
+		{"unzip", []string{"unzip"}},
+		{"make", []string{"make"}},
+		{"gcc", []string{"build-essential"}},
+		{"tldr", []string{"tealdeer"}},
 	}
-	if err := installPkg(cliPkgs...); err != nil {
-		core.Warn("Some CLI utils may have failed: %v", err)
+	var cliPkgs []string
+	for _, w := range cliWanted {
+		if _, err := exec.LookPath(w.bin); err != nil {
+			cliPkgs = append(cliPkgs, w.pkgs...)
+		}
+	}
+	if len(cliPkgs) == 0 {
+		core.Ok("All CLI utilities already installed")
+	} else {
+		if err := installPkg(cliPkgs...); err != nil {
+			core.Warn("Some CLI utils may have failed: %v", err)
+		}
 	}
 
 	// Update tldr page cache (best-effort — may fail on spotty networks)
@@ -125,11 +147,20 @@ func (ExtrasModule) Install() error {
 
 	// --- Python tooling ---
 	core.Info("Installing Python tooling...")
-	pythonPkgs := []string{"python3", "python3-pip", "python3-venv", "pipx"}
-	if err := installPkg(pythonPkgs...); err != nil {
-		core.Warn("Some Python packages may have failed: %v", err)
+	var pythonPkgs []string
+	for _, pkg := range []string{"python3-pip", "python3-venv", "pipx"} {
+		if !dpkgInstalled(pkg) {
+			pythonPkgs = append(pythonPkgs, pkg)
+		}
 	}
-	core.Ok("Python tooling done")
+	if len(pythonPkgs) == 0 {
+		core.Ok("Python tooling already installed")
+	} else {
+		if err := installPkg(pythonPkgs...); err != nil {
+			core.Warn("Some Python packages may have failed: %v", err)
+		}
+		core.Ok("Python tooling done")
+	}
 
 	// --- Docker ---
 	core.Info("Installing Docker...")
