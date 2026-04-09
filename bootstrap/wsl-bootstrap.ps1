@@ -403,7 +403,7 @@ function Main {
     Write-Header "Done"
     Write-Ok "WSL distro '$selectedDistro' is ready"
     Write-Host ""
-    Write-Warn "Your initial password is 'root' - you will be prompted to change it on first login."
+    Write-Warn "Your password is 'root' - change it after setup with: passwd"
     Write-Host ""
     Write-Info "Next steps:"
     Write-Host "    1. Open a new terminal for $selectedDistro"

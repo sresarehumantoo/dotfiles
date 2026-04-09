@@ -60,8 +60,7 @@ setup_root() {
 
     # Set initial password
     echo "${username}:root" | chpasswd
-    chage -d 0 "$username"
-    warn "Password set to 'root' — you will be prompted to change it on first login"
+    warn "Password set to 'root' - change it after setup with: passwd"
 
     header "Writing /etc/wsl.conf"
     cat > /etc/wsl.conf <<WSLCONF
