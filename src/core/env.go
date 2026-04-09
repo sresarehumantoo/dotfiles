@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // DefaultDotfilesDir is set at build time via -ldflags.
@@ -271,4 +273,62 @@ func XDGConfigHome() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config")
+}
+
+// ── Sudo credential management ─────────────────────────────────
+
+var sudoKeepAliveStop chan struct{}
+var sudoOnce sync.Once
+
+// PromptSudo prompts the user for their sudo password (visible, before the
+// spinner starts) and launches a background goroutine that refreshes the
+// credentials every 60 seconds so they never expire during install.
+func PromptSudo() {
+	if DryRun {
+		return
+	}
+	// Check if sudo even needs a password (e.g. NOPASSWD configured)
+	if exec.Command("sudo", "-n", "true").Run() == nil {
+		Debug("sudo: passwordless access available")
+		startSudoKeepAlive()
+		return
+	}
+
+	Status("Some steps require sudo access")
+	cmd := exec.Command("sudo", "-v")
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		Warn("sudo authentication failed — some steps may prompt again")
+		return
+	}
+
+	startSudoKeepAlive()
+}
+
+// startSudoKeepAlive refreshes sudo credentials in the background.
+func startSudoKeepAlive() {
+	sudoOnce.Do(func() {
+		sudoKeepAliveStop = make(chan struct{})
+		go func() {
+			ticker := time.NewTicker(60 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-sudoKeepAliveStop:
+					return
+				case <-ticker.C:
+					exec.Command("sudo", "-n", "-v").Run()
+				}
+			}
+		}()
+	})
+}
+
+// StopSudoKeepAlive stops the background credential refresh.
+func StopSudoKeepAlive() {
+	if sudoKeepAliveStop != nil {
+		close(sudoKeepAliveStop)
+	}
 }

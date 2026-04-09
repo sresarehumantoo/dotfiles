@@ -96,6 +96,10 @@ func main() {
 			core.Cfg.ToolkitTools = selected
 		}
 
+		// Prompt for sudo before spinner starts so the password prompt is visible
+		core.PromptSudo()
+		defer core.StopSudoKeepAlive()
+
 		// Infer module from standalone flags when no positional arg given
 		var target string
 		switch {

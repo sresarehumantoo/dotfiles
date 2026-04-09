@@ -139,30 +139,39 @@ build_neovim() {
 install_ghostty() {
     header "Installing Ghostty (latest .deb release)"
 
-    local api_url="https://api.github.com/repos/dariogriffo/ghostty-debian/releases/latest"
-    local arch
+    local api_url="https://api.github.com/repos/dariogriffo/ghostty-debian/releases"
+    local arch codename
     arch="$(dpkg --print-architecture)"
+    codename="$(. /etc/os-release && echo "${VERSION_CODENAME:-bookworm}")"
 
-    step "Fetching latest release info..."
-    local release_json
-    release_json="$(curl -sL "$api_url")"
+    step "Detecting distro: ${codename} (${arch})"
+    step "Fetching releases..."
+    local releases_json
+    releases_json="$(curl -sL "$api_url")"
 
-    # Find .deb matching our architecture
+    # Search all releases (not just latest) for a .deb matching our codename + arch
     local deb_url
-    deb_url="$(echo "$release_json" | jq -r \
+    deb_url="$(echo "$releases_json" | jq -r \
+        --arg codename "$codename" \
         --arg arch "$arch" \
-        '.assets[] | select(.name | endswith(".deb")) | select(.name | contains($arch)) | .browser_download_url' \
-        | head -1)"
+        '[ .[] | .assets[] |
+           select(.name | endswith(".deb")) |
+           select(.name | contains($codename)) |
+           select(.name | contains($arch))
+         ] | first | .browser_download_url // empty')"
 
-    if [[ -z "$deb_url" || "$deb_url" == "null" ]]; then
-        # Fallback: grab any .deb
-        deb_url="$(echo "$release_json" | jq -r \
-            '.assets[] | select(.name | endswith(".deb")) | .browser_download_url' \
-            | head -1)"
+    # Fallback: try matching just the codename (any arch)
+    if [[ -z "$deb_url" ]]; then
+        deb_url="$(echo "$releases_json" | jq -r \
+            --arg codename "$codename" \
+            '[ .[] | .assets[] |
+               select(.name | endswith(".deb")) |
+               select(.name | contains($codename))
+             ] | first | .browser_download_url // empty')"
     fi
 
-    if [[ -z "$deb_url" || "$deb_url" == "null" ]]; then
-        die "Could not find Ghostty .deb release from GitHub API"
+    if [[ -z "$deb_url" ]]; then
+        die "No Ghostty .deb found for ${codename}/${arch}. Check https://github.com/dariogriffo/ghostty-debian/releases"
     fi
 
     local deb_file="/tmp/ghostty-latest.deb"
