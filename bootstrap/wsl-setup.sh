@@ -27,24 +27,67 @@ header() {
 }
 step() { printf "${_DIM}  …${_RESET} %s\n" "$*"; }
 
+# ── Spinner for long-running commands ────────────────────────────
+_spin_pid=""
+_spin_frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+
+spin_start() {
+    local msg="$1"
+    (
+        local i=0
+        while true; do
+            printf "\r${_CYAN}${_BOLD}  %s${_RESET} %s" "${_spin_frames[$((i % 10))]}" "$msg"
+            i=$((i + 1))
+            sleep 0.1
+        done
+    ) &
+    _spin_pid=$!
+}
+
+spin_stop() {
+    if [[ -n "$_spin_pid" ]]; then
+        kill "$_spin_pid" 2>/dev/null
+        wait "$_spin_pid" 2>/dev/null || true
+        _spin_pid=""
+        printf "\r\033[K"
+    fi
+}
+
+# ── Helpers ──────────────────────────────────────────────────────
+is_wsl() { [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]] || grep -qi microsoft /proc/version 2>/dev/null; }
+
 # ── Phase: Root Setup ────────────────────────────────────────────
 setup_root() {
     local username="${1:?usage: setup-root <username>}"
 
     header "Updating system packages"
-    apt-get update -y
-    apt-get full-upgrade -y
+    spin_start "Updating package lists..."
+    apt-get update -y > /dev/null 2>&1
+    spin_stop
+    ok "Package lists updated"
+
+    spin_start "Upgrading installed packages..."
+    apt-get full-upgrade -y > /dev/null 2>&1
+    spin_stop
+    ok "System packages upgraded"
 
     header "Installing base packages"
-    # dialog + readline first so debconf works for subsequent installs
-    apt-get install -y dialog perl
+    spin_start "Installing debconf prerequisites..."
+    apt-get install -y dialog perl > /dev/null 2>&1
+    spin_stop
+    ok "debconf ready"
+
+    spin_start "Installing core packages (this may take a few minutes)..."
     apt-get install -y \
         sudo vim nano curl wget git make \
         build-essential cmake ninja-build gettext \
         golang python3 python3-pip python3-venv pipx \
         zsh htop rsync locales ca-certificates gnupg \
         iputils-ping dnsutils traceroute net-tools \
-        dbus-x11 gdebi-core unzip tar jq lsb-release
+        dbus-x11 gdebi-core unzip tar jq lsb-release \
+        > /dev/null 2>&1
+    spin_stop
+    ok "Core packages installed"
 
     header "Creating user: ${username}"
     if id "$username" &>/dev/null; then
@@ -62,8 +105,9 @@ setup_root() {
     echo "${username}:root" | chpasswd
     warn "Password set to 'root' - change it after setup with: passwd"
 
-    header "Writing /etc/wsl.conf"
-    cat > /etc/wsl.conf <<WSLCONF
+    if is_wsl; then
+        header "Writing /etc/wsl.conf"
+        cat > /etc/wsl.conf <<WSLCONF
 [boot]
 systemd=true
 
@@ -87,7 +131,10 @@ default=${username}
 [time]
 useWindowsTimezone=true
 WSLCONF
-    ok "/etc/wsl.conf written (default user: ${username})"
+        ok "/etc/wsl.conf written (default user: ${username})"
+    else
+        info "Not running in WSL - skipping wsl.conf"
+    fi
 
     header "Configuring locale"
     local gen_path="/etc/locale.gen"
@@ -97,8 +144,8 @@ WSLCONF
     elif ! grep -q "^${target_locale}" "$gen_path" 2>/dev/null; then
         echo "${target_locale} UTF-8" >> "$gen_path"
     fi
-    locale-gen
-    update-locale LANG="${target_locale}" LC_ALL="${target_locale}"
+    locale-gen > /dev/null 2>&1
+    update-locale LANG="${target_locale}" LC_ALL="${target_locale}" 2>/dev/null
     ok "Locale set to ${target_locale}"
 
     ok "Root setup complete"
@@ -118,15 +165,20 @@ build_neovim() {
     local build_dir="/tmp/neovim-build"
     rm -rf "$build_dir"
 
-    step "Cloning neovim repository..."
-    git clone --depth 1 https://github.com/neovim/neovim.git "$build_dir"
+    spin_start "Cloning neovim repository..."
+    git clone --depth 1 https://github.com/neovim/neovim.git "$build_dir" > /dev/null 2>&1
+    spin_stop
+    ok "Repository cloned"
 
-    step "Building (RelWithDebInfo)..."
     cd "$build_dir"
-    make -j"$(nproc)" CMAKE_BUILD_TYPE=RelWithDebInfo
+    spin_start "Building neovim (this may take a few minutes)..."
+    make -j"$(nproc)" CMAKE_BUILD_TYPE=RelWithDebInfo > /dev/null 2>&1
+    spin_stop
+    ok "Build complete"
 
-    step "Installing..."
-    make install
+    spin_start "Installing neovim..."
+    make install > /dev/null 2>&1
+    spin_stop
 
     rm -rf "$build_dir"
 
@@ -226,15 +278,103 @@ install_dotfiles() {
     ./bin/dfinstall install all
 }
 
+# ── Full standalone setup ────────────────────────────────────────
+setup() {
+    local username="" branch="develop"
+    local do_neovim=true do_ghostty=true do_dotfiles=true
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --username)     username="$2"; shift 2 ;;
+            --branch)       branch="$2"; shift 2 ;;
+            --skip-neovim)  do_neovim=false; shift ;;
+            --skip-ghostty) do_ghostty=false; shift ;;
+            --skip-dotfiles) do_dotfiles=false; shift ;;
+            *) die "Unknown option: $1" ;;
+        esac
+    done
+
+    # Prompt for username if not provided
+    if [[ -z "$username" ]]; then
+        if [[ "$(id -u)" -eq 0 ]]; then
+            printf "${_YELLOW}${_BOLD}  ? ${_RESET}%s " "Linux username to create:"
+            read -r username
+            [[ -z "$username" ]] && die "Username required"
+        else
+            username="$(whoami)"
+            info "Running as ${username}"
+        fi
+    fi
+
+    # Root setup (needs root)
+    if [[ "$(id -u)" -eq 0 ]]; then
+        setup_root "$username"
+    else
+        info "Not running as root - skipping system setup"
+        info "Run as root first for full setup: sudo $0 setup --username $username"
+    fi
+
+    # These can run as root
+    if [[ "$(id -u)" -eq 0 ]]; then
+        [[ "$do_neovim" == true ]] && build_neovim
+        [[ "$do_ghostty" == true ]] && install_ghostty
+    fi
+
+    # Dotfiles should run as the target user
+    if [[ "$do_dotfiles" == true ]]; then
+        if [[ "$(id -u)" -eq 0 ]]; then
+            info "Switching to ${username} for dotfiles install..."
+            su - "$username" -c "$(readlink -f "$0") install-dotfiles $branch"
+        else
+            install_dotfiles "$branch"
+        fi
+    fi
+
+    header "Done"
+    ok "Setup complete"
+    warn "Password is 'root' - change it with: passwd"
+    info "Open a new terminal or run: exec zsh"
+}
+
+show_help() {
+    cat <<'HELP'
+Usage: wsl-setup.sh <command> [options]
+
+Commands:
+  setup               Full interactive setup (standalone mode)
+  setup-root <user>   System packages, user creation, locale, wsl.conf
+  build-neovim        Build and install Neovim from source
+  install-ghostty     Install latest Ghostty .deb for this distro
+  install-dotfiles    Clone, build, and run dfinstall install all
+
+Setup options:
+  --username <name>   Linux username (prompted if omitted)
+  --branch <branch>   Dotfiles branch (default: develop)
+  --skip-neovim       Skip building Neovim
+  --skip-ghostty      Skip installing Ghostty
+  --skip-dotfiles     Skip dotfiles clone and install
+
+Examples:
+  sudo ./wsl-setup.sh setup --username owen
+  sudo ./wsl-setup.sh setup --skip-dotfiles --skip-ghostty
+  ./wsl-setup.sh install-dotfiles main
+HELP
+}
+
 # ── Dispatch ─────────────────────────────────────────────────────
 case "${1:-}" in
-    setup-root)      shift; setup_root "$@" ;;
-    build-neovim)    build_neovim ;;
-    install-ghostty) install_ghostty ;;
+    setup)            shift; setup "$@" ;;
+    setup-root)       shift; setup_root "$@" ;;
+    build-neovim)     build_neovim ;;
+    install-ghostty)  install_ghostty ;;
     install-dotfiles) shift; install_dotfiles "$@" ;;
+    -h|--help|help)   show_help ;;
     *)
-        err "Unknown command: ${1:-}"
-        echo "Usage: $0 {setup-root|build-neovim|install-ghostty|install-dotfiles}"
+        if [[ -n "${1:-}" ]]; then
+            err "Unknown command: $1"
+            echo ""
+        fi
+        show_help
         exit 1
         ;;
 esac
