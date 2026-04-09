@@ -8,6 +8,27 @@ Built for WSL2 (Debian/Ubuntu) but works on native Linux with apt, dnf, pacman, 
 
 ## Quick Start
 
+### Fresh WSL Setup (from PowerShell)
+
+Bootstrap a fresh WSL Debian distro from scratch -- creates a user, installs packages, builds Neovim, installs Ghostty, and runs the full dotfiles install:
+
+```powershell
+git clone https://github.com/sresarehumantoo/dotfiles
+.\dotfiles\bootstrap\wsl-bootstrap.ps1
+```
+
+The wizard prompts for distro and username, then handles everything end-to-end. Optional flags:
+
+```powershell
+.\bootstrap\wsl-bootstrap.ps1 -Distro Debian -Username owen   # skip prompts
+.\bootstrap\wsl-bootstrap.ps1 -SkipNeovim                     # skip neovim build
+.\bootstrap\wsl-bootstrap.ps1 -SkipGhostty                    # skip ghostty install
+.\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles                   # core tools only, no dotfiles
+.\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
+```
+
+### Existing Linux System
+
 ```bash
 git clone https://github.com/sresarehumantoo/dotfiles ~/dotfiles
 cd ~/dotfiles
@@ -67,9 +88,11 @@ Modules run in this order (dependencies first):
 
 | Module | What it does |
 |--------|-------------|
-| **packages** | Core system packages via apt/dnf/pacman/brew (git, zsh, curl, neovim, tmux, node, python3, go) |
+| **locale** | Ensures en_US.UTF-8 locale is generated and set |
+| **packages** | Core system packages via apt/dnf/pacman/brew (only installs what's missing) |
 | **extras** | CLI utilities (fzf, ripgrep, bat, jq, fd), Python tooling, Docker, Terraform |
-| **delta** | Installs [delta](https://github.com/dandavid/delta) git diff viewer |
+| **toolkit** | External tool registry for security/CTF/dev tools (`--toolkit` flag) |
+| **delta** | Installs [delta](https://github.com/dandavison/delta) git diff viewer |
 | **fonts** | Hack Nerd Font and MesloLGS NF (bundled or downloaded) |
 | **omz** | Oh My Zsh + zsh-autosuggestions + powerlevel10k + extended plugin support (`--extended`) |
 | **shell** | Symlinks zshrc, bashrc, aliases, p10k config, and modular zsh.d files |
@@ -77,6 +100,7 @@ Modules run in this order (dependencies first):
 | **git** | Symlinks gitconfig (delta pager, histogram diff, aliases) |
 | **nvim** | Neovim config with Lazy.nvim plugin manager + headless sync |
 | **tmux** | Tmux config (Alt+A prefix, vi mode, custom theme) |
+| **konsole** | Konsole terminal profile and color scheme |
 | **ghostty** | Ghostty terminal emulator config |
 | **htop** | htop config |
 | **wsl** | WSL-specific: wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
@@ -87,12 +111,13 @@ Modules run in this order (dependencies first):
 ```
 .config.yaml.example     # Example dfinstall config (copied on first run)
 assets/                  # Logo SVG and generator script
+bootstrap/               # WSL bootstrap wizard (PowerShell + bash)
 config/                  # Config files symlinked into ~
   shell/                 #   zsh/bash dotfiles
   devtools/              #   utility scripts -> ~/.local/bin/
   git/ nvim/ tmux/       #   tool configs
   ghostty/ htop/ wsl/    #   more tool configs
-  fonts/                 #   bundled font files
+  konsole/ fonts/        #   terminal + font configs
 src/
   cmd/dfinstall/         # CLI entry point (Cobra)
   cmd/mcp/               # MCP server (stdio JSON-RPC)

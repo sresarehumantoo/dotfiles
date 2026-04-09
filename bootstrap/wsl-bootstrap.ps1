@@ -28,10 +28,14 @@
 .PARAMETER SkipGhostty
     Skip installing Ghostty terminal.
 
+.PARAMETER SkipDotfiles
+    Skip cloning and installing dotfiles. Useful for quick WSL setup with just core tools.
+
 .EXAMPLE
     .\wsl-bootstrap.ps1
     .\wsl-bootstrap.ps1 -Distro Debian -Username owen
     .\wsl-bootstrap.ps1 -SkipGhostty
+    .\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty
 #>
 
 [CmdletBinding()]
@@ -40,7 +44,8 @@ param(
     [string]$Username,
     [string]$Branch = "develop",
     [switch]$SkipNeovim,
-    [switch]$SkipGhostty
+    [switch]$SkipGhostty,
+    [switch]$SkipDotfiles
 )
 
 $ErrorActionPreference = "Stop"
@@ -330,6 +335,7 @@ function Main {
     Write-Info "Branch:   $Branch"
     Write-Info "Neovim:   $(if ($SkipNeovim) { 'skip' } else { 'build from source' })"
     Write-Info "Ghostty:  $(if ($SkipGhostty) { 'skip' } else { 'latest .deb' })"
+    Write-Info "Dotfiles: $(if ($SkipDotfiles) { 'skip' } else { 'clone + install' })"
     Write-Host ""
 
     $confirm = Read-Host "  ? Proceed with setup? [Y/n]"
@@ -380,20 +386,22 @@ function Main {
     }
 
     # Step 6: Copy repo into distro and install dotfiles
-    Write-Header "Dotfiles"
-    $repoPath = Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser
-    if ($repoPath) {
-        Invoke-Phase `
-            -Name "Install dotfiles" `
-            -DistroName $selectedDistro `
-            -User "user" `
-            -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
-    } else {
-        Invoke-Phase `
-            -Name "Install dotfiles" `
-            -DistroName $selectedDistro `
-            -User "user" `
-            -Command "/tmp/wsl-setup.sh install-dotfiles $Branch"
+    if (-not $SkipDotfiles) {
+        Write-Header "Dotfiles"
+        $repoPath = Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser
+        if ($repoPath) {
+            Invoke-Phase `
+                -Name "Install dotfiles" `
+                -DistroName $selectedDistro `
+                -User "user" `
+                -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
+        } else {
+            Invoke-Phase `
+                -Name "Install dotfiles" `
+                -DistroName $selectedDistro `
+                -User "user" `
+                -Command "/tmp/wsl-setup.sh install-dotfiles $Branch"
+        }
     }
 
     # Cleanup
@@ -408,7 +416,12 @@ function Main {
     Write-Info "Next steps:"
     Write-Host "    1. Open a new terminal for $selectedDistro"
     Write-Host "    2. Change your password when prompted"
-    Write-Host "    3. Open a new shell or run: exec zsh"
+    if ($SkipDotfiles) {
+        Write-Host "    3. Install dotfiles: git clone https://github.com/sresarehumantoo/dotfiles ~/dotfiles"
+        Write-Host "       cd ~/dotfiles && make build && ./bin/dfinstall install all"
+    } else {
+        Write-Host "    3. Open a new shell or run: exec zsh"
+    }
     Write-Host ""
 }
 
