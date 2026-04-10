@@ -201,17 +201,13 @@ func sudoRun(args ...string) error {
 	core.PauseSpinner()
 	defer core.ResumeSpinner()
 
+	var cmd *exec.Cmd
 	if os.Geteuid() == 0 {
-		cmd := exec.Command(args[0], args[1:]...)
+		cmd = exec.Command(args[0], args[1:]...)
 		cmd.Stdin = os.Stdin
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		return cmd.Run()
+	} else {
+		cmd = core.SudoCmd(args...)
 	}
-	cmd := exec.Command("sudo", args...)
-	cmd.Stdin = os.Stdin
 	if core.Level >= core.LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

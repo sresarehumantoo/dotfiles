@@ -137,23 +137,27 @@ func runCmd(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 
 	// Detect if this command needs sudo (password prompt requires terminal)
-	needsTTY := name == "sudo"
-	if !needsTTY {
+	isSudo := name == "sudo"
+	if !isSudo {
 		for _, a := range args {
 			if a == "sudo" {
-				needsTTY = true
+				isSudo = true
 				break
 			}
 		}
 	}
 
-	if needsTTY {
-		core.PauseSpinner()
-		cmd.Stdin = os.Stdin
+	if isSudo {
+		cmd = core.SudoCmd(args...)
 		if core.Level >= core.LogVerbose {
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 		}
+		// When password is piped via DFINSTALL_SUDO_PASS, no TTY needed.
+		if os.Getenv("_DFINSTALL_SUDO_PASS") != "" {
+			return cmd.Run()
+		}
+		core.PauseSpinner()
 		if err := cmd.Start(); err != nil {
 			core.ResumeSpinner()
 			return err

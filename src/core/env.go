@@ -175,8 +175,7 @@ func IsDebianBased() bool {
 func DisableReadonly() error {
 	PauseSpinner()
 	defer ResumeSpinner()
-	cmd := exec.Command("sudo", "steamos-readonly", "disable")
-	cmd.Stdin = os.Stdin
+	cmd := SudoCmd("steamos-readonly", "disable")
 	if Level >= LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -191,8 +190,7 @@ func DisableReadonly() error {
 func EnableReadonly() error {
 	PauseSpinner()
 	defer ResumeSpinner()
-	cmd := exec.Command("sudo", "steamos-readonly", "enable")
-	cmd.Stdin = os.Stdin
+	cmd := SudoCmd("steamos-readonly", "enable")
 	if Level >= LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -279,6 +277,7 @@ func XDGConfigHome() string {
 
 var sudoKeepAliveStop chan struct{}
 var sudoOnce sync.Once
+var sudoStopOnce sync.Once
 
 // PromptSudo validates sudo credentials before the spinner starts and launches
 // a background goroutine that refreshes them every 60 seconds. If
@@ -299,6 +298,9 @@ func PromptSudo() {
 	// feed it non-interactively so the spinner is never interrupted.
 	if pass := os.Getenv("DFINSTALL_SUDO_PASS"); pass != "" {
 		Debug("sudo: using DFINSTALL_SUDO_PASS")
+		// Clear from environment so child processes don't inherit it.
+		os.Unsetenv("DFINSTALL_SUDO_PASS")
+		os.Setenv("_DFINSTALL_SUDO_PASS", pass)
 		cmd := exec.Command("sudo", "-S", "-v")
 		cmd.Stdin = strings.NewReader(pass + "\n")
 		if err := cmd.Run(); err != nil {
@@ -326,7 +328,7 @@ func PromptSudo() {
 func startSudoKeepAlive() {
 	sudoOnce.Do(func() {
 		sudoKeepAliveStop = make(chan struct{})
-		pass := os.Getenv("DFINSTALL_SUDO_PASS")
+		pass := os.Getenv("_DFINSTALL_SUDO_PASS")
 		go func() {
 			ticker := time.NewTicker(60 * time.Second)
 			defer ticker.Stop()
@@ -350,7 +352,25 @@ func startSudoKeepAlive() {
 
 // StopSudoKeepAlive stops the background credential refresh.
 func StopSudoKeepAlive() {
-	if sudoKeepAliveStop != nil {
-		close(sudoKeepAliveStop)
+	sudoStopOnce.Do(func() {
+		if sudoKeepAliveStop != nil {
+			close(sudoKeepAliveStop)
+		}
+	})
+}
+
+// SudoCmd returns an *exec.Cmd for running a command via sudo. When the
+// sudo password was captured from DFINSTALL_SUDO_PASS at startup, it
+// injects -S and pipes the password so no TTY prompt is needed. Otherwise
+// stdin is connected to the terminal.
+func SudoCmd(args ...string) *exec.Cmd {
+	if pass := os.Getenv("_DFINSTALL_SUDO_PASS"); pass != "" {
+		cmdArgs := append([]string{"-S"}, args...)
+		cmd := exec.Command("sudo", cmdArgs...)
+		cmd.Stdin = strings.NewReader(pass + "\n")
+		return cmd
 	}
+	cmd := exec.Command("sudo", args...)
+	cmd.Stdin = os.Stdin
+	return cmd
 }
