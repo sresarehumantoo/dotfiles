@@ -280,9 +280,10 @@ func XDGConfigHome() string {
 var sudoKeepAliveStop chan struct{}
 var sudoOnce sync.Once
 
-// PromptSudo prompts the user for their sudo password (visible, before the
-// spinner starts) and launches a background goroutine that refreshes the
-// credentials every 60 seconds so they never expire during install.
+// PromptSudo validates sudo credentials before the spinner starts and launches
+// a background goroutine that refreshes them every 60 seconds. If
+// DFINSTALL_SUDO_PASS is set (e.g. during bootstrap where the password is
+// known), it is piped to sudo -S so no interactive prompt is needed.
 func PromptSudo() {
 	if DryRun {
 		return
@@ -292,6 +293,20 @@ func PromptSudo() {
 		Debug("sudo: passwordless access available")
 		startSudoKeepAlive()
 		return
+	}
+
+	// If the password is known (e.g. fresh bootstrap sets it to "root"),
+	// feed it non-interactively so the spinner is never interrupted.
+	if pass := os.Getenv("DFINSTALL_SUDO_PASS"); pass != "" {
+		Debug("sudo: using DFINSTALL_SUDO_PASS")
+		cmd := exec.Command("sudo", "-S", "-v")
+		cmd.Stdin = strings.NewReader(pass + "\n")
+		if err := cmd.Run(); err != nil {
+			Warn("sudo authentication via DFINSTALL_SUDO_PASS failed — will prompt")
+		} else {
+			startSudoKeepAlive()
+			return
+		}
 	}
 
 	Status("Some steps require sudo access")
@@ -311,6 +326,7 @@ func PromptSudo() {
 func startSudoKeepAlive() {
 	sudoOnce.Do(func() {
 		sudoKeepAliveStop = make(chan struct{})
+		pass := os.Getenv("DFINSTALL_SUDO_PASS")
 		go func() {
 			ticker := time.NewTicker(60 * time.Second)
 			defer ticker.Stop()
@@ -319,7 +335,13 @@ func startSudoKeepAlive() {
 				case <-sudoKeepAliveStop:
 					return
 				case <-ticker.C:
-					exec.Command("sudo", "-n", "-v").Run()
+					if pass != "" {
+						cmd := exec.Command("sudo", "-S", "-v")
+						cmd.Stdin = strings.NewReader(pass + "\n")
+						cmd.Run()
+					} else {
+						exec.Command("sudo", "-n", "-v").Run()
+					}
 				}
 			}
 		}()

@@ -31,11 +31,20 @@
 .PARAMETER SkipDotfiles
     Skip cloning and installing dotfiles. Useful for quick WSL setup with just core tools.
 
+.PARAMETER PreHook
+    Path to a script to run after root setup (e.g. proxy/repo configuration).
+    Copied into the distro and executed before Neovim/Ghostty.
+
+.PARAMETER PostHook
+    Path to a script to run after dotfiles install (e.g. extra tools/config).
+    Copied into the distro and executed as the last step.
+
 .EXAMPLE
     .\wsl-bootstrap.ps1
     .\wsl-bootstrap.ps1 -Distro Debian -Username owen
     .\wsl-bootstrap.ps1 -SkipGhostty
     .\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty
+    .\wsl-bootstrap.ps1 -PreHook .\setup-proxy.sh
 #>
 
 [CmdletBinding()]
@@ -45,7 +54,9 @@ param(
     [string]$Branch = "develop",
     [switch]$SkipNeovim,
     [switch]$SkipGhostty,
-    [switch]$SkipDotfiles
+    [switch]$SkipDotfiles,
+    [string]$PreHook,
+    [string]$PostHook
 )
 
 $ErrorActionPreference = "Stop"
@@ -238,6 +249,36 @@ function Copy-SetupScript {
     Write-Ok "Setup script ready"
 }
 
+# ── Copy hook script into distro ─────────────────────────────────
+
+function Copy-HookScript {
+    param(
+        [string]$DistroName,
+        [string]$HookPath,
+        [string]$DestName
+    )
+
+    if (-not $HookPath) { return "" }
+
+    if (-not (Test-Path $HookPath)) {
+        Write-Err "Hook script not found: $HookPath"
+        exit 1
+    }
+
+    Write-Step "Copying $DestName into distro..."
+    $content = [System.IO.File]::ReadAllText($HookPath)
+    $dest = "/tmp/$DestName"
+    $cmd = "tr -d '\r' > $dest; chmod +x $dest"
+    $content | wsl.exe -d $DistroName -u root -- bash -c $cmd
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to copy $DestName into distro"
+    }
+
+    Write-Ok "$DestName ready"
+    return $dest
+}
+
 # ── Copy repo into distro ────────────────────────────────────────
 
 function Copy-RepoToDistro {
@@ -336,6 +377,8 @@ function Main {
     Write-Info "Neovim:   $(if ($SkipNeovim) { 'skip' } else { 'build from source' })"
     Write-Info "Ghostty:  $(if ($SkipGhostty) { 'skip' } else { 'latest .deb' })"
     Write-Info "Dotfiles: $(if ($SkipDotfiles) { 'skip' } else { 'clone + install' })"
+    if ($PreHook)  { Write-Info "Pre-hook: $PreHook" }
+    if ($PostHook) { Write-Info "Post-hook: $PostHook" }
     Write-Host ""
 
     $confirm = Read-Host "  ? Proceed with setup? [Y/n]"
@@ -361,11 +404,23 @@ function Main {
         Start-Sleep -Seconds 3
         Write-Ok "Distro restarted - interop and systemd now active"
 
-        # Re-copy setup script (/tmp may not survive terminate)
+        # Re-copy setup script and hooks (/tmp may not survive terminate)
         Copy-SetupScript -DistroName $selectedDistro
+        if ($PreHook)  { $preHookDest  = Copy-HookScript -DistroName $selectedDistro -HookPath $PreHook  -DestName "pre-hook.sh" }
+        if ($PostHook) { $postHookDest = Copy-HookScript -DistroName $selectedDistro -HookPath $PostHook -DestName "post-hook.sh" }
     }
 
-    # Step 4: Build Neovim
+    # Step 4: Run pre-hook
+    if ($preHookDest) {
+        Write-Header "Pre-hook"
+        Invoke-Phase `
+            -Name "Pre-hook" `
+            -DistroName $selectedDistro `
+            -User "root" `
+            -Command "$preHookDest"
+    }
+
+    # Step 5: Build Neovim
     if (-not $SkipNeovim) {
         Write-Header "Neovim"
         Invoke-Phase `
@@ -394,18 +449,28 @@ function Main {
                 -Name "Install dotfiles" `
                 -DistroName $selectedDistro `
                 -User "user" `
-                -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
+                -Command "DFINSTALL_SUDO_PASS=root /tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
         } else {
             Invoke-Phase `
                 -Name "Install dotfiles" `
                 -DistroName $selectedDistro `
                 -User "user" `
-                -Command "/tmp/wsl-setup.sh install-dotfiles $Branch"
+                -Command "DFINSTALL_SUDO_PASS=root /tmp/wsl-setup.sh install-dotfiles $Branch"
         }
     }
 
+    # Step 8: Run post-hook
+    if ($postHookDest) {
+        Write-Header "Post-hook"
+        Invoke-Phase `
+            -Name "Post-hook" `
+            -DistroName $selectedDistro `
+            -User "user" `
+            -Command "$postHookDest"
+    }
+
     # Cleanup
-    wsl.exe -d $selectedDistro -u root -- rm -f /tmp/wsl-setup.sh 2>$null
+    wsl.exe -d $selectedDistro -u root -- rm -f /tmp/wsl-setup.sh /tmp/pre-hook.sh /tmp/post-hook.sh 2>$null
 
     # Summary
     Write-Header "Done"
