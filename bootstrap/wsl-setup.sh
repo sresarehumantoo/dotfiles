@@ -56,6 +56,25 @@ spin_stop() {
 # ── Helpers ──────────────────────────────────────────────────────
 is_wsl() { [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]] || grep -qi microsoft /proc/version 2>/dev/null; }
 
+run_hook() {
+    local label="$1" path="$2"
+    [[ -z "$path" ]] && return 0
+
+    if [[ ! -f "$path" ]]; then
+        die "${label}: file not found: ${path}"
+    fi
+    if [[ ! -x "$path" ]]; then
+        chmod +x "$path"
+    fi
+
+    header "Running ${label}: $(basename "$path")"
+    if "$path"; then
+        ok "${label} completed"
+    else
+        die "${label} failed (exit $?): ${path}"
+    fi
+}
+
 # ── Phase: Root Setup ────────────────────────────────────────────
 setup_root() {
     local username="${1:?usage: setup-root <username>}"
@@ -282,14 +301,17 @@ install_dotfiles() {
 setup() {
     local username="" branch="develop"
     local do_neovim=true do_ghostty=true do_dotfiles=true
+    local pre_hook="" post_hook=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --username)     username="$2"; shift 2 ;;
-            --branch)       branch="$2"; shift 2 ;;
-            --skip-neovim)  do_neovim=false; shift ;;
-            --skip-ghostty) do_ghostty=false; shift ;;
+            --username)      username="$2"; shift 2 ;;
+            --branch)        branch="$2"; shift 2 ;;
+            --skip-neovim)   do_neovim=false; shift ;;
+            --skip-ghostty)  do_ghostty=false; shift ;;
             --skip-dotfiles) do_dotfiles=false; shift ;;
+            --pre-hook)      pre_hook="$2"; shift 2 ;;
+            --post-hook)     post_hook="$2"; shift 2 ;;
             *) die "Unknown option: $1" ;;
         esac
     done
@@ -314,6 +336,9 @@ setup() {
         info "Run as root first for full setup: sudo $0 setup --username $username"
     fi
 
+    # Run pre-hook (e.g. proxy setup, custom repos)
+    run_hook "pre-hook" "$pre_hook"
+
     # These can run as root
     if [[ "$(id -u)" -eq 0 ]]; then
         [[ "$do_neovim" == true ]] && build_neovim
@@ -324,11 +349,14 @@ setup() {
     if [[ "$do_dotfiles" == true ]]; then
         if [[ "$(id -u)" -eq 0 ]]; then
             info "Switching to ${username} for dotfiles install..."
-            su - "$username" -c "$(readlink -f "$0") install-dotfiles $branch"
+            su - "$username" -c "DFINSTALL_SUDO_PASS=root $(readlink -f "$0") install-dotfiles $branch"
         else
             install_dotfiles "$branch"
         fi
     fi
+
+    # Run post-hook (e.g. custom config, additional tools)
+    run_hook "post-hook" "$post_hook"
 
     header "Done"
     ok "Setup complete"
@@ -353,10 +381,13 @@ Setup options:
   --skip-neovim       Skip building Neovim
   --skip-ghostty      Skip installing Ghostty
   --skip-dotfiles     Skip dotfiles clone and install
+  --pre-hook <path>   Script to run after root setup (e.g. proxy/repo config)
+  --post-hook <path>  Script to run after dotfiles install (e.g. extra tools)
 
 Examples:
   sudo ./wsl-setup.sh setup --username owen
   sudo ./wsl-setup.sh setup --skip-dotfiles --skip-ghostty
+  sudo ./wsl-setup.sh setup --username owen --pre-hook ./setup-proxy.sh
   ./wsl-setup.sh install-dotfiles main
 HELP
 }
