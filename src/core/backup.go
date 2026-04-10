@@ -143,7 +143,11 @@ func BackupFile(dst string) error {
 		BackupFile: flat,
 		Hash:       hash,
 	})
-	Debug("backup: %s (file, hash=%s)", dst, hash[:12])
+	shortHash := hash
+	if len(shortHash) > 12 {
+		shortHash = shortHash[:12]
+	}
+	Debug("backup: %s (file, hash=%s)", dst, shortHash)
 	return nil
 }
 
@@ -173,9 +177,15 @@ func FinishBackup() error {
 		return fmt.Errorf("marshal manifest: %w", err)
 	}
 
+	// Atomic write: temp file + rename to avoid corrupt manifest on crash.
 	manifestPath := filepath.Join(activeBackup.dir, "manifest.json")
-	if err := os.WriteFile(manifestPath, data, 0644); err != nil {
+	tmpPath := manifestPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
+	}
+	if err := os.Rename(tmpPath, manifestPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename manifest: %w", err)
 	}
 
 	Info("backup saved: %s (%d entries)", activeBackup.ts, len(activeBackup.entries))
@@ -315,8 +325,14 @@ func copyFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	defer out.Close()
 
-	_, err = io.Copy(out, in)
-	return err
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
 }

@@ -30,6 +30,7 @@ step() { printf "${_DIM}  …${_RESET} %s\n" "$*"; }
 # ── Spinner for long-running commands ────────────────────────────
 _spin_pid=""
 _spin_frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+trap 'spin_stop' EXIT
 
 spin_start() {
     local msg="$1"
@@ -349,7 +350,7 @@ setup() {
     if [[ "$do_dotfiles" == true ]]; then
         if [[ "$(id -u)" -eq 0 ]]; then
             info "Switching to ${username} for dotfiles install..."
-            su - "$username" -c "DFINSTALL_SUDO_PASS=root $(readlink -f "$0") install-dotfiles $branch"
+            su - "$username" -c "DFINSTALL_SUDO_PASS=root $(readlink -f "$0") install-dotfiles '$branch'"
         else
             install_dotfiles "$branch"
         fi

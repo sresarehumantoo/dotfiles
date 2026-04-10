@@ -70,20 +70,20 @@ func installDeltaDeb() error {
 	}
 
 	core.PauseSpinner()
-	cmd = exec.Command("sudo", "dpkg", "-i", debPath)
-	cmd.Stdin = os.Stdin
+	cmd = core.SudoCmd("dpkg", "-i", debPath)
 	if core.Level >= core.LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
 	if err := cmd.Run(); err != nil {
-		fixCmd := exec.Command("sudo", "apt-get", "install", "-f", "-y")
-		fixCmd.Stdin = os.Stdin
+		fixCmd := core.SudoCmd("apt-get", "install", "-f", "-y")
 		if core.Level >= core.LogVerbose {
 			fixCmd.Stdout = os.Stdout
 			fixCmd.Stderr = os.Stderr
 		}
-		fixCmd.Run()
+		if fixErr := fixCmd.Run(); fixErr != nil {
+			core.Warn("apt-get install -f failed: %v", fixErr)
+		}
 	}
 	core.ResumeSpinner()
 

@@ -31,10 +31,17 @@ func (DefaultShellModule) Install() error {
 
 	core.Info("Changing default shell to zsh...")
 	core.PauseSpinner()
-	cmd := exec.Command("chsh", "-s", zshPath)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// chsh prompts for the user's password. Use sudo chsh when the
+	// password is known (bootstrap) to avoid an interactive prompt.
+	var cmd *exec.Cmd
+	if pass := os.Getenv("_DFINSTALL_SUDO_PASS"); pass != "" {
+		cmd = core.SudoCmd("chsh", "-s", zshPath, os.Getenv("USER"))
+	} else {
+		cmd = exec.Command("chsh", "-s", zshPath)
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	}
 	if err := cmd.Run(); err != nil {
 		core.Warn("Could not change shell — run: chsh -s $(which zsh)")
 	}

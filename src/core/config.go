@@ -85,8 +85,14 @@ func SaveConfig() error {
 	header := "# dfinstall configuration\n# Auto-generated after first install run.\n\n"
 	content := header + string(data)
 
-	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+	// Atomic write: temp file + rename to avoid corruption on crash.
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
 		return fmt.Errorf("write config: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("rename config: %w", err)
 	}
 
 	Debug("config: saved to %s", path)
