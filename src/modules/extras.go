@@ -256,6 +256,15 @@ Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
 		return err
 	}
 
+	// Remove distro-shipped Docker packages before installing Docker CE.
+	// Some distros (Parrot, Kali, Mint LMDE) preinstall the Debian-packaged
+	// docker.io / docker-compose. They own files like
+	// /usr/libexec/docker/cli-plugins/docker-compose that the official
+	// docker-compose-plugin package also wants to install — dpkg refuses
+	// to overwrite, the install fails, and the apt cache is left dirty.
+	// Docker's own install docs require this removal step.
+	removeConflictingDockerPackages()
+
 	pkgs := []string{
 		"docker-ce", "docker-ce-cli", "containerd.io",
 		"docker-buildx-plugin", "docker-compose-plugin",
@@ -266,6 +275,35 @@ Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
 
 	addDockerGroup()
 	return nil
+}
+
+// removeConflictingDockerPackages purges distro-shipped Docker packages
+// that overlap with Docker CE. Per Docker's official install instructions
+// for Debian/Ubuntu derivatives.
+func removeConflictingDockerPackages() {
+	candidates := []string{
+		"docker.io",
+		"docker-compose",
+		"docker-doc",
+		"docker-compose-v2",
+		"podman-docker",
+		"containerd",
+		"runc",
+	}
+	var present []string
+	for _, p := range candidates {
+		if dpkgInstalled(p) {
+			present = append(present, p)
+		}
+	}
+	if len(present) == 0 {
+		return
+	}
+	core.Notice("Removing distro packages that conflict with Docker CE: %v", present)
+	args := append([]string{"sudo", "apt-get", "remove", "-y"}, present...)
+	if err := runCmd(args[0], args[1:]...); err != nil {
+		core.Warn("conflict removal: %v (will try install anyway)", err)
+	}
 }
 
 func installDockerPacman() error {
