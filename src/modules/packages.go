@@ -1,7 +1,9 @@
 package modules
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -200,16 +202,23 @@ func runCmd(name string, args ...string) error {
 		cmd = core.SudoCmd(args...)
 	}
 
-	// Always connect stderr for any sudo path so the password prompt and
-	// any sudo error messages ("Sorry, try again", lecture, etc.) reach
-	// the user. Without this they're invisible in default (non-verbose)
-	// mode and the run appears to hang.
-	if needsTTY {
-		cmd.Stderr = os.Stderr
-	}
+	// Output routing:
+	//   verbose: straight to terminal so the user sees everything live.
+	//   default: capture both streams so we can replay them on failure
+	//            (without -v, apt's actual error message used to vanish).
+	//            For sudo, also tee stderr to the terminal so password
+	//            prompts and sudo errors are visible in real time.
+	var capture bytes.Buffer
 	if core.Level >= core.LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = &capture
+		if needsTTY {
+			cmd.Stderr = io.MultiWriter(os.Stderr, &capture)
+		} else {
+			cmd.Stderr = &capture
+		}
 	}
 
 	// When password is piped via _DFINSTALL_SUDO_PASS, no TTY needed and
@@ -225,7 +234,37 @@ func runCmd(name string, args ...string) error {
 		core.PauseSpinner()
 		defer core.ResumeSpinner()
 	}
-	return cmd.Run()
+
+	err := cmd.Run()
+
+	// On failure in default mode, surface what the command actually said.
+	// Without this the user only saw stray stderr lines and had to rerun
+	// with -v to find the real error.
+	if err != nil && core.Level < core.LogVerbose {
+		out := strings.TrimSpace(capture.String())
+		if out != "" {
+			if !needsTTY {
+				core.PauseSpinner()
+				defer core.ResumeSpinner()
+			}
+			core.Err("command failed: %s %s", name, strings.Join(args, " "))
+			for _, line := range tailLines(out, 30) {
+				fmt.Fprintf(os.Stderr, "    %s\n", line)
+			}
+		}
+	}
+	return err
+}
+
+// tailLines returns the last n lines of s, with an "... elided ..." marker
+// if there were more.
+func tailLines(s string, n int) []string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return lines
+	}
+	out := []string{fmt.Sprintf("(... %d earlier lines elided ...)", len(lines)-n)}
+	return append(out, lines[len(lines)-n:]...)
 }
 
 func (PackagesModule) Install() error {
