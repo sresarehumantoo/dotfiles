@@ -44,8 +44,8 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 	}
 
 	// Update apt
-	if err := runCmd("sudo", "apt-get", "update"); err != nil {
-		return fmt.Errorf("apt-get update after adding %s repo: %w", name, err)
+	if err := aptUpdateWithRetry(); err != nil {
+		return fmt.Errorf("apt update after adding %s repo: %w", name, err)
 	}
 
 	core.Ok("%s repo added", name)
@@ -190,7 +190,7 @@ func installDocker() error {
 
 func installDockerApt() error {
 	arch := runtime.GOARCH
-	codename := distroCodename()
+	codename := core.UpstreamDebianCodename()
 
 	repoContent := fmt.Sprintf(`Types: deb
 URIs: https://download.docker.com/linux/debian
@@ -258,7 +258,7 @@ func installHashicorpApt() error {
 
 	repoContent := fmt.Sprintf(
 		"deb [arch=%s signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com %s main",
-		arch, distroCodename(),
+		arch, core.UpstreamDebianCodename(),
 	)
 
 	if err := addAptRepo(
@@ -310,20 +310,6 @@ func installHashicorpBinary() error {
 
 	core.Ok("Terraform installed to %s", binDir)
 	return nil
-}
-
-// distroCodename reads VERSION_CODENAME from /etc/os-release.
-func distroCodename() string {
-	data, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return "bookworm"
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "VERSION_CODENAME=") {
-			return strings.TrimPrefix(line, "VERSION_CODENAME=")
-		}
-	}
-	return "bookworm"
 }
 
 func (ExtrasModule) Status() core.ModuleStatus {
