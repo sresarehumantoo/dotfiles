@@ -27,7 +27,7 @@ func (DeltaModule) Install() error {
 
 	core.Info("Installing delta...")
 
-	if _, err := exec.LookPath("apt-get"); err == nil {
+	if core.AptBin() != "" {
 		return installDeltaDeb()
 	}
 	if _, err := exec.LookPath("pacman"); err == nil {
@@ -76,13 +76,18 @@ func installDeltaDeb() error {
 		cmd.Stderr = os.Stderr
 	}
 	if err := cmd.Run(); err != nil {
-		fixCmd := core.SudoCmd("apt-get", "install", "-f", "-y")
-		if core.Level >= core.LogVerbose {
-			fixCmd.Stdout = os.Stdout
-			fixCmd.Stderr = os.Stderr
-		}
-		if fixErr := fixCmd.Run(); fixErr != nil {
-			core.Warn("apt-get install -f failed: %v", fixErr)
+		bin := core.AptBin()
+		if bin == "" {
+			core.Warn("dpkg failed and no apt binary available to fix dependencies")
+		} else {
+			fixCmd := core.SudoCmd(bin, "install", "-f", "-y")
+			if core.Level >= core.LogVerbose {
+				fixCmd.Stdout = os.Stdout
+				fixCmd.Stderr = os.Stderr
+			}
+			if fixErr := fixCmd.Run(); fixErr != nil {
+				core.Warn("%s install -f failed: %v", bin, fixErr)
+			}
 		}
 	}
 	core.ResumeSpinner()

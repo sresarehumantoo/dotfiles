@@ -1,13 +1,48 @@
 package modules
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
+
+// aptUpdateAttempts and aptUpdateBackoff control retry behaviour for
+// `<apt> update`. Mirror failures and DNS hiccups during fresh provisioning
+// (especially WSL) are usually transient.
+var (
+	aptUpdateAttempts = 3
+	aptUpdateBackoff  = 2 * time.Second
+)
+
+// aptUpdateWithRetry runs `<apt-bin> update` with exponential backoff on
+// failure. Returns nil on first success; otherwise the last error after all
+// attempts are exhausted.
+func aptUpdateWithRetry() error {
+	bin := core.AptBin()
+	if bin == "" {
+		return fmt.Errorf("no apt binary found on PATH")
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= aptUpdateAttempts; attempt++ {
+		err := runCmd("sudo", bin, "update")
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt < aptUpdateAttempts {
+			wait := time.Duration(attempt) * aptUpdateBackoff
+			core.Warn("%s update failed (attempt %d/%d): %v — retrying in %s", bin, attempt, aptUpdateAttempts, err, wait)
+			time.Sleep(wait)
+		}
+	}
+	return lastErr
+}
 
 // pacmanNames maps canonical (apt) package names to pacman equivalents.
 // Empty string means the package is not needed on Arch (bundled with another).
@@ -73,8 +108,8 @@ func (PackagesModule) Name() string { return "packages" }
 
 // detectPkgManager returns the install command prefix for the detected package manager.
 func detectPkgManager() (name string, args []string) {
-	if _, err := exec.LookPath("apt-get"); err == nil {
-		return "apt-get", []string{"sudo", "apt-get", "install", "-y"}
+	if bin := core.AptBin(); bin != "" {
+		return bin, []string{"sudo", bin, "install", "-y"}
 	}
 	if _, err := exec.LookPath("dnf"); err == nil {
 		return "dnf", []string{"sudo", "dnf", "install", "-y"}
@@ -115,11 +150,11 @@ func installPkg(pkgs ...string) error {
 	}
 
 	// Ensure apt cache is fresh on first use (minimal systems ship with empty lists)
-	if name == "apt-get" && !aptUpdated {
+	if (name == "apt-get" || name == "apt") && !aptUpdated {
 		repairAptSources()
 		core.Info("Refreshing package lists...")
-		if err := runCmd("sudo", "apt-get", "update"); err != nil {
-			core.Warn("apt-get update failed: %v", err)
+		if err := aptUpdateWithRetry(); err != nil {
+			core.Warn("%s update failed after retries: %v", name, err)
 		}
 		aptUpdated = true
 	}
