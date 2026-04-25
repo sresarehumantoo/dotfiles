@@ -69,6 +69,67 @@ func TestScanCustomShellFiles_IgnoresNonShell(t *testing.T) {
 	}
 }
 
+func TestScanCustomShellFiles_IgnoresIniContent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// .dmrc is the canonical case — shipped by display managers, INI format,
+	// matches `.*rc` glob but would error if sourced as shell.
+	os.WriteFile(filepath.Join(home, ".dmrc"), []byte("[Desktop]\nSession=plasma\n"), 0644)
+	// Unknown-name INI file — must be caught by content sniff, not blocklist.
+	os.WriteFile(filepath.Join(home, ".weirdrc"), []byte("# header\n[main]\nkey=value\n"), 0644)
+	// A shell file that uses [ ... ] test syntax must NOT be misclassified.
+	os.WriteFile(filepath.Join(home, ".testrc"), []byte("[ -n \"$FOO\" ] && export BAR=1\n"), 0644)
+
+	discovered := modules.ScanCustomShellFiles()
+
+	found := make(map[string]bool)
+	for _, d := range discovered {
+		found[d.RelPath] = true
+	}
+
+	if found[".dmrc"] {
+		t.Error("scan should not include .dmrc (INI format)")
+	}
+	if found[".weirdrc"] {
+		t.Error("scan should not include INI-format files (content sniff)")
+	}
+	if !found[".testrc"] {
+		t.Error("scan should include shell file that uses [ ... ] test syntax")
+	}
+}
+
+func TestScanCustomShellFiles_IgnoresBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Binary content — null bytes mean we definitely can't source it.
+	os.WriteFile(filepath.Join(home, ".binrc"), []byte{0x7f, 'E', 'L', 'F', 0x00, 0x01, 0x02}, 0644)
+
+	discovered := modules.ScanCustomShellFiles()
+
+	for _, d := range discovered {
+		if d.RelPath == ".binrc" {
+			t.Error("scan should not include binary files")
+		}
+	}
+}
+
+func TestScanCustomShellFiles_IgnoresXML(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	os.WriteFile(filepath.Join(home, ".xmlrc"), []byte("<?xml version=\"1.0\"?>\n<config/>\n"), 0644)
+
+	discovered := modules.ScanCustomShellFiles()
+
+	for _, d := range discovered {
+		if d.RelPath == ".xmlrc" {
+			t.Error("scan should not include XML files")
+		}
+	}
+}
+
 func TestScanCustomShellFiles_IgnoresSymlinks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
