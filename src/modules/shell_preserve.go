@@ -197,6 +197,36 @@ func ScanCustomShellFiles() []DiscoveredFile {
 	return results
 }
 
+// SanitizePreservedFiles drops entries that no longer exist in $HOME or
+// fail the shell-sourceable content sniff. Returns the cleaned slice and the
+// list of dropped entries (for logging). Used to auto-heal config from
+// before the sourceable sniffer existed (e.g. .dmrc previously ended up in
+// preserved_files and now causes shell errors at startup).
+func SanitizePreservedFiles(paths []string) (cleaned, dropped []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return paths, nil
+	}
+	for _, p := range paths {
+		full := filepath.Join(home, p)
+		fi, err := os.Stat(full)
+		if err != nil {
+			dropped = append(dropped, p)
+			continue
+		}
+		if fi.IsDir() {
+			dropped = append(dropped, p)
+			continue
+		}
+		if !looksSourceable(full) {
+			dropped = append(dropped, p)
+			continue
+		}
+		cleaned = append(cleaned, p)
+	}
+	return cleaned, dropped
+}
+
 // FilterNewFiles returns only files not already in PreservedFiles or DismissedFiles.
 func FilterNewFiles(discovered []DiscoveredFile) []DiscoveredFile {
 	known := make(map[string]bool)
