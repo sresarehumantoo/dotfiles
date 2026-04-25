@@ -229,6 +229,33 @@ else
 fi
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Wayland is the most common reason a fully-healthy chain still fails.
+# spice-vdagent uses X11 selection APIs natively; on Wayland it falls back
+# to wlr-data-control, which KDE/KWin only support partially. Surface this
+# loudly here — easy to miss the warning earlier in the run.
+if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+    header "PROBABLE ROOT CAUSE: Wayland session"
+    echo ""
+    err "You're on a Wayland session ($summary_session)."
+    warn "spice-vdagent's Wayland clipboard support is limited and buggy."
+    warn "All your guest-side checks pass — Wayland is almost certainly why"
+    warn "clipboard still doesn't work."
+    echo ""
+    echo "  Recommended fix — switch to an X11 session:"
+    echo "    1. Log out."
+    echo "    2. At the login screen (SDDM/GDM/LightDM), click the session"
+    echo "       picker (gear / desktop icon, usually bottom corner)."
+    echo "    3. Choose the X11 / Xorg variant of your desktop"
+    echo "       (e.g. 'Plasma (X11)' instead of 'Plasma (Wayland)')."
+    echo "    4. Log back in. Clipboard will work."
+    echo ""
+    echo "  Stay on Wayland (best-effort, unreliable):"
+    echo "    - Make sure KDE/spice-vdagent are fully up to date."
+    echo "    - Try the host's SPICE viewer 'paste' menu item instead of"
+    echo "      Ctrl+V — sometimes one direction works and the other doesn't."
+    echo ""
+fi
+
 header "RECONNECT THE SPICE VIEWER"
 # This is the step everyone misses. The clipboard handshake happens at the
 # moment the SPICE client connects to the agent. If the viewer was already
