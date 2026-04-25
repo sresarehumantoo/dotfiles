@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Toggle tmux session auto-restore (continuum + resurrect).
+#
+# Auto-restore is OFF by default in this dotfiles config — when ON, every
+# tmux server start replays the previously-captured pane contents over the
+# current panes, which clobbers in-progress output (test runs, watchers,
+# scrollback). Use this script to flip the marker file that tmux.conf
+# checks. The change applies the next time the tmux server starts.
+#
+# Manual restore (without enabling auto-restore) is still available
+# inside tmux via: prefix + Ctrl-r
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+MARKER="$HOME/.config/tmux/restore-on"
+
+usage() {
+    header "tmux-restore"
+    echo "Usage: tmux-restore [on|off|status|toggle]"
+    echo ""
+    echo "  on       Enable auto-restore at next tmux server start."
+    echo "  off      Disable auto-restore (default)."
+    echo "  toggle   Flip whichever way it's currently set."
+    echo "  status   Show current state and the marker path."
+    echo ""
+    echo "Marker file: $MARKER"
+    echo "Reload tmux config to apply to a running session:"
+    echo "  tmux source-file ~/.tmux.conf"
+    echo "(@continuum-restore is only consulted at server start, so the"
+    echo " full effect lands the next time tmux is launched fresh.)"
+}
+
+current_state() {
+    [[ -f "$MARKER" ]] && echo "on" || echo "off"
+}
+
+case "${1:-status}" in
+    -h|--help)
+        usage
+        ;;
+    on)
+        mkdir -p "$(dirname "$MARKER")"
+        : > "$MARKER"
+        ok "Auto-restore: ON  (marker: $MARKER)"
+        info "Effect lands at the next tmux server start."
+        ;;
+    off)
+        rm -f "$MARKER"
+        ok "Auto-restore: OFF  (marker removed)"
+        info "Effect lands at the next tmux server start."
+        ;;
+    toggle)
+        if [[ -f "$MARKER" ]]; then
+            "$0" off
+        else
+            "$0" on
+        fi
+        ;;
+    status)
+        state="$(current_state)"
+        info "Auto-restore: $state"
+        info "Marker: $MARKER"
+        if command -v tmux &>/dev/null && tmux info &>/dev/null; then
+            running="$(tmux show-options -gv @continuum-restore 2>/dev/null || echo unset)"
+            info "Running tmux server reports @continuum-restore: $running"
+            if [[ "$state" != "$running" ]]; then
+                warn "Mismatch — reload config or restart the tmux server to sync."
+            fi
+        fi
+        ;;
+    *)
+        err "Unknown command: $1"
+        usage
+        exit 2
+        ;;
+esac

@@ -20,6 +20,7 @@ var devtoolsScripts = []struct{ src, dst string }{
 	{"devtools/sysinfo", ".local/bin/sysinfo"},
 	{"devtools/tlog-clean", ".local/bin/tlog-clean"},
 	{"devtools/clipboard-vm", ".local/bin/clipboard-vm"},
+	{"devtools/tmux-restore", ".local/bin/tmux-restore"},
 }
 
 func (DevtoolsModule) Install() error {
