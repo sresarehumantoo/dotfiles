@@ -130,7 +130,7 @@ func ParseOsRelease(content string) Distro {
 		return DistroSteamOS
 	case "arch", "manjaro", "endeavouros", "artix":
 		return DistroArch
-	case "debian", "ubuntu", "raspbian", "linuxmint", "kali", "devuan", "elementary":
+	case "debian", "ubuntu", "raspbian", "linuxmint", "kali", "devuan", "elementary", "parrot", "parrotsec":
 		return DistroDebian
 	case "fedora", "rhel", "centos", "rocky", "almalinux":
 		return DistroFedora
@@ -149,6 +149,76 @@ func ParseOsRelease(content string) Distro {
 	}
 
 	return DistroUnknown
+}
+
+// knownUpstreamCodenames are Debian and Ubuntu release codenames safe to
+// pass as the suite name in third-party apt repos (Docker, Hashicorp, etc.).
+// Derivative codenames (parrot's "lory", kali's "kali-rolling", mint's
+// "wilma") are deliberately absent — they cause 404s against upstream repos.
+var knownUpstreamCodenames = map[string]bool{
+	// Debian
+	"trixie": true, "bookworm": true, "bullseye": true, "buster": true, "sid": true,
+	// Ubuntu LTS + recent interim
+	"noble": true, "jammy": true, "focal": true, "bionic": true,
+}
+
+// debianVersionToCodename maps the major version found in /etc/debian_version
+// to the corresponding upstream Debian codename. Used as a fallback when the
+// derivative doesn't ship DEBIAN_CODENAME and its VERSION_CODENAME isn't a
+// real Debian/Ubuntu release.
+var debianVersionToCodename = map[string]string{
+	"10": "buster",
+	"11": "bullseye",
+	"12": "bookworm",
+	"13": "trixie",
+}
+
+// UpstreamDebianCodename returns the Debian/Ubuntu codename to use when
+// configuring third-party apt repos. Reads /etc/os-release and
+// /etc/debian_version. Defaults to "bookworm" if nothing usable is found.
+func UpstreamDebianCodename() string {
+	osRelease, _ := os.ReadFile("/etc/os-release")
+	debianVersion, _ := os.ReadFile("/etc/debian_version")
+	return ParseUpstreamDebianCodename(string(osRelease), string(debianVersion))
+}
+
+// ParseUpstreamDebianCodename is the testable core of UpstreamDebianCodename.
+// Resolution order:
+//  1. DEBIAN_CODENAME from os-release (Parrot 6+, some other derivatives)
+//  2. VERSION_CODENAME from os-release, only if it's a known upstream codename
+//  3. /etc/debian_version major version mapped to a codename
+//  4. "bookworm" as a last resort
+func ParseUpstreamDebianCodename(osRelease, debianVersion string) string {
+	var versionCodename, debianCodename string
+	for _, line := range strings.Split(osRelease, "\n") {
+		switch {
+		case strings.HasPrefix(line, "DEBIAN_CODENAME="):
+			debianCodename = strings.Trim(strings.TrimPrefix(line, "DEBIAN_CODENAME="), "\"'")
+		case strings.HasPrefix(line, "VERSION_CODENAME="):
+			versionCodename = strings.Trim(strings.TrimPrefix(line, "VERSION_CODENAME="), "\"'")
+		}
+	}
+
+	if debianCodename != "" && knownUpstreamCodenames[debianCodename] {
+		return debianCodename
+	}
+	if knownUpstreamCodenames[versionCodename] {
+		return versionCodename
+	}
+
+	// /etc/debian_version: "12", "12.4", "trixie/sid", "kali-rolling", etc.
+	v := strings.TrimSpace(debianVersion)
+	if v != "" {
+		major := v
+		if i := strings.IndexAny(v, "./"); i > 0 {
+			major = v[:i]
+		}
+		if codename, ok := debianVersionToCodename[major]; ok {
+			return codename
+		}
+	}
+
+	return "bookworm"
 }
 
 // GetDistro returns the detected distribution.
