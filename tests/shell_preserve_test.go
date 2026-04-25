@@ -227,6 +227,40 @@ func TestWriteCustomSourcesFile_RejectsInjection(t *testing.T) {
 	}
 }
 
+func TestSanitizePreservedFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Create a mix: sourceable, INI (.dmrc), missing, directory.
+	os.WriteFile(filepath.Join(home, ".companyrc"), []byte("export FOO=1\n"), 0644)
+	os.WriteFile(filepath.Join(home, ".dmrc"), []byte("[Desktop]\nSession=plasma\n"), 0644)
+	os.Mkdir(filepath.Join(home, ".somedir"), 0755)
+
+	input := []string{".companyrc", ".dmrc", ".gone_missing", ".somedir"}
+	cleaned, dropped := modules.SanitizePreservedFiles(input)
+
+	if len(cleaned) != 1 || cleaned[0] != ".companyrc" {
+		t.Errorf("cleaned = %v, want [.companyrc]", cleaned)
+	}
+
+	wantDropped := map[string]bool{".dmrc": true, ".gone_missing": true, ".somedir": true}
+	if len(dropped) != 3 {
+		t.Fatalf("dropped = %v, want 3 entries", dropped)
+	}
+	for _, d := range dropped {
+		if !wantDropped[d] {
+			t.Errorf("unexpected drop %q", d)
+		}
+	}
+}
+
+func TestSanitizePreservedFiles_EmptyInput(t *testing.T) {
+	cleaned, dropped := modules.SanitizePreservedFiles(nil)
+	if cleaned != nil || dropped != nil {
+		t.Errorf("expected (nil, nil), got (%v, %v)", cleaned, dropped)
+	}
+}
+
 func TestMergeUnique(t *testing.T) {
 	result := modules.MergeUnique([]string{"a", "b"}, []string{"b", "c", "a"})
 

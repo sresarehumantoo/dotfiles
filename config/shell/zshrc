@@ -35,14 +35,17 @@ if [[ "$TERM" != "linux" && "$TERM" != "dumb" ]]; then
   fi
 
   ZSH_THEME="powerlevel10k/powerlevel10k"
-  source $ZSH/oh-my-zsh.sh
-
-  # To customize prompt, run `p10k configure` or edit ~/.p10k.zsh.
-  [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+  if [[ -f "$ZSH/oh-my-zsh.sh" ]]; then
+    source "$ZSH/oh-my-zsh.sh"
+    [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
+  else
+    print -P "%F{yellow}⚠ Oh My Zsh not installed at $ZSH%f"
+    print -P "%F{yellow}  run: dfinstall install omz%f"
+  fi
 else
   # Minimal ASCII-safe prompt for raw TTY
   ZSH_THEME="robbyrussell"
-  source $ZSH/oh-my-zsh.sh
+  [[ -f "$ZSH/oh-my-zsh.sh" ]] && source "$ZSH/oh-my-zsh.sh"
 fi
 
 # Source modular config from ~/.zsh.d/
