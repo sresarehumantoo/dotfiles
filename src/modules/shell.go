@@ -136,10 +136,12 @@ func installCompletions() {
 		out = raw[idx:]
 	}
 
-	// Guard the file so it no-ops cleanly when sourced before compinit has
-	// run (e.g. if oh-my-zsh failed to install). Without this the user sees
-	// `command not found: compdef` on every shell start.
-	guard := []byte("(( $+functions[compdef] )) || return 0\n")
+	// Self-bootstrap compinit when sourced before any framework has done
+	// so (e.g. if oh-my-zsh failed to install). The user sees their
+	// completions either way; without this they'd see
+	// `command not found: compdef` at every shell start.
+	guard := []byte("(( $+functions[compdef] )) || { autoload -Uz compinit && compinit -u 2>/dev/null }\n" +
+		"(( $+functions[compdef] )) || return 0\n")
 	out = append(guard, out...)
 
 	dst := completionDst()

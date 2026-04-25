@@ -65,8 +65,15 @@ func (LocaleModule) Install() error {
 			return nil
 		}
 	} else if !strings.Contains(content, "en_US.UTF-8 UTF-8") {
-		// Not present at all — append
-		if err := runCmd("bash", "-c", "echo 'en_US.UTF-8 UTF-8' | sudo tee -a "+genPath+" > /dev/null"); err != nil {
+		// Not present at all — append. Write the new full content via tmp
+		// + sudo install so the sudo step goes through proper handling
+		// (spinner pause, stderr connected, no shell-pipe parsing surprises).
+		newContent := content
+		if newContent != "" && !strings.HasSuffix(newContent, "\n") {
+			newContent += "\n"
+		}
+		newContent += "en_US.UTF-8 UTF-8\n"
+		if err := writeFileAsRoot(genPath, []byte(newContent), 0644); err != nil {
 			core.Warn("Failed to append locale to %s: %v", genPath, err)
 			return nil
 		}
