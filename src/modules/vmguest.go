@@ -69,6 +69,8 @@ func (VMGuestModule) Install() error {
 	}
 
 	switch virt {
+	case core.VirtKVM, core.VirtQEMU:
+		core.Notice("If clipboard sharing isn't working, run: clipboard-vm")
 	case core.VirtVMware:
 		core.Notice("For clipboard/drag-drop in a graphical session, also install: open-vm-tools-desktop")
 	case core.VirtVirtualBox:

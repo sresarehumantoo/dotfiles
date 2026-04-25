@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+# Diagnose and attempt to fix SPICE clipboard sharing in a QEMU/KVM guest.
+# Runs through the chain: virtio channel -> daemon -> per-session agent.
+# When the fix has to happen on the host (libvirt XML), prints exactly what.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    header "clipboard-vm"
+    echo "Diagnose and try to fix SPICE clipboard in a QEMU/KVM guest."
+    echo ""
+    echo "Checks: virt type, SPICE channel, spice-vdagent package,"
+    echo "system daemon, per-session agent, autostart entry."
+    echo ""
+    echo "Will start the system daemon and a session agent when possible."
+    echo "Some failures (missing virtio channel) need a host-side fix."
+    exit 0
+fi
+
+header "VM detection"
+
+virt="unknown"
+if command -v systemd-detect-virt &>/dev/null; then
+    virt="$(systemd-detect-virt 2>/dev/null || echo none)"
+elif [[ -r /sys/class/dmi/id/sys_vendor ]]; then
+    vendor="$(cat /sys/class/dmi/id/sys_vendor)"
+    case "${vendor,,}" in
+        *qemu*) virt="kvm" ;;
+        *vmware*) virt="vmware" ;;
+        *innotek*) virt="oracle" ;;
+        *) virt="unknown" ;;
+    esac
+fi
+info "Virtualization: $virt"
+
+case "$virt" in
+    kvm|qemu) ;;
+    none)     die "Not running in a VM — nothing to do." ;;
+    *)        warn "This helper targets QEMU/KVM. Detected '$virt' may need different tools."
+              confirm "Continue anyway?" || exit 0 ;;
+esac
+
+header "SPICE channel (virtio)"
+
+# The vdagent talks to the host over a virtio-serial channel.
+# Without this device the agent has nothing to do.
+channel="/dev/virtio-ports/com.redhat.spice.0"
+if [[ -e "$channel" ]]; then
+    ok "Channel present: $channel"
+else
+    err "Missing: $channel"
+    echo ""
+    warn "The SPICE agent channel isn't attached to this VM."
+    warn "This must be fixed on the HOST (the guest can't add devices)."
+    echo ""
+    echo "  In virt-manager:"
+    echo "    VM details -> Add Hardware -> Channel"
+    echo "    Name:   com.redhat.spice.0"
+    echo "    Device: spicevmc"
+    echo "    Then power-cycle the VM (reboot is not enough)."
+    echo ""
+    echo "  Or edit the libvirt XML:"
+    echo "    <channel type='spicevmc'>"
+    echo "      <target type='virtio' name='com.redhat.spice.0'/>"
+    echo "    </channel>"
+    echo ""
+    echo "  Verify it's present in the host XML:"
+    echo "    sudo virsh dumpxml <vm-name> | grep -A2 spicevmc"
+    exit 1
+fi
+
+header "spice-vdagent package"
+
+if command -v spice-vdagent &>/dev/null && command -v spice-vdagentd &>/dev/null; then
+    ok "spice-vdagent installed"
+else
+    warn "spice-vdagent not installed — installing now"
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y spice-vdagent
+    elif command -v apt &>/dev/null; then
+        sudo apt install -y spice-vdagent
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y spice-vdagent
+    elif command -v pacman &>/dev/null; then
+        sudo pacman -S --noconfirm spice-vdagent
+    else
+        die "No supported package manager. Install spice-vdagent manually."
+    fi
+    ok "spice-vdagent installed"
+fi
+
+header "spice-vdagentd (system daemon)"
+
+if ! command -v systemctl &>/dev/null; then
+    warn "systemctl not available — skipping daemon management"
+elif systemctl is-active --quiet spice-vdagentd; then
+    ok "spice-vdagentd is running"
+else
+    info "Starting spice-vdagentd..."
+    sudo systemctl enable --now spice-vdagentd
+    if systemctl is-active --quiet spice-vdagentd; then
+        ok "spice-vdagentd started"
+    else
+        err "spice-vdagentd failed to start"
+        echo ""
+        warn "Diagnostic output:"
+        sudo systemctl status spice-vdagentd --no-pager -l || true
+        exit 1
+    fi
+fi
+
+header "spice-vdagent (user session)"
+
+info "Session: ${XDG_SESSION_TYPE:-unset} / ${XDG_CURRENT_DESKTOP:-unset}"
+
+if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+    warn "Wayland session detected — spice-vdagent has limited Wayland support."
+    warn "Clipboard often only works one direction (or not at all)."
+    warn "Try logging into an X11 session for full clipboard sync."
+fi
+
+if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    warn "No graphical session detected (DISPLAY/WAYLAND_DISPLAY unset)"
+    warn "Clipboard sync requires a desktop session — run this from a terminal"
+    warn "INSIDE your graphical session, not over SSH/TTY."
+fi
+
+if pgrep -u "$USER" -x spice-vdagent &>/dev/null; then
+    ok "Per-session spice-vdagent is running"
+else
+    if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+        info "Starting per-session spice-vdagent..."
+        # -d -d for double-debug to stderr; redirect away so it stays detached.
+        nohup spice-vdagent >/dev/null 2>&1 &
+        sleep 1
+        if pgrep -u "$USER" -x spice-vdagent &>/dev/null; then
+            ok "Per-session spice-vdagent started"
+        else
+            err "Could not start per-session spice-vdagent"
+            warn "Try: spice-vdagent -x   (foreground, prints errors)"
+        fi
+    else
+        warn "Skipped — no graphical session in this terminal"
+    fi
+fi
+
+header "Autostart (next login)"
+
+autostart="/etc/xdg/autostart/spice-vdagent.desktop"
+if [[ -f "$autostart" ]]; then
+    ok "$autostart present — agent will autostart on next login"
+else
+    warn "$autostart missing — agent will not autostart"
+    warn "Reinstall spice-vdagent to restore: sudo apt-get install --reinstall spice-vdagent"
+fi
+
+header "Result"
+
+ok "All guest-side checks passed."
+echo ""
+info "If clipboard still doesn't work:"
+echo "    1. Log out and back in (so vdagent autostarts inside the session)."
+echo "    2. On the host, confirm the SPICE viewer is in use (not VNC):"
+echo "         remote-viewer spice://<host>:<port>"
+echo "    3. In virt-viewer/remote-viewer menu: enable 'Automatically share clipboard'."
+echo "    4. Some keyboard shortcuts (Ctrl+Shift+C) are intercepted — try mouse paste."
+echo ""
