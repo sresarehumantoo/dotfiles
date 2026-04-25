@@ -16,6 +16,55 @@ type ExtrasModule struct{}
 
 func (ExtrasModule) Name() string { return "extras" }
 
+// writeFileAsRoot writes data to a root-owned file via a tmp-then-install
+// dance. Replaces the `cat <<EOF | sudo tee` pattern so the sudo invocation
+// goes through the proper sudo handling (spinner pause, stderr connected).
+func writeFileAsRoot(dst string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp("", "dfinstall-asroot-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	modeStr := fmt.Sprintf("%#o", mode)
+	if err := runCmd("sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
+		return fmt.Errorf("install %s: %w", dst, err)
+	}
+	return nil
+}
+
+// downloadAndInstallAsRoot fetches a URL to a temp file (as the user) then
+// installs it to a root-owned destination. Replaces the `curl | sudo tee`
+// pattern.
+func downloadAndInstallAsRoot(url, dst string, mode os.FileMode) error {
+	tmp, err := os.CreateTemp("", "dfinstall-dl-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpPath)
+
+	if err := runCmd("curl", "-fsSL", "-o", tmpPath, url); err != nil {
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+
+	modeStr := fmt.Sprintf("%#o", mode)
+	if err := runCmd("sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
+		return fmt.Errorf("install %s: %w", dst, err)
+	}
+	return nil
+}
+
 // addAptRepo sets up a third-party apt repository if not already configured.
 func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 	if existing, err := os.ReadFile(repoPath); err == nil {
@@ -32,14 +81,12 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 	if err := runCmd("sudo", "mkdir", "-p", filepath.Dir(keyPath)); err != nil {
 		return fmt.Errorf("creating keyring dir: %w", err)
 	}
-	dl := fmt.Sprintf("curl -fsSL %s | sudo tee %s > /dev/null", keyURL, keyPath)
-	if err := runCmd("bash", "-c", dl); err != nil {
+	if err := downloadAndInstallAsRoot(keyURL, keyPath, 0644); err != nil {
 		return fmt.Errorf("downloading %s GPG key: %w", name, err)
 	}
 
 	// Write repo file (heredoc preserves newlines in DEB822 format)
-	write := fmt.Sprintf("cat <<'REPO' | sudo tee %s > /dev/null\n%s\nREPO", repoPath, repoContent)
-	if err := runCmd("bash", "-c", write); err != nil {
+	if err := writeFileAsRoot(repoPath, []byte(repoContent), 0644); err != nil {
 		return fmt.Errorf("writing %s repo file: %w", name, err)
 	}
 

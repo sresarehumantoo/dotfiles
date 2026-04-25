@@ -168,44 +168,62 @@ func installPkg(pkgs ...string) error {
 	return runCmd(cmdArgs[0], cmdArgs[1:]...)
 }
 
+// ContainsSudoInvocation scans cmd args for sudo invocations, including
+// inside `bash -c` script strings (heuristic — looks for `sudo ` as a token).
+// Used to make sure we pause the spinner around any potential password
+// prompt, even when sudo is buried in a shell command string. Exported for
+// testing.
+func ContainsSudoInvocation(name string, args []string) bool {
+	if name == "sudo" {
+		return true
+	}
+	for _, a := range args {
+		if a == "sudo" {
+			return true
+		}
+		// `bash -c "... | sudo tee ..."` — match `sudo ` as a token so we
+		// don't false-positive on words like "presudoku".
+		if strings.Contains(a, "sudo ") {
+			return true
+		}
+	}
+	return false
+}
+
 func runCmd(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 
-	// Detect if this command needs sudo (password prompt requires terminal)
-	isSudo := name == "sudo"
-	if !isSudo {
-		for _, a := range args {
-			if a == "sudo" {
-				isSudo = true
-				break
-			}
-		}
-	}
+	directSudo := name == "sudo"
+	needsTTY := ContainsSudoInvocation(name, args)
 
-	if isSudo {
+	if directSudo {
 		cmd = core.SudoCmd(args...)
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		// When password is piped via DFINSTALL_SUDO_PASS, no TTY needed.
-		if os.Getenv("_DFINSTALL_SUDO_PASS") != "" {
-			return cmd.Run()
-		}
-		core.PauseSpinner()
-		if err := cmd.Start(); err != nil {
-			core.ResumeSpinner()
-			return err
-		}
-		// Resume spinner while the command runs — sudo has already
-		// read any password prompt by the time Start returns control.
-		core.ResumeSpinner()
-		return cmd.Wait()
 	}
 
+	// Always connect stderr for any sudo path so the password prompt and
+	// any sudo error messages ("Sorry, try again", lecture, etc.) reach
+	// the user. Without this they're invisible in default (non-verbose)
+	// mode and the run appears to hang.
+	if needsTTY {
+		cmd.Stderr = os.Stderr
+	}
 	if core.Level >= core.LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+	}
+
+	// When password is piped via _DFINSTALL_SUDO_PASS, no TTY needed and
+	// no spinner interference is possible.
+	if directSudo && os.Getenv("_DFINSTALL_SUDO_PASS") != "" {
+		return cmd.Run()
+	}
+
+	// Hold the spinner pause across the full run, not just the fork. The
+	// previous Start/Resume/Wait pattern resumed the spinner while sudo
+	// was still trying to prompt, overdrawing the prompt line.
+	if needsTTY {
+		core.PauseSpinner()
+		defer core.ResumeSpinner()
 	}
 	return cmd.Run()
 }
