@@ -101,7 +101,10 @@ func installOmz(omzDir string) error {
 	if _, err := os.Stat(omzDir); err == nil {
 		core.Notice("oh-my-zsh dir exists but oh-my-zsh.sh is missing — reinstalling")
 		if _, err := os.Stat(customDir); err == nil {
-			tmp, err := os.MkdirTemp("", "omz-custom-*")
+			// Use a temp dir on the SAME filesystem as omzDir — /tmp is
+			// usually tmpfs, and os.Rename across filesystems returns
+			// EXDEV ("invalid cross-device link").
+			tmp, err := os.MkdirTemp(filepath.Dir(omzDir), ".omz-custom-*")
 			if err != nil {
 				return fmt.Errorf("create temp for custom/: %w", err)
 			}

@@ -2,6 +2,7 @@ package modules
 
 import (
 	"os/exec"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -62,9 +63,8 @@ func (VMGuestModule) Install() error {
 			core.Notice("systemctl not found — skipping service enablement for %s", svc)
 			break
 		}
-		core.Info("Enabling %s...", svc)
-		if err := runCmd("sudo", "systemctl", "enable", "--now", svc); err != nil {
-			core.Warn("enable %s: %v", svc, err)
+		if err := startSystemdUnit(svc); err != nil {
+			core.Warn("start %s: %v", svc, err)
 		}
 	}
 
@@ -86,6 +86,48 @@ func (VMGuestModule) Install() error {
 func systemdAvailable() bool {
 	_, err := exec.LookPath("systemctl")
 	return err == nil
+}
+
+// startSystemdUnit ensures a unit is running. For "static" units (e.g.
+// qemu-guest-agent, newer spice-vdagentd — no [Install] section because
+// they're activated by socket/udev/host signal) `systemctl enable` refuses
+// with "no installation config", so just `start` instead.
+func startSystemdUnit(svc string) error {
+	state := unitInstallState(svc)
+	switch state {
+	case "static", "alias", "indirect":
+		// Can't `enable` these — just start.
+		core.Info("Starting %s (static unit)...", svc)
+		return runCmd("sudo", "systemctl", "start", svc)
+	case "enabled", "enabled-runtime":
+		// Already enabled; just make sure it's running.
+		core.Info("Starting %s (already enabled)...", svc)
+		return runCmd("sudo", "systemctl", "start", svc)
+	default:
+		// "disabled", "masked", "" (unknown) — try enable --now and fall
+		// back to plain start if enable refuses.
+		core.Info("Enabling %s...", svc)
+		if err := runCmd("sudo", "systemctl", "enable", "--now", svc); err != nil {
+			core.Notice("enable %s failed (state=%q) — starting only", svc, state)
+			return runCmd("sudo", "systemctl", "start", svc)
+		}
+		return nil
+	}
+}
+
+// unitInstallState returns the systemctl is-enabled status for a unit, or
+// "" if the call failed. Trims trailing newline.
+func unitInstallState(svc string) string {
+	out, err := exec.Command("systemctl", "is-enabled", svc).Output()
+	if err != nil {
+		// is-enabled returns non-zero for "disabled", "static" etc but
+		// still prints the state to stdout. Honor the output even on
+		// non-zero exit.
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			_ = exitErr
+		}
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func (VMGuestModule) Status() core.ModuleStatus {
