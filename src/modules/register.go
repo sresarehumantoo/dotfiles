@@ -25,6 +25,7 @@ func RegisterAllModules() {
 	core.RegisterModule(&GhosttyModule{})
 	core.RegisterModule(&HtopModule{})
 	core.RegisterModule(&WslModule{})
+	core.RegisterModule(&VMGuestModule{})
 	core.RegisterModule(&DefaultShellModule{})
 }
 
