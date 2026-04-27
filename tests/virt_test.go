@@ -22,6 +22,12 @@ func TestParseSystemdVirt(t *testing.T) {
 		{"lxc-libvirt", core.VirtLXC},
 		{"docker", core.VirtDocker},
 		{"podman", core.VirtPodman},
+		{"openvz", core.VirtContainer},
+		{"systemd-nspawn", core.VirtContainer},
+		{"rkt", core.VirtContainer},
+		{"proot", core.VirtContainer},
+		{"pouch", core.VirtContainer},
+		{"container-other", core.VirtContainer},
 		{"none", core.VirtNone},
 		{"", core.VirtNone},
 		{"some-future-thing", core.VirtUnknown},
@@ -31,6 +37,43 @@ func TestParseSystemdVirt(t *testing.T) {
 		t.Run(tt.in, func(t *testing.T) {
 			if got := core.ParseSystemdVirt(tt.in); got != tt.want {
 				t.Errorf("ParseSystemdVirt(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestIsHardwareVirt(t *testing.T) {
+	// Each entry locks in whether a given VirtType counts as a hardware
+	// VM (and thus should get guest tools installed). Containers, WSL,
+	// none, and unknown must all be false — we don't want to install
+	// qemu-guest-agent inside a container or in an environment we can't
+	// classify.
+	tests := []struct {
+		v    core.VirtType
+		want bool
+	}{
+		// True hardware virtualization
+		{core.VirtKVM, true},
+		{core.VirtQEMU, true},
+		{core.VirtVMware, true},
+		{core.VirtVirtualBox, true},
+		{core.VirtHyperV, true},
+		{core.VirtXen, true},
+
+		// Anything else must be false
+		{core.VirtNone, false},
+		{core.VirtWSL, false},
+		{core.VirtLXC, false},
+		{core.VirtDocker, false},
+		{core.VirtPodman, false},
+		{core.VirtContainer, false},
+		{core.VirtUnknown, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.v), func(t *testing.T) {
+			if got := core.IsHardwareVirt(tt.v); got != tt.want {
+				t.Errorf("IsHardwareVirt(%q) = %v, want %v", tt.v, got, tt.want)
 			}
 		})
 	}

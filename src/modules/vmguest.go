@@ -38,7 +38,11 @@ func (VMGuestModule) Install() error {
 
 	virt := core.DetectVirt()
 	if !core.IsVM() {
-		core.Ok("Not running in a VM (%s), skipping vmguest", virt)
+		if virt == core.VirtUnknown {
+			core.Notice("vmguest: virtualization detected but type unrecognized — skipping. Install guest tools manually if needed.")
+		} else {
+			core.Ok("Not running in a VM (%s), skipping vmguest", virt)
+		}
 		return nil
 	}
 
