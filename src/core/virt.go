@@ -22,19 +22,27 @@ const (
 	VirtLXC        VirtType = "lxc"
 	VirtDocker     VirtType = "docker"
 	VirtPodman     VirtType = "podman"
-	VirtUnknown    VirtType = "unknown"
+	// VirtContainer covers other systemd-detect-virt container outputs
+	// we don't have specific handling for: openvz, systemd-nspawn, rkt,
+	// proot, pouch, container-other.
+	VirtContainer VirtType = "container"
+	// VirtUnknown is "we couldn't classify this". Treated as NOT a
+	// hardware VM — better to skip guest-tool installation than to
+	// install qemu-guest-agent inside a future container type we
+	// don't recognize.
+	VirtUnknown VirtType = "unknown"
 )
 
-// hardwareVirts are the hypervisor types that benefit from guest tools.
-// Containers and WSL are deliberately excluded — they have separate paths.
-var hardwareVirts = map[VirtType]bool{
-	VirtKVM:        true,
-	VirtQEMU:       true,
-	VirtVMware:     true,
-	VirtVirtualBox: true,
-	VirtHyperV:     true,
-	VirtXen:        true,
-	VirtUnknown:    true,
+// IsHardwareVirt reports whether v represents hardware virtualization (a
+// true VM that benefits from guest tools). Containers, WSL, none, and
+// unknown all return false. Exported so callers and tests share a single
+// source of truth for what counts as a "VM" for our purposes.
+func IsHardwareVirt(v VirtType) bool {
+	switch v {
+	case VirtKVM, VirtQEMU, VirtVMware, VirtVirtualBox, VirtHyperV, VirtXen:
+		return true
+	}
+	return false
 }
 
 // DetectVirt returns the virtualization technology in use, or VirtNone for
@@ -50,7 +58,7 @@ func DetectVirt() VirtType {
 // IsVM returns true when running inside a hardware-virtualized guest.
 // Excludes containers and WSL.
 func IsVM() bool {
-	return hardwareVirts[DetectVirt()]
+	return IsHardwareVirt(DetectVirt())
 }
 
 func detectVirtSystemd() (VirtType, bool) {
@@ -93,6 +101,8 @@ func ParseSystemdVirt(s string) VirtType {
 		return VirtDocker
 	case "podman":
 		return VirtPodman
+	case "openvz", "systemd-nspawn", "rkt", "proot", "pouch", "container-other":
+		return VirtContainer
 	case "none", "":
 		return VirtNone
 	default:
