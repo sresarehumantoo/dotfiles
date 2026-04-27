@@ -449,7 +449,11 @@ func installDeb(name, repo string) error {
 	// Install with dpkg, then fix any missing dependencies with apt
 	if err := runCmd("sudo", "dpkg", "-i", tmpPath); err != nil {
 		core.Info("Fixing dependencies for %s...", name)
-		if fixErr := runCmd("sudo", "apt-get", "install", "-f", "-y"); fixErr != nil {
+		bin := core.AptBin()
+		if bin == "" {
+			return fmt.Errorf("install %s (dpkg failed and no apt binary available): %w", name, err)
+		}
+		if fixErr := runCmd("sudo", bin, "install", "-f", "-y"); fixErr != nil {
 			return fmt.Errorf("install %s (dpkg failed and apt fix failed): dpkg: %w, apt: %v", name, err, fixErr)
 		}
 	}

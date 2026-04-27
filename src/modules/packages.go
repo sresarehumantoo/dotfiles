@@ -1,11 +1,50 @@
 package modules
 
 import (
+	"bytes"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
+
+// aptUpdateAttempts and aptUpdateBackoff control retry behaviour for
+// `<apt> update`. Mirror failures and DNS hiccups during fresh provisioning
+// (especially WSL) are usually transient.
+var (
+	aptUpdateAttempts = 3
+	aptUpdateBackoff  = 2 * time.Second
+)
+
+// aptUpdateWithRetry runs `<apt-bin> update` with exponential backoff on
+// failure. Returns nil on first success; otherwise the last error after all
+// attempts are exhausted.
+func aptUpdateWithRetry() error {
+	bin := core.AptBin()
+	if bin == "" {
+		return fmt.Errorf("no apt binary found on PATH")
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= aptUpdateAttempts; attempt++ {
+		err := runCmd("sudo", bin, "update")
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if attempt < aptUpdateAttempts {
+			wait := time.Duration(attempt) * aptUpdateBackoff
+			core.Warn("%s update failed (attempt %d/%d): %v — retrying in %s", bin, attempt, aptUpdateAttempts, err, wait)
+			time.Sleep(wait)
+		}
+	}
+	return lastErr
+}
 
 // pacmanNames maps canonical (apt) package names to pacman equivalents.
 // Empty string means the package is not needed on Arch (bundled with another).
@@ -14,6 +53,7 @@ var pacmanNames = map[string]string{
 	"build-essential":         "base-devel",
 	"golang":                  "go",
 	"python3-pip":             "python-pip",
+	"locales":                 "", // glibc provides locales on Arch
 	"python3-venv":            "", // part of python on Arch
 	"pipx":                    "python-pipx",
 	"bat":                     "bat",
@@ -70,8 +110,8 @@ func (PackagesModule) Name() string { return "packages" }
 
 // detectPkgManager returns the install command prefix for the detected package manager.
 func detectPkgManager() (name string, args []string) {
-	if _, err := exec.LookPath("apt-get"); err == nil {
-		return "apt-get", []string{"sudo", "apt-get", "install", "-y"}
+	if bin := core.AptBin(); bin != "" {
+		return bin, []string{"sudo", bin, "install", "-y"}
 	}
 	if _, err := exec.LookPath("dnf"); err == nil {
 		return "dnf", []string{"sudo", "dnf", "install", "-y"}
@@ -85,51 +125,146 @@ func detectPkgManager() (name string, args []string) {
 	return "", nil
 }
 
+var aptUpdated bool
+
+// repairAptSources removes corrupt DEB822 .sources files left by a prior
+// dfinstall bug that wrote literal \n instead of real newlines.
+func repairAptSources() {
+	matches, _ := filepath.Glob("/etc/apt/sources.list.d/*.sources")
+	for _, path := range matches {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		// A valid DEB822 file is multiline; a corrupt one has everything on one line with literal \n
+		if strings.Contains(string(data), `\nURIs:`) || strings.Contains(string(data), `\nSuites:`) {
+			core.Notice("Removing corrupt apt source: %s", path)
+			runCmd("sudo", "rm", path)
+		}
+	}
+}
+
 func installPkg(pkgs ...string) error {
 	name, args := detectPkgManager()
 	if name == "" {
 		core.Err("No supported package manager found. Install manually: %v", pkgs)
 		return nil
 	}
+
+	// Ensure apt cache is fresh on first use (minimal systems ship with empty lists)
+	if (name == "apt-get" || name == "apt") && !aptUpdated {
+		repairAptSources()
+		core.Info("Refreshing package lists...")
+		if err := aptUpdateWithRetry(); err != nil {
+			core.Warn("%s update failed after retries: %v", name, err)
+		}
+		aptUpdated = true
+	}
+
 	resolved := resolvePkgs(name, pkgs)
 	if len(resolved) == 0 {
 		return nil
 	}
+	core.SpinnerDetail("Installing: %s", strings.Join(resolved, ", "))
 	cmdArgs := append(args, resolved...)
 	return runCmd(cmdArgs[0], cmdArgs[1:]...)
+}
+
+// ContainsSudoInvocation scans cmd args for sudo invocations, including
+// inside `bash -c` script strings (heuristic — looks for `sudo ` as a token).
+// Used to make sure we pause the spinner around any potential password
+// prompt, even when sudo is buried in a shell command string. Exported for
+// testing.
+func ContainsSudoInvocation(name string, args []string) bool {
+	if name == "sudo" {
+		return true
+	}
+	for _, a := range args {
+		if a == "sudo" {
+			return true
+		}
+		// `bash -c "... | sudo tee ..."` — match `sudo ` as a token so we
+		// don't false-positive on words like "presudoku".
+		if strings.Contains(a, "sudo ") {
+			return true
+		}
+	}
+	return false
 }
 
 func runCmd(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 
-	// Detect if this command needs sudo (password prompt requires terminal)
-	needsTTY := name == "sudo"
-	if !needsTTY {
-		for _, a := range args {
-			if a == "sudo" {
-				needsTTY = true
-				break
-			}
-		}
+	directSudo := name == "sudo"
+	needsTTY := ContainsSudoInvocation(name, args)
+
+	if directSudo {
+		cmd = core.SudoCmd(args...)
 	}
 
-	if needsTTY {
-		core.PauseSpinner()
-		cmd.Stdin = os.Stdin
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		err := cmd.Run()
-		core.ResumeSpinner()
-		return err
-	}
-
+	// Output routing:
+	//   verbose: straight to terminal so the user sees everything live.
+	//   default: capture both streams so we can replay them on failure
+	//            (without -v, apt's actual error message used to vanish).
+	//            For sudo, also tee stderr to the terminal so password
+	//            prompts and sudo errors are visible in real time.
+	var capture bytes.Buffer
 	if core.Level >= core.LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = &capture
+		if needsTTY {
+			cmd.Stderr = io.MultiWriter(os.Stderr, &capture)
+		} else {
+			cmd.Stderr = &capture
+		}
 	}
-	return cmd.Run()
+
+	// When password is piped via _DFINSTALL_SUDO_PASS, no TTY needed and
+	// no spinner interference is possible.
+	if directSudo && os.Getenv("_DFINSTALL_SUDO_PASS") != "" {
+		return cmd.Run()
+	}
+
+	// Hold the spinner pause across the full run, not just the fork. The
+	// previous Start/Resume/Wait pattern resumed the spinner while sudo
+	// was still trying to prompt, overdrawing the prompt line.
+	if needsTTY {
+		core.PauseSpinner()
+		defer core.ResumeSpinner()
+	}
+
+	err := cmd.Run()
+
+	// On failure in default mode, surface what the command actually said.
+	// Without this the user only saw stray stderr lines and had to rerun
+	// with -v to find the real error.
+	if err != nil && core.Level < core.LogVerbose {
+		out := strings.TrimSpace(capture.String())
+		if out != "" {
+			if !needsTTY {
+				core.PauseSpinner()
+				defer core.ResumeSpinner()
+			}
+			core.Err("command failed: %s %s", name, strings.Join(args, " "))
+			for _, line := range tailLines(out, 30) {
+				fmt.Fprintf(os.Stderr, "    %s\n", line)
+			}
+		}
+	}
+	return err
+}
+
+// tailLines returns the last n lines of s, with an "... elided ..." marker
+// if there were more.
+func tailLines(s string, n int) []string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return lines
+	}
+	out := []string{fmt.Sprintf("(... %d earlier lines elided ...)", len(lines)-n)}
+	return append(out, lines[len(lines)-n:]...)
 }
 
 func (PackagesModule) Install() error {
@@ -140,26 +275,42 @@ func (PackagesModule) Install() error {
 
 	core.Info("Installing core packages...")
 
-	pkgs := []string{"git", "zsh", "curl", "wget", "htop", "rsync"}
+	// binary → package(s) mapping; only install what's missing
+	wanted := []struct {
+		bin  string
+		pkgs []string
+	}{
+		{"git", []string{"git"}},
+		{"zsh", []string{"zsh"}},
+		{"curl", []string{"curl"}},
+		{"wget", []string{"wget"}},
+		{"htop", []string{"htop"}},
+		{"rsync", []string{"rsync"}},
+		{"nvim", []string{"neovim"}},
+		{"tmux", []string{"tmux"}},
+		{"node", []string{"nodejs", "npm"}},
+		{"python3", []string{"python3"}},
+		{"go", []string{"golang"}},
+	}
 
-	if _, err := exec.LookPath("nvim"); err != nil {
-		pkgs = append(pkgs, "neovim")
+	var pkgs []string
+	for _, w := range wanted {
+		if _, err := exec.LookPath(w.bin); err != nil {
+			pkgs = append(pkgs, w.pkgs...)
+		}
 	}
-	if _, err := exec.LookPath("tmux"); err != nil {
-		pkgs = append(pkgs, "tmux")
-	}
-	if _, err := exec.LookPath("node"); err != nil {
-		pkgs = append(pkgs, "nodejs", "npm")
-	}
-	if _, err := exec.LookPath("python3"); err != nil {
-		pkgs = append(pkgs, "python3")
-	}
-	if _, err := exec.LookPath("go"); err != nil {
-		pkgs = append(pkgs, "golang")
+	// locales has no binary to check — ensure the package is present
+	if !dpkgInstalled("locales") {
+		pkgs = append(pkgs, "locales")
 	}
 
-	if err := installPkg(pkgs...); err != nil {
-		core.Warn("Some packages may have failed to install: %v", err)
+	if len(pkgs) == 0 {
+		core.Ok("All core packages already installed")
+	} else {
+		core.Info("Installing: %s", strings.Join(pkgs, ", "))
+		if err := installPkg(pkgs...); err != nil {
+			core.Warn("Some packages may have failed to install: %v", err)
+		}
 	}
 
 	// zsh-syntax-highlighting

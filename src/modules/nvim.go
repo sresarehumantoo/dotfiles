@@ -55,10 +55,10 @@ func (NvimModule) Install() error {
 		if li, err := os.Lstat(initLua); err == nil && li.Mode()&os.ModeSymlink == 0 {
 			bakDir := nvimDir + ".bak"
 			if _, err := os.Stat(bakDir); err == nil {
-				core.Warn("Removing old nvim backup at %s", bakDir)
+				core.Notice("Removing old nvim backup at %s", bakDir)
 				os.RemoveAll(bakDir)
 			}
-			core.Warn("Existing nvim git repo found — backing up to %s", bakDir)
+			core.Notice("Existing nvim git repo found — backing up to %s", bakDir)
 			if err := os.Rename(nvimDir, bakDir); err != nil {
 				core.Warn("Failed to back up nvim config: %v", err)
 			}

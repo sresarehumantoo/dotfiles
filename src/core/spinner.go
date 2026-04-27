@@ -123,6 +123,15 @@ func ResumeSpinner() {
 	}
 }
 
+// SpinnerDetail updates the active spinner's detail text.
+// Use to show sub-step progress (e.g. which package is being installed).
+// No-op if no spinner is running.
+func SpinnerDetail(msg string, args ...any) {
+	if activeSpinner != nil && spinnerRunning.Load() {
+		activeSpinner.Update(msg, args...)
+	}
+}
+
 // PrintResult prints the final success/failure summary after Stop.
 func PrintResult(total, failed int) {
 	if failed == 0 {

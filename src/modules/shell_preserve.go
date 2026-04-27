@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -71,6 +72,49 @@ var nonShellFiles = map[string]bool{
 	".lftprc":       true,
 	".muttrc":       true,
 	".mbsyncrc":     true,
+	".dmrc":         true, // display manager session record (INI)
+	".gtkrc":        true, // GTK1 config (key=value)
+	".asoundrc":     true, // ALSA config
+	".face":         true, // user avatar (binary)
+}
+
+// iniSectionLine matches an INI section header like [Section] or [Foo.Bar].
+// Excludes shell test syntax like `[ -f foo ]` (requires no space after `[`).
+var iniSectionLine = regexp.MustCompile(`^\[[a-zA-Z0-9][a-zA-Z0-9 _.-]*\]\s*$`)
+
+// looksSourceable does a best-effort content sniff to decide whether a file
+// could plausibly be sourced by a POSIX shell. Returns false for binary files,
+// INI files (e.g. .dmrc), and XML files. Default-accepts on read errors so we
+// fall back to the user's judgement in the menu.
+func looksSourceable(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return true
+	}
+	defer f.Close()
+
+	buf := make([]byte, 512)
+	n, _ := f.Read(buf)
+	buf = buf[:n]
+
+	if bytes.IndexByte(buf, 0) != -1 {
+		return false
+	}
+
+	for _, line := range strings.Split(string(buf), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if iniSectionLine.MatchString(line) {
+			return false
+		}
+		if strings.HasPrefix(line, "<?xml") || strings.HasPrefix(line, "<!DOCTYPE") {
+			return false
+		}
+		break
+	}
+	return true
 }
 
 // validPreservePath matches safe relative paths (dotfiles in $HOME, no slashes, no injection).
@@ -140,11 +184,47 @@ func ScanCustomShellFiles() []DiscoveredFile {
 				continue
 			}
 
+			// Skip files whose contents don't look shell-sourceable
+			// (binary, INI like .dmrc, XML, etc.)
+			if !looksSourceable(match) {
+				continue
+			}
+
 			results = append(results, DiscoveredFile{RelPath: rel})
 		}
 	}
 
 	return results
+}
+
+// SanitizePreservedFiles drops entries that no longer exist in $HOME or
+// fail the shell-sourceable content sniff. Returns the cleaned slice and the
+// list of dropped entries (for logging). Used to auto-heal config from
+// before the sourceable sniffer existed (e.g. .dmrc previously ended up in
+// preserved_files and now causes shell errors at startup).
+func SanitizePreservedFiles(paths []string) (cleaned, dropped []string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return paths, nil
+	}
+	for _, p := range paths {
+		full := filepath.Join(home, p)
+		fi, err := os.Stat(full)
+		if err != nil {
+			dropped = append(dropped, p)
+			continue
+		}
+		if fi.IsDir() {
+			dropped = append(dropped, p)
+			continue
+		}
+		if !looksSourceable(full) {
+			dropped = append(dropped, p)
+			continue
+		}
+		cleaned = append(cleaned, p)
+	}
+	return cleaned, dropped
 }
 
 // FilterNewFiles returns only files not already in PreservedFiles or DismissedFiles.

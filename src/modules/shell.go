@@ -25,6 +25,7 @@ var shellLinks = []struct{ src, dst string }{
 	{"shell/zsh/path.zsh", ".zsh.d/path.zsh"},
 	{"shell/zsh/exports.zsh", ".zsh.d/exports.zsh"},
 	{"shell/zsh/ssh.zsh", ".zsh.d/ssh.zsh"},
+	{"shell/zsh/locale.zsh", ".zsh.d/locale.zsh"},
 }
 
 func (ShellModule) Install() error {
@@ -58,10 +59,26 @@ func (ShellModule) Install() error {
 			}
 		}
 
-		// Write custom-sources.zsh if there are any preserved files
+		// Drop preserved entries that no longer exist or aren't sourceable
+		// (e.g. .dmrc captured by an older dfinstall before the content
+		// sniffer existed — would error at every shell start).
+		if cleaned, dropped := SanitizePreservedFiles(core.Cfg.PreservedFiles); len(dropped) > 0 {
+			core.Notice("Removing %d unsourceable preserved file(s): %v", len(dropped), dropped)
+			core.Cfg.PreservedFiles = cleaned
+			if err := core.SaveConfig(); err != nil {
+				core.Warn("failed to save config after sanitize: %v", err)
+			}
+		}
+
+		// Write or remove custom-sources.zsh based on the cleaned list
 		if len(core.Cfg.PreservedFiles) > 0 {
 			if err := WriteCustomSourcesFile(core.Cfg.PreservedFiles); err != nil {
 				core.Warn("failed to write custom-sources.zsh: %v", err)
+			}
+		} else {
+			// Nothing to source — remove any stale generated file
+			if err := os.Remove(CustomSourcesFilePath()); err != nil && !os.IsNotExist(err) {
+				core.Debug("could not remove stale custom-sources.zsh: %v", err)
 			}
 		}
 
@@ -118,6 +135,14 @@ func installCompletions() {
 	if idx := strings.Index(string(raw), "#compdef"); idx >= 0 {
 		out = raw[idx:]
 	}
+
+	// Self-bootstrap compinit when sourced before any framework has done
+	// so (e.g. if oh-my-zsh failed to install). The user sees their
+	// completions either way; without this they'd see
+	// `command not found: compdef` at every shell start.
+	guard := []byte("(( $+functions[compdef] )) || { autoload -Uz compinit && compinit -u 2>/dev/null }\n" +
+		"(( $+functions[compdef] )) || return 0\n")
+	out = append(guard, out...)
 
 	dst := completionDst()
 	if err := core.EnsureDir(filepath.Dir(dst)); err != nil {

@@ -31,6 +31,7 @@ var (
 )
 
 var bufferedWarnings []string
+var bufferedNotices []string
 
 // Info prints an informational message. Suppressed in quiet mode.
 func Info(msg string, args ...any) {
@@ -46,6 +47,17 @@ func Ok(msg string, args ...any) {
 		return
 	}
 	fmt.Printf("  %s %s\n", okSymbol("✓"), fmt.Sprintf(msg, args...))
+}
+
+// Notice prints an informational notice. Always visible (buffered in quiet mode).
+// Use for expected operational messages (e.g. backups) that aren't warnings.
+func Notice(msg string, args ...any) {
+	formatted := fmt.Sprintf(msg, args...)
+	if Level < LogVerbose {
+		bufferedNotices = append(bufferedNotices, formatted)
+		return
+	}
+	fmt.Printf("  %s %s\n", infoSymbol("ℹ"), formatted)
 }
 
 // Warn prints a warning. Buffered in quiet mode, printed immediately otherwise.
@@ -80,8 +92,12 @@ func Debug(msg string, args ...any) {
 	fmt.Printf("  %s %s\n", debugSymbol("◆"), fmt.Sprintf(msg, args...))
 }
 
-// FlushWarnings prints all buffered warnings and clears the buffer.
+// FlushWarnings prints all buffered notices and warnings, then clears both buffers.
 func FlushWarnings() {
+	for _, n := range bufferedNotices {
+		fmt.Printf("  %s %s\n", infoSymbol("ℹ"), n)
+	}
+	bufferedNotices = nil
 	for _, w := range bufferedWarnings {
 		fmt.Printf("  %s %s\n", warnSymbol("⚠"), w)
 	}
