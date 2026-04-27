@@ -123,7 +123,7 @@ func (TmuxModule) Install() error {
 	// Remove old oh-my-tmux artifacts if present
 	if data, err := os.ReadFile(tmuxConf); err == nil {
 		if strings.Contains(string(data), "gpakosz") {
-			core.Warn("Removing old oh-my-tmux base config")
+			core.Notice("Removing old oh-my-tmux base config")
 			os.Remove(tmuxConf)
 		}
 	}

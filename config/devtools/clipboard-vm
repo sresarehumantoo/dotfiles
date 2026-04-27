@@ -1,0 +1,302 @@
+#!/usr/bin/env bash
+# Diagnose and attempt to fix SPICE clipboard sharing in a QEMU/KVM guest.
+# Walks: virtio channel -> daemon -> per-session agent. Saves a full report
+# you can reference later (clipboard is broken, after all).
+set -uo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+RESET=0
+case "${1:-}" in
+    -h|--help)
+        header "clipboard-vm"
+        echo "Diagnose and try to fix SPICE clipboard in a QEMU/KVM guest."
+        echo ""
+        echo "Usage: clipboard-vm [--reset]"
+        echo ""
+        echo "  --reset   Kill the per-session agent, restart spice-vdagentd,"
+        echo "            and start a fresh per-session agent. Use when checks"
+        echo "            pass but clipboard still doesn't work."
+        echo ""
+        echo "Always writes a full report to ~/clipboard-vm-report.txt so you"
+        echo "can read it later when clipboard isn't working yet."
+        exit 0
+        ;;
+    --reset) RESET=1 ;;
+    "") ;;
+    *)  err "Unknown argument: $1"; echo "Try: clipboard-vm --help"; exit 2 ;;
+esac
+
+# Tee everything to a report file. The user can `cat` it later, transfer it
+# off-VM via scp, take a phone photo of the summary at the bottom, etc.
+REPORT="$HOME/clipboard-vm-report.txt"
+exec > >(tee "$REPORT") 2>&1
+
+date_str="$(date '+%Y-%m-%d %H:%M:%S')"
+header "clipboard-vm — $date_str"
+
+# Collect summary fields as we go for the brief block at the end.
+summary_virt="?"
+summary_channel="?"
+summary_perms="?"
+summary_pkg="?"
+summary_daemon="?"
+summary_socket="?"
+summary_session_agent="?"
+summary_session="${XDG_SESSION_TYPE:-unset}/${XDG_CURRENT_DESKTOP:-unset}"
+summary_display="${DISPLAY:-unset}"
+
+header "VM detection"
+
+virt="unknown"
+if command -v systemd-detect-virt &>/dev/null; then
+    virt="$(systemd-detect-virt 2>/dev/null || echo none)"
+elif [[ -r /sys/class/dmi/id/sys_vendor ]]; then
+    vendor="$(< /sys/class/dmi/id/sys_vendor)"
+    case "${vendor,,}" in
+        *qemu*) virt="kvm" ;;
+        *vmware*) virt="vmware" ;;
+        *innotek*) virt="oracle" ;;
+    esac
+fi
+summary_virt="$virt"
+info "Virtualization: $virt"
+
+case "$virt" in
+    kvm|qemu) ;;
+    none)     die "Not running in a VM — nothing to do." ;;
+    *)        warn "This helper targets QEMU/KVM. Detected '$virt' may need different tools."
+              confirm "Continue anyway?" || exit 0 ;;
+esac
+
+header "SPICE channel (virtio)"
+
+channel="/dev/virtio-ports/com.redhat.spice.0"
+if [[ -e "$channel" ]]; then
+    summary_channel="present"
+    ok "Channel present: $channel"
+    perms="$(ls -l "$channel" 2>&1)"
+    summary_perms="$(echo "$perms" | awk '{print $1, $3, $4}')"
+    info "Permissions: $perms"
+    # The daemon runs as root and opens the channel — user perms shouldn't
+    # matter, but bad/non-default perms have caused weird breakage before.
+else
+    summary_channel="MISSING"
+    err "Missing: $channel"
+    echo ""
+    warn "The SPICE agent channel isn't attached to this VM."
+    warn "This must be fixed on the HOST (the guest can't add devices)."
+    echo ""
+    echo "  In virt-manager:"
+    echo "    VM details -> Add Hardware -> Channel"
+    echo "    Name:   com.redhat.spice.0"
+    echo "    Device: spicevmc"
+    echo "    Then power-cycle the VM (reboot from inside is not enough)."
+    echo ""
+    echo "  Or edit the libvirt XML:"
+    echo "    <channel type='spicevmc'>"
+    echo "      <target type='virtio' name='com.redhat.spice.0'/>"
+    echo "    </channel>"
+    echo ""
+    echo "  Verify on the host:"
+    echo "    sudo virsh dumpxml <vm-name> | grep -A2 spicevmc"
+    echo ""
+    info "Available virtio ports right now:"
+    ls -la /dev/virtio-ports/ 2>&1 || echo "  (none)"
+    echo ""
+    warn "Report saved: $REPORT"
+    exit 1
+fi
+
+header "spice-vdagent package"
+
+if command -v spice-vdagent &>/dev/null && command -v spice-vdagentd &>/dev/null; then
+    summary_pkg="installed"
+    ok "spice-vdagent installed: $(spice-vdagent --version 2>&1 | head -1 || echo unknown)"
+else
+    summary_pkg="installing"
+    warn "spice-vdagent not installed — installing now"
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get install -y spice-vdagent
+    elif command -v apt &>/dev/null; then
+        sudo apt install -y spice-vdagent
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y spice-vdagent
+    elif command -v pacman &>/dev/null; then
+        sudo pacman -S --noconfirm spice-vdagent
+    else
+        die "No supported package manager. Install spice-vdagent manually."
+    fi
+    summary_pkg="installed"
+    ok "spice-vdagent installed"
+fi
+
+header "spice-vdagentd (system daemon)"
+
+if (( RESET )); then
+    info "Reset mode: restarting spice-vdagentd"
+    sudo systemctl restart spice-vdagentd 2>&1 || true
+fi
+
+if ! command -v systemctl &>/dev/null; then
+    summary_daemon="no-systemctl"
+    warn "systemctl not available — skipping daemon management"
+elif systemctl is-active --quiet spice-vdagentd; then
+    summary_daemon="running"
+    ok "spice-vdagentd is running"
+    info "Status: $(systemctl show -p ActiveState,SubState,MainPID --value spice-vdagentd | tr '\n' ' ')"
+else
+    info "Starting spice-vdagentd..."
+    sudo systemctl enable --now spice-vdagentd
+    if systemctl is-active --quiet spice-vdagentd; then
+        summary_daemon="running"
+        ok "spice-vdagentd started"
+    else
+        summary_daemon="FAILED"
+        err "spice-vdagentd failed to start"
+        echo ""
+        warn "Diagnostic output:"
+        sudo systemctl status spice-vdagentd --no-pager -l || true
+        warn "Report saved: $REPORT"
+        exit 1
+    fi
+fi
+
+# The per-session agent talks to the daemon via this socket. Worth surfacing
+# — if it's missing, the user-side agent will silently fail.
+sock="/run/spice-vdagentd/spice-vdagent-sock"
+if [[ -S "$sock" ]]; then
+    summary_socket="present"
+    ok "Daemon socket: $sock"
+else
+    summary_socket="MISSING"
+    warn "Daemon socket missing: $sock"
+    warn "The system daemon isn't creating its socket — check 'journalctl -u spice-vdagentd'"
+fi
+
+header "spice-vdagent (user session)"
+
+info "Session: $summary_session"
+info "DISPLAY: $summary_display"
+
+if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+    warn "Wayland session detected — spice-vdagent has limited Wayland support."
+    warn "Clipboard often only works one direction (or not at all)."
+    warn "Try logging into an X11 session for full clipboard sync."
+fi
+
+if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+    warn "No graphical session detected (DISPLAY/WAYLAND_DISPLAY unset)"
+    warn "Clipboard sync requires a desktop session — run this from a terminal"
+    warn "INSIDE your graphical session, not over SSH/TTY."
+fi
+
+if (( RESET )); then
+    info "Reset mode: killing existing per-session agent"
+    pkill -u "$USER" -x spice-vdagent 2>&1 || true
+    sleep 1
+fi
+
+if pgrep -u "$USER" -x spice-vdagent &>/dev/null; then
+    summary_session_agent="running (pid $(pgrep -u "$USER" -x spice-vdagent | head -1))"
+    ok "Per-session spice-vdagent is running"
+else
+    if [[ -n "${DISPLAY:-}" || -n "${WAYLAND_DISPLAY:-}" ]]; then
+        info "Starting per-session spice-vdagent..."
+        nohup spice-vdagent >/dev/null 2>&1 &
+        sleep 1
+        if pgrep -u "$USER" -x spice-vdagent &>/dev/null; then
+            summary_session_agent="started (pid $(pgrep -u "$USER" -x spice-vdagent | head -1))"
+            ok "Per-session spice-vdagent started"
+        else
+            summary_session_agent="FAILED"
+            err "Could not start per-session spice-vdagent"
+            warn "Try in a terminal (foreground, prints errors): spice-vdagent -x"
+        fi
+    else
+        summary_session_agent="skipped (no DISPLAY)"
+        warn "Skipped — no graphical session in this terminal"
+    fi
+fi
+
+header "Autostart (next login)"
+
+autostart="/etc/xdg/autostart/spice-vdagent.desktop"
+if [[ -f "$autostart" ]]; then
+    ok "$autostart present — agent will autostart on next login"
+else
+    warn "$autostart missing — agent will not autostart"
+    warn "Reinstall spice-vdagent to restore: sudo apt-get install --reinstall spice-vdagent"
+fi
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Wayland is the most common reason a fully-healthy chain still fails.
+# spice-vdagent uses X11 selection APIs natively; on Wayland it falls back
+# to wlr-data-control, which KDE/KWin only support partially. Surface this
+# loudly here — easy to miss the warning earlier in the run.
+if [[ "${XDG_SESSION_TYPE:-}" == "wayland" ]]; then
+    header "PROBABLE ROOT CAUSE: Wayland session"
+    echo ""
+    err "You're on a Wayland session ($summary_session)."
+    warn "spice-vdagent's Wayland clipboard support is limited and buggy."
+    warn "All your guest-side checks pass — Wayland is almost certainly why"
+    warn "clipboard still doesn't work."
+    echo ""
+    echo "  Recommended fix — switch to an X11 session:"
+    echo "    1. Log out."
+    echo "    2. At the login screen (SDDM/GDM/LightDM), click the session"
+    echo "       picker (gear / desktop icon, usually bottom corner)."
+    echo "    3. Choose the X11 / Xorg variant of your desktop"
+    echo "       (e.g. 'Plasma (X11)' instead of 'Plasma (Wayland)')."
+    echo "    4. Log back in. Clipboard will work."
+    echo ""
+    echo "  Stay on Wayland (best-effort, unreliable):"
+    echo "    - Make sure KDE/spice-vdagent are fully up to date."
+    echo "    - Try the host's SPICE viewer 'paste' menu item instead of"
+    echo "      Ctrl+V — sometimes one direction works and the other doesn't."
+    echo ""
+fi
+
+header "RECONNECT THE SPICE VIEWER"
+# This is the step everyone misses. The clipboard handshake happens at the
+# moment the SPICE client connects to the agent. If the viewer was already
+# open before the agent started (or before the daemon was restarted), no
+# clipboard channel is established for this session.
+echo ""
+warn "If you started the agent just now (or used --reset), the SPICE viewer"
+warn "needs to reconnect for clipboard to work. The handshake only happens"
+warn "at viewer-connect time."
+echo ""
+echo "  On the HOST:"
+echo "    1. Close virt-viewer / remote-viewer / virt-manager console window."
+echo "       (Closing the window is enough; do NOT shut down the VM.)"
+echo "    2. Reopen the console / SPICE connection."
+echo "    3. Try copy/paste again."
+echo ""
+echo "  Also confirm in the viewer's menu:"
+echo "    - virt-viewer / remote-viewer: View -> 'Automatically share clipboard'"
+echo "    - virt-manager: Edit -> Preferences -> 'Enable system clipboard sharing'"
+echo ""
+
+# ─────────────────────────────────────────────────────────────────────────────
+header "SUMMARY"
+# Compact block, deliberately camera-friendly. Read these aloud / take a
+# phone photo if you can't paste from the VM.
+cat <<EOF
+  virt:           $summary_virt
+  channel:        $summary_channel
+  channel-perms:  $summary_perms
+  package:        $summary_pkg
+  daemon:         $summary_daemon
+  daemon-socket:  $summary_socket
+  session:        $summary_session
+  display:        $summary_display
+  session-agent:  $summary_session_agent
+
+EOF
+
+info "Full report: $REPORT"
+echo ""
+info "Next: reconnect the SPICE viewer on the host (see above)."
+echo "      If clipboard still doesn't work after reconnecting, run:"
+echo "        clipboard-vm --reset"
+echo ""

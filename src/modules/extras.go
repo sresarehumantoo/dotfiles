@@ -16,11 +16,63 @@ type ExtrasModule struct{}
 
 func (ExtrasModule) Name() string { return "extras" }
 
+// writeFileAsRoot writes data to a root-owned file via a tmp-then-install
+// dance. Replaces the `cat <<EOF | sudo tee` pattern so the sudo invocation
+// goes through the proper sudo handling (spinner pause, stderr connected).
+func writeFileAsRoot(dst string, data []byte, mode os.FileMode) error {
+	tmp, err := os.CreateTemp("", "dfinstall-asroot-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close temp file: %w", err)
+	}
+
+	modeStr := fmt.Sprintf("%#o", mode)
+	if err := runCmd("sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
+		return fmt.Errorf("install %s: %w", dst, err)
+	}
+	return nil
+}
+
+// downloadAndInstallAsRoot fetches a URL to a temp file (as the user) then
+// installs it to a root-owned destination. Replaces the `curl | sudo tee`
+// pattern.
+func downloadAndInstallAsRoot(url, dst string, mode os.FileMode) error {
+	tmp, err := os.CreateTemp("", "dfinstall-dl-*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+	tmpPath := tmp.Name()
+	tmp.Close()
+	defer os.Remove(tmpPath)
+
+	if err := runCmd("curl", "-fsSL", "-o", tmpPath, url); err != nil {
+		return fmt.Errorf("download %s: %w", url, err)
+	}
+
+	modeStr := fmt.Sprintf("%#o", mode)
+	if err := runCmd("sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
+		return fmt.Errorf("install %s: %w", dst, err)
+	}
+	return nil
+}
+
 // addAptRepo sets up a third-party apt repository if not already configured.
 func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
-	if _, err := os.Stat(repoPath); err == nil {
-		core.Ok("%s repo already configured", name)
-		return nil
+	if existing, err := os.ReadFile(repoPath); err == nil {
+		if strings.TrimSpace(string(existing)) == strings.TrimSpace(repoContent) {
+			core.Ok("%s repo already configured", name)
+			return nil
+		}
+		core.Notice("Updating %s repo (content changed)", name)
 	}
 
 	core.Info("Adding %s apt repository...", name)
@@ -29,20 +81,18 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 	if err := runCmd("sudo", "mkdir", "-p", filepath.Dir(keyPath)); err != nil {
 		return fmt.Errorf("creating keyring dir: %w", err)
 	}
-	dl := fmt.Sprintf("curl -fsSL %s | sudo tee %s > /dev/null", keyURL, keyPath)
-	if err := runCmd("bash", "-c", dl); err != nil {
+	if err := downloadAndInstallAsRoot(keyURL, keyPath, 0644); err != nil {
 		return fmt.Errorf("downloading %s GPG key: %w", name, err)
 	}
 
-	// Write repo file
-	write := fmt.Sprintf("echo %q | sudo tee %s > /dev/null", repoContent, repoPath)
-	if err := runCmd("bash", "-c", write); err != nil {
+	// Write repo file (heredoc preserves newlines in DEB822 format)
+	if err := writeFileAsRoot(repoPath, []byte(repoContent), 0644); err != nil {
 		return fmt.Errorf("writing %s repo file: %w", name, err)
 	}
 
 	// Update apt
-	if err := runCmd("sudo", "apt-get", "update"); err != nil {
-		return fmt.Errorf("apt-get update after adding %s repo: %w", name, err)
+	if err := aptUpdateWithRetry(); err != nil {
+		return fmt.Errorf("apt update after adding %s repo: %w", name, err)
 	}
 
 	core.Ok("%s repo added", name)
@@ -102,12 +152,34 @@ func (ExtrasModule) Install() error {
 
 	// --- CLI utils ---
 	core.Info("Installing CLI utilities...")
-	cliPkgs := []string{
-		"xclip", "tree", "fzf", "ripgrep", "fd-find",
-		"bat", "jq", "unzip", "make", "build-essential", "tealdeer",
+	cliWanted := []struct {
+		bin  string
+		pkgs []string
+	}{
+		{"xclip", []string{"xclip"}},
+		{"tree", []string{"tree"}},
+		{"fzf", []string{"fzf"}},
+		{"rg", []string{"ripgrep"}},
+		{"fdfind", []string{"fd-find"}},
+		{"batcat", []string{"bat"}},
+		{"jq", []string{"jq"}},
+		{"unzip", []string{"unzip"}},
+		{"make", []string{"make"}},
+		{"gcc", []string{"build-essential"}},
+		{"tldr", []string{"tealdeer"}},
 	}
-	if err := installPkg(cliPkgs...); err != nil {
-		core.Warn("Some CLI utils may have failed: %v", err)
+	var cliPkgs []string
+	for _, w := range cliWanted {
+		if _, err := exec.LookPath(w.bin); err != nil {
+			cliPkgs = append(cliPkgs, w.pkgs...)
+		}
+	}
+	if len(cliPkgs) == 0 {
+		core.Ok("All CLI utilities already installed")
+	} else {
+		if err := installPkg(cliPkgs...); err != nil {
+			core.Warn("Some CLI utils may have failed: %v", err)
+		}
 	}
 
 	// Update tldr page cache (best-effort — may fail on spotty networks)
@@ -122,11 +194,20 @@ func (ExtrasModule) Install() error {
 
 	// --- Python tooling ---
 	core.Info("Installing Python tooling...")
-	pythonPkgs := []string{"python3", "python3-pip", "python3-venv", "pipx"}
-	if err := installPkg(pythonPkgs...); err != nil {
-		core.Warn("Some Python packages may have failed: %v", err)
+	var pythonPkgs []string
+	for _, pkg := range []string{"python3-pip", "python3-venv", "pipx"} {
+		if !dpkgInstalled(pkg) {
+			pythonPkgs = append(pythonPkgs, pkg)
+		}
 	}
-	core.Ok("Python tooling done")
+	if len(pythonPkgs) == 0 {
+		core.Ok("Python tooling already installed")
+	} else {
+		if err := installPkg(pythonPkgs...); err != nil {
+			core.Warn("Some Python packages may have failed: %v", err)
+		}
+		core.Ok("Python tooling done")
+	}
 
 	// --- Docker ---
 	core.Info("Installing Docker...")
@@ -156,7 +237,7 @@ func installDocker() error {
 
 func installDockerApt() error {
 	arch := runtime.GOARCH
-	codename := distroCodename()
+	codename := core.UpstreamDebianCodename()
 
 	repoContent := fmt.Sprintf(`Types: deb
 URIs: https://download.docker.com/linux/debian
@@ -175,6 +256,15 @@ Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
 		return err
 	}
 
+	// Remove distro-shipped Docker packages before installing Docker CE.
+	// Some distros (Parrot, Kali, Mint LMDE) preinstall the Debian-packaged
+	// docker.io / docker-compose. They own files like
+	// /usr/libexec/docker/cli-plugins/docker-compose that the official
+	// docker-compose-plugin package also wants to install — dpkg refuses
+	// to overwrite, the install fails, and the apt cache is left dirty.
+	// Docker's own install docs require this removal step.
+	removeConflictingDockerPackages()
+
 	pkgs := []string{
 		"docker-ce", "docker-ce-cli", "containerd.io",
 		"docker-buildx-plugin", "docker-compose-plugin",
@@ -185,6 +275,35 @@ Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
 
 	addDockerGroup()
 	return nil
+}
+
+// removeConflictingDockerPackages purges distro-shipped Docker packages
+// that overlap with Docker CE. Per Docker's official install instructions
+// for Debian/Ubuntu derivatives.
+func removeConflictingDockerPackages() {
+	candidates := []string{
+		"docker.io",
+		"docker-compose",
+		"docker-doc",
+		"docker-compose-v2",
+		"podman-docker",
+		"containerd",
+		"runc",
+	}
+	var present []string
+	for _, p := range candidates {
+		if dpkgInstalled(p) {
+			present = append(present, p)
+		}
+	}
+	if len(present) == 0 {
+		return
+	}
+	core.Notice("Removing distro packages that conflict with Docker CE: %v", present)
+	args := append([]string{"sudo", "apt-get", "remove", "-y"}, present...)
+	if err := runCmd(args[0], args[1:]...); err != nil {
+		core.Warn("conflict removal: %v (will try install anyway)", err)
+	}
 }
 
 func installDockerPacman() error {
@@ -224,7 +343,7 @@ func installHashicorpApt() error {
 
 	repoContent := fmt.Sprintf(
 		"deb [arch=%s signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com %s main",
-		arch, distroCodename(),
+		arch, core.UpstreamDebianCodename(),
 	)
 
 	if err := addAptRepo(
@@ -276,20 +395,6 @@ func installHashicorpBinary() error {
 
 	core.Ok("Terraform installed to %s", binDir)
 	return nil
-}
-
-// distroCodename reads VERSION_CODENAME from /etc/os-release.
-func distroCodename() string {
-	data, err := os.ReadFile("/etc/os-release")
-	if err != nil {
-		return "bookworm"
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.HasPrefix(line, "VERSION_CODENAME=") {
-			return strings.TrimPrefix(line, "VERSION_CODENAME=")
-		}
-	}
-	return "bookworm"
 }
 
 func (ExtrasModule) Status() core.ModuleStatus {

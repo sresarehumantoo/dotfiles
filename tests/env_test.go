@@ -58,6 +58,16 @@ func TestParseOsRelease(t *testing.T) {
 			want:    core.DistroDebian,
 		},
 		{
+			name:    "ParrotOS",
+			content: "ID=parrot\nID_LIKE=debian\nVERSION_CODENAME=lory\nDEBIAN_CODENAME=bookworm\n",
+			want:    core.DistroDebian,
+		},
+		{
+			name:    "ParrotOS Security Edition",
+			content: "ID=parrotsec\nID_LIKE=debian\n",
+			want:    core.DistroDebian,
+		},
+		{
 			name:    "empty content",
 			content: "",
 			want:    core.DistroUnknown,
@@ -74,6 +84,85 @@ func TestParseOsRelease(t *testing.T) {
 			got := core.ParseOsRelease(tt.content)
 			if got != tt.want {
 				t.Errorf("ParseOsRelease() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseUpstreamDebianCodename(t *testing.T) {
+	tests := []struct {
+		name          string
+		osRelease     string
+		debianVersion string
+		want          string
+	}{
+		{
+			name:      "real Debian uses VERSION_CODENAME",
+			osRelease: "ID=debian\nVERSION_CODENAME=bookworm\n",
+			want:      "bookworm",
+		},
+		{
+			name:      "Ubuntu uses VERSION_CODENAME",
+			osRelease: "ID=ubuntu\nVERSION_CODENAME=jammy\n",
+			want:      "jammy",
+		},
+		{
+			name:      "ParrotOS prefers DEBIAN_CODENAME over VERSION_CODENAME",
+			osRelease: "ID=parrot\nID_LIKE=debian\nVERSION_CODENAME=lory\nDEBIAN_CODENAME=bookworm\n",
+			want:      "bookworm",
+		},
+		{
+			name:          "ParrotOS without DEBIAN_CODENAME falls back to /etc/debian_version",
+			osRelease:     "ID=parrot\nID_LIKE=debian\nVERSION_CODENAME=lory\n",
+			debianVersion: "12.4\n",
+			want:          "bookworm",
+		},
+		{
+			name:          "Kali rolling — VERSION_CODENAME is unrecognized, debian_version unrecognized too, fall back to default",
+			osRelease:     "ID=kali\nID_LIKE=debian\nVERSION_CODENAME=kali-rolling\n",
+			debianVersion: "kali-rolling\n",
+			want:          "bookworm",
+		},
+		{
+			name:          "Mint Cinnamon (Ubuntu-based) with Ubuntu codename in VERSION_CODENAME",
+			osRelease:     "ID=linuxmint\nID_LIKE=\"ubuntu debian\"\nVERSION_CODENAME=jammy\n",
+			debianVersion: "",
+			want:          "jammy",
+		},
+		{
+			name:          "debian_version with major.minor splits correctly",
+			osRelease:     "ID=parrot\n",
+			debianVersion: "11.7",
+			want:          "bullseye",
+		},
+		{
+			name:          "debian_version with trixie/sid string is unrecognized",
+			osRelease:     "",
+			debianVersion: "trixie/sid",
+			want:          "bookworm",
+		},
+		{
+			name:      "DEBIAN_CODENAME with garbage is ignored, falls through",
+			osRelease: "DEBIAN_CODENAME=notarealcodename\nVERSION_CODENAME=bullseye\n",
+			want:      "bullseye",
+		},
+		{
+			name:      "empty everything returns default",
+			osRelease: "",
+			want:      "bookworm",
+		},
+		{
+			name:      "DEBIAN_CODENAME quoted",
+			osRelease: "DEBIAN_CODENAME=\"trixie\"\n",
+			want:      "trixie",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := core.ParseUpstreamDebianCodename(tt.osRelease, tt.debianVersion)
+			if got != tt.want {
+				t.Errorf("ParseUpstreamDebianCodename() = %q, want %q", got, tt.want)
 			}
 		})
 	}

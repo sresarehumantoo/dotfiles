@@ -69,6 +69,67 @@ func TestScanCustomShellFiles_IgnoresNonShell(t *testing.T) {
 	}
 }
 
+func TestScanCustomShellFiles_IgnoresIniContent(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// .dmrc is the canonical case — shipped by display managers, INI format,
+	// matches `.*rc` glob but would error if sourced as shell.
+	os.WriteFile(filepath.Join(home, ".dmrc"), []byte("[Desktop]\nSession=plasma\n"), 0644)
+	// Unknown-name INI file — must be caught by content sniff, not blocklist.
+	os.WriteFile(filepath.Join(home, ".weirdrc"), []byte("# header\n[main]\nkey=value\n"), 0644)
+	// A shell file that uses [ ... ] test syntax must NOT be misclassified.
+	os.WriteFile(filepath.Join(home, ".testrc"), []byte("[ -n \"$FOO\" ] && export BAR=1\n"), 0644)
+
+	discovered := modules.ScanCustomShellFiles()
+
+	found := make(map[string]bool)
+	for _, d := range discovered {
+		found[d.RelPath] = true
+	}
+
+	if found[".dmrc"] {
+		t.Error("scan should not include .dmrc (INI format)")
+	}
+	if found[".weirdrc"] {
+		t.Error("scan should not include INI-format files (content sniff)")
+	}
+	if !found[".testrc"] {
+		t.Error("scan should include shell file that uses [ ... ] test syntax")
+	}
+}
+
+func TestScanCustomShellFiles_IgnoresBinary(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Binary content — null bytes mean we definitely can't source it.
+	os.WriteFile(filepath.Join(home, ".binrc"), []byte{0x7f, 'E', 'L', 'F', 0x00, 0x01, 0x02}, 0644)
+
+	discovered := modules.ScanCustomShellFiles()
+
+	for _, d := range discovered {
+		if d.RelPath == ".binrc" {
+			t.Error("scan should not include binary files")
+		}
+	}
+}
+
+func TestScanCustomShellFiles_IgnoresXML(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	os.WriteFile(filepath.Join(home, ".xmlrc"), []byte("<?xml version=\"1.0\"?>\n<config/>\n"), 0644)
+
+	discovered := modules.ScanCustomShellFiles()
+
+	for _, d := range discovered {
+		if d.RelPath == ".xmlrc" {
+			t.Error("scan should not include XML files")
+		}
+	}
+}
+
 func TestScanCustomShellFiles_IgnoresSymlinks(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -163,6 +224,40 @@ func TestWriteCustomSourcesFile_RejectsInjection(t *testing.T) {
 				t.Errorf("expected error for path %q, got nil", tc.path)
 			}
 		})
+	}
+}
+
+func TestSanitizePreservedFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Create a mix: sourceable, INI (.dmrc), missing, directory.
+	os.WriteFile(filepath.Join(home, ".companyrc"), []byte("export FOO=1\n"), 0644)
+	os.WriteFile(filepath.Join(home, ".dmrc"), []byte("[Desktop]\nSession=plasma\n"), 0644)
+	os.Mkdir(filepath.Join(home, ".somedir"), 0755)
+
+	input := []string{".companyrc", ".dmrc", ".gone_missing", ".somedir"}
+	cleaned, dropped := modules.SanitizePreservedFiles(input)
+
+	if len(cleaned) != 1 || cleaned[0] != ".companyrc" {
+		t.Errorf("cleaned = %v, want [.companyrc]", cleaned)
+	}
+
+	wantDropped := map[string]bool{".dmrc": true, ".gone_missing": true, ".somedir": true}
+	if len(dropped) != 3 {
+		t.Fatalf("dropped = %v, want 3 entries", dropped)
+	}
+	for _, d := range dropped {
+		if !wantDropped[d] {
+			t.Errorf("unexpected drop %q", d)
+		}
+	}
+}
+
+func TestSanitizePreservedFiles_EmptyInput(t *testing.T) {
+	cleaned, dropped := modules.SanitizePreservedFiles(nil)
+	if cleaned != nil || dropped != nil {
+		t.Errorf("expected (nil, nil), got (%v, %v)", cleaned, dropped)
 	}
 }
 

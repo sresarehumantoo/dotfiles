@@ -3,7 +3,6 @@ package modules
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -103,8 +102,7 @@ func RootStatus() (linked, missing int) {
 func sudoMkdir(dir string) error {
 	core.PauseSpinner()
 	defer core.ResumeSpinner()
-	cmd := exec.Command("sudo", "mkdir", "-p", dir)
-	cmd.Stdin = os.Stdin
+	cmd := core.SudoCmd("mkdir", "-p", dir)
 	if core.Level >= core.LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -115,8 +113,7 @@ func sudoMkdir(dir string) error {
 func sudoLink(src, dst string) error {
 	core.PauseSpinner()
 	defer core.ResumeSpinner()
-	cmd := exec.Command("sudo", "ln", "-sfn", src, dst)
-	cmd.Stdin = os.Stdin
+	cmd := core.SudoCmd("ln", "-sfn", src, dst)
 	if core.Level >= core.LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

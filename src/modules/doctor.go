@@ -20,6 +20,7 @@ func RunDoctor() {
 		name  string
 		check func() string // "" = ok, non-empty = problem
 	}{
+		{"locale", checkLocale()},
 		{"go", checkCommand("go")},
 		{"nvim", checkCommand("nvim")},
 		{"zsh", checkCommand("zsh")},
@@ -202,6 +203,15 @@ func checkFontMatch(name string) func() string {
 			}
 		}
 		return ""
+	}
+}
+
+func checkLocale() func() string {
+	return func() string {
+		if localeGenerated("en_US.UTF-8") {
+			return ""
+		}
+		return "en_US.UTF-8 not generated (run: dfinstall install locale)"
 	}
 }
 

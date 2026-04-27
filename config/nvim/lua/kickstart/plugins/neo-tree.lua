@@ -3,7 +3,7 @@
 
 return {
   'nvim-neo-tree/neo-tree.nvim',
-  version = '*',
+  version = '3.*',
   dependencies = {
     'nvim-lua/plenary.nvim',
     'nvim-tree/nvim-web-devicons',
@@ -20,7 +20,10 @@ return {
         vim.cmd.cd(data.file)
         vim.cmd.enew()
         vim.cmd.bw(data.buf)
-        require('neo-tree.command').execute { toggle = false, dir = vim.uv.cwd() }
+        local ok, cmd = pcall(require, 'neo-tree.command')
+        if ok then
+          cmd.execute { toggle = false, dir = vim.uv.cwd() }
+        end
       end,
     })
   end,
@@ -28,7 +31,9 @@ return {
     { '\\', ':Neotree toggle<CR>', desc = 'NeoTree toggle', silent = true },
   },
   opts = {
-    open_files_do_not_replace_types = { 'terminal', 'trouble', 'qf' },
+    open_files_do_not_replace_types = { 'terminal', 'Trouble', 'qf' },
+    enable_git_status = true,
+    enable_diagnostics = true,
     window = {
       position = 'left',
       width = 30,
@@ -37,6 +42,9 @@ return {
       filtered_items = {
         hide_dotfiles = false,
         hide_gitignored = false,
+      },
+      follow_current_file = {
+        enabled = true,
       },
       window = {
         mappings = {
