@@ -286,7 +286,9 @@ func (PackagesModule) Install() error {
 		{"wget", []string{"wget"}},
 		{"htop", []string{"htop"}},
 		{"rsync", []string{"rsync"}},
-		{"nvim", []string{"neovim"}},
+		// nvim is intentionally omitted — apt's neovim is too old (Debian
+		// stable ships 0.7–0.10, telescope.nvim requires >= 0.11). The nvim
+		// module installs the official prebuilt tarball instead.
 		{"tmux", []string{"tmux"}},
 		{"node", []string{"nodejs", "npm"}},
 		{"python3", []string{"python3"}},
