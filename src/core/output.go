@@ -70,6 +70,17 @@ func Warn(msg string, args ...any) {
 	fmt.Printf("  %s %s\n", warnSymbol("⚠"), formatted)
 }
 
+// AlwaysWarn prints a warning that's always visible regardless of log level.
+// Clears the spinner line first so the message isn't overwritten by the next
+// tick. Use when the user needs to see a warning right now (e.g. during a
+// decision point where buffered output would arrive too late to act on).
+func AlwaysWarn(msg string, args ...any) {
+	if spinnerRunning.Load() {
+		fmt.Print("\r\033[K")
+	}
+	fmt.Printf("  %s %s\n", warnSymbol("⚠"), fmt.Sprintf(msg, args...))
+}
+
 // Err prints an error message. Always printed regardless of log level.
 func Err(msg string, args ...any) {
 	if spinnerRunning.Load() {
