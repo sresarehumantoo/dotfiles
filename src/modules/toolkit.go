@@ -70,6 +70,14 @@ func (ToolkitModule) Install() error {
 			core.Debug("skipping %s — not available on this distro", name)
 			continue
 		}
+		// Skip already-installed tools at gather so we don't re-send them
+		// to apt's bulk install (idempotent but noisy in logs and spinner)
+		// and don't redundantly hit pipx/cargo/go/git/curl per skipped tool.
+		// The pre-install summary already reported these as "Tools installed".
+		if isToolInstalled(info) {
+			core.Debug("skipping %s — already installed", name)
+			continue
+		}
 		switch info.Method {
 		case "apt":
 			aptPkgs = append(aptPkgs, info.Package)
