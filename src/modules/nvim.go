@@ -115,12 +115,16 @@ func ensureNvim() error {
 		if !info.parsed {
 			shown = "unknown version"
 		}
+		// Always-visible breadcrumb so the user sees that we noticed the
+		// outdated nvim, regardless of whether the prompt fires or skips.
+		core.AlwaysWarn("Neovim %s at %s is older than required %d.%d (telescope.nvim and other kickstart plugins require it)", shown, info.path, minNvimMajor, minNvimMinor)
+
 		if !confirmNvimUpgrade(shown, info.path, owner) {
-			core.Notice("Keeping existing Neovim at %s — config plugins requiring %d.%d may fail", info.path, minNvimMajor, minNvimMinor)
+			core.AlwaysWarn("Skipping Neovim upgrade — kickstart plugins requiring %d.%d may fail", minNvimMajor, minNvimMinor)
 			return nil
 		}
 		if err := removeOldNvim(info.path, owner); err != nil {
-			core.Warn("Couldn't fully remove old Neovim: %v — continuing", err)
+			core.AlwaysWarn("Couldn't fully remove old Neovim: %v — continuing", err)
 		}
 	}
 
@@ -145,8 +149,8 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 	}
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		core.Warn("Found Neovim %s at %s — older than %d.%d (telescope.nvim and other plugins require it). Stdin isn't a terminal so leaving it; re-run interactively to upgrade. Action would be: %s.",
-			version, path, minNvimMajor, minNvimMinor, srcDesc)
+		core.AlwaysWarn("Can't prompt to upgrade Neovim — stdin isn't a terminal (running via MCP, piped input, or similar). Re-run 'dfinstall install nvim' interactively. Action would be: %s.",
+			srcDesc)
 		return false
 	}
 
@@ -270,7 +274,7 @@ func (NvimModule) Install() error {
 	if core.DryRun {
 		core.Info("would ensure Neovim >= %d.%d", minNvimMajor, minNvimMinor)
 	} else if err := ensureNvim(); err != nil {
-		core.Warn("Failed to ensure Neovim >= %d.%d: %v", minNvimMajor, minNvimMinor, err)
+		core.AlwaysWarn("Failed to ensure Neovim >= %d.%d: %v", minNvimMajor, minNvimMinor, err)
 	}
 
 	nvimDir := core.XDGTarget("nvim")
