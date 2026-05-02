@@ -108,59 +108,49 @@ func (ToolkitModule) Install() error {
 	}
 
 	// Install go tools
-	if len(goTools) > 0 {
-		if _, err := exec.LookPath("go"); err != nil {
-			core.Warn("go not found — skipping %d go tools (install Go first)", len(goTools))
-		} else {
-			for _, t := range goTools {
-				if _, err := exec.LookPath(t.Binary); err == nil {
-					core.Ok("%s already installed", t.Binary)
-					continue
-				}
-				core.Info("Installing %s via go install...", t.Binary)
-				if err := runCmd("go", "install", t.Package); err != nil {
-					core.Warn("Failed to install %s: %v", t.Binary, err)
-				} else {
-					core.Ok("%s installed", t.Binary)
-				}
+	if len(goTools) > 0 && ensureToolchain("go", "golang", len(goTools), "go tools") {
+		for _, t := range goTools {
+			if _, err := exec.LookPath(t.Binary); err == nil {
+				core.Ok("%s already installed", t.Binary)
+				continue
+			}
+			core.Info("Installing %s via go install...", t.Binary)
+			if err := runCmd("go", "install", t.Package); err != nil {
+				core.Warn("Failed to install %s: %v", t.Binary, err)
+			} else {
+				core.Ok("%s installed", t.Binary)
 			}
 		}
 	}
 
 	// Install cargo tools
-	for _, t := range cargoTools {
-		if _, err := exec.LookPath(t.Binary); err == nil {
-			core.Ok("%s already installed", t.Binary)
-			continue
-		}
-		if _, err := exec.LookPath("cargo"); err != nil {
-			core.Warn("cargo not found — skipping %s (install Rust toolchain first)", t.Binary)
-			continue
-		}
-		core.Info("Installing %s via cargo install...", t.Binary)
-		if err := runCmd("cargo", "install", t.Package); err != nil {
-			core.Warn("Failed to install %s: %v", t.Binary, err)
-		} else {
-			core.Ok("%s installed", t.Binary)
+	if len(cargoTools) > 0 && ensureToolchain("cargo", "cargo", len(cargoTools), "cargo tools") {
+		for _, t := range cargoTools {
+			if _, err := exec.LookPath(t.Binary); err == nil {
+				core.Ok("%s already installed", t.Binary)
+				continue
+			}
+			core.Info("Installing %s via cargo install...", t.Binary)
+			if err := runCmd("cargo", "install", t.Package); err != nil {
+				core.Warn("Failed to install %s: %v", t.Binary, err)
+			} else {
+				core.Ok("%s installed", t.Binary)
+			}
 		}
 	}
 
 	// Install pipx tools
-	if len(pipxTools) > 0 {
-		if _, err := exec.LookPath("pipx"); err != nil {
-			core.Warn("pipx not found — skipping %d pipx tools (install pipx first)", len(pipxTools))
-		} else {
-			for _, t := range pipxTools {
-				if pipxHasPkg(t.Package) {
-					core.Ok("%s already installed via pipx", t.Package)
-					continue
-				}
-				core.Info("Installing %s via pipx...", t.Package)
-				if err := runCmd("pipx", "install", t.Package); err != nil {
-					core.Warn("Failed to install %s: %v", t.Package, err)
-				} else {
-					core.Ok("%s installed", t.Package)
-				}
+	if len(pipxTools) > 0 && ensureToolchain("pipx", "pipx", len(pipxTools), "pipx tools") {
+		for _, t := range pipxTools {
+			if pipxHasPkg(t.Package) {
+				core.Ok("%s already installed via pipx", t.Package)
+				continue
+			}
+			core.Info("Installing %s via pipx...", t.Package)
+			if err := runCmd("pipx", "install", t.Package); err != nil {
+				core.Warn("Failed to install %s: %v", t.Package, err)
+			} else {
+				core.Ok("%s installed", t.Package)
 			}
 		}
 	}
@@ -716,6 +706,29 @@ func installReleaseBinary(name, repo, pattern string) error {
 	}
 	core.Ok("%s installed to %s", name, destPath)
 	return nil
+}
+
+// ensureToolchain makes sure the given binary is on PATH; if not, it tries
+// to install the corresponding system package via the detected package
+// manager and re-checks. Returns true when the toolchain is usable, false
+// when the bootstrap failed (the per-method install loop should skip).
+// Used to auto-resolve missing cargo/pipx/go before running per-tool
+// install commands so users don't have to do a separate prereq install.
+func ensureToolchain(binName, pkgName string, n int, label string) bool {
+	if _, err := exec.LookPath(binName); err == nil {
+		return true
+	}
+	core.Info("%s not found — installing %q (required for %d %s)...", binName, pkgName, n, label)
+	if err := installPkg(pkgName); err != nil {
+		core.AlwaysWarn("Failed to install %s: %v — skipping %d %s", pkgName, err, n, label)
+		return false
+	}
+	if _, err := exec.LookPath(binName); err != nil {
+		core.AlwaysWarn("Installed %s but %s still not on PATH — skipping %d %s (open a new shell or check PATH)", pkgName, binName, n, label)
+		return false
+	}
+	core.Ok("%s installed via %s", binName, pkgName)
+	return true
 }
 
 // findExtractedBinary walks an extracted archive directory looking for a
