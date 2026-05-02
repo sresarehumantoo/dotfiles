@@ -18,13 +18,14 @@ var ValidToolName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
 
 // validMethods lists the allowed install method strings.
 var validMethods = map[string]bool{
-	"apt":       true,
-	"go":        true,
-	"pipx":      true,
-	"cargo":     true,
-	"git_clone": true,
-	"appimage":  true,
-	"deb":       true,
+	"apt":            true,
+	"go":             true,
+	"pipx":           true,
+	"cargo":          true,
+	"git_clone":      true,
+	"appimage":       true,
+	"deb":            true,
+	"release_binary": true,
 }
 
 // validDistros lists the allowed distro filter strings.
@@ -36,16 +37,18 @@ var validDistros = map[string]bool{
 
 // RegistryTool describes a single toolkit tool's metadata.
 type RegistryTool struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Category    string   `json:"category"`
-	Method      string   `json:"method"`
-	Package     string   `json:"package,omitempty"`
-	Binary      string   `json:"binary"`
-	AppRepo     string   `json:"app_repo,omitempty"`
-	GitRepo     string   `json:"git_repo,omitempty"`
-	DebRepo     string   `json:"deb_repo,omitempty"`
-	Distros     []string `json:"distros,omitempty"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Category     string   `json:"category"`
+	Method       string   `json:"method"`
+	Package      string   `json:"package,omitempty"`
+	Binary       string   `json:"binary"`
+	AppRepo      string   `json:"app_repo,omitempty"`
+	GitRepo      string   `json:"git_repo,omitempty"`
+	DebRepo      string   `json:"deb_repo,omitempty"`
+	ReleaseRepo  string   `json:"release_repo,omitempty"`
+	AssetPattern string   `json:"asset_pattern,omitempty"`
+	Distros      []string `json:"distros,omitempty"`
 }
 
 // Registry is the top-level structure of the toolkit registry JSON.
@@ -219,6 +222,10 @@ func ValidateRegistry(r *Registry) error {
 		case "deb":
 			if t.DebRepo == "" {
 				return fmt.Errorf("tool %q: deb_repo is required for deb method", t.Name)
+			}
+		case "release_binary":
+			if t.ReleaseRepo == "" {
+				return fmt.Errorf("tool %q: release_repo is required for release_binary method", t.Name)
 			}
 		}
 

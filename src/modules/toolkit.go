@@ -58,6 +58,7 @@ func (ToolkitModule) Install() error {
 	var cargoTools []core.RegistryTool
 	var gitCloneTools []core.RegistryTool
 	var debTools []core.RegistryTool
+	var releaseBinaryTools []core.RegistryTool
 
 	for _, name := range tools {
 		info, ok := lookup[name]
@@ -84,6 +85,8 @@ func (ToolkitModule) Install() error {
 			gitCloneTools = append(gitCloneTools, info)
 		case "deb":
 			debTools = append(debTools, info)
+		case "release_binary":
+			releaseBinaryTools = append(releaseBinaryTools, info)
 		}
 	}
 
@@ -193,6 +196,19 @@ func (ToolkitModule) Install() error {
 		}
 	}
 
+	// Install single binaries from GitHub releases
+	if len(releaseBinaryTools) > 0 {
+		if _, err := exec.LookPath("curl"); err != nil {
+			core.Warn("curl not found — skipping %d release-binary tools", len(releaseBinaryTools))
+		} else {
+			for _, t := range releaseBinaryTools {
+				if err := installReleaseBinary(t.Binary, t.ReleaseRepo, t.AssetPattern); err != nil {
+					core.Warn("Failed to install %s: %v", t.Binary, err)
+				}
+			}
+		}
+	}
+
 	// Clean registry cache — tool names should not persist on disk
 	core.CleanRegistryCache()
 
@@ -241,6 +257,13 @@ func (ToolkitModule) Status() core.ModuleStatus {
 		case "git_clone":
 			clonePath := filepath.Join(home, ".local", "share", "toolkit", info.Binary)
 			if fi, err := os.Stat(clonePath); err == nil && fi.IsDir() {
+				s.Linked++
+			} else {
+				s.Missing++
+			}
+		case "release_binary":
+			binPath := filepath.Join(home, ".local", "bin", info.Binary)
+			if _, err := os.Stat(binPath); err == nil {
 				s.Linked++
 			} else {
 				s.Missing++
@@ -319,6 +342,19 @@ func (ToolkitModule) Uninstall() error {
 					core.Warn("Failed to remove %s: %v", info.Name, err)
 				} else {
 					core.Ok("Removed %s", info.Name)
+				}
+			}
+		case "release_binary":
+			binPath := filepath.Join(home, ".local", "bin", info.Binary)
+			if _, err := os.Stat(binPath); err == nil {
+				if core.DryRun {
+					core.Info("would remove %s", binPath)
+					continue
+				}
+				if err := os.Remove(binPath); err != nil {
+					core.Warn("Failed to remove %s: %v", binPath, err)
+				} else {
+					core.Ok("Removed %s", binPath)
 				}
 			}
 		}
@@ -547,4 +583,152 @@ func installAppImage(name, repo string) error {
 
 	core.Ok("%s AppImage installed to %s", name, destPath)
 	return nil
+}
+
+// installReleaseBinary downloads a binary (raw or inside a tarball) from a
+// GitHub release and places it at ~/.local/bin/<name>. Asset selection: the
+// optional `pattern` is a substring filter applied first (e.g. "linux-musl"),
+// then the asset must contain a token matching the current arch. If the asset
+// is a .tar.gz/.tgz, it's extracted and the file named <name> inside is
+// promoted to the destination.
+func installReleaseBinary(name, repo, pattern string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home dir: %w", err)
+	}
+	destDir := filepath.Join(home, ".local", "bin")
+	destPath := filepath.Join(destDir, name)
+
+	if _, err := os.Stat(destPath); err == nil {
+		core.Ok("%s already installed", name)
+		return nil
+	}
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		return fmt.Errorf("create %s: %w", destDir, err)
+	}
+
+	core.Info("Downloading %s from GitHub release...", name)
+
+	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	out, err := exec.Command("curl", "-fsSL", apiURL).Output()
+	if err != nil {
+		return fmt.Errorf("fetch releases for %s: %w", repo, err)
+	}
+	var release struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(out, &release); err != nil {
+		return fmt.Errorf("parse releases JSON for %s: %w", repo, err)
+	}
+
+	arch := runtime.GOARCH
+	archPatterns := map[string][]string{
+		"amd64": {"x86_64", "amd64", "x64"},
+		"arm64": {"aarch64", "arm64"},
+	}
+	patterns, ok := archPatterns[arch]
+	if !ok {
+		patterns = []string{arch}
+	}
+
+	patternLower := strings.ToLower(pattern)
+	var (
+		downloadURL string
+		assetName   string
+	)
+	for _, asset := range release.Assets {
+		lower := strings.ToLower(asset.Name)
+		// Skip checksum / signature / source-archive noise
+		if strings.HasSuffix(lower, ".sha256") || strings.HasSuffix(lower, ".sig") ||
+			strings.HasSuffix(lower, ".asc") || strings.HasSuffix(lower, ".sbom") ||
+			strings.HasSuffix(lower, ".pem") {
+			continue
+		}
+		if patternLower != "" && !strings.Contains(lower, patternLower) {
+			continue
+		}
+		archMatched := false
+		for _, p := range patterns {
+			if strings.Contains(lower, p) {
+				archMatched = true
+				break
+			}
+		}
+		if !archMatched {
+			continue
+		}
+		// Prefer Linux assets (skip darwin/windows when both ship)
+		if strings.Contains(lower, "darwin") || strings.Contains(lower, "windows") ||
+			strings.Contains(lower, ".exe") {
+			continue
+		}
+		downloadURL = asset.BrowserDownloadURL
+		assetName = asset.Name
+		break
+	}
+
+	if downloadURL == "" {
+		return fmt.Errorf("no release asset matched for %s (arch=%s, pattern=%q)", name, arch, pattern)
+	}
+
+	tmpDir, err := os.MkdirTemp("", "release-"+name+"-")
+	if err != nil {
+		return fmt.Errorf("mktemp: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+	tmpPath := filepath.Join(tmpDir, assetName)
+	if err := runCmd("curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
+		return fmt.Errorf("download %s: %w", name, err)
+	}
+
+	lower := strings.ToLower(assetName)
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+		if err := runCmd("tar", "-xzf", tmpPath, "-C", tmpDir); err != nil {
+			return fmt.Errorf("extract %s: %w", assetName, err)
+		}
+		found, ferr := findExtractedBinary(tmpDir, name)
+		if ferr != nil {
+			return ferr
+		}
+		if err := os.Rename(found, destPath); err != nil {
+			return fmt.Errorf("move %s: %w", name, err)
+		}
+	default:
+		// Raw binary
+		if err := os.Rename(tmpPath, destPath); err != nil {
+			return fmt.Errorf("move %s: %w", name, err)
+		}
+	}
+	if err := os.Chmod(destPath, 0755); err != nil {
+		return fmt.Errorf("chmod %s: %w", destPath, err)
+	}
+	core.Ok("%s installed to %s", name, destPath)
+	return nil
+}
+
+// findExtractedBinary walks an extracted archive directory looking for a
+// regular file named exactly `name` (typical for one-binary releases).
+func findExtractedBinary(root, name string) (string, error) {
+	var found string
+	err := filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if filepath.Base(p) == name {
+			found = p
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("walk %s: %w", root, err)
+	}
+	if found == "" {
+		return "", fmt.Errorf("binary %q not found in archive", name)
+	}
+	return found, nil
 }

@@ -13,6 +13,60 @@ vim.o.relativenumber = true
 
 vim.o.showmode = false
 
+-- Pin clipboard provider to unix tools; nvim's auto-detect picks
+-- clip.exe / win32yank.exe on WSL which forks a Windows process per yank
+-- (~1–2s of latency). WSLg ships X11 + Wayland so xclip / wl-copy work.
+if vim.env.WAYLAND_DISPLAY and vim.fn.executable('wl-copy') == 1 then
+  vim.g.clipboard = {
+    name = 'wl-clipboard',
+    copy = {
+      ['+'] = { 'wl-copy', '--type', 'text/plain' },
+      ['*'] = { 'wl-copy', '--primary', '--type', 'text/plain' },
+    },
+    paste = {
+      ['+'] = { 'wl-paste', '--no-newline' },
+      ['*'] = { 'wl-paste', '--no-newline', '--primary' },
+    },
+    cache_enabled = 0,
+  }
+elseif vim.env.DISPLAY and vim.fn.executable('xclip') == 1 then
+  vim.g.clipboard = {
+    name = 'xclip',
+    copy = {
+      ['+'] = { 'xclip', '-selection', 'clipboard' },
+      ['*'] = { 'xclip', '-selection', 'primary' },
+    },
+    paste = {
+      ['+'] = { 'xclip', '-selection', 'clipboard', '-o' },
+      ['*'] = { 'xclip', '-selection', 'primary', '-o' },
+    },
+    cache_enabled = 0,
+  }
+elseif vim.env.DISPLAY and vim.fn.executable('xsel') == 1 then
+  vim.g.clipboard = {
+    name = 'xsel',
+    copy = {
+      ['+'] = { 'xsel', '--clipboard', '--input' },
+      ['*'] = { 'xsel', '--primary', '--input' },
+    },
+    paste = {
+      ['+'] = { 'xsel', '--clipboard', '--output' },
+      ['*'] = { 'xsel', '--primary', '--output' },
+    },
+    cache_enabled = 0,
+  }
+else
+  -- OSC 52 fallback for SSH / headless: routes yank through terminal
+  -- escape sequences. Tmux relays via 'set-clipboard on'. Paste is
+  -- best-effort — most terminals refuse OSC 52 read for security.
+  local osc52 = require('vim.ui.clipboard.osc52')
+  vim.g.clipboard = {
+    name = 'OSC 52',
+    copy = { ['+'] = osc52.copy('+'), ['*'] = osc52.copy('*') },
+    paste = { ['+'] = osc52.paste('+'), ['*'] = osc52.paste('*') },
+  }
+end
+
 vim.schedule(function()
   vim.o.clipboard = 'unnamedplus'
 end)

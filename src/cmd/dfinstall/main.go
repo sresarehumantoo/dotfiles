@@ -315,7 +315,26 @@ func main() {
 		},
 	}
 
-	rootCmd.AddCommand(installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd, uninstallCmd, diffCmd)
+	registryCmd := &cobra.Command{
+		Use:   "registry",
+		Short: "Toolkit registry utilities",
+	}
+	registryValidateCmd := &cobra.Command{
+		Use:   "validate <path-or-url>",
+		Short: "Validate a toolkit registry file (for CI)",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			reg, err := core.FetchRegistry(args[0])
+			if err != nil {
+				return err
+			}
+			fmt.Printf("✓ registry valid (%d tools)\n", len(reg.Tools))
+			return nil
+		},
+	}
+	registryCmd.AddCommand(registryValidateCmd)
+
+	rootCmd.AddCommand(installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd, uninstallCmd, diffCmd, registryCmd)
 
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
