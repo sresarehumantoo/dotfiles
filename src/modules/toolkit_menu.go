@@ -24,6 +24,9 @@ func isToolInstalled(t core.RegistryTool) bool {
 	case "git_clone":
 		fi, err := os.Stat(filepath.Join(home, ".local", "share", "toolkit", t.Binary))
 		return err == nil && fi.IsDir()
+	case "release_binary":
+		_, err := os.Stat(filepath.Join(home, ".local", "bin", t.Binary))
+		return err == nil
 	default:
 		_, err := exec.LookPath(t.Binary)
 		return err == nil
