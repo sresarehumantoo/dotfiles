@@ -2,11 +2,13 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/fatih/color"
+	"golang.org/x/term"
 )
 
 var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -66,10 +68,24 @@ func (s *Spinner) Start() {
 	}()
 }
 
-// Update changes the spinner text.
+// Update changes the spinner text. Truncates to fit terminal width so long
+// detail strings (e.g. apt package lists) don't wrap onto multiple rows —
+// the per-tick redraw only clears one row with \r\033[K, so wrap remnants
+// from the previous tick would otherwise pile up visibly.
 func (s *Spinner) Update(msg string, args ...any) {
+	text := fmt.Sprintf(msg, args...)
+	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
+		// Prefix is "  X " (4 cols) + a 1-col safety margin for the cursor.
+		avail := w - 5
+		if avail < 20 {
+			avail = 20
+		}
+		if len(text) > avail {
+			text = text[:avail-1] + "…"
+		}
+	}
 	s.mu.Lock()
-	s.text = fmt.Sprintf(msg, args...)
+	s.text = text
 	s.mu.Unlock()
 }
 
