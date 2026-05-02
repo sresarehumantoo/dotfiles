@@ -123,19 +123,31 @@ func (ToolkitModule) Install() error {
 		}
 	}
 
-	// Install cargo tools
+	// Install cargo tools (with --locked: the crate's pinned Cargo.lock is
+	// more likely to compile against an older rustc than fresh dep
+	// resolution which always pulls latest semver-compatible — that's how
+	// apt's stable cargo ends up trying to compile crates that bumped MSRV
+	// last week).
 	if len(cargoTools) > 0 && ensureToolchain("cargo", "cargo", len(cargoTools), "cargo tools") {
+		cargoFailed := 0
 		for _, t := range cargoTools {
 			if _, err := exec.LookPath(t.Binary); err == nil {
 				core.Ok("%s already installed", t.Binary)
 				continue
 			}
-			core.Info("Installing %s via cargo install...", t.Binary)
-			if err := runCmd("cargo", "install", t.Package); err != nil {
+			core.Info("Installing %s via cargo install --locked...", t.Binary)
+			if err := runCmd("cargo", "install", "--locked", t.Package); err != nil {
 				core.Warn("Failed to install %s: %v", t.Binary, err)
+				cargoFailed++
 			} else {
 				core.Ok("%s installed", t.Binary)
 			}
+		}
+		if cargoFailed > 0 && isAptCargo() {
+			core.AlwaysWarn("%d cargo install(s) failed — apt's cargo (%s) is likely too old for current crates.", cargoFailed, cargoVersion())
+			core.PrintHint("Install rustup for the latest stable Rust toolchain:")
+			core.PrintHint("  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+			core.PrintHint("Then re-open your shell and: dfinstall install toolkit")
 		}
 	}
 
@@ -706,6 +718,36 @@ func installReleaseBinary(name, repo, pattern string) error {
 	}
 	core.Ok("%s installed to %s", name, destPath)
 	return nil
+}
+
+// isAptCargo returns true when the cargo binary on PATH is the system
+// (apt-installed) one, typically /usr/bin/cargo. Used to decide whether
+// to suggest rustup after cargo install failures.
+func isAptCargo() bool {
+	p, err := exec.LookPath("cargo")
+	if err != nil {
+		return false
+	}
+	real, rerr := filepath.EvalSymlinks(p)
+	if rerr != nil {
+		real = p
+	}
+	return strings.HasPrefix(real, "/usr/bin/") || strings.HasPrefix(real, "/usr/local/bin/cargo")
+}
+
+// cargoVersion returns the parsed cargo version string (e.g. "1.85.0") or
+// "unknown" if it can't be determined.
+func cargoVersion() string {
+	out, err := exec.Command("cargo", "--version").Output()
+	if err != nil {
+		return "unknown"
+	}
+	// "cargo 1.85.0 (xxx 2024-12-01)"
+	fields := strings.Fields(string(out))
+	if len(fields) >= 2 {
+		return fields[1]
+	}
+	return "unknown"
 }
 
 // ensureToolchain makes sure the given binary is on PATH; if not, it tries
