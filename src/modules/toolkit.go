@@ -2,14 +2,18 @@ package modules
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/sresarehumantoo/dotfiles/src/core"
+	"golang.org/x/term"
 )
 
 type ToolkitModule struct{}
@@ -129,7 +133,7 @@ func (ToolkitModule) Install() error {
 	// apt's stable cargo ends up trying to compile crates that bumped MSRV
 	// last week).
 	if len(cargoTools) > 0 && ensureToolchain("cargo", "cargo", len(cargoTools), "cargo tools") {
-		cargoFailed := 0
+		var cargoFailed []core.RegistryTool
 		for _, t := range cargoTools {
 			if _, err := exec.LookPath(t.Binary); err == nil {
 				core.Ok("%s already installed", t.Binary)
@@ -138,16 +142,31 @@ func (ToolkitModule) Install() error {
 			core.Info("Installing %s via cargo install --locked...", t.Binary)
 			if err := runCmd("cargo", "install", "--locked", t.Package); err != nil {
 				core.Warn("Failed to install %s: %v", t.Binary, err)
-				cargoFailed++
+				cargoFailed = append(cargoFailed, t)
 			} else {
 				core.Ok("%s installed", t.Binary)
 			}
 		}
-		if cargoFailed > 0 && isAptCargo() {
-			core.AlwaysWarn("%d cargo install(s) failed — apt's cargo (%s) is likely too old for current crates.", cargoFailed, cargoVersion())
-			core.PrintHint("Install rustup for the latest stable Rust toolchain:")
-			core.PrintHint("  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
-			core.PrintHint("Then re-open your shell and: dfinstall install toolkit")
+		// Recovery path: if the system cargo (apt) couldn't compile some
+		// tools, offer to install rustup and retry. Auto-install only on
+		// confirmation — rustup downloads ~200MB and modifies shell rc.
+		if len(cargoFailed) > 0 && isAptCargo() {
+			if confirmRustupInstall(len(cargoFailed), cargoVersion()) {
+				if installRustup() {
+					core.Info("Retrying %d cargo tool(s) with rustup cargo (%s)...", len(cargoFailed), cargoVersion())
+					for _, t := range cargoFailed {
+						if err := runCmd("cargo", "install", "--locked", t.Package); err != nil {
+							core.AlwaysWarn("Still failed to install %s after rustup: %v", t.Binary, err)
+						} else {
+							core.Ok("%s installed", t.Binary)
+						}
+					}
+				}
+			} else {
+				core.PrintHint("To install rustup later and retry:")
+				core.PrintHint("  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+				core.PrintHint("  exec zsh && dfinstall install toolkit")
+			}
 		}
 	}
 
@@ -748,6 +767,79 @@ func cargoVersion() string {
 		return fields[1]
 	}
 	return "unknown"
+}
+
+// confirmRustupInstall asks the user whether to install rustup as a
+// recovery from cargo install failures caused by an outdated apt cargo.
+// Returns false (skip) when stdin isn't a terminal so unattended runs
+// don't kick off a 200MB download without consent.
+func confirmRustupInstall(failedCount int, oldVersion string) bool {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		core.AlwaysWarn("%d cargo install(s) failed — apt's cargo (%s) is likely too old. Stdin isn't a terminal so can't prompt for rustup; re-run interactively to opt in.", failedCount, oldVersion)
+		return false
+	}
+
+	title := fmt.Sprintf("%d cargo install(s) failed — install rustup?", failedCount)
+	desc := fmt.Sprintf("apt's cargo (%s) is too old for some crates' MSRV. Rustup provides the latest stable Rust toolchain (~200MB download), adds ~/.cargo/bin to your shell PATH, and the failed tools will be retried with the new cargo.", oldVersion)
+
+	var confirm bool
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title(title).
+				Description(desc).
+				Affirmative("Yes, install rustup and retry").
+				Negative("No, skip these tools").
+				Value(&confirm),
+		),
+	)
+	core.PauseSpinner()
+	defer core.ResumeSpinner()
+	if err := form.Run(); err != nil {
+		if errors.Is(err, huh.ErrUserAborted) {
+			return false
+		}
+		core.Warn("Confirm prompt failed: %v — skipping rustup", err)
+		return false
+	}
+	return confirm
+}
+
+// installRustup runs the official rustup installer non-interactively and
+// prepends ~/.cargo/bin to this process's PATH so subsequent cargo
+// invocations resolve to the new toolchain. Rustup itself updates the
+// user's shell profile for future shells.
+func installRustup() bool {
+	if _, err := exec.LookPath("curl"); err != nil {
+		core.AlwaysWarn("curl not found — cannot install rustup")
+		return false
+	}
+	core.Info("Installing rustup (downloads ~200MB)...")
+	cmd := exec.Command("sh", "-c",
+		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+	if core.Level >= core.LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+	}
+	core.PauseSpinner()
+	err := cmd.Run()
+	core.ResumeSpinner()
+	if err != nil {
+		core.AlwaysWarn("rustup install failed: %v — re-run with -v for full output", err)
+		return false
+	}
+
+	// Make rustup's cargo available in this process for the retry loop.
+	home, _ := os.UserHomeDir()
+	cargoBin := filepath.Join(home, ".cargo", "bin")
+	if curr := os.Getenv("PATH"); !strings.Contains(curr, cargoBin) {
+		os.Setenv("PATH", cargoBin+string(os.PathListSeparator)+curr)
+	}
+	core.Ok("rustup installed (cargo: %s)", cargoVersion())
+	return true
 }
 
 // ensureToolchain makes sure the given binary is on PATH; if not, it tries
