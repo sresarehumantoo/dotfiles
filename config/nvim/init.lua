@@ -55,6 +55,16 @@ elseif vim.env.DISPLAY and vim.fn.executable('xsel') == 1 then
     },
     cache_enabled = 0,
   }
+else
+  -- OSC 52 fallback for SSH / headless: routes yank through terminal
+  -- escape sequences. Tmux relays via 'set-clipboard on'. Paste is
+  -- best-effort — most terminals refuse OSC 52 read for security.
+  local osc52 = require('vim.ui.clipboard.osc52')
+  vim.g.clipboard = {
+    name = 'OSC 52',
+    copy = { ['+'] = osc52.copy('+'), ['*'] = osc52.copy('*') },
+    paste = { ['+'] = osc52.paste('+'), ['*'] = osc52.paste('*') },
+  }
 end
 
 vim.schedule(function()
