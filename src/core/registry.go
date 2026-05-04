@@ -26,6 +26,7 @@ var validMethods = map[string]bool{
 	"appimage":       true,
 	"deb":            true,
 	"release_binary": true,
+	"rustup":         true,
 }
 
 // validDistros lists the allowed distro filter strings.

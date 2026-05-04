@@ -27,6 +27,9 @@ func isToolInstalled(t core.RegistryTool) bool {
 	case "release_binary":
 		_, err := os.Stat(filepath.Join(home, ".local", "bin", t.Binary))
 		return err == nil
+	case "rustup":
+		_, err := os.Stat(filepath.Join(home, ".cargo", "bin", "rustup"))
+		return err == nil
 	default:
 		_, err := exec.LookPath(t.Binary)
 		return err == nil

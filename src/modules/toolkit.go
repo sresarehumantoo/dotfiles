@@ -63,6 +63,7 @@ func (ToolkitModule) Install() error {
 	var gitCloneTools []core.RegistryTool
 	var debTools []core.RegistryTool
 	var releaseBinaryTools []core.RegistryTool
+	rustupRequested := false
 
 	for _, name := range tools {
 		info, ok := lookup[name]
@@ -99,6 +100,8 @@ func (ToolkitModule) Install() error {
 			debTools = append(debTools, info)
 		case "release_binary":
 			releaseBinaryTools = append(releaseBinaryTools, info)
+		case "rustup":
+			rustupRequested = true
 		}
 	}
 
@@ -109,6 +112,15 @@ func (ToolkitModule) Install() error {
 			core.Warn("Some apt packages may have failed: %v", err)
 		}
 		core.Ok("apt packages done")
+	}
+
+	// Install rustup before cargo tools so any selected cargo crates
+	// compile against the rustup-provided toolchain rather than apt's
+	// older cargo.
+	if rustupRequested {
+		if !installRustup() {
+			core.Warn("rustup install failed — cargo tools may fail with apt cargo's MSRV")
+		}
 	}
 
 	// Install go tools
@@ -297,6 +309,12 @@ func (ToolkitModule) Status() core.ModuleStatus {
 			} else {
 				s.Missing++
 			}
+		case "rustup":
+			if _, err := os.Stat(filepath.Join(home, ".cargo", "bin", "rustup")); err == nil {
+				s.Linked++
+			} else {
+				s.Missing++
+			}
 		default:
 			if _, err := exec.LookPath(info.Binary); err == nil {
 				s.Linked++
@@ -384,6 +402,20 @@ func (ToolkitModule) Uninstall() error {
 					core.Warn("Failed to remove %s: %v", binPath, err)
 				} else {
 					core.Ok("Removed %s", binPath)
+				}
+			}
+		case "rustup":
+			rustupBin := filepath.Join(home, ".cargo", "bin", "rustup")
+			if _, err := os.Stat(rustupBin); err == nil {
+				if core.DryRun {
+					core.Info("would run: rustup self uninstall -y")
+					continue
+				}
+				core.Info("Removing rustup toolchain via 'rustup self uninstall'...")
+				if err := runCmd(rustupBin, "self", "uninstall", "-y"); err != nil {
+					core.Warn("Failed to uninstall rustup: %v", err)
+				} else {
+					core.Ok("rustup uninstalled")
 				}
 			}
 		}
@@ -808,8 +840,25 @@ func confirmRustupInstall(failedCount int, oldVersion string) bool {
 // installRustup runs the official rustup installer non-interactively and
 // prepends ~/.cargo/bin to this process's PATH so subsequent cargo
 // invocations resolve to the new toolchain. Rustup itself updates the
-// user's shell profile for future shells.
+// user's shell profile for future shells. Idempotent — skips the
+// network install when ~/.cargo/bin/rustup already exists.
 func installRustup() bool {
+	home, _ := os.UserHomeDir()
+	cargoBin := filepath.Join(home, ".cargo", "bin")
+	rustupBin := filepath.Join(cargoBin, "rustup")
+
+	addToPath := func() {
+		if curr := os.Getenv("PATH"); !strings.Contains(curr, cargoBin) {
+			os.Setenv("PATH", cargoBin+string(os.PathListSeparator)+curr)
+		}
+	}
+
+	if _, err := os.Stat(rustupBin); err == nil {
+		addToPath()
+		core.Ok("rustup already installed")
+		return true
+	}
+
 	if _, err := exec.LookPath("curl"); err != nil {
 		core.AlwaysWarn("curl not found — cannot install rustup")
 		return false
@@ -832,12 +881,7 @@ func installRustup() bool {
 		return false
 	}
 
-	// Make rustup's cargo available in this process for the retry loop.
-	home, _ := os.UserHomeDir()
-	cargoBin := filepath.Join(home, ".cargo", "bin")
-	if curr := os.Getenv("PATH"); !strings.Contains(curr, cargoBin) {
-		os.Setenv("PATH", cargoBin+string(os.PathListSeparator)+curr)
-	}
+	addToPath()
 	core.Ok("rustup installed (cargo: %s)", cargoVersion())
 	return true
 }
