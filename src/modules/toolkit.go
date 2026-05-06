@@ -2,14 +2,18 @@ package modules
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/charmbracelet/huh"
 	"github.com/sresarehumantoo/dotfiles/src/core"
+	"golang.org/x/term"
 )
 
 type ToolkitModule struct{}
@@ -59,6 +63,7 @@ func (ToolkitModule) Install() error {
 	var gitCloneTools []core.RegistryTool
 	var debTools []core.RegistryTool
 	var releaseBinaryTools []core.RegistryTool
+	rustupRequested := false
 
 	for _, name := range tools {
 		info, ok := lookup[name]
@@ -68,6 +73,14 @@ func (ToolkitModule) Install() error {
 		}
 		if !core.ToolMatchesDistro(info) {
 			core.Debug("skipping %s — not available on this distro", name)
+			continue
+		}
+		// Skip already-installed tools at gather so we don't re-send them
+		// to apt's bulk install (idempotent but noisy in logs and spinner)
+		// and don't redundantly hit pipx/cargo/go/git/curl per skipped tool.
+		// The pre-install summary already reported these as "Tools installed".
+		if isToolInstalled(info) {
+			core.Debug("skipping %s — already installed", name)
 			continue
 		}
 		switch info.Method {
@@ -87,6 +100,8 @@ func (ToolkitModule) Install() error {
 			debTools = append(debTools, info)
 		case "release_binary":
 			releaseBinaryTools = append(releaseBinaryTools, info)
+		case "rustup":
+			rustupRequested = true
 		}
 	}
 
@@ -99,60 +114,86 @@ func (ToolkitModule) Install() error {
 		core.Ok("apt packages done")
 	}
 
+	// Install rustup before cargo tools so any selected cargo crates
+	// compile against the rustup-provided toolchain rather than apt's
+	// older cargo.
+	if rustupRequested {
+		if !installRustup() {
+			core.Warn("rustup install failed — cargo tools may fail with apt cargo's MSRV")
+		}
+	}
+
 	// Install go tools
-	if len(goTools) > 0 {
-		if _, err := exec.LookPath("go"); err != nil {
-			core.Warn("go not found — skipping %d go tools (install Go first)", len(goTools))
-		} else {
-			for _, t := range goTools {
-				if _, err := exec.LookPath(t.Binary); err == nil {
-					core.Ok("%s already installed", t.Binary)
-					continue
-				}
-				core.Info("Installing %s via go install...", t.Binary)
-				if err := runCmd("go", "install", t.Package); err != nil {
-					core.Warn("Failed to install %s: %v", t.Binary, err)
-				} else {
-					core.Ok("%s installed", t.Binary)
-				}
+	if len(goTools) > 0 && ensureToolchain("go", "golang", len(goTools), "go tools") {
+		for _, t := range goTools {
+			if _, err := exec.LookPath(t.Binary); err == nil {
+				core.Ok("%s already installed", t.Binary)
+				continue
+			}
+			core.Info("Installing %s via go install...", t.Binary)
+			if err := runCmd("go", "install", t.Package); err != nil {
+				core.Warn("Failed to install %s: %v", t.Binary, err)
+			} else {
+				core.Ok("%s installed", t.Binary)
 			}
 		}
 	}
 
-	// Install cargo tools
-	for _, t := range cargoTools {
-		if _, err := exec.LookPath(t.Binary); err == nil {
-			core.Ok("%s already installed", t.Binary)
-			continue
+	// Install cargo tools (with --locked: the crate's pinned Cargo.lock is
+	// more likely to compile against an older rustc than fresh dep
+	// resolution which always pulls latest semver-compatible — that's how
+	// apt's stable cargo ends up trying to compile crates that bumped MSRV
+	// last week).
+	if len(cargoTools) > 0 && ensureToolchain("cargo", "cargo", len(cargoTools), "cargo tools") {
+		var cargoFailed []core.RegistryTool
+		for _, t := range cargoTools {
+			if _, err := exec.LookPath(t.Binary); err == nil {
+				core.Ok("%s already installed", t.Binary)
+				continue
+			}
+			core.Info("Installing %s via cargo install --locked...", t.Binary)
+			if err := runCmd("cargo", "install", "--locked", t.Package); err != nil {
+				core.Warn("Failed to install %s: %v", t.Binary, err)
+				cargoFailed = append(cargoFailed, t)
+			} else {
+				core.Ok("%s installed", t.Binary)
+			}
 		}
-		if _, err := exec.LookPath("cargo"); err != nil {
-			core.Warn("cargo not found — skipping %s (install Rust toolchain first)", t.Binary)
-			continue
-		}
-		core.Info("Installing %s via cargo install...", t.Binary)
-		if err := runCmd("cargo", "install", t.Package); err != nil {
-			core.Warn("Failed to install %s: %v", t.Binary, err)
-		} else {
-			core.Ok("%s installed", t.Binary)
+		// Recovery path: if the system cargo (apt) couldn't compile some
+		// tools, offer to install rustup and retry. Auto-install only on
+		// confirmation — rustup downloads ~200MB and modifies shell rc.
+		if len(cargoFailed) > 0 && isAptCargo() {
+			if confirmRustupInstall(len(cargoFailed), cargoVersion()) {
+				if installRustup() {
+					core.Info("Retrying %d cargo tool(s) with rustup cargo (%s)...", len(cargoFailed), cargoVersion())
+					for _, t := range cargoFailed {
+						if err := runCmd("cargo", "install", "--locked", t.Package); err != nil {
+							core.AlwaysWarn("Still failed to install %s after rustup: %v", t.Binary, err)
+						} else {
+							core.Ok("%s installed", t.Binary)
+						}
+					}
+				}
+			} else {
+				core.PrintHint("To install rustup later and retry:")
+				core.PrintHint("  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+				core.PrintHint("  exec zsh && dfinstall install toolkit")
+			}
 		}
 	}
 
 	// Install pipx tools
-	if len(pipxTools) > 0 {
-		if _, err := exec.LookPath("pipx"); err != nil {
-			core.Warn("pipx not found — skipping %d pipx tools (install pipx first)", len(pipxTools))
-		} else {
-			for _, t := range pipxTools {
-				if pipxHasPkg(t.Package) {
-					core.Ok("%s already installed via pipx", t.Package)
-					continue
-				}
-				core.Info("Installing %s via pipx...", t.Package)
-				if err := runCmd("pipx", "install", t.Package); err != nil {
-					core.Warn("Failed to install %s: %v", t.Package, err)
-				} else {
-					core.Ok("%s installed", t.Package)
-				}
+	if len(pipxTools) > 0 && ensureToolchain("pipx", "pipx", len(pipxTools), "pipx tools") {
+		for _, t := range pipxTools {
+			if pipxHasPkg(t.Package) {
+				core.Ok("%s already installed via pipx", t.Package)
+				continue
+			}
+			core.Info("Installing %s via pipx...", t.Package)
+			if err := runCmd("pipx", "install", t.Package); err != nil {
+				core.Warn("Failed to install %s: %v", t.Package, err)
+			} else {
+				core.Ok("%s installed", t.Package)
 			}
 		}
 	}
@@ -268,6 +309,12 @@ func (ToolkitModule) Status() core.ModuleStatus {
 			} else {
 				s.Missing++
 			}
+		case "rustup":
+			if _, err := os.Stat(filepath.Join(home, ".cargo", "bin", "rustup")); err == nil {
+				s.Linked++
+			} else {
+				s.Missing++
+			}
 		default:
 			if _, err := exec.LookPath(info.Binary); err == nil {
 				s.Linked++
@@ -355,6 +402,20 @@ func (ToolkitModule) Uninstall() error {
 					core.Warn("Failed to remove %s: %v", binPath, err)
 				} else {
 					core.Ok("Removed %s", binPath)
+				}
+			}
+		case "rustup":
+			rustupBin := filepath.Join(home, ".cargo", "bin", "rustup")
+			if _, err := os.Stat(rustupBin); err == nil {
+				if core.DryRun {
+					core.Info("would run: rustup self uninstall -y")
+					continue
+				}
+				core.Info("Removing rustup toolchain via 'rustup self uninstall'...")
+				if err := runCmd(rustupBin, "self", "uninstall", "-y"); err != nil {
+					core.Warn("Failed to uninstall rustup: %v", err)
+				} else {
+					core.Ok("rustup uninstalled")
 				}
 			}
 		}
@@ -708,6 +769,144 @@ func installReleaseBinary(name, repo, pattern string) error {
 	}
 	core.Ok("%s installed to %s", name, destPath)
 	return nil
+}
+
+// isAptCargo returns true when the cargo binary on PATH is the system
+// (apt-installed) one, typically /usr/bin/cargo. Used to decide whether
+// to suggest rustup after cargo install failures.
+func isAptCargo() bool {
+	p, err := exec.LookPath("cargo")
+	if err != nil {
+		return false
+	}
+	real, rerr := filepath.EvalSymlinks(p)
+	if rerr != nil {
+		real = p
+	}
+	return strings.HasPrefix(real, "/usr/bin/") || strings.HasPrefix(real, "/usr/local/bin/cargo")
+}
+
+// cargoVersion returns the parsed cargo version string (e.g. "1.85.0") or
+// "unknown" if it can't be determined.
+func cargoVersion() string {
+	out, err := exec.Command("cargo", "--version").Output()
+	if err != nil {
+		return "unknown"
+	}
+	// "cargo 1.85.0 (xxx 2024-12-01)"
+	fields := strings.Fields(string(out))
+	if len(fields) >= 2 {
+		return fields[1]
+	}
+	return "unknown"
+}
+
+// confirmRustupInstall asks the user whether to install rustup as a
+// recovery from cargo install failures caused by an outdated apt cargo.
+// Returns false (skip) when stdin isn't a terminal so unattended runs
+// don't kick off a 200MB download without consent.
+func confirmRustupInstall(failedCount int, oldVersion string) bool {
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		core.AlwaysWarn("%d cargo install(s) failed — apt's cargo (%s) is likely too old. Stdin isn't a terminal so can't prompt for rustup; re-run interactively to opt in.", failedCount, oldVersion)
+		return false
+	}
+
+	title := fmt.Sprintf("%d cargo install(s) failed — install rustup?", failedCount)
+	desc := fmt.Sprintf("apt's cargo (%s) is too old for some crates' MSRV. Rustup provides the latest stable Rust toolchain (~200MB download), adds ~/.cargo/bin to your shell PATH, and the failed tools will be retried with the new cargo.", oldVersion)
+
+	var confirm bool
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title(title).
+				Description(desc).
+				Affirmative("Yes, install rustup and retry").
+				Negative("No, skip these tools").
+				Value(&confirm),
+		),
+	)
+	core.PauseSpinner()
+	defer core.ResumeSpinner()
+	if err := form.Run(); err != nil {
+		if errors.Is(err, huh.ErrUserAborted) {
+			return false
+		}
+		core.Warn("Confirm prompt failed: %v — skipping rustup", err)
+		return false
+	}
+	return confirm
+}
+
+// installRustup runs the official rustup installer non-interactively and
+// prepends ~/.cargo/bin to this process's PATH so subsequent cargo
+// invocations resolve to the new toolchain. Rustup itself updates the
+// user's shell profile for future shells. Idempotent — skips the
+// network install when ~/.cargo/bin/rustup already exists.
+func installRustup() bool {
+	home, _ := os.UserHomeDir()
+	cargoBin := filepath.Join(home, ".cargo", "bin")
+	rustupBin := filepath.Join(cargoBin, "rustup")
+
+	addToPath := func() {
+		if curr := os.Getenv("PATH"); !strings.Contains(curr, cargoBin) {
+			os.Setenv("PATH", cargoBin+string(os.PathListSeparator)+curr)
+		}
+	}
+
+	if _, err := os.Stat(rustupBin); err == nil {
+		addToPath()
+		core.Ok("rustup already installed")
+		return true
+	}
+
+	if _, err := exec.LookPath("curl"); err != nil {
+		core.AlwaysWarn("curl not found — cannot install rustup")
+		return false
+	}
+	core.Info("Installing rustup (downloads ~200MB)...")
+	cmd := exec.Command("sh", "-c",
+		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+	if core.Level >= core.LogVerbose {
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+	} else {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+	}
+	core.PauseSpinner()
+	err := cmd.Run()
+	core.ResumeSpinner()
+	if err != nil {
+		core.AlwaysWarn("rustup install failed: %v — re-run with -v for full output", err)
+		return false
+	}
+
+	addToPath()
+	core.Ok("rustup installed (cargo: %s)", cargoVersion())
+	return true
+}
+
+// ensureToolchain makes sure the given binary is on PATH; if not, it tries
+// to install the corresponding system package via the detected package
+// manager and re-checks. Returns true when the toolchain is usable, false
+// when the bootstrap failed (the per-method install loop should skip).
+// Used to auto-resolve missing cargo/pipx/go before running per-tool
+// install commands so users don't have to do a separate prereq install.
+func ensureToolchain(binName, pkgName string, n int, label string) bool {
+	if _, err := exec.LookPath(binName); err == nil {
+		return true
+	}
+	core.Info("%s not found — installing %q (required for %d %s)...", binName, pkgName, n, label)
+	if err := installPkg(pkgName); err != nil {
+		core.AlwaysWarn("Failed to install %s: %v — skipping %d %s", pkgName, err, n, label)
+		return false
+	}
+	if _, err := exec.LookPath(binName); err != nil {
+		core.AlwaysWarn("Installed %s but %s still not on PATH — skipping %d %s (open a new shell or check PATH)", pkgName, binName, n, label)
+		return false
+	}
+	core.Ok("%s installed via %s", binName, pkgName)
+	return true
 }
 
 // findExtractedBinary walks an extracted archive directory looking for a

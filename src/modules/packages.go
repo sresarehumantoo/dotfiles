@@ -165,9 +165,41 @@ func installPkg(pkgs ...string) error {
 	if len(resolved) == 0 {
 		return nil
 	}
+
+	// Preflight for apt: drop packages with no installation candidate so a
+	// single missing one (e.g. radare2 on trixie) doesn't fail the whole
+	// bulk install. Only runs for apt — pacman/dnf/brew handle this
+	// differently and fail per-package already.
+	if name == "apt-get" || name == "apt" {
+		available, missing := filterAptAvailable(resolved)
+		if len(missing) > 0 {
+			core.AlwaysWarn("Skipping apt packages with no installation candidate: %s", strings.Join(missing, ", "))
+		}
+		resolved = available
+		if len(resolved) == 0 {
+			return nil
+		}
+	}
+
 	core.SpinnerDetail("Installing: %s", strings.Join(resolved, ", "))
 	cmdArgs := append(args, resolved...)
 	return runCmd(cmdArgs[0], cmdArgs[1:]...)
+}
+
+// filterAptAvailable splits packages into those that have an installation
+// candidate in the current apt sources vs. those that don't (renamed,
+// obsoleted, or simply not in any configured source). Uses 'apt-cache
+// madison' which exits 0 either way; non-empty stdout means available.
+func filterAptAvailable(pkgs []string) (available, missing []string) {
+	for _, p := range pkgs {
+		out, err := exec.Command("apt-cache", "madison", p).Output()
+		if err == nil && len(strings.TrimSpace(string(out))) > 0 {
+			available = append(available, p)
+		} else {
+			missing = append(missing, p)
+		}
+	}
+	return available, missing
 }
 
 // ContainsSudoInvocation scans cmd args for sudo invocations, including
