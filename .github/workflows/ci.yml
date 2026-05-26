@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+# Least privilege: CI only needs to read the repo.
+permissions:
+  contents: read
+
+# A newer push to the same branch/PR cancels the in-flight run.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go (fmt · vet · build · test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod # tracks the version declared in go.mod
+          cache: true
+
+      - name: gofmt -s check
+        run: |
+          unformatted=$(gofmt -s -l src tests)
+          if [ -n "$unformatted" ]; then
+            echo "::error::Run 'make fmt' — these files are not gofmt -s formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: make lint
+
+      - name: Build dfinstall + MCP binaries
+        run: |
+          make build
+          make build-mcp
+
+      - name: Test
+        run: make test
+
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: ShellCheck
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          # -x: follow 'source' directives (devtools scripts source _lib.sh).
+          # --source-path=SCRIPTDIR: resolve _lib.sh relative to each script,
+          #   since they source it via a dynamic $(dirname "${BASH_SOURCE[0]}") path.
+          SHELLCHECK_OPTS: -x --source-path=SCRIPTDIR
+        with:
+          scandir: "."
+          # bin/ is build output; .git is skipped by default.
+          ignore_paths: bin

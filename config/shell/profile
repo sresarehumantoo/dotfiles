@@ -4,6 +4,16 @@ export XDG_DATA_HOME="$HOME/.local/share"
 export XDG_STATE_HOME="$HOME/.local/state"
 export XDG_CACHE_HOME="$HOME/.cache"
 
+# Make Python's requests/hvac/ansible community.hashi_vault and curl trust the
+# system CA bundle, which now includes the labcore.local root CA. Without this,
+# certifi-only Python tools (and any non-interactive bash subshell that skips
+# .zshrc → .zsh.d/exports.zsh) reject https://10.0.10.50:8200 (Vault).
+if [ -r /etc/ssl/certs/ca-certificates.crt ]; then
+  export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+  export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+  export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+fi
+
 # if running bash
 if [ -n "$BASH_VERSION" ]; then
     if [ -f "$HOME/.bashrc" ]; then
