@@ -4,7 +4,7 @@ Utility scripts installed to `~/.local/bin/` by the devtools module. All scripts
 
 ## Shared Helpers (`_lib.sh`)
 
-Every script sources `_lib.sh` for consistent output and common guards:
+Most scripts source `_lib.sh` for consistent output and common guards (the exception is `tlog-clean`, which is self-contained and reads only stdin/files):
 
 ```bash
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
@@ -151,6 +151,15 @@ Compacts the WSL2 virtual disk (ext4.vhdx). WSL-only.
 - `--compact` generates a `.bat` script that compacts the disk via export/re-import (no admin required)
 - Also prints elevated Optimize-VHD / diskpart commands as an alternative
 
+Flags:
+
+| Flag | Description |
+|------|-------------|
+| `--compact` | Generate a `.bat` script that compacts the disk via export/re-import (no admin required) |
+| `--dangerous` | With `--compact`: skip the backup step and compact in-place (export, unregister, re-import). For when free disk space is too low for a full backup. Risks data loss if interrupted. |
+| `--vhdx-path PATH` | Use a specific VHDX file instead of auto-detecting (accepts WSL or Windows paths) |
+| `--export-dir DIR` | Write temporary export files to `DIR` instead of `%TEMP%` (accepts WSL or Windows paths). Useful when the local disk is low but OneDrive or a network share has space. |
+
 ```
 $ wsl-resize-disk
   … Resolving VHDX path...
@@ -195,6 +204,81 @@ $ wsl-restart
   ? Continue? [y/N] y
   … Shutting down WSL...
 ```
+
+### clipboard-vm
+
+Diagnoses and attempts to fix SPICE clipboard sharing in a QEMU/KVM guest. Walks the full chain: virtio channel → system daemon → per-session agent. Targets QEMU/KVM but will prompt to continue on other detected hypervisors.
+
+- Detects virtualization (`systemd-detect-virt`, falling back to DMI vendor)
+- Checks the SPICE virtio channel (`/dev/virtio-ports/com.redhat.spice.0`); prints host-side fix instructions (virt-manager / libvirt XML) if missing
+- Installs `spice-vdagent` if absent (apt/apt-get/dnf/pacman)
+- Enables and starts the `spice-vdagentd` system daemon and verifies its socket
+- Starts the per-session `spice-vdagent`, with extra warnings for Wayland sessions (limited clipboard support) and headless/SSH sessions
+- Reminds you to reconnect the SPICE viewer (the clipboard handshake only happens at viewer-connect time)
+- Prints a compact, camera-friendly summary block at the end
+- Always writes a full report to `~/clipboard-vm-report.txt` (the whole point — clipboard is broken, so you can `cat` it, scp it off, or photograph it later)
+
+| Flag | Description |
+|------|-------------|
+| `--reset` | Kill the per-session agent, restart `spice-vdagentd`, and start a fresh per-session agent. Use when checks pass but clipboard still doesn't work. |
+
+```
+$ clipboard-vm
+
+── clipboard-vm — 2026-05-25 12:00:00 ──
+
+── VM detection ──
+  ▸ Virtualization: kvm
+...
+── SUMMARY ──
+  virt:           kvm
+  channel:        present
+  ...
+  ▸ Full report: /home/owen/clipboard-vm-report.txt
+```
+
+### tlog-clean
+
+Strips ANSI escape codes, powerline/nerd-font glyphs, and terminal noise from tmux-logging captures, producing clean, grep-friendly text. Unlike the other devtools, it does not source `_lib.sh` — it is a self-contained filter.
+
+- Simulates a virtual terminal line buffer in Perl to correctly resolve cursor movements (CSI moves, backspace, carriage return) and in-line edits
+- Detects powerlevel10k-style prompts and rewrites them as a simple `directory $ command` line
+- Drops `PROMPT_EOL_MARK` lines and collapses runs of whitespace
+- Reads from one or more `FILE` arguments, or from stdin when given no arguments or `-`
+
+```
+# From files
+$ tlog-clean ~/.local/share/tmux/logs/tmux-*.log
+
+# From stdin (pipe)
+$ cat session.log | tlog-clean
+$ tlog-clean session.log | grep -i error
+```
+
+### tmux-restore
+
+Toggles tmux session auto-restore (tmux-continuum + tmux-resurrect). Auto-restore is OFF by default in this config — when ON, every tmux server start replays previously-captured pane contents over the current panes, clobbering in-progress output. The script flips a marker file that `tmux.conf` checks; the change applies the next time the tmux server starts. Manual restore is always available inside tmux via `prefix + Ctrl-r`.
+
+Marker file: `~/.config/tmux/restore-on` (present = ON, absent = OFF).
+
+| Command | Description |
+|---------|-------------|
+| `on` | Enable auto-restore at the next tmux server start (creates the marker) |
+| `off` | Disable auto-restore (removes the marker) — the default |
+| `toggle` | Flip whichever way it's currently set |
+| `status` | Show current state, the marker path, and (if a server is running) the live `@continuum-restore` value, warning on mismatch. This is the default when no command is given. |
+
+```
+$ tmux-restore status
+  ▸ Auto-restore: off
+  ▸ Marker: /home/owen/.config/tmux/restore-on
+
+$ tmux-restore on
+  ✓ Auto-restore: ON  (marker: /home/owen/.config/tmux/restore-on)
+  ▸ Effect lands at the next tmux server start.
+```
+
+After flipping, reload a running session's config with `tmux source-file ~/.tmux.conf`, though `@continuum-restore` is only fully consulted at server start.
 
 ---
 
