@@ -79,7 +79,7 @@ type LinkPair struct {
 }
 ```
 
-Non-link modules (packages, extras, delta, fonts, omz, wsl, defaultshell) don't implement either interface because their side effects can't be cleanly reversed via symlink removal.
+Non-link modules (locale, packages, extras, delta, fonts, omz, wsl, vmguest, defaultshell) don't implement either interface because their side effects can't be cleanly reversed via symlink removal. (The toolkit module is an exception — it has no links but implements `Uninstaller` to remove the tools it installed.)
 
 ### Registry
 
@@ -127,6 +127,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `doctor` | Run 25+ health checks |
 | `restore [timestamp]` | Restore files from a backup snapshot |
 | `root` | Symlink configs into `/root/` via sudo |
+| `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
 
 ### Install / Update Flags
 
@@ -156,20 +157,23 @@ Flags are persistent (apply to all subcommands). The level is set in `Persistent
 
 ## Output System
 
-Defined in `core/output.go`. Five log functions, each with a colored prefix:
+Defined in `core/output.go`. Nine functions, each with a colored prefix:
 
 | Function | Color | Quiet mode | Verbose+ |
 |----------|-------|------------|----------|
 | `Info()` | blue | suppressed | printed |
 | `Ok()` | green | suppressed | printed |
+| `Notice()` | blue | buffered (flushed after spinner) | printed immediately |
 | `Status()` | green | **always printed** | always printed |
-| `Warn()` | yellow | buffered | printed immediately |
+| `Warn()` | yellow | buffered (flushed after spinner) | printed immediately |
+| `AlwaysWarn()` | yellow | **always printed** (clears spinner line) | printed immediately |
 | `Err()` | red | **always printed** | always printed |
 | `Debug()` | magenta | suppressed | suppressed (debug only) |
+| `FlushWarnings()` | — | prints buffered notices then warnings | — |
 
-`Status()` is for direct user-facing feedback after interactive prompts (e.g. the extended plugin menu). It prints with a green checkmark regardless of log level.
+`Status()` is for direct user-facing feedback after interactive prompts (e.g. the extended plugin menu). It prints with a green checkmark regardless of log level. `Notice()` is for expected operational messages (e.g. backups) that aren't warnings — always visible, but buffered in quiet mode. `AlwaysWarn()` surfaces a warning immediately (clearing the spinner line) when buffered output would arrive too late to act on.
 
-In quiet mode, warnings are buffered and flushed after the spinner stops via `FlushWarnings()`. Errors always print and will clear the spinner line first (using an atomic `spinnerRunning` flag for thread safety).
+In quiet mode, both notices and warnings are buffered and flushed after the spinner stops via `FlushWarnings()` (notices first, then warnings). Errors and `AlwaysWarn()` always print and will clear the spinner line first (using an atomic `spinnerRunning` flag for thread safety).
 
 ### Spinner
 
@@ -234,6 +238,56 @@ Checked in order:
 ## File Hashing
 
 `core/hash.go` provides SHA-256 file hashing used by the `fonts` and `wsl` modules to detect whether installed files match the source. This avoids unnecessary writes and enables status checks without reading full file contents.
+
+## Toolkit Registry
+
+`core/registry.go` manages the external toolkit registry — a JSON catalog of installable tools fetched at runtime so no tool names are compiled into the binary. The registry is fetched from `DefaultRegistryURL` (raw GitHub, `sresarehumantoo/dotfiles-toolkit`), overridable via the `toolkit_registry_url` config field or the `--registry` flag.
+
+### Structures
+
+```go
+type Registry struct {
+    Version int            // must be 1
+    Tools   []RegistryTool
+}
+
+type RegistryTool struct {
+    Name, Description, Category string
+    Method  string   // apt, go, pipx, cargo, git_clone, appimage, deb, release_binary, rustup
+    Binary  string
+    // method-specific fields: Package, AppRepo, GitRepo, DebRepo, ReleaseRepo, AssetPattern
+    Distros []string // optional distro filter: debian, arch, fedora
+}
+```
+
+### Functions
+
+| Function | Purpose |
+|----------|---------|
+| `FetchRegistry(url)` | Fetch from HTTP(S) URL (via `curl`), `file://` path, or plain file path; validates and writes the cache |
+| `LoadCachedRegistry()` | Read the registry from the local cache file |
+| `LoadOrFetchRegistry(forceRefresh)` | Load from cache, or fetch remotely if missing / `forceRefresh` |
+| `ValidateRegistry(r)` | Check version, unique valid names, required category/binary, method-specific fields, distro filters |
+| `RegistryCachePath()` | `~/.local/share/dfinstall/toolkit-registry.json` |
+| `CleanRegistryCache()` | Remove the cached registry file |
+| `ToolMatchesDistro(t)` | Whether a tool applies to the current distro (no filter = all) |
+
+Tool names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. The cache is auto-cleaned after install (EDR-safe — no tool list lingers on disk).
+
+## Virtualization Detection
+
+`core/virt.go` detects whether dfinstall is running inside a VM or container, driving the `vmguest` module.
+
+| Function | Purpose |
+|----------|---------|
+| `DetectVirt()` | Returns a `VirtType` — prefers `systemd-detect-virt`, falls back to DMI inspection (`/sys/class/dmi/id/`) for minimal images |
+| `IsVM()` | True only for hardware-virtualized guests (excludes containers and WSL) |
+| `IsHardwareVirt(v)` | Shared predicate for "is this a true VM that benefits from guest tools" |
+| `ParseSystemdVirt(s)` / `ParseDMIVendor(v, p)` | Exported parsers for testing |
+
+`VirtType` values mirror `systemd-detect-virt` output (`kvm`, `qemu`, `vmware`, `oracle`, `microsoft`, `xen`, `wsl`, `lxc`, `docker`, `podman`, plus `container`/`unknown`/`none`).
+
+The `vmguest` module (`modules/vmguest.go`) uses this: on a hardware VM it installs the matching guest packages (e.g. `qemu-guest-agent`/`spice-vdagent` for KVM, `open-vm-tools` for VMware) and enables the corresponding systemd units. It skips WSL, containers, and bare metal.
 
 ## Configuration
 
