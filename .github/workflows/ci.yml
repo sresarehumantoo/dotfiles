@@ -54,14 +54,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: ShellCheck
+      # Scope to the directories that hold standalone bash scripts. A repo-wide
+      # scan would also pull in config/shell/ — zsh files (p10k.zsh, zshrc, *.zsh)
+      # and shebang-less rc files (profile, bashrc) that ShellCheck can't parse.
+      # -x + --source-path=SCRIPTDIR lets the devtools scripts' dynamic
+      # $(dirname "${BASH_SOURCE[0]}")/_lib.sh source resolve.
+      - name: ShellCheck (devtools)
         uses: ludeeus/action-shellcheck@2.0.0
         env:
-          # -x: follow 'source' directives (devtools scripts source _lib.sh).
-          # --source-path=SCRIPTDIR: resolve _lib.sh relative to each script,
-          #   since they source it via a dynamic $(dirname "${BASH_SOURCE[0]}") path.
           SHELLCHECK_OPTS: -x --source-path=SCRIPTDIR
         with:
-          scandir: "."
-          # bin/ is build output; .git is skipped by default.
-          ignore_paths: bin
+          scandir: config/devtools
+
+      - name: ShellCheck (bootstrap)
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          SHELLCHECK_OPTS: -x --source-path=SCRIPTDIR
+        with:
+          scandir: bootstrap
