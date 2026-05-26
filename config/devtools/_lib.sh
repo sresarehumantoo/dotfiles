@@ -85,3 +85,21 @@ write_bat() {
     echo "      # Then double-click $filename, or from cmd.exe:"
     echo "      $win_path"
 }
+
+# ── PowerShell script generation ─────────────────────────────────
+# Usage: write_ps1 <filename> <content>
+write_ps1() {
+    local filename="$1" content="$2"
+    local root
+    root="$(dotfiles_dir)"
+    local dir="$root/powershell"
+    mkdir -p "$dir"
+    local filepath="$dir/$filename"
+    printf '%s\n' "$content" | sed 's/$/\r/' > "$filepath"
+    ok "Generated: $filepath"
+    echo ""
+    local win_path
+    win_path="$(wslpath -w "$filepath")"
+    info "Run from Windows PowerShell (no admin required):"
+    echo "      powershell.exe -ExecutionPolicy Bypass -File \"$win_path\""
+}
