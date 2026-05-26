@@ -35,9 +35,9 @@ Prefix: **Alt+a**
 | Key | Action |
 |-----|--------|
 | `prefix r` | Reload config |
-| `prefix c` | New window (current path) |
-| `prefix "` | Split vertical (current path) |
-| `prefix %` | Split horizontal (current path) |
+| `M-n` | New window (current path) |
+| `M-Enter` | Split vertical (current path) |
+| `M-\|` | Split horizontal (current path) |
 | `prefix m` | Toggle mouse on/off |
 
 ### Pane Navigation
@@ -62,8 +62,6 @@ Prefix: **Alt+a**
 
 | Key | Action |
 |-----|--------|
-| `prefix C-h` | Previous window |
-| `prefix C-l` | Next window |
 | `prefix <` | Swap window left |
 | `prefix >` | Swap window right |
 
@@ -247,7 +245,7 @@ Leader: **Space**
 | `gg` | Beginning of buffer/history |
 | `/` | Incremental search backward |
 
-Cursor changes to block in normal mode, beam in insert mode.
+Cursor changes to steady block in normal mode, blinking block in insert mode.
 
 ---
 

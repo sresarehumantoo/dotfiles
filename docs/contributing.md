@@ -90,9 +90,9 @@ Add `"foo"` to the expected order in `tests/module_test.go`:
 
 ```go
 expected := []string{
-    "packages", "extras", "delta", "fonts", "omz",
+    "locale", "packages", "extras", "toolkit", "delta", "fonts", "omz",
     "shell", "devtools", "git", "nvim", "tmux",
-    "ghostty", "htop", "wsl", "defaultshell",
+    "konsole", "ghostty", "htop", "wsl", "vmguest", "defaultshell",
     "foo",  // <-- add here matching register.go order
 }
 ```
@@ -219,6 +219,15 @@ make lint       # go vet
 ```
 
 Tests use temp directories and don't touch real system files.
+
+## Pull Requests
+
+CI must pass before a PR can merge. Both GitHub Actions jobs run on every PR to `main` and `develop`:
+
+- **`go`** -- `gofmt -s` formatting, `go vet`, build of the `dfinstall` and MCP binaries, and the full test suite.
+- **`shellcheck`** -- lints the bash scripts in `config/devtools/` and `bootstrap/`.
+
+The `main` branch is protected, so both checks must be green before merging.
 
 ## Doctor Checks
 

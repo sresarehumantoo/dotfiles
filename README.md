@@ -2,6 +2,10 @@
   <img src="assets/logo.svg?v=2" alt="dfinstall logo" width="800">
 </p>
 
+<p align="center">
+  <a href="https://github.com/sresarehumantoo/dotfiles/actions/workflows/ci.yml"><img src="https://github.com/sresarehumantoo/dotfiles/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
+
 Personal dotfiles manager built in Go. A single `dfinstall` CLI symlinks config files into place, installs packages and tools, and keeps everything reproducible across machines.
 
 Built for WSL2 (Debian/Ubuntu) but works on native Linux with apt, dnf, pacman, or brew.
@@ -163,6 +167,15 @@ go build -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfil
 The `-ldflags` flag bakes the dotfiles directory path into the binary so it can find config files regardless of where it's run from. Dependencies are vendored via `go.sum` and fetched automatically on first build.
 
 See [Building from Source](docs/building.md) for more detail on dependencies, cross-compilation, and development setup.
+
+## Continuous Integration
+
+GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and pull request to `main` and `develop`:
+
+- **Go** -- `gofmt -s` check, `go vet`, builds both binaries (`dfinstall` + MCP), and `go test`. The Go version tracks `go.mod`.
+- **ShellCheck** -- lints the bash scripts in `config/devtools/` and `bootstrap/`.
+
+`main` is protected: both checks must pass before a pull request can be merged.
 
 ## MCP Server
 
