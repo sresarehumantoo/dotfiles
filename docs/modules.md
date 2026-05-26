@@ -4,6 +4,18 @@ Every module is a single Go file in `src/modules/`. They run in the order listed
 
 ---
 
+## locale
+
+**File:** `modules/locale.go`
+
+Configures the system locale (`en_US.UTF-8`). Skips if the locale is already available.
+
+If `locale-gen` is missing, installs the `locales` package first. Then uncomments `en_US.UTF-8 UTF-8` in `/etc/locale.gen` (appending it if absent), runs `sudo locale-gen` to generate the locale, and sets it as the system default with `sudo update-locale LANG=en_US.UTF-8`.
+
+**Status:** Checks for `locale-gen` on `$PATH` and whether `en_US.UTF-8` is available (2 checks).
+
+---
+
 ## packages
 
 **File:** `modules/packages.go`
@@ -175,6 +187,7 @@ Symlinks shell configuration files:
 | `shell/zsh/path.zsh` | `~/.zsh.d/path.zsh` |
 | `shell/zsh/exports.zsh` | `~/.zsh.d/exports.zsh` |
 | `shell/zsh/ssh.zsh` | `~/.zsh.d/ssh.zsh` |
+| `shell/zsh/locale.zsh` | `~/.zsh.d/locale.zsh` |
 
 The zshrc sources p10k instant prompt, loads oh-my-zsh, then sources all `~/.zsh.d/*.zsh` files for modular configuration.
 
@@ -209,6 +222,8 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `git-prune-branches` | Remove local branches with deleted remotes |
 | `sysinfo` | System resource overview |
 | `tlog-clean` | Strip ANSI escapes and powerline glyphs from tmux log captures |
+| `clipboard-vm` | Diagnose and fix SPICE clipboard sharing in a QEMU/KVM guest (`--reset`) |
+| `tmux-restore` | Toggle tmux session auto-restore (continuum + resurrect) on/off |
 
 `tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
 
@@ -216,7 +231,7 @@ All scripts are `chmod 755` before linking. Individual failures are warned and c
 
 See [Devtools Scripts](devtools.md) for detailed script documentation.
 
-**Status:** Checks 7 symlinks.
+**Status:** Checks 9 symlinks.
 
 ---
 
@@ -295,6 +310,24 @@ Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane na
 
 ---
 
+## konsole
+
+**File:** `modules/konsole.go`
+
+Symlinks Konsole terminal configuration:
+
+| Source | Destination |
+|--------|-------------|
+| `konsole/konsolerc` | `$XDG_CONFIG_HOME/konsolerc` |
+| `konsole/Dotfiles.profile` | `~/.local/share/konsole/Dotfiles.profile` |
+| `konsole/Dotfiles.colorscheme` | `~/.local/share/konsole/Dotfiles.colorscheme` |
+
+**Uninstall:** Removes all three symlinks.
+
+**Status:** Checks 3 symlinks.
+
+---
+
 ## ghostty
 
 **File:** `modules/ghostty.go`
@@ -334,6 +367,25 @@ WSL-specific setup. Skips entirely on non-WSL systems.
 Uses `cmd.exe` and `wslpath` for Windows path resolution. Prompts the user to restart WSL (`wsl --shutdown`) after changes.
 
 **Status:** Checks wsl.conf, sysctl conf, and Windows home symlink. Reports "not WSL" on non-WSL systems.
+
+---
+
+## vmguest
+
+**File:** `modules/vmguest.go`
+
+Installs hypervisor guest tools when running inside a hardware VM. Skips entirely on WSL and on systems that aren't VMs. Detects the hypervisor type via `core.DetectVirt()` and installs the matching packages:
+
+| Hypervisor | Packages |
+|------------|----------|
+| KVM / QEMU | qemu-guest-agent, spice-vdagent |
+| VMware | open-vm-tools |
+| VirtualBox | virtualbox-guest-utils |
+| Hyper-V | hyperv-daemons |
+
+After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
+
+**Status:** Reports the detected virtualization type and checks the guest packages for that hypervisor. Returns empty on WSL and non-VM systems.
 
 ---
 

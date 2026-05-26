@@ -56,6 +56,7 @@ go mod tidy
 | Target | Command | Description |
 |--------|---------|-------------|
 | `build` | `go build ...` | Compile to `bin/dfinstall` |
+| `build-mcp` | `go build ...` | Compile the MCP server to `bin/dfinstall-mcp` |
 | `test` | `go test ./src/... ./tests/...` | Run all unit tests |
 | `lint` | `go vet ./src/... ./tests/...` | Static analysis |
 | `fmt` | `gofmt -s -w src/ tests/` | Format source code |
@@ -122,8 +123,8 @@ src/
     omz_extended.go    #   Extended plugin menu and file writer
     shell_preserve.go  #   Custom shell file preservation menu and writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
-    ...                #   14 modules total
-tests/                 # Unit tests (10 files)
+    ...                #   18 modules total
+tests/                 # Unit tests (15 files)
 ```
 
 ## Testing
@@ -146,3 +147,14 @@ make test
 | `unlink_test.go` | UnlinkFile: correct/wrong/missing/regular-file cases |
 | `dryrun_test.go` | DryRun mode: LinkFile, EnsureDir, UnlinkFile skip filesystem changes |
 | `config_skip_test.go` | IsModuleSkipped helper with skip_modules config |
+
+## Continuous Integration
+
+CI runs on every push and pull request to `main` and `develop` via GitHub Actions (`.github/workflows/ci.yml`). Two jobs must pass:
+
+| Job | Checks |
+|-----|--------|
+| `go` | `gofmt -s` formatting, `go vet` (`make lint`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), and the full test suite (`make test`). The Go version tracks `go.mod`. |
+| `shellcheck` | Lints the standalone bash scripts in `config/devtools/` and `bootstrap/` via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. |
+
+The `main` branch is protected: both checks must pass before a pull request can merge.
