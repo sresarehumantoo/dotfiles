@@ -60,6 +60,7 @@ case "${1:-status}" in
         state="$(current_state)"
         info "Auto-restore: $state"
         info "Marker: $MARKER"
+        # shellcheck disable=SC2033  # 'tmux info' is the tmux subcommand, not the info() helper from _lib.sh
         if command -v tmux &>/dev/null && tmux info &>/dev/null; then
             running="$(tmux show-options -gv @continuum-restore 2>/dev/null || echo unset)"
             info "Running tmux server reports @continuum-restore: $running"
