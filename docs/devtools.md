@@ -282,7 +282,7 @@ After flipping, reload a running session's config with `tmux source-file ~/.tmux
 
 ### winbuild
 
-Dispatches a build to a Windows compilation server over SSH: rsyncs the project up, runs a configurable build command remotely, and rsyncs artifacts back. Installed by the [windev](modules.md#windev) module (not by devtools), but lives here so it picks up `_lib.sh` and the standard shellcheck scope.
+Dispatches a build to a Windows compilation server over SSH: rsyncs the project up, runs a configurable build command remotely, and rsyncs artifacts back. Installed by the [windev](modules.md#windev) module (not by devtools), but lives here so it picks up `_lib.sh` and the standard shellcheck scope. For end-to-end setup including SSH config and BUILD_CMD recipes, see the [Windows Cross-Development guide](windev.md#remote-windows-build-server).
 
 On first run with no config, writes a template to `~/.config/dfinstall/winbuild.conf` and exits. Edit it (set `HOST` at minimum) and re-run.
 

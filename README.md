@@ -52,6 +52,7 @@ dfinstall install all --dry-run   # show what would change without modifying any
 dfinstall install all --backup    # snapshot targets before modifying (restorable)
 dfinstall install omz --extended  # interactive menu to select extended OMZ plugins
 dfinstall install all --toolkit   # interactive menu to select toolkit tools
+dfinstall install windev          # opt-in Windows cross-dev module (see docs/windev.md)
 dfinstall update all              # re-apply all modules (alias for install)
 dfinstall update omz --extended   # update and select extended OMZ plugins
 dfinstall uninstall shell         # remove symlinks for a module
@@ -103,13 +104,15 @@ Modules run in this order (dependencies first):
 | **devtools** | Utility scripts to `~/.local/bin/` (sysinfo, docker-cleanup, git-prune-branches, etc.) |
 | **git** | Symlinks gitconfig (delta pager, histogram diff, aliases) |
 | **nvim** | Neovim config with Lazy.nvim plugin manager + headless sync |
-| **windev** | _Opt-in._ Windows cross-dev toolchains (MinGW-w64 / .NET / Rust windows-gnu / Go), nvim LSP+format+debug for C/C++/C#/Go/Rust, and `winbuild` SSH dispatch to a Windows build server. Enable with `dfinstall install windev`. |
+| **windev** | _Opt-in._ Windows cross-dev toolchains (MinGW-w64 / .NET / Rust windows-gnu / Go), nvim LSP+format+debug for C/C++/C#/Go/Rust, and `winbuild` SSH dispatch to a Windows build server. Enable with `dfinstall install windev` — see [Windows cross-development](docs/windev.md). |
 | **tmux** | Tmux config (Alt+A prefix, vi mode, custom theme) |
 | **konsole** | Konsole terminal profile and color scheme |
 | **ghostty** | Ghostty terminal emulator config |
 | **htop** | htop config |
 | **wsl** | WSL-specific: wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
 | **defaultshell** | Sets zsh as the default login shell |
+
+> **Opt-in modules.** `install all` walks every module above _except_ ones flagged `_Opt-in._` — those need an explicit `dfinstall install <name>` to enable. Currently that's just **windev** (Windows cross-development). Once enabled, the opt-in persists in `.config.yaml` and future `install all` keeps it current.
 
 ## Project Layout
 
@@ -194,4 +197,5 @@ The server is configured via `.mcp.json` in the project root. Available tools: `
 - [Building from Source](docs/building.md) -- requirements, dependencies, cross-compilation
 - [Module Reference](docs/modules.md) -- detailed breakdown of every module
 - [Devtools Scripts](docs/devtools.md) -- utility scripts and shared helpers
+- [Windows Cross-Development](docs/windev.md) -- install + use the opt-in `windev` module (toolchains, nvim, `winbuild`)
 - [Contributing](docs/contributing.md) -- adding modules, conventions, testing
