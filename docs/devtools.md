@@ -280,6 +280,49 @@ $ tmux-restore on
 
 After flipping, reload a running session's config with `tmux source-file ~/.tmux.conf`, though `@continuum-restore` is only fully consulted at server start.
 
+### winbuild
+
+Dispatches a build to a Windows compilation server over SSH: rsyncs the project up, runs a configurable build command remotely, and rsyncs artifacts back. Installed by the [windev](modules.md#windev) module (not by devtools), but lives here so it picks up `_lib.sh` and the standard shellcheck scope.
+
+On first run with no config, writes a template to `~/.config/dfinstall/winbuild.conf` and exits. Edit it (set `HOST` at minimum) and re-run.
+
+| Flag | Description |
+|------|-------------|
+| `--host HOST` | Override `HOST` (SSH alias from `~/.ssh/config`, or `user@host`) |
+| `--remote-base PATH` | Override `REMOTE_BASE` (e.g. `C:/builds`) |
+| `--artifact-dir DIR` | Override `ARTIFACT_DIR` — the subdir on remote whose contents come back to `./<dir>/` |
+| `--cmd "CMD"` | Override `BUILD_CMD` |
+| `--dry-run` | Show the steps, run nothing |
+
+Config file (`~/.config/dfinstall/winbuild.conf`):
+
+```bash
+HOST="winbuild"                                  # SSH alias
+REMOTE_BASE="C:/builds"                          # OpenSSH-for-Windows accepts forward slashes
+BUILD_CMD="msbuild /m /p:Configuration=Release"  # or cmake / dotnet publish / etc.
+ARTIFACT_DIR="build-win"
+```
+
+The current project name is appended to `REMOTE_BASE` (`REMOTE_DIR="$REMOTE_BASE/$(basename "$PWD")"`). rsync excludes `.git`, `node_modules`, `target`, `bin`, `obj`, and the artifact dir on upload.
+
+```
+$ winbuild --dry-run
+
+── winbuild → winbuild ──
+
+  ▸ project:    myapp
+  ▸ remote dir: C:/builds/myapp
+  ▸ build cmd:  msbuild /m /p:Configuration=Release
+  ▸ artifacts:  C:/builds/myapp/build-win/  →  ./build-win/
+  ▸ Uploading source...
+  …  would: rsync -az --delete ...
+  ▸ Building remotely...
+  …  would: ssh winbuild cd "C:/builds/myapp" && msbuild ...
+  ▸ Downloading artifacts...
+  …  would: rsync -az winbuild:C:/builds/myapp/build-win/ ./build-win/
+  ✓ Done. Artifacts in ./build-win/
+```
+
 ---
 
 ## Script Conventions

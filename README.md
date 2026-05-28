@@ -103,6 +103,7 @@ Modules run in this order (dependencies first):
 | **devtools** | Utility scripts to `~/.local/bin/` (sysinfo, docker-cleanup, git-prune-branches, etc.) |
 | **git** | Symlinks gitconfig (delta pager, histogram diff, aliases) |
 | **nvim** | Neovim config with Lazy.nvim plugin manager + headless sync |
+| **windev** | _Opt-in._ Windows cross-dev toolchains (MinGW-w64 / .NET / Rust windows-gnu / Go), nvim LSP+format+debug for C/C++/C#/Go/Rust, and `winbuild` SSH dispatch to a Windows build server. Enable with `dfinstall install windev`. |
 | **tmux** | Tmux config (Alt+A prefix, vi mode, custom theme) |
 | **konsole** | Konsole terminal profile and color scheme |
 | **ghostty** | Ghostty terminal emulator config |

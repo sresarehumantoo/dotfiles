@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Dispatch a build to a Windows compilation server over SSH:
+#   1. rsync the project tree up to the host
+#   2. ssh-run the configured build command remotely
+#   3. rsync artifacts back to ./<artifact-dir>/
+#
+# Configured via ~/.config/dfinstall/winbuild.conf (a template is written on
+# first run). Flags override config values. Installed by the windev module.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/dfinstall/winbuild.conf"
+
+write_config_template() {
+    mkdir -p "$(dirname "$CONFIG")"
+    cat > "$CONFIG" <<'EOF'
+# winbuild — Windows build server settings (sourced as bash).
+
+# SSH host. An alias in ~/.ssh/config (with IdentityFile/User/Port) keeps this clean.
+HOST="winbuild"
+
+# Base directory on the Windows host. The current project name is appended:
+#   REMOTE_DIR="$REMOTE_BASE/$(basename "$PWD")"
+# OpenSSH on Windows accepts forward slashes here.
+REMOTE_BASE="C:/builds"
+
+# Build command run remotely from REMOTE_DIR. Examples:
+#   BUILD_CMD="msbuild /m /p:Configuration=Release"
+#   BUILD_CMD="cmake --build build --config Release"
+#   BUILD_CMD='powershell -NoProfile -Command "dotnet publish -c Release -r win-x64"'
+BUILD_CMD="msbuild /m /p:Configuration=Release"
+
+# Subdirectory inside REMOTE_DIR whose contents come back to ./<dir>/.
+ARTIFACT_DIR="build-win"
+EOF
+    ok "Wrote config template: $CONFIG"
+    info "Edit it (at minimum, set HOST) then re-run winbuild."
+}
+
+usage() {
+    header "winbuild"
+    cat <<EOF
+Dispatch a build to a Windows compilation server over SSH.
+
+  winbuild [options] [-- build-command...]
+
+Options:
+  --host HOST           Override HOST (SSH alias or user@host).
+  --remote-base PATH    Override REMOTE_BASE (e.g. "C:/builds").
+  --artifact-dir DIR    Override ARTIFACT_DIR (subdir to pull back).
+  --cmd "CMD"           Override BUILD_CMD.
+  --dry-run             Show the steps, run nothing.
+  -h, --help            This help.
+
+Config file: $CONFIG
+EOF
+}
+
+DRY=0
+CLI_HOST=""
+CLI_REMOTE_BASE=""
+CLI_ARTIFACT_DIR=""
+CLI_CMD=""
+
+while (( $# > 0 )); do
+    case "$1" in
+        -h|--help)        usage; exit 0 ;;
+        --dry-run)        DRY=1; shift ;;
+        --host)           CLI_HOST="${2:?--host needs a value}"; shift 2 ;;
+        --remote-base)    CLI_REMOTE_BASE="${2:?--remote-base needs a value}"; shift 2 ;;
+        --artifact-dir)   CLI_ARTIFACT_DIR="${2:?--artifact-dir needs a value}"; shift 2 ;;
+        --cmd)            CLI_CMD="${2:?--cmd needs a value}"; shift 2 ;;
+        --)               shift; CLI_CMD="$*"; break ;;
+        -*)               die "Unknown option: $1 (try --help)" ;;
+        *)                CLI_CMD="$*"; break ;;
+    esac
+done
+
+if [[ ! -f "$CONFIG" ]]; then
+    warn "No config at $CONFIG"
+    write_config_template
+    exit 1
+fi
+
+# shellcheck source=/dev/null
+source "$CONFIG"
+
+HOST="${CLI_HOST:-${HOST:-}}"
+REMOTE_BASE="${CLI_REMOTE_BASE:-${REMOTE_BASE:-}}"
+ARTIFACT_DIR="${CLI_ARTIFACT_DIR:-${ARTIFACT_DIR:-build-win}}"
+BUILD_CMD="${CLI_CMD:-${BUILD_CMD:-}}"
+
+[[ -n "$HOST" ]]        || die "HOST not set (config or --host)"
+[[ -n "$REMOTE_BASE" ]] || die "REMOTE_BASE not set (config or --remote-base)"
+[[ -n "$BUILD_CMD" ]]   || die "BUILD_CMD not set (config, --cmd, or positional args)"
+
+require_cmd ssh
+require_cmd rsync
+
+PROJECT="$(basename "$PWD")"
+REMOTE_DIR="$REMOTE_BASE/$PROJECT"
+
+header "winbuild → $HOST"
+info "project:    $PROJECT"
+info "remote dir: $REMOTE_DIR"
+info "build cmd:  $BUILD_CMD"
+info "artifacts:  $REMOTE_DIR/$ARTIFACT_DIR/  →  ./$ARTIFACT_DIR/"
+
+run() {
+    if (( DRY )); then
+        step "would: $*"
+    else
+        "$@"
+    fi
+}
+
+# 1. Sync source up. --delete keeps the remote tree clean; excludes drop the
+#    usual heavy/derived directories.
+info "Uploading source..."
+run rsync -az --delete \
+    --exclude='.git/' \
+    --exclude='node_modules/' \
+    --exclude='target/' \
+    --exclude='bin/' \
+    --exclude='obj/' \
+    --exclude="$ARTIFACT_DIR/" \
+    ./ "$HOST:$REMOTE_DIR/"
+
+# 2. Run the remote build. Local expansion of REMOTE_DIR + BUILD_CMD is intended;
+#    the resulting string is interpreted by the remote default shell (cmd.exe on
+#    OpenSSH-for-Windows). Configure your shell there if you need PowerShell.
+info "Building remotely..."
+run ssh "$HOST" "cd \"$REMOTE_DIR\" && $BUILD_CMD"
+
+# 3. Pull artifacts back.
+info "Downloading artifacts..."
+mkdir -p "$ARTIFACT_DIR"
+run rsync -az "$HOST:$REMOTE_DIR/$ARTIFACT_DIR/" "./$ARTIFACT_DIR/"
+
+ok "Done. Artifacts in ./$ARTIFACT_DIR/"

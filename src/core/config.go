@@ -18,6 +18,7 @@ type Config struct {
 	SkipModules        []string `yaml:"skip_modules,omitempty"`
 	ToolkitTools       []string `yaml:"toolkit_tools,omitempty"`
 	ToolkitRegistryURL string   `yaml:"toolkit_registry_url,omitempty"`
+	WindevEnabled      bool     `yaml:"windev_enabled,omitempty"`
 }
 
 // IsModuleSkipped returns true if the named module is in the SkipModules list.
@@ -38,6 +39,10 @@ var ExtendedMode bool
 
 // ToolkitMode is set by the --toolkit CLI flag.
 var ToolkitMode bool
+
+// WindevMode is set when the windev module is the explicit install target.
+// Like ExtendedMode/ToolkitMode, it gates persisting the windev opt-in to config.
+var WindevMode bool
 
 // CfgFileExists is true when the config file was present at load time.
 // Used to distinguish "first run" from "user explicitly set skip_backup: false".
