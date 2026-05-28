@@ -275,7 +275,7 @@ Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
 ## windev
 
-**File:** `modules/windev.go`
+**File:** `modules/windev.go` &nbsp;·&nbsp; **See also:** [Windows Cross-Development guide](windev.md) for install + per-language usage walkthroughs.
 
 **Opt-in.** Installs a Windows cross-development environment for building Windows software (C/C++, C#/.NET, Go, Rust) from WSL/Linux, plus the matching Neovim LSP/format/debug configs and a remote build-server helper. Excluded from `install all` until explicitly enabled with `dfinstall install windev`, which sets `windev_enabled: true` in `.config.yaml`; subsequent `install all` keeps it current. `dfinstall uninstall windev` clears the flag.
 
