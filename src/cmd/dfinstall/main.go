@@ -121,6 +121,14 @@ func main() {
 		if !ok {
 			return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
 		}
+		// Explicit install of an opt-in module persists the enable flag so
+		// subsequent `install all` keeps it current. Mirrors how --toolkit
+		// /--extended set their Mode flags to trigger SaveConfig below.
+		// Skipped under --dry-run so a preview never mutates config state.
+		if target == "windev" && !core.DryRun {
+			core.WindevMode = true
+			core.Cfg.WindevEnabled = true
+		}
 		return installOne(m)
 	}
 
@@ -300,6 +308,15 @@ func main() {
 			if !ok {
 				return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
 			}
+			// Explicit uninstall of windev clears the opt-in so `install all`
+			// stops re-applying it. Best-effort save: warn but don't fail.
+			// Skipped under --dry-run so a preview never mutates config state.
+			if target == "windev" && core.Cfg.WindevEnabled && !core.DryRun {
+				core.Cfg.WindevEnabled = false
+				if err := core.SaveConfig(); err != nil {
+					core.Warn("failed to save config: %v", err)
+				}
+			}
 			return uninstallOne(m)
 		},
 	}
@@ -341,6 +358,20 @@ func main() {
 	}
 }
 
+// skipInAll reports whether a module should be omitted from `install all`.
+// Combines user SkipModules with opt-in modules that haven't been enabled yet
+// (currently just windev — explicit `install windev` flips Cfg.WindevEnabled
+// on, after which it's included like any other module).
+func skipInAll(name string) bool {
+	if core.IsModuleSkipped(name) {
+		return true
+	}
+	if name == "windev" && !core.Cfg.WindevEnabled {
+		return true
+	}
+	return false
+}
+
 func installAll() error {
 	doBackup, firstRun := shouldBackup()
 
@@ -358,7 +389,7 @@ func installAll() error {
 	var skipped int
 	if core.Level >= core.LogVerbose {
 		for _, m := range all {
-			if core.IsModuleSkipped(m.Name()) {
+			if skipInAll(m.Name()) {
 				core.Info("--- %s --- (skipped)", m.Name())
 				skipped++
 				continue
@@ -371,7 +402,7 @@ func installAll() error {
 		fmt.Println()
 		if firstRun {
 			saveFirstRunConfig()
-		} else if core.ExtendedMode || core.ToolkitMode {
+		} else if core.ExtendedMode || core.ToolkitMode || core.WindevMode {
 			if err := core.SaveConfig(); err != nil {
 				core.Warn("failed to save config: %v", err)
 			}
@@ -386,7 +417,7 @@ func installAll() error {
 
 	var failures []string
 	for i, m := range all {
-		if core.IsModuleSkipped(m.Name()) {
+		if skipInAll(m.Name()) {
 			skipped++
 			continue
 		}
@@ -433,7 +464,7 @@ func installOne(m core.Module) error {
 		err := m.Install()
 		if firstRun {
 			saveFirstRunConfig()
-		} else if core.ExtendedMode || core.ToolkitMode {
+		} else if core.ExtendedMode || core.ToolkitMode || core.WindevMode {
 			if err := core.SaveConfig(); err != nil {
 				core.Warn("failed to save config: %v", err)
 			}

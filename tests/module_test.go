@@ -12,7 +12,7 @@ func TestRegistryOrder(t *testing.T) {
 
 	expected := []string{
 		"locale", "packages", "extras", "toolkit", "delta", "fonts", "omz",
-		"shell", "devtools", "git", "nvim", "tmux",
+		"shell", "devtools", "git", "nvim", "windev", "tmux",
 		"konsole", "ghostty", "htop", "wsl", "vmguest", "defaultshell",
 	}
 
