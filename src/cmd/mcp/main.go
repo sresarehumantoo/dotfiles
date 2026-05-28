@@ -126,7 +126,7 @@ func registerTools(s *server.MCPServer) {
 				mcp.Description("'get' to read config, 'set' to write a value"),
 			),
 			mcp.WithString("key",
-				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url"),
+				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled"),
 			),
 			mcp.WithString("value",
 				mcp.Description("Value to set (required for 'set' action)"),
@@ -362,6 +362,7 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			fmt.Fprintf(&b, "skip_modules: %v\n", core.Cfg.SkipModules)
 			fmt.Fprintf(&b, "toolkit_tools: %v\n", core.Cfg.ToolkitTools)
 			fmt.Fprintf(&b, "toolkit_registry_url: %s\n", core.Cfg.ToolkitRegistryURL)
+			fmt.Fprintf(&b, "windev_enabled: %v\n", core.Cfg.WindevEnabled)
 			fmt.Fprintf(&b, "\nconfig file: %s\n", core.ConfigFilePath())
 			return mcp.NewToolResultText(b.String()), nil
 		}
@@ -390,9 +391,11 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 				url = core.DefaultRegistryURL
 			}
 			return mcp.NewToolResultText(url), nil
+		case "windev_enabled":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.WindevEnabled)), nil
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled)", key),
 			), nil
 		}
 
@@ -437,9 +440,11 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			}
 		case "toolkit_registry_url":
 			core.Cfg.ToolkitRegistryURL = value
+		case "windev_enabled":
+			core.Cfg.WindevEnabled = value == "true"
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled)", key),
 			), nil
 		}
 		if err := core.SaveConfig(); err != nil {

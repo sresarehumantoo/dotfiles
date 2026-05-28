@@ -90,6 +90,34 @@ func TestSaveConfig_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestSaveConfig_WindevEnabledRoundTrip(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("DOTFILES", tmp)
+
+	core.ResetDotfilesDir()
+	defer core.ResetDotfilesDir()
+
+	core.Cfg = core.Config{WindevEnabled: true}
+	if err := core.SaveConfig(); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(tmp, ".config.yaml"))
+	if err != nil {
+		t.Fatalf("config file not written: %v", err)
+	}
+	if !strings.Contains(string(data), "windev_enabled: true") {
+		t.Errorf("expected windev_enabled: true in saved config, got:\n%s", data)
+	}
+
+	// Reload and verify
+	core.Cfg = core.Config{}
+	core.LoadConfig()
+	if !core.Cfg.WindevEnabled {
+		t.Error("expected WindevEnabled to be true after reload")
+	}
+}
+
 func TestBackupDir_ConfigOverride(t *testing.T) {
 	core.Cfg.BackupDirP = "/custom/backup/dir"
 	defer func() { core.Cfg.BackupDirP = "" }()
