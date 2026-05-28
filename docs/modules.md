@@ -273,6 +273,53 @@ Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
 ---
 
+## windev
+
+**File:** `modules/windev.go` &nbsp;·&nbsp; **See also:** [Windows Cross-Development guide](windev.md) for install + per-language usage walkthroughs.
+
+**Opt-in.** Installs a Windows cross-development environment for building Windows software (C/C++, C#/.NET, Go, Rust) from WSL/Linux, plus the matching Neovim LSP/format/debug configs and a remote build-server helper. Excluded from `install all` until explicitly enabled with `dfinstall install windev`, which sets `windev_enabled: true` in `.config.yaml`; subsequent `install all` keeps it current. `dfinstall uninstall windev` clears the flag.
+
+### Local cross-compilation toolchains
+
+| Language | Installs | Builds Windows binaries via |
+|----------|----------|----------------------------|
+| C / C++  | `mingw-w64`, `cmake`, `ninja-build`, `clangd`, `clang-format` (apt) | `x86_64-w64-mingw32-{gcc,g++}` |
+| Go       | `gopls`, `dlv` (via `go install`); Go itself via the packages module | `GOOS=windows GOARCH=amd64 go build` |
+| Rust     | `rustup` (official installer if absent), target `x86_64-pc-windows-gnu`, components `rust-analyzer`, `rustfmt`, `clippy` | `cargo build --target x86_64-pc-windows-gnu` (links via MinGW) |
+| C# / .NET | .NET SDK (`dotnet-install.sh` → `~/.dotnet`), OmniSharp + netcoredbg into `~/.local/share/windev/`, `csharpier` (global dotnet tool) | `dotnet publish -c Release -r win-x64` |
+
+Each language is best-effort: a failure warns but doesn't abort the rest, so a single missing toolchain never blocks the nvim/helper wiring.
+
+### Neovim language support
+
+Symlinks `config/nvim/windev/windev.lua` to `~/.config/nvim/lua/custom/plugins/windev.lua` — kickstart's `{ import = 'custom.plugins' }` picks it up automatically. The file:
+
+- Sets up the **OmniSharp** LSP for C# (init.lua's `servers` table already covers `clangd`, `gopls`, and `rust_analyzer` — they attach as soon as the binaries are on PATH).
+- Adds **conform formatters**: `clang-format` (c/cpp), `csharpier` (cs), `goimports`+`gofmt` (go), `rustfmt` (rust).
+- Adds **nvim-lint linters**: `cpplint` (c/cpp), `golangci-lint` (go), `clippy` (rust).
+- Wires **DAP** adapters: `codelldb` for C/C++/Rust (if on PATH) and `netcoredbg` for C# (from `~/.local/share/windev/`).
+
+The file uses dependencies + live runtime-table mutation so it extends conform/nvim-lint/nvim-dap without clobbering init.lua's existing config functions. Defers loading via `ft = { cs, c, cpp, go, rust }` to keep startup fast.
+
+### Remote Windows build server
+
+Links `config/devtools/winbuild` → `~/.local/bin/winbuild` — a small helper that dispatches builds to a Windows machine over SSH (rsync source up, run remote build, pull artifacts back). See [Devtools Scripts → winbuild](devtools.md#winbuild) for usage.
+
+### Shell PATH
+
+Writes `~/.config/dfinstall/windev.zsh` (regenerated on each install) prepending `~/.cargo/bin`, `~/.dotnet`, `~/.dotnet/tools`, and `$(go env GOPATH)/bin`, and exporting `DOTNET_ROOT`. The zshrc sources this snippet automatically.
+
+### Caveats
+
+- Cross-compiled Windows `.exe` debugging from WSL is limited; DAP targets are wired for the binaries' native debuggers (delve for Go, codelldb/netcoredbg for Linux-native builds). Remote-Windows debugging is out of scope.
+- Downloads (dotnet-install.sh, OmniSharp, netcoredbg) need network access at install time. Failures warn rather than abort.
+
+**Status:** Reports `disabled` when not enabled. When enabled, shows linked file counts and a `mingw+dotnet+rust+go` summary of detected toolchains.
+
+**Uninstall:** Removes the nvim plugin file, `winbuild`, and `windev.zsh`, and clears `windev_enabled`. Language toolchains/SDKs are deliberately left installed — they may be shared with other workflows.
+
+---
+
 ## tmux
 
 **File:** `modules/tmux.go`

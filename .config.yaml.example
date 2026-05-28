@@ -28,3 +28,9 @@ skip_backup: true
 # Shell files the user chose NOT to preserve (won't be prompted again)
 # dismissed_files:
 #   - .old_aliases
+
+# Opt-in for the windev module (Windows cross-development toolchains + nvim
+# language support + winbuild remote-dispatch helper). Set automatically by
+# `dfinstall install windev`; cleared by `dfinstall uninstall windev`. While
+# false, the module is skipped by `install all`.
+# windev_enabled: false
