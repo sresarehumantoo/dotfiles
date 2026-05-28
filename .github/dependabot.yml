@@ -1,0 +1,56 @@
+# Dependabot config — automated dependency update PRs.
+# Docs: https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+#
+# PRs target `develop` (not `main`) so dependency bumps flow through the same
+# branch as everything else and the develop → main release path stays linear.
+# Flip target-branch to "main" if you'd rather have surgical bumps land on the
+# protected branch directly — CI gates either way.
+#
+# Minor + patch updates are grouped into one PR per ecosystem per week so CI
+# doesn't run five separate times for routine bumps. Major updates stay
+# individual (default) because they tend to need attention.
+version: 2
+
+updates:
+  # Go module deps (cobra, huh, mcp-go, yaml.v3, x/term, ...)
+  - package-ecosystem: "gomod"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "deps"
+      include: "scope"
+    open-pull-requests-limit: 5
+    groups:
+      go-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions versions in .github/workflows/*.yml
+  # (actions/checkout, ludeeus/action-shellcheck, ...)
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "develop"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        applies-to: version-updates
+        update-types:
+          - "minor"
+          - "patch"

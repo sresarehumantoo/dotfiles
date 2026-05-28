@@ -181,6 +181,8 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 
 `main` is protected: both checks must pass before a pull request can be merged.
 
+[Dependabot](.github/dependabot.yml) opens weekly PRs against `develop` for Go modules and GitHub Actions version bumps. Minor/patch updates are grouped into one PR per ecosystem; major updates land as individual PRs because they tend to need attention. The same CI checks gate the bump PRs.
+
 ## MCP Server
 
 dfinstall includes an [MCP](https://modelcontextprotocol.io/) server for AI-assisted dotfiles management. It exposes the same operations as the CLI over a stdio JSON-RPC transport.
