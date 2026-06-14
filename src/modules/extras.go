@@ -235,20 +235,32 @@ func installDocker() error {
 	return installDockerApt()
 }
 
+// DockerRepoBaseURL returns the Docker CE apt repo base for this distro family.
+// Docker ships separate trees: Ubuntu(-family) hosts must use linux/ubuntu,
+// while Debian and its derivatives use linux/debian. Pairing linux/debian with
+// an Ubuntu codename (e.g. "noble") points at a suite that doesn't exist.
+func DockerRepoBaseURL(ubuntuFamily bool) string {
+	if ubuntuFamily {
+		return "https://download.docker.com/linux/ubuntu"
+	}
+	return "https://download.docker.com/linux/debian"
+}
+
 func installDockerApt() error {
 	arch := runtime.GOARCH
 	codename := core.UpstreamDebianCodename()
+	base := DockerRepoBaseURL(core.IsUbuntuFamily())
 
 	repoContent := fmt.Sprintf(`Types: deb
-URIs: https://download.docker.com/linux/debian
+URIs: %s
 Suites: %s
 Components: stable
 Architectures: %s
-Signed-By: /etc/apt/keyrings/docker.asc`, codename, arch)
+Signed-By: /etc/apt/keyrings/docker.asc`, base, codename, arch)
 
 	if err := addAptRepo(
 		"Docker",
-		"https://download.docker.com/linux/debian/gpg",
+		base+"/gpg",
 		"/etc/apt/keyrings/docker.asc",
 		repoContent,
 		"/etc/apt/sources.list.d/docker.sources",
@@ -341,15 +353,18 @@ func installHashicorp() error {
 func installHashicorpApt() error {
 	arch := runtime.GOARCH
 
+	// The /gpg endpoint serves an ASCII-armored key, so it must land at a .asc
+	// path (apt treats a .gpg keyring as binary/dearmored and fails to verify
+	// it — "NO_PUBKEY ... not signed"). Mirrors the working Docker key handling.
 	repoContent := fmt.Sprintf(
-		"deb [arch=%s signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com %s main",
+		"deb [arch=%s signed-by=/usr/share/keyrings/hashicorp-archive-keyring.asc] https://apt.releases.hashicorp.com %s main",
 		arch, core.UpstreamDebianCodename(),
 	)
 
 	if err := addAptRepo(
 		"Hashicorp",
 		"https://apt.releases.hashicorp.com/gpg",
-		"/usr/share/keyrings/hashicorp-archive-keyring.gpg",
+		"/usr/share/keyrings/hashicorp-archive-keyring.asc",
 		repoContent,
 		"/etc/apt/sources.list.d/hashicorp.list",
 	); err != nil {
