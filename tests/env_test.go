@@ -205,3 +205,29 @@ func TestParseProcVersion_WSL(t *testing.T) {
 		})
 	}
 }
+
+func TestParseIsUbuntuFamily(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{"Ubuntu noble", "ID=ubuntu\nVERSION_CODENAME=noble\nID_LIKE=debian", true},
+		{"Linux Mint", "ID=linuxmint\nID_LIKE=ubuntu", true},
+		{"Pop!_OS via ID_LIKE", "ID=pop\nID_LIKE=\"ubuntu debian\"", true},
+		{"Elementary", "ID=elementary\nID_LIKE=ubuntu", true},
+		{"pure Debian", "ID=debian\nVERSION_CODENAME=bookworm", false},
+		{"Kali (debian-based)", "ID=kali\nID_LIKE=debian", false},
+		{"Parrot (debian-based)", "ID=parrot\nID_LIKE=debian", false},
+		{"empty", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := core.ParseIsUbuntuFamily(tt.content)
+			if got != tt.want {
+				t.Errorf("ParseIsUbuntuFamily(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
