@@ -241,6 +241,44 @@ func IsDebianBased() bool {
 	return distro == DistroDebian
 }
 
+// ubuntuFamilyIDs are os-release IDs whose apt suites track Ubuntu releases.
+// They must use vendor repos' linux/ubuntu tree (e.g. Docker), not linux/debian.
+var ubuntuFamilyIDs = map[string]bool{
+	"ubuntu": true, "linuxmint": true, "elementary": true,
+	"pop": true, "neon": true, "zorin": true,
+}
+
+// IsUbuntuFamily reports whether this host is Ubuntu or an Ubuntu derivative
+// (vs a pure-Debian one). Needed to pick the right upstream apt repo for
+// vendors like Docker that ship separate ubuntu/ and debian/ trees — pairing
+// linux/debian with an Ubuntu codename (e.g. "noble") yields a missing suite.
+func IsUbuntuFamily() bool {
+	osRelease, _ := os.ReadFile("/etc/os-release")
+	return ParseIsUbuntuFamily(string(osRelease))
+}
+
+// ParseIsUbuntuFamily is the testable core of IsUbuntuFamily.
+func ParseIsUbuntuFamily(osRelease string) bool {
+	var id, idLike string
+	for _, line := range strings.Split(osRelease, "\n") {
+		switch {
+		case strings.HasPrefix(line, "ID="):
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"'")
+		case strings.HasPrefix(line, "ID_LIKE="):
+			idLike = strings.Trim(strings.TrimPrefix(line, "ID_LIKE="), "\"'")
+		}
+	}
+	if ubuntuFamilyIDs[id] {
+		return true
+	}
+	for _, like := range strings.Fields(idLike) {
+		if like == "ubuntu" {
+			return true
+		}
+	}
+	return false
+}
+
 // DisableReadonly disables the SteamOS readonly filesystem.
 func DisableReadonly() error {
 	PauseSpinner()

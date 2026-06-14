@@ -76,3 +76,12 @@ func TestResolvePkgs(t *testing.T) {
 		})
 	}
 }
+
+func TestDockerRepoBaseURL(t *testing.T) {
+	if got := modules.DockerRepoBaseURL(true); got != "https://download.docker.com/linux/ubuntu" {
+		t.Errorf("DockerRepoBaseURL(ubuntu) = %q", got)
+	}
+	if got := modules.DockerRepoBaseURL(false); got != "https://download.docker.com/linux/debian" {
+		t.Errorf("DockerRepoBaseURL(debian) = %q", got)
+	}
+}
