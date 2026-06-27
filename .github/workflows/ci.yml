@@ -21,9 +21,9 @@ jobs:
     name: Go (fmt · vet · build · test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod # tracks the version declared in go.mod
           cache: true
@@ -52,7 +52,7 @@ jobs:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Scope to the directories that hold standalone bash scripts. A repo-wide
       # scan would also pull in config/shell/ — zsh files (p10k.zsh, zshrc, *.zsh)
