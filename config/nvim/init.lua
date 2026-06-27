@@ -321,9 +321,49 @@ require('lazy').setup({
       })
 
       -- Diagnostic Config
+
+      -- Native `virtual_lines` renders with virt_lines_overflow = 'scroll', so a
+      -- long message (e.g. a pyright/ruff error) is CLIPPED at the window's right
+      -- edge — painful in a narrow split. The renderer does, however, split the
+      -- formatted message on '\n' into one virtual line each. So we word-wrap the
+      -- message to the usable width here; each wrapped row becomes its own
+      -- (fitting) virtual line. Budget for the gutter + the '└──── ' connector
+      -- indent, which grows with the diagnostic's column.
+      local function wrap_diagnostic(diagnostic)
+        local msg = diagnostic.code and string.format('%s: %s', diagnostic.code, diagnostic.message) or diagnostic.message
+        local win_width = vim.api.nvim_win_get_width(0)
+        local indent = (diagnostic.col or 0)
+        local width = math.max(30, win_width - indent - 12)
+
+        local rows, line = {}, ''
+        local function push(word)
+          if line == '' then
+            line = word
+          elseif #line + 1 + #word <= width then
+            line = line .. ' ' .. word
+          else
+            rows[#rows + 1] = line
+            line = word
+          end
+        end
+        for word in msg:gmatch '%S+' do
+          -- Hard-break a single token longer than the wrap width (e.g. a path).
+          while #word > width do
+            push(word:sub(1, width))
+            word = word:sub(width + 1)
+          end
+          push(word)
+        end
+        if line ~= '' then
+          rows[#rows + 1] = line
+        end
+        return table.concat(rows, '\n')
+      end
+
       vim.diagnostic.config {
         severity_sort = true,
-        float = { border = 'rounded', source = 'if_many' },
+        -- Wrap and cap the hover/jump float so long messages stay on screen.
+        float = { border = 'rounded', source = 'if_many', max_width = 80, wrap = true },
         underline = { severity = vim.diagnostic.severity.ERROR },
         signs = vim.g.have_nerd_font and {
           text = {
@@ -333,27 +373,46 @@ require('lazy').setup({
             [vim.diagnostic.severity.HINT] = '󰌶 ',
           },
         } or {},
-        virtual_text = {
-          source = 'if_many',
-          spacing = 2,
-          format = function(diagnostic)
-            local diagnostic_message = {
-              [vim.diagnostic.severity.ERROR] = diagnostic.message,
-              [vim.diagnostic.severity.WARN] = diagnostic.message,
-              [vim.diagnostic.severity.INFO] = diagnostic.message,
-              [vim.diagnostic.severity.HINT] = diagnostic.message,
-            }
-            return diagnostic_message[diagnostic.severity]
-          end,
-        },
+        -- Full message, wrapped on its own line(s) under the cursor's line — never
+        -- clipped. Every offending line still gets a gutter sign for scanning.
+        virtual_text = false,
+        virtual_lines = { current_line = true, format = wrap_diagnostic },
       }
+
+      -- Toggle: expand diagnostics inline under *every* line (virtual_lines for
+      -- all) vs. just the cursor's line. Handy when scanning a whole file.
+      vim.keymap.set('n', '<leader>td', function()
+        local cfg = vim.diagnostic.config()
+        local all_lines = type(cfg.virtual_lines) == 'table' and cfg.virtual_lines.current_line == nil
+        vim.diagnostic.config {
+          virtual_lines = all_lines and { current_line = true, format = wrap_diagnostic } or { format = wrap_diagnostic },
+        }
+      end, { desc = '[T]oggle [D]iagnostic virtual lines (all/current)' })
+
+      -- Open the full diagnostic for the current line in a wrapped float.
+      vim.keymap.set('n', '<leader>e', vim.diagnostic.open_float, { desc = 'Show diagnostic [E]rror float' })
 
       local capabilities = require('blink.cmp').get_lsp_capabilities()
 
       local servers = {
         clangd = {},
         gopls = {},
-        pyright = {},
+        -- Python: pyright owns types/hover/completion; ruff owns
+        -- linting, import sorting and code actions (one fast binary).
+        pyright = {
+          settings = {
+            pyright = {
+              -- ruff organizes imports, so silence pyright's overlapping action.
+              disableOrganizeImports = true,
+            },
+          },
+        },
+        ruff = {
+          -- Defer hover to pyright so a single source answers `K`.
+          on_attach = function(client)
+            client.server_capabilities.hoverProvider = false
+          end,
+        },
         rust_analyzer = {},
         lua_ls = {
           settings = {
@@ -415,6 +474,8 @@ require('lazy').setup({
       end,
       formatters_by_ft = {
         lua = { 'stylua' },
+        -- Organize imports first, then format — both run by ruff on save.
+        python = { 'ruff_organize_imports', 'ruff_format' },
       },
     },
   },
@@ -512,7 +573,7 @@ require('lazy').setup({
       require('nvim-treesitter').setup()
       vim.treesitter.language.register('markdown', 'markdown_inline')
 
-      local ensure = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' }
+      local ensure = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc' }
       for _, lang in ipairs(ensure) do
         pcall(function() vim.treesitter.language.add(lang) end)
       end
