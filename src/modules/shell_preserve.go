@@ -48,6 +48,7 @@ func init() {
 var nonShellFiles = map[string]bool{
 	".vimrc":        true,
 	".npmrc":        true,
+	".yarnrc":       true, // yarn v1 config (key value pairs, not shell)
 	".netrc":        true,
 	".wgetrc":       true,
 	".curlrc":       true,
@@ -208,6 +209,13 @@ func SanitizePreservedFiles(paths []string) (cleaned, dropped []string) {
 		return paths, nil
 	}
 	for _, p := range paths {
+		// Drop known non-shell files (e.g. .yarnrc captured before it was
+		// added to the exclusion list) regardless of content — their syntax
+		// errors at every shell start.
+		if nonShellFiles[p] {
+			dropped = append(dropped, p)
+			continue
+		}
 		full := filepath.Join(home, p)
 		fi, err := os.Stat(full)
 		if err != nil {
