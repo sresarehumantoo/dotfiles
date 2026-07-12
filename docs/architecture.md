@@ -223,17 +223,44 @@ Every operation is idempotent. Running `dfinstall install all` twice produces th
 |-------|--------|
 | WSL | `/proc/version` contains "microsoft" |
 | Git Bash | `$MSYSTEM` or `$MINGW_PREFIX` set |
+| Distro | `/etc/os-release` `ID`/`ID_LIKE` → `Debian`, `Fedora`, `Arch`, or `SteamOS` |
 
-Git Bash is **rejected** with an error pointing the user to WSL. WSL is detected and logged, enabling WSL-only modules (like wsl.conf setup).
+Git Bash is **rejected** (via `AssertEnvironment()`) with an error pointing the user to WSL. WSL is detected and logged, enabling WSL-only modules (like wsl.conf setup). The detected distro (`GetDistro()`, plus helpers `IsDebianBased()`, `IsArchBased()`, `IsSteamOS()`) drives package selection and the SteamOS readonly-root handling.
 
 ### Dotfiles Directory Resolution
 
-Checked in order:
+`DotfilesDir()` answers "which clone should symlinks point into?" and is cached (reset via `ResetDotfilesDir()`). Resolution order:
 
-1. `$DOTFILES` environment variable
-2. Build-time path (baked via `-ldflags` in the Makefile)
-3. Walk up from executable looking for `go.mod`
-4. Current working directory (fallback)
+1. `$DOTFILES` environment variable — explicit override, always wins
+2. The machine-global **canonical pointer**, if it still points at a valid checkout
+3. The clone this binary is physically running from — `InvokingCloneDir()`
+
+`InvokingCloneDir()` (in `core/env.go`) answers the different question "where am I running from?" and has its own order: `$DOTFILES` → build-time baked path (`-ldflags` from the Makefile) → walk up from the executable looking for `go.mod` → current working directory.
+
+### Canonical Clone Pointer
+
+`core/canonical.go` records which clone of the repo is authoritative on this host, so that every clone's binary links into a single source (preventing symlink drift across multiple clones).
+
+| Function | Purpose |
+|----------|---------|
+| `CanonicalPointerPath()` | `$XDG_CONFIG_HOME/dfinstall/dotfiles-dir` (lives outside any clone) |
+| `ReadCanonicalDir()` | Return the recorded canonical dir, or `""` if unset/unreadable — **self-healing**: a stale path (clone deleted/renamed, no `config/` dir) is ignored, so `DotfilesDir()` falls through and the next `install all` rewrites it |
+| `WriteCanonicalDir(dir)` | Record `dir` atomically (temp file + rename) |
+
+`install all` calls `adoptCanonical()` first: it records the invoking clone as canonical, then the module loop repoints any stray symlinks — so `install all` both switches the canonical clone and consolidates a machine onto it. A partial `install <module>` links into the canonical clone (not necessarily the one you're sitting in) and `AlwaysWarn()`s if those differ.
+
+### Link Drift Detection
+
+`core/drift.go` reports when managed symlinks are spread across more than one clone.
+
+| Symbol | Purpose |
+|--------|---------|
+| `LinkRoot(target)` | Extract the clone root from a managed symlink target by trimming the trailing `/config/...` |
+| `DetectLinkDrift()` | Walk every `LinkExporter` module's links, group existing symlinks by clone root (missing/not-yet-linked targets ignored) |
+| `LinkDrift.Split()` | True when symlinks span multiple roots, or all point at a non-canonical clone |
+| `LinkDrift.SortedRoots()` | Clone roots in stable order for display |
+
+`doctor` and `diff` call `DetectLinkDrift()` and warn (listing each root, marking the canonical one) when `Split()` is true, pointing the user at `dfinstall install all` to consolidate.
 
 ## File Hashing
 

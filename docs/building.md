@@ -6,7 +6,7 @@ How to compile `dfinstall` from source and set up a development environment.
 
 | Requirement | Minimum | Notes |
 |-------------|---------|-------|
-| **Go** | 1.24+ | [Install Go](https://go.dev/doc/install) |
+| **Go** | 1.25+ | [Install Go](https://go.dev/doc/install) |
 | **Git** | any | For cloning and module downloads |
 | **Make** | any | Optional — convenience targets only |
 
@@ -30,7 +30,13 @@ go build \
   -o bin/dfinstall ./src/cmd/dfinstall
 ```
 
-The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This allows `dfinstall` to locate its `config/` directory regardless of where it's invoked from. If omitted, the binary falls back to environment variables, walking up from the executable, and the current directory.
+The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This is only one input to how `dfinstall` locates its `config/` directory. At runtime `DotfilesDir()` resolves in order:
+
+1. `$DOTFILES` environment variable — explicit override, always wins.
+2. The machine-global canonical pointer file (`~/.config/dfinstall/dotfiles-dir`) — records which clone is authoritative on this host, so every clone links from one source. `install all` writes it (and self-heals a stale pointer).
+3. The clone the binary is physically running from — via `$DOTFILES`, then the baked-in path, then walking up from the executable to the nearest `go.mod`, then the current directory.
+
+So the baked path is a fallback used only when neither `$DOTFILES` nor the canonical pointer applies. Recording the canonical clone on `install all` is what prevents symlink drift across multiple clones; verify with `dfinstall doctor` or `dfinstall diff`.
 
 ## Go Dependencies
 
@@ -53,21 +59,31 @@ go mod tidy
 
 ## Make Targets
 
+Run `make` (or `make help`) to list every target.
+
 | Target | Command | Description |
 |--------|---------|-------------|
+| `help` | — | List all targets (the default goal) |
 | `build` | `go build ...` | Compile to `bin/dfinstall` |
 | `build-mcp` | `go build ...` | Compile the MCP server to `bin/dfinstall-mcp` |
+| `build-all` | `build` + `build-mcp` | Compile both binaries |
 | `test` | `go test ./src/... ./tests/...` | Run all unit tests |
 | `lint` | `go vet ./src/... ./tests/...` | Static analysis |
-| `fmt` | `gofmt -s -w src/ tests/` | Format source code |
+| `fmt` | `gofmt -s -w src/ tests/` | Format source code in place |
+| `fmt-check` | `gofmt -s -l src tests` | Check formatting without modifying (same check as CI) |
+| `ci` | `fmt-check` + `lint` + `build-all` + `test` | Run every check CI runs, locally |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
+| `uninstall` | `make build && bin/dfinstall uninstall all` | Remove all managed symlinks |
+| `install-bin` | `install ... ~/.local/bin` | Install both binaries onto `PATH` (`~/.local/bin`) |
+| `install-mcp` | `claude mcp add -s user ...` | Register the MCP server with Claude Code (user scope, works anywhere) |
+| `uninstall-mcp` | `claude mcp remove dfinstall` | Unregister the MCP server from Claude Code |
 | `clean` | `rm -rf bin/` | Remove build artifacts |
 
 ## Development Workflow
 
 ```bash
-# Build and test
-make build && make test && make lint
+# Run every check CI runs (fmt-check + vet + build both + test)
+make ci
 
 # Test a single module
 ./bin/dfinstall install shell -v
@@ -123,8 +139,8 @@ src/
     omz_extended.go    #   Extended plugin menu and file writer
     shell_preserve.go  #   Custom shell file preservation menu and writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
-    ...                #   18 modules total
-tests/                 # Unit tests (15 files)
+    ...                #   19 modules total
+tests/                 # Unit tests (17 files)
 ```
 
 ## Testing
@@ -154,7 +170,7 @@ CI runs on every push and pull request to `main` and `develop` via GitHub Action
 
 | Job | Checks |
 |-----|--------|
-| `go` | `gofmt -s` formatting, `go vet` (`make lint`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), and the full test suite (`make test`). The Go version tracks `go.mod`. |
+| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), and the full test suite (`make test`). The Go version tracks `go.mod`. |
 | `shellcheck` | Lints the standalone bash scripts in `config/devtools/` and `bootstrap/` via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. |
 
 The `main` branch is protected: both checks must pass before a pull request can merge.

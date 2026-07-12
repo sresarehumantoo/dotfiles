@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -134,6 +132,17 @@ func registerTools(s *server.MCPServer) {
 		),
 		handleConfig,
 	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_registry_validate",
+			mcp.WithDescription("Validate a toolkit registry file and report the tool count. Accepts an HTTP(S) URL, file:// URL, or local path."),
+			mcp.WithString("source",
+				mcp.Required(),
+				mcp.Description("Path or URL to the toolkit registry to validate"),
+			),
+		),
+		handleRegistryValidate,
+	)
 }
 
 // --- Tool handlers ---
@@ -164,6 +173,13 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	if name == "all" {
+		// Record the invoking clone as canonical (and repoint stray symlinks
+		// from other clones), matching the CLI's `install all`.
+		var b strings.Builder
+		if prev, changed := core.AdoptCanonical(core.InvokingCloneDir()); changed && prev != "" {
+			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", core.InvokingCloneDir(), prev)
+		}
+
 		beforeStatus := make(map[string]core.ModuleStatus)
 		for _, m := range core.AllModules() {
 			beforeStatus[m.Name()] = m.Status()
@@ -179,7 +195,6 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 			}
 		}
 
-		var b strings.Builder
 		for _, m := range core.AllModules() {
 			after := m.Status()
 			before := beforeStatus[m.Name()]
@@ -228,64 +243,18 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 }
 
 func handleDoctor(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	home, _ := os.UserHomeDir()
-
-	type check struct {
-		name string
-		fn   func() string
-	}
-
-	checks := []check{
-		{"go", cmdCheck("go")},
-		{"nvim", cmdCheck("nvim")},
-		{"zsh", cmdCheck("zsh")},
-		{"tmux", cmdCheck("tmux")},
-		{"git", cmdCheck("git")},
-		{"delta", cmdCheck("delta")},
-		{"curl", cmdCheck("curl")},
-		{"fzf", cmdCheck("fzf")},
-		{"ripgrep", cmdCheck("rg")},
-		{"docker", cmdCheck("docker")},
-		{"terraform", cmdCheck("terraform")},
-		{"pip3", cmdCheck("pip3")},
-		{"oh-my-zsh", dirCheck(filepath.Join(home, ".oh-my-zsh"))},
-		{"zsh-autosuggestions", dirCheck(filepath.Join(home, ".oh-my-zsh", "custom", "plugins", "zsh-autosuggestions"))},
-		{"powerlevel10k", dirCheck(filepath.Join(home, ".oh-my-zsh", "custom", "themes", "powerlevel10k"))},
-		{"fonts", fileCheck(filepath.Join(home, ".local", "share", "fonts", "HackNerdFont-Regular.ttf"))},
-		{"nvim config", linkCheck(
-			core.ConfigPath("nvim", "init.lua"),
-			filepath.Join(core.XDGConfigHome(), "nvim", "init.lua"),
-		)},
-		{"shell config", linkCheck(
-			core.ConfigPath("shell", "zshrc"),
-			filepath.Join(home, ".zshrc"),
-		)},
-		{"git config", linkCheck(
-			core.ConfigPath("git", "gitconfig"),
-			filepath.Join(home, ".gitconfig"),
-		)},
-		{"tmux config", linkCheck(
-			core.ConfigPath("tmux", "tmux.conf"),
-			filepath.Join(core.XDGConfigHome(), "tmux", "tmux.conf"),
-		)},
-	}
-
-	if core.IsWSL() {
-		checks = append(checks,
-			check{"wsl.conf", fileMatchCheck(
-				core.ConfigPath("wsl", "wsl.conf"),
-				"/etc/wsl.conf",
-			)},
-		)
-	}
-
+	// Render the shared check set (modules.RunDoctorChecks) so the MCP doctor
+	// stays in lockstep with the CLI `doctor` command.
 	var b strings.Builder
 	allOk := true
-	for _, c := range checks {
-		if msg := c.fn(); msg == "" {
-			fmt.Fprintf(&b, "  ok  %s\n", c.name)
+	for _, r := range modules.RunDoctorChecks() {
+		if r.OK {
+			fmt.Fprintf(&b, "  ok  %s\n", r.Name)
 		} else {
-			fmt.Fprintf(&b, "  FAIL  %s - %s\n", c.name, msg)
+			fmt.Fprintf(&b, "  FAIL  %s - %s\n", r.Name, r.Detail)
+			for _, e := range r.Extra {
+				fmt.Fprintf(&b, "        %s\n", e)
+			}
 			allOk = false
 		}
 	}
@@ -457,6 +426,18 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}
 }
 
+func handleRegistryValidate(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	source := request.GetString("source", "")
+	if source == "" {
+		return mcp.NewToolResultError("source parameter is required"), nil
+	}
+	reg, err := core.FetchRegistry(source)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid registry: %v", err)), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("registry valid (%d tools)", len(reg.Tools))), nil
+}
+
 func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("module", "")
 	if name == "" {
@@ -562,62 +543,18 @@ func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, 
 	} else {
 		fmt.Fprintf(&b, "%d issue(s) — run dfinstall_install with module 'all' to fix\n", issues)
 	}
+
+	// Multi-clone drift: symlinks split across more than one dotfiles clone.
+	if d := core.DetectLinkDrift(); d.Split() {
+		fmt.Fprintf(&b, "\nSymlinks split across %d dotfiles clone(s):\n", len(d.Roots))
+		for _, root := range d.SortedRoots() {
+			marker := ""
+			if root == d.Canonical {
+				marker = " (canonical)"
+			}
+			fmt.Fprintf(&b, "  %s%s — %d link(s)\n", root, marker, len(d.Roots[root]))
+		}
+		fmt.Fprintf(&b, "Run dfinstall_install with module 'all' from %s to consolidate.\n", d.Canonical)
+	}
 	return mcp.NewToolResultText(b.String()), nil
-}
-
-// --- Doctor check helpers ---
-
-func cmdCheck(name string) func() string {
-	return func() string {
-		if _, err := exec.LookPath(name); err != nil {
-			return "not found"
-		}
-		return ""
-	}
-}
-
-func dirCheck(path string) func() string {
-	return func() string {
-		fi, err := os.Stat(path)
-		if err != nil || !fi.IsDir() {
-			return "not found"
-		}
-		return ""
-	}
-}
-
-func fileCheck(path string) func() string {
-	return func() string {
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return "not found"
-		}
-		return ""
-	}
-}
-
-func linkCheck(src, dst string) func() string {
-	return func() string {
-		switch core.CheckLink(src, dst) {
-		case "ok":
-			return ""
-		case "wrong":
-			return "wrong target"
-		case "file":
-			return "regular file (not symlinked)"
-		default:
-			return "not found"
-		}
-	}
-}
-
-func fileMatchCheck(src, dst string) func() string {
-	return func() string {
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			return "not found"
-		}
-		if !core.FilesMatch(src, dst) {
-			return "outdated"
-		}
-		return ""
-	}
 }

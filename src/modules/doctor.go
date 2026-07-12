@@ -9,13 +9,18 @@ import (
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
-// RunDoctor performs health checks on the environment.
-func RunDoctor() {
-	fmt.Println("Running health checks...")
-	fmt.Println()
+// DoctorResult is one environment health-check outcome.
+type DoctorResult struct {
+	Name   string
+	OK     bool
+	Detail string   // problem summary when !OK, or extra info on an OK check
+	Extra  []string // additional indented lines (collision list, drift breakdown)
+}
 
-	allOk := true
-
+// RunDoctorChecks runs every health check and returns structured results. It is
+// the single source of truth shared by the CLI `doctor` command (RunDoctor) and
+// the MCP dfinstall_doctor tool, so the two renderings can't drift.
+func RunDoctorChecks() []DoctorResult {
 	checks := []struct {
 		name  string
 		check func() string // "" = ok, non-empty = problem
@@ -98,39 +103,65 @@ func RunDoctor() {
 		)
 	}
 
+	results := make([]DoctorResult, 0, len(checks)+2)
 	for _, c := range checks {
-		if msg := c.check(); msg == "" {
-			core.Ok("%s", c.name)
-		} else {
-			core.Warn("%s — %s", c.name, msg)
-			allOk = false
-		}
+		msg := c.check()
+		results = append(results, DoctorResult{Name: c.name, OK: msg == "", Detail: msg})
 	}
 
-	// Check alias collisions between managed and preserved shell files
+	// Alias collisions between managed and preserved shell files.
 	if len(core.Cfg.PreservedFiles) > 0 {
-		if ReportAliasCollisions() {
-			allOk = false
+		if collisions := CheckAliasCollisions(); len(collisions) > 0 {
+			extra := make([]string, 0, len(collisions)+1)
+			for _, c := range collisions {
+				extra = append(extra, fmt.Sprintf("%q defined in both ~/.aliases and ~/%s", c.Name, c.PreservedFile))
+			}
+			extra = append(extra, "remove duplicates from preserved files, or dismiss via: dfinstall install shell")
+			results = append(results, DoctorResult{Name: "alias collisions", OK: false, Detail: "preserved files override managed aliases", Extra: extra})
 		} else {
-			core.Ok("alias collisions: none")
+			results = append(results, DoctorResult{Name: "alias collisions", OK: true, Detail: "none"})
 		}
 	}
 
-	// Check that managed symlinks all point at a single (canonical) dotfiles
-	// clone. Split symlinks are the multi-clone drift condition.
-	if drift := core.DetectLinkDrift(); drift.Split() {
-		allOk = false
-		core.Warn("dotfiles clones — symlinks split across %d location(s):", len(drift.Roots))
-		for _, root := range drift.SortedRoots() {
+	// Managed symlinks should all point at one (canonical) dotfiles clone.
+	if d := core.DetectLinkDrift(); d.Split() {
+		extra := make([]string, 0, len(d.Roots)+1)
+		for _, root := range d.SortedRoots() {
 			marker := ""
-			if root == drift.Canonical {
+			if root == d.Canonical {
 				marker = " (canonical)"
 			}
-			core.Warn("    %s%s — %d link(s)", root, marker, len(drift.Roots[root]))
+			extra = append(extra, fmt.Sprintf("%s%s — %d link(s)", root, marker, len(d.Roots[root])))
 		}
-		core.Warn("    run 'dfinstall install all' from %s to consolidate", drift.Canonical)
+		extra = append(extra, fmt.Sprintf("run 'dfinstall install all' from %s to consolidate", d.Canonical))
+		results = append(results, DoctorResult{Name: "dotfiles clones", OK: false, Detail: fmt.Sprintf("symlinks split across %d location(s)", len(d.Roots)), Extra: extra})
 	} else {
-		core.Ok("dotfiles clones: single source")
+		results = append(results, DoctorResult{Name: "dotfiles clones", OK: true, Detail: "single source"})
+	}
+
+	return results
+}
+
+// RunDoctor prints the health-check results for the CLI `doctor` command.
+func RunDoctor() {
+	fmt.Println("Running health checks...")
+	fmt.Println()
+
+	allOk := true
+	for _, r := range RunDoctorChecks() {
+		if r.OK {
+			if r.Detail != "" {
+				core.Ok("%s: %s", r.Name, r.Detail)
+			} else {
+				core.Ok("%s", r.Name)
+			}
+		} else {
+			core.Warn("%s — %s", r.Name, r.Detail)
+			for _, e := range r.Extra {
+				core.Warn("    %s", e)
+			}
+			allOk = false
+		}
 	}
 
 	fmt.Println()

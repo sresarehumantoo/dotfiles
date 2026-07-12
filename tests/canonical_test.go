@@ -98,6 +98,43 @@ func TestDotfilesDirPrecedence(t *testing.T) {
 	}
 }
 
+func TestAdoptCanonical(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("DOTFILES", "")
+	defer core.ResetDotfilesDir()
+
+	repoA := makeRepo(t, tmp, "a")
+	repoB := makeRepo(t, tmp, "b")
+
+	// First adopt: no previous canonical, changes.
+	prev, changed := core.AdoptCanonical(repoA)
+	if !changed || prev != "" {
+		t.Fatalf("first adopt: got (prev=%q, changed=%v), want (\"\", true)", prev, changed)
+	}
+	if got := core.ReadCanonicalDir(); got != repoA {
+		t.Fatalf("canonical = %q, want %q", got, repoA)
+	}
+	core.ResetDotfilesDir()
+	if got := core.DotfilesDir(); got != repoA {
+		t.Fatalf("DotfilesDir = %q, want adopted %q", got, repoA)
+	}
+
+	// Re-adopt same dir: no change.
+	if prev, changed := core.AdoptCanonical(repoA); changed || prev != repoA {
+		t.Fatalf("re-adopt same: got (prev=%q, changed=%v), want (%q, false)", prev, changed, repoA)
+	}
+
+	// Adopt a different clone: reports the previous and switches.
+	prev, changed = core.AdoptCanonical(repoB)
+	if !changed || prev != repoA {
+		t.Fatalf("switch adopt: got (prev=%q, changed=%v), want (%q, true)", prev, changed, repoA)
+	}
+	if got := core.ReadCanonicalDir(); got != repoB {
+		t.Fatalf("canonical after switch = %q, want %q", got, repoB)
+	}
+}
+
 func TestLinkDriftSplit(t *testing.T) {
 	// Single root == canonical -> no drift.
 	d := core.LinkDrift{
