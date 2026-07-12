@@ -6,7 +6,7 @@ return {
     config = function()
       local lint = require 'lint'
       lint.linters_by_ft = {
-        markdown = { 'markdownlint' },
+        markdown = { 'markdownlint-cli2' },
       }
 
       -- To allow other plugins to add linters to require('lint').linters_by_ft,
@@ -50,8 +50,30 @@ return {
           -- Only run the linter in buffers that you can modify in order to
           -- avoid superfluous noise, notably within the handy LSP pop-ups that
           -- describe the hovered symbol using Markdown.
-          if vim.bo.modifiable then
-            lint.try_lint()
+          if not vim.bo.modifiable then
+            return
+          end
+
+          -- Only run linters whose executable is actually on PATH. Otherwise a
+          -- missing tool (e.g. markdownlint-cli2 before Mason finishes
+          -- installing it, or on a machine without Node) makes try_lint spawn a
+          -- nonexistent binary and spam "ENOENT: no such file or directory" on
+          -- every BufEnter.
+          local names = lint.linters_by_ft[vim.bo.filetype] or {}
+          local runnable = {}
+          for _, name in ipairs(names) do
+            local linter = lint.linters[name]
+            local cmd = type(linter) == 'table' and linter.cmd or nil
+            if type(cmd) == 'function' then
+              cmd = cmd()
+            end
+            if cmd and vim.fn.executable(cmd) == 1 then
+              table.insert(runnable, name)
+            end
+          end
+
+          if #runnable > 0 then
+            lint.try_lint(runnable)
           end
         end,
       })

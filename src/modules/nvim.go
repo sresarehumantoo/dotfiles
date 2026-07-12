@@ -257,6 +257,10 @@ var nvimLinks = []nvimLink{
 	{"nvim/lua/custom/plugins/undotree.lua", "lua/custom/plugins/undotree.lua"},
 	{"nvim/lua/custom/plugins/oil.lua", "lua/custom/plugins/oil.lua"},
 	{"nvim/lua/custom/plugins/flash.lua", "lua/custom/plugins/flash.lua"},
+	{"nvim/lua/custom/plugins/markdown.lua", "lua/custom/plugins/markdown.lua"},
+
+	// Filetype-specific editor options (native after/ftplugin)
+	{"nvim/after/ftplugin/markdown.lua", "after/ftplugin/markdown.lua"},
 
 	// Kickstart lua
 	{"nvim/lua/kickstart/health.lua", "lua/kickstart/health.lua"},
