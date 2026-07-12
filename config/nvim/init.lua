@@ -429,7 +429,8 @@ require('lazy').setup({
       vim.list_extend(ensure_installed, {
         'stylua',
         'markdownlint-cli2', -- markdown linter (nvim-lint, see kickstart/plugins/lint.lua)
-        'prettier', -- markdown formatter (conform)
+        'prettierd', -- markdown formatter daemon (conform) — avoids node cold-start
+        'prettier', -- fallback if the prettierd daemon isn't available
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -468,8 +469,12 @@ require('lazy').setup({
         if disable_filetypes[vim.bo[bufnr].filetype] then
           return nil
         else
+          -- Generous timeout: a bare `prettier` is a cold Node process (~600ms
+          -- here, already over the old 500ms) and the first `prettierd` call
+          -- pays a one-time daemon spawn. 500ms made every markdown save fail
+          -- with "Formatter 'prettier' timeout".
           return {
-            timeout_ms = 500,
+            timeout_ms = 3000,
             lsp_format = 'fallback',
           }
         end
@@ -478,7 +483,8 @@ require('lazy').setup({
         lua = { 'stylua' },
         -- Organize imports first, then format — both run by ruff on save.
         python = { 'ruff_organize_imports', 'ruff_format' },
-        markdown = { 'prettier' },
+        -- Prefer the persistent daemon; fall back to one-shot prettier.
+        markdown = { 'prettierd', 'prettier', stop_after_first = true },
       },
     },
   },
@@ -501,6 +507,10 @@ require('lazy').setup({
         opts = {},
       },
       'folke/lazydev.nvim',
+      -- Spelling suggestions + dictionary word completion as a completion
+      -- source. Only active where 'spell' is set (markdown, see
+      -- after/ftplugin/markdown.lua), so it stays out of the way in code.
+      'ribru17/blink-cmp-spell',
     },
     --- @module 'blink.cmp'
     --- @type blink.cmp.Config
@@ -525,14 +535,50 @@ require('lazy').setup({
 
       sources = {
         default = { 'lsp', 'path', 'snippets', 'lazydev', 'buffer' },
+        -- Markdown (and any 'spell' buffer) additionally gets word/spelling
+        -- suggestions. The 'spell' provider self-disables where spell is off,
+        -- so this only fires for prose. 'buffer' gives plain word completion
+        -- from open buffers.
+        per_filetype = {
+          markdown = { 'spell', 'lsp', 'path', 'snippets', 'buffer' },
+        },
         providers = {
           lazydev = { module = 'lazydev.integrations.blink', score_offset = 100 },
+          spell = {
+            name = 'Spell',
+            module = 'blink-cmp-spell',
+            -- Suggestion-based, never auto-correcting: entries only appear in
+            -- the completion menu for you to pick. Native `z=` still works too.
+            enabled = function()
+              return vim.opt_local.spell:get()
+            end,
+            opts = {
+              max_entries = 5,
+              preselect_current_word = true,
+            },
+          },
         },
       },
 
       snippets = { preset = 'luasnip' },
 
-      fuzzy = { implementation = 'lua' },
+      -- Sort spelling suggestions alphabetically among themselves (they have no
+      -- meaningful fuzzy score), everything else by score as usual.
+      fuzzy = {
+        implementation = 'lua',
+        sorts = {
+          function(a, b)
+            local sort = require 'blink.cmp.fuzzy.sort'
+            if a.source_id == 'spell' and b.source_id == 'spell' then
+              return sort.label(a, b)
+            end
+          end,
+          'score',
+          'sort_text',
+          'kind',
+          'label',
+        },
+      },
 
       signature = { enabled = true },
     },
