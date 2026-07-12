@@ -372,7 +372,32 @@ func skipInAll(name string) bool {
 	return false
 }
 
+// adoptCanonical records the clone we're running from as this machine's
+// authoritative dotfiles dir. Because DotfilesDir() then resolves here for the
+// rest of the run, the module loop repoints any symlinks left pointing at other
+// clones — so `install all` both switches canonical and consolidates a machine
+// whose symlinks had drifted across clones.
+func adoptCanonical() {
+	invoking := core.InvokingCloneDir()
+	prev := core.ReadCanonicalDir()
+	if prev == invoking {
+		return
+	}
+	if err := core.WriteCanonicalDir(invoking); err != nil {
+		core.Warn("could not record canonical dotfiles dir: %v", err)
+		return
+	}
+	core.ResetDotfilesDir()
+	if prev != "" {
+		core.Status("Canonical dotfiles dir set to %s (was %s) — repointing symlinks", invoking, prev)
+	} else {
+		core.Debug("canonical dotfiles dir set to %s", invoking)
+	}
+}
+
 func installAll() error {
+	adoptCanonical()
+
 	doBackup, firstRun := shouldBackup()
 
 	if doBackup {
@@ -450,6 +475,16 @@ func installAll() error {
 }
 
 func installOne(m core.Module) error {
+	// Under canonical-always semantics a partial install links into the
+	// canonical clone, not necessarily the one you're sitting in. Say so, so it
+	// isn't surprising — and point at how to switch.
+	if canon := core.ReadCanonicalDir(); canon != "" {
+		if invoking := core.InvokingCloneDir(); invoking != canon {
+			core.AlwaysWarn("running from %s, but canonical dotfiles dir is %s", invoking, canon)
+			core.AlwaysWarn("links will target the canonical clone; run 'dfinstall install all' here to switch")
+		}
+	}
+
 	doBackup, firstRun := shouldBackup()
 
 	if doBackup {
@@ -666,6 +701,20 @@ func runDiff() error {
 		fmt.Println("No drift detected.")
 	} else {
 		fmt.Printf("%d issue(s) — run dfinstall install all to fix\n", issues)
+	}
+
+	// Flag the multi-clone case explicitly: symlinks split across dotfiles
+	// clones (each shows as a "wrong target" above, but the root cause is drift).
+	if d := core.DetectLinkDrift(); d.Split() {
+		fmt.Printf("\nSymlinks split across %d dotfiles clone(s):\n", len(d.Roots))
+		for _, root := range d.SortedRoots() {
+			marker := ""
+			if root == d.Canonical {
+				marker = " (canonical)"
+			}
+			fmt.Printf("  %s%s — %d link(s)\n", root, marker, len(d.Roots[root]))
+		}
+		fmt.Printf("Run 'dfinstall install all' from %s to consolidate.\n", d.Canonical)
 	}
 	return nil
 }
