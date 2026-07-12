@@ -198,6 +198,10 @@ The generated script shuts down WSL, exports the distro, re-imports it to create
 
 Restarts WSL from within WSL. WSL-only. Requires confirmation.
 
+| Flag | Description |
+|------|-------------|
+| `--script` | Generate a PowerShell script (`wsl-restart.ps1`) that shuts down and restarts the distro from Windows, instead of shutting down from within WSL. No elevation required. |
+
 ```
 $ wsl-restart
   ⚠ This will shut down WSL and terminate all sessions.

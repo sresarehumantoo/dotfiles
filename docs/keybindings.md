@@ -36,8 +36,14 @@ Prefix: **Alt+a**
 |-----|--------|
 | `prefix r` | Reload config |
 | `M-n` | New window (current path) |
+| `M-1`–`M-9` | Switch to window 1–9 |
+| `C-q` | Kill window |
 | `M-Enter` | Split vertical (current path) |
-| `M-\|` | Split horizontal (current path) |
+| `M--` | Split horizontal (current path) |
+| `M-q` | Kill pane |
+| `M-m` | Zoom pane toggle |
+| `M-s` | Break pane into new window |
+| `M-c` | Enter copy mode |
 | `prefix m` | Toggle mouse on/off |
 
 ### Pane Navigation
@@ -224,6 +230,18 @@ Leader: **Space**
 | `Tab` / `S-Tab` | Next/previous completion item |
 | `C-e` | Accept completion |
 | `C-s` | Accept and enter |
+
+### Markdown
+
+| Key | Action |
+|-----|--------|
+| `leader tm` | Toggle render-markdown (rendered ↔ raw) |
+| `j` / `k` | Move by display line (soft-wrapped prose) |
+| `leader zs` | Jump to previous misspelling + open `z=` suggestions |
+| `z=` | Spell suggestions for word under cursor |
+| `zg` | Add word to dictionary |
+
+Markdown buffers enable spell-check (`en_us`, CamelCase-aware); misspellings are only highlighted, never auto-corrected.
 
 ---
 

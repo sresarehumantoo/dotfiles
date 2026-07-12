@@ -106,7 +106,7 @@ Selections are saved to `.config.yaml` under `toolkit_tools`. Subsequent install
 
 **File:** `modules/delta.go`
 
-Installs [delta](https://github.com/dandavid/delta), a syntax-highlighting pager for git diffs.
+Installs [delta](https://github.com/dandavison/delta), a syntax-highlighting pager for git diffs.
 
 Tries the latest `.deb` release from GitHub first (auto-detects architecture via `dpkg --print-architecture`). Falls back to the system package manager if the download fails.
 
@@ -203,7 +203,7 @@ The scan filters out: managed shell destinations (`.zshrc`, `.aliases`, etc.), k
 
 After linking, the shell module auto-generates zsh completions for dfinstall and writes them to `~/.zsh.d/_dfinstall.zsh`.
 
-**Status:** Checks 10 symlinks. Shows `+N preserved` when preserved files are configured.
+**Status:** Checks 11 symlinks. Shows `+N preserved` when preserved files are configured.
 
 ---
 
@@ -259,17 +259,17 @@ Key settings:
 
 Sets up a full Neovim configuration under `~/.config/nvim/`:
 
-- **16 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, and lua files for custom plugins and kickstart plugins
+- **20 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
 - **Plugin sync:** Runs `nvim --headless "+Lazy! sync" "+qa"` after linking
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
 
 Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
-**Custom plugins:** colorizer, comment, flash, harpoon, oil, undotree
+**Custom plugins:** colorizer, comment, flash, harpoon, markdown, oil, undotree
 
 **Kickstart plugins:** autopairs, debug, gitsigns, indent_line, lint, neo-tree
 
-**Status:** Checks 16 symlinks.
+**Status:** Checks 20 symlinks.
 
 ---
 

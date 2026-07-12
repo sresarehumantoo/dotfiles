@@ -6,7 +6,7 @@ How to compile `dfinstall` from source and set up a development environment.
 
 | Requirement | Minimum | Notes |
 |-------------|---------|-------|
-| **Go** | 1.24+ | [Install Go](https://go.dev/doc/install) |
+| **Go** | 1.25+ | [Install Go](https://go.dev/doc/install) |
 | **Git** | any | For cloning and module downloads |
 | **Make** | any | Optional — convenience targets only |
 
@@ -30,7 +30,13 @@ go build \
   -o bin/dfinstall ./src/cmd/dfinstall
 ```
 
-The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This allows `dfinstall` to locate its `config/` directory regardless of where it's invoked from. If omitted, the binary falls back to environment variables, walking up from the executable, and the current directory.
+The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This is only one input to how `dfinstall` locates its `config/` directory. At runtime `DotfilesDir()` resolves in order:
+
+1. `$DOTFILES` environment variable — explicit override, always wins.
+2. The machine-global canonical pointer file (`~/.config/dfinstall/dotfiles-dir`) — records which clone is authoritative on this host, so every clone links from one source. `install all` writes it (and self-heals a stale pointer).
+3. The clone the binary is physically running from — via `$DOTFILES`, then the baked-in path, then walking up from the executable to the nearest `go.mod`, then the current directory.
+
+So the baked path is a fallback used only when neither `$DOTFILES` nor the canonical pointer applies. Recording the canonical clone on `install all` is what prevents symlink drift across multiple clones; verify with `dfinstall doctor` or `dfinstall diff`.
 
 ## Go Dependencies
 
@@ -123,8 +129,8 @@ src/
     omz_extended.go    #   Extended plugin menu and file writer
     shell_preserve.go  #   Custom shell file preservation menu and writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
-    ...                #   18 modules total
-tests/                 # Unit tests (15 files)
+    ...                #   19 modules total
+tests/                 # Unit tests (17 files)
 ```
 
 ## Testing

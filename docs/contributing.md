@@ -91,7 +91,7 @@ Add `"foo"` to the expected order in `tests/module_test.go`:
 ```go
 expected := []string{
     "locale", "packages", "extras", "toolkit", "delta", "fonts", "omz",
-    "shell", "devtools", "git", "nvim", "tmux",
+    "shell", "devtools", "git", "nvim", "windev", "tmux",
     "konsole", "ghostty", "htop", "wsl", "vmguest", "defaultshell",
     "foo",  // <-- add here matching register.go order
 }
