@@ -216,6 +216,7 @@ Run with:
 ```bash
 make test       # go test ./src/... ./tests/...
 make lint       # go vet
+make ci         # fmt-check + lint + build both binaries + test (everything CI runs)
 ```
 
 Tests use temp directories and don't touch real system files.
@@ -231,4 +232,4 @@ The `main` branch is protected, so both checks must be green before merging.
 
 ## Doctor Checks
 
-When adding a module that installs a new tool or creates a new symlink, consider adding a check to `modules/doctor.go`. The doctor command validates the overall health of the environment and helps users diagnose issues.
+When adding a module that installs a new tool or creates a new symlink, consider adding a check to `RunDoctorChecks()` in `modules/doctor.go`. That function is the single source of truth shared by the CLI `doctor` command and the MCP `dfinstall_doctor` tool, so a check added there shows up in both.

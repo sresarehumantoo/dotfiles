@@ -59,21 +59,31 @@ go mod tidy
 
 ## Make Targets
 
+Run `make` (or `make help`) to list every target.
+
 | Target | Command | Description |
 |--------|---------|-------------|
+| `help` | — | List all targets (the default goal) |
 | `build` | `go build ...` | Compile to `bin/dfinstall` |
 | `build-mcp` | `go build ...` | Compile the MCP server to `bin/dfinstall-mcp` |
+| `build-all` | `build` + `build-mcp` | Compile both binaries |
 | `test` | `go test ./src/... ./tests/...` | Run all unit tests |
 | `lint` | `go vet ./src/... ./tests/...` | Static analysis |
-| `fmt` | `gofmt -s -w src/ tests/` | Format source code |
+| `fmt` | `gofmt -s -w src/ tests/` | Format source code in place |
+| `fmt-check` | `gofmt -s -l src tests` | Check formatting without modifying (same check as CI) |
+| `ci` | `fmt-check` + `lint` + `build-all` + `test` | Run every check CI runs, locally |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
+| `uninstall` | `make build && bin/dfinstall uninstall all` | Remove all managed symlinks |
+| `install-bin` | `install ... ~/.local/bin` | Install both binaries onto `PATH` (`~/.local/bin`) |
+| `install-mcp` | `claude mcp add -s user ...` | Register the MCP server with Claude Code (user scope, works anywhere) |
+| `uninstall-mcp` | `claude mcp remove dfinstall` | Unregister the MCP server from Claude Code |
 | `clean` | `rm -rf bin/` | Remove build artifacts |
 
 ## Development Workflow
 
 ```bash
-# Build and test
-make build && make test && make lint
+# Run every check CI runs (fmt-check + vet + build both + test)
+make ci
 
 # Test a single module
 ./bin/dfinstall install shell -v
@@ -160,7 +170,7 @@ CI runs on every push and pull request to `main` and `develop` via GitHub Action
 
 | Job | Checks |
 |-----|--------|
-| `go` | `gofmt -s` formatting, `go vet` (`make lint`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), and the full test suite (`make test`). The Go version tracks `go.mod`. |
+| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), and the full test suite (`make test`). The Go version tracks `go.mod`. |
 | `shellcheck` | Lints the standalone bash scripts in `config/devtools/` and `bootstrap/` via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. |
 
 The `main` branch is protected: both checks must pass before a pull request can merge.
