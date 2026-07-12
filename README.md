@@ -194,7 +194,7 @@ dfinstall includes an [MCP](https://modelcontextprotocol.io/) server for AI-assi
 make build-mcp    # compile to bin/dfinstall-mcp
 ```
 
-The server is configured via `.mcp.json` in the project root. Available tools: `dfinstall_status`, `dfinstall_install`, `dfinstall_uninstall`, `dfinstall_diff`, `dfinstall_doctor`, `dfinstall_list_modules`, `dfinstall_list_backups`, `dfinstall_restore`, `dfinstall_config`.
+The server is configured via `.mcp.json` in the project root. Available tools: `dfinstall_status`, `dfinstall_install`, `dfinstall_uninstall`, `dfinstall_diff`, `dfinstall_doctor`, `dfinstall_list_modules`, `dfinstall_list_backups`, `dfinstall_restore`, `dfinstall_config`, `dfinstall_registry_validate`. `dfinstall_diff` and `dfinstall_doctor` report multi-clone symlink drift, and `install` with module `all` records the canonical clone — matching the CLI.
 
 ## Documentation
 
