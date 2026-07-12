@@ -140,14 +140,23 @@ docs/                    # In-depth documentation
 
 ## Make Targets
 
+Run `make` (or `make help`) to list all targets.
+
 ```
-make build      # compile to bin/dfinstall
-make build-mcp  # compile MCP server to bin/dfinstall-mcp
-make test       # go test ./src/... ./tests/...
-make lint       # go vet
-make fmt        # gofmt -s -w
-make install    # build + dfinstall install all
-make clean      # rm -rf bin/
+make build          # compile the CLI to bin/dfinstall
+make build-mcp      # compile the MCP server to bin/dfinstall-mcp
+make build-all      # compile both binaries
+make test           # go test ./src/... ./tests/...
+make lint           # go vet
+make fmt            # gofmt -s -w (in place)
+make fmt-check      # gofmt -s check (non-mutating, same as CI)
+make ci             # run every check CI runs (fmt-check + lint + build-all + test)
+make install        # build + dfinstall install all
+make uninstall      # build + dfinstall uninstall all
+make install-bin    # install both binaries onto PATH (~/.local/bin)
+make install-mcp    # register the MCP server with Claude Code (user scope, works anywhere)
+make uninstall-mcp  # unregister the MCP server from Claude Code
+make clean          # rm -rf bin/
 ```
 
 ## Building from Source
@@ -192,9 +201,15 @@ dfinstall includes an [MCP](https://modelcontextprotocol.io/) server for AI-assi
 
 ```bash
 make build-mcp    # compile to bin/dfinstall-mcp
+make install-mcp  # register with Claude Code (user scope) for use in any session
 ```
 
-The server is configured via `.mcp.json` in the project root. Available tools: `dfinstall_status`, `dfinstall_install`, `dfinstall_uninstall`, `dfinstall_diff`, `dfinstall_doctor`, `dfinstall_list_modules`, `dfinstall_list_backups`, `dfinstall_restore`, `dfinstall_config`, `dfinstall_registry_validate`. `dfinstall_diff` and `dfinstall_doctor` report multi-clone symlink drift, and `install` with module `all` records the canonical clone — matching the CLI.
+Two ways to wire it up:
+
+- **In the repo** — the committed `.mcp.json` points at `./bin/dfinstall-mcp`, so Claude Code picks it up automatically when launched from the repo (after `make build-mcp`).
+- **Anywhere** — `make install-mcp` registers the server user-scoped with an absolute path so it's available from any Claude session. `make uninstall-mcp` removes it. (When both are active in-repo, Claude notes the server is defined in two scopes; it's harmless for this local stdio server.)
+
+Available tools: `dfinstall_status`, `dfinstall_install`, `dfinstall_uninstall`, `dfinstall_diff`, `dfinstall_doctor`, `dfinstall_list_modules`, `dfinstall_list_backups`, `dfinstall_restore`, `dfinstall_config`, `dfinstall_registry_validate`. `dfinstall_diff` and `dfinstall_doctor` report multi-clone symlink drift, and `install` with module `all` records the canonical clone — matching the CLI.
 
 ## Documentation
 
