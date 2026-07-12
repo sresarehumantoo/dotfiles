@@ -29,6 +29,17 @@ skip_backup: true
 # dismissed_files:
 #   - .old_aliases
 
+# Toolkit tools to keep installed (selected via dfinstall install --toolkit).
+# Managed automatically via the interactive menu; names come from the registry.
+# toolkit_tools:
+#   - nmap
+#   - ffuf
+
+# Override the toolkit registry location (default: the sresarehumantoo
+# dotfiles-toolkit registry). Accepts an HTTP(S) URL, file:// URL, or path.
+# Also settable per-run with --registry.
+# toolkit_registry_url: https://example.com/registry.json
+
 # Opt-in for the windev module (Windows cross-development toolchains + nvim
 # language support + winbuild remote-dispatch helper). Set automatically by
 # `dfinstall install windev`; cleared by `dfinstall uninstall windev`. While

@@ -60,9 +60,11 @@ dfinstall uninstall all           # remove all managed symlinks
 dfinstall status                  # show link status for all modules
 dfinstall diff                    # show drift between config and filesystem
 dfinstall doctor                  # run environment health checks
+dfinstall root                    # apply a curated subset of configs to /root via sudo
 dfinstall restore                 # restore latest backup
 dfinstall restore <timestamp>     # restore a specific backup
 dfinstall restore --list          # list available backups
+dfinstall registry validate <src> # validate a toolkit registry file (CI helper)
 ```
 
 By default the CLI shows an animated spinner. Pass `-v` for the full log output, `--debug` for additional detail, or `--dry-run` to preview changes without touching the filesystem.
@@ -110,6 +112,7 @@ Modules run in this order (dependencies first):
 | **ghostty** | Ghostty terminal emulator config |
 | **htop** | htop config |
 | **wsl** | WSL-specific: wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| **vmguest** | Installs hypervisor guest tools when running in a VM (qemu-guest-agent/spice for KVM/QEMU, open-vm-tools for VMware, VirtualBox/Hyper-V daemons); no-op on bare metal or WSL |
 | **defaultshell** | Sets zsh as the default login shell |
 
 > **Opt-in modules.** `install all` walks every module above _except_ ones flagged `_Opt-in._` — those need an explicit `dfinstall install <name>` to enable. Currently that's just **windev** (Windows cross-development). Once enabled, the opt-in persists in `.config.yaml` and future `install all` keeps it current.
@@ -151,7 +154,7 @@ make clean      # rm -rf bin/
 
 **Requirements:**
 
-- Go 1.24+ ([install](https://go.dev/doc/install))
+- Go 1.25+ ([install](https://go.dev/doc/install))
 - Git
 - Make (optional, for convenience targets)
 
@@ -168,7 +171,7 @@ go build -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfil
   -o bin/dfinstall ./src/cmd/dfinstall
 ```
 
-The `-ldflags` flag bakes the dotfiles directory path into the binary so it can find config files regardless of where it's run from. Dependencies are vendored via `go.sum` and fetched automatically on first build.
+The `-ldflags` flag bakes the dotfiles directory path into the binary so it can find config files regardless of where it's run from. At runtime this baked path is the fallback: `dfinstall` resolves its dotfiles root as `$DOTFILES` → a machine-global canonical pointer (`~/.config/dfinstall/dotfiles-dir`) → the baked path. `install all` records the clone it runs from as canonical, so if you have more than one clone on a host, symlinks all point at a single source instead of drifting between clones (check with `dfinstall doctor` / `dfinstall diff`). Dependencies are vendored via `go.sum` and fetched automatically on first build.
 
 See [Building from Source](docs/building.md) for more detail on dependencies, cross-compilation, and development setup.
 
