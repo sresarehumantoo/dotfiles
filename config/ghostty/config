@@ -9,6 +9,8 @@ cursor-style-blink = true
 
 confirm-close-surface = false
 
+app-notifications = no-clipboard-copy
+
 title = "Terminal"
 
 background-opacity = .90
