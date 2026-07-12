@@ -325,24 +325,25 @@ func ResetDotfilesDir() {
 	dotfilesDir = ""
 }
 
-// DotfilesDir returns the root of the dotfiles repository.
-func DotfilesDir() string {
-	if dotfilesDir != "" {
-		return dotfilesDir
-	}
-
+// InvokingCloneDir resolves the dotfiles clone this binary is physically
+// running from, ignoring any recorded canonical pointer. Order:
+//  1. $DOTFILES env var (explicit override)
+//  2. build-time baked path (`make build` sets it to the clone's CURDIR)
+//  3. walk up from the executable looking for go.mod
+//  4. current working directory
+//
+// This answers "where am I running from", as opposed to DotfilesDir which
+// answers "which clone should I link from". It is used when adopting a new
+// canonical (install all) and when warning about non-canonical runs.
+func InvokingCloneDir() string {
 	// 1. $DOTFILES env var
 	if env := os.Getenv("DOTFILES"); env != "" {
-		dotfilesDir = env
-		Debug("dotfiles dir from $DOTFILES: %s", dotfilesDir)
-		return dotfilesDir
+		return env
 	}
 
 	// 2. Build-time baked path
 	if DefaultDotfilesDir != "" {
-		dotfilesDir = DefaultDotfilesDir
-		Debug("dotfiles dir from build-time: %s", dotfilesDir)
-		return dotfilesDir
+		return DefaultDotfilesDir
 	}
 
 	// 3. Walk up from executable looking for go.mod
@@ -351,8 +352,7 @@ func DotfilesDir() string {
 		dir := filepath.Dir(exe)
 		for {
 			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-				dotfilesDir = dir
-				return dotfilesDir
+				return dir
 			}
 			parent := filepath.Dir(dir)
 			if parent == dir {
@@ -362,8 +362,43 @@ func DotfilesDir() string {
 		}
 	}
 
-	// Fallback: current working directory
-	dotfilesDir, _ = os.Getwd()
+	// 4. Fallback: current working directory
+	cwd, _ := os.Getwd()
+	return cwd
+}
+
+// DotfilesDir returns the root of the dotfiles repository that symlinks should
+// point into. Resolution order:
+//  1. $DOTFILES env var — explicit override, always wins (tests, CI, power users)
+//  2. the machine-global canonical pointer, if it points at a valid checkout —
+//     this makes every clone link to one authoritative source, preventing drift
+//  3. the clone we're physically running from (InvokingCloneDir)
+//
+// The result is cached; call ResetDotfilesDir after changing $DOTFILES or the
+// canonical pointer.
+func DotfilesDir() string {
+	if dotfilesDir != "" {
+		return dotfilesDir
+	}
+
+	// 1. Explicit override.
+	if env := os.Getenv("DOTFILES"); env != "" {
+		dotfilesDir = env
+		Debug("dotfiles dir from $DOTFILES: %s", dotfilesDir)
+		return dotfilesDir
+	}
+
+	// 2. Machine-global canonical pointer (self-healing: a stale pointer is
+	//    ignored by ReadCanonicalDir and we fall through).
+	if canon := ReadCanonicalDir(); canon != "" {
+		dotfilesDir = canon
+		Debug("dotfiles dir from canonical pointer: %s", dotfilesDir)
+		return dotfilesDir
+	}
+
+	// 3. The clone this binary lives in.
+	dotfilesDir = InvokingCloneDir()
+	Debug("dotfiles dir from invoking clone: %s", dotfilesDir)
 	return dotfilesDir
 }
 

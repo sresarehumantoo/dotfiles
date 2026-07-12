@@ -116,6 +116,23 @@ func RunDoctor() {
 		}
 	}
 
+	// Check that managed symlinks all point at a single (canonical) dotfiles
+	// clone. Split symlinks are the multi-clone drift condition.
+	if drift := core.DetectLinkDrift(); drift.Split() {
+		allOk = false
+		core.Warn("dotfiles clones — symlinks split across %d location(s):", len(drift.Roots))
+		for _, root := range drift.SortedRoots() {
+			marker := ""
+			if root == drift.Canonical {
+				marker = " (canonical)"
+			}
+			core.Warn("    %s%s — %d link(s)", root, marker, len(drift.Roots[root]))
+		}
+		core.Warn("    run 'dfinstall install all' from %s to consolidate", drift.Canonical)
+	} else {
+		core.Ok("dotfiles clones: single source")
+	}
+
 	fmt.Println()
 	if allOk {
 		core.Ok("All checks passed!")
