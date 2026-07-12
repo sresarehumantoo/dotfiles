@@ -428,6 +428,8 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua',
+        'markdownlint-cli2', -- markdown linter (nvim-lint, see kickstart/plugins/lint.lua)
+        'prettier', -- markdown formatter (conform)
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
@@ -476,6 +478,7 @@ require('lazy').setup({
         lua = { 'stylua' },
         -- Organize imports first, then format — both run by ruff on save.
         python = { 'ruff_organize_imports', 'ruff_format' },
+        markdown = { 'prettier' },
       },
     },
   },

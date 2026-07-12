@@ -1,0 +1,18 @@
+-- Prose-friendly defaults for Markdown buffers. Native ftplugin — sourced by
+-- Neovim for every markdown buffer, no plugin required. In-buffer rendering is
+-- handled by render-markdown.nvim (lua/custom/plugins/markdown.lua).
+
+-- Soft-wrap long prose at word boundaries instead of mid-word, and keep wrapped
+-- lines visually indented under their start.
+vim.opt_local.wrap = true
+vim.opt_local.linebreak = true
+vim.opt_local.breakindent = true
+
+-- Spell-check prose. Toggle per-buffer with `:setlocal nospell` if it's noisy.
+vim.opt_local.spell = true
+vim.opt_local.spelllang = 'en_us'
+
+-- Wrapped prose spans several screen rows per logical line; move by what you see.
+-- A count (e.g. 5j) still jumps by logical lines so relativenumber stays useful.
+vim.keymap.set('n', 'j', "v:count == 0 ? 'gj' : 'j'", { buffer = true, expr = true, desc = 'Down by display line' })
+vim.keymap.set('n', 'k', "v:count == 0 ? 'gk' : 'k'", { buffer = true, expr = true, desc = 'Up by display line' })
