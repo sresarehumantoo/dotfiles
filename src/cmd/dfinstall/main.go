@@ -379,15 +379,10 @@ func skipInAll(name string) bool {
 // whose symlinks had drifted across clones.
 func adoptCanonical() {
 	invoking := core.InvokingCloneDir()
-	prev := core.ReadCanonicalDir()
-	if prev == invoking {
+	prev, changed := core.AdoptCanonical(invoking)
+	if !changed {
 		return
 	}
-	if err := core.WriteCanonicalDir(invoking); err != nil {
-		core.Warn("could not record canonical dotfiles dir: %v", err)
-		return
-	}
-	core.ResetDotfilesDir()
 	if prev != "" {
 		core.Status("Canonical dotfiles dir set to %s (was %s) — repointing symlinks", invoking, prev)
 	} else {

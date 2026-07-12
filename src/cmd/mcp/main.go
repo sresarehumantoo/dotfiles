@@ -164,6 +164,13 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	if name == "all" {
+		// Record the invoking clone as canonical (and repoint stray symlinks
+		// from other clones), matching the CLI's `install all`.
+		var b strings.Builder
+		if prev, changed := core.AdoptCanonical(core.InvokingCloneDir()); changed && prev != "" {
+			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", core.InvokingCloneDir(), prev)
+		}
+
 		beforeStatus := make(map[string]core.ModuleStatus)
 		for _, m := range core.AllModules() {
 			beforeStatus[m.Name()] = m.Status()
@@ -179,7 +186,6 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 			}
 		}
 
-		var b strings.Builder
 		for _, m := range core.AllModules() {
 			after := m.Status()
 			before := beforeStatus[m.Name()]
@@ -288,6 +294,14 @@ func handleDoctor(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult
 			fmt.Fprintf(&b, "  FAIL  %s - %s\n", c.name, msg)
 			allOk = false
 		}
+	}
+
+	// Managed symlinks should all point at one (canonical) dotfiles clone.
+	if d := core.DetectLinkDrift(); d.Split() {
+		fmt.Fprintf(&b, "  FAIL  dotfiles clones - symlinks split across %d location(s); run dfinstall_install 'all' from %s to consolidate\n", len(d.Roots), d.Canonical)
+		allOk = false
+	} else {
+		fmt.Fprintf(&b, "  ok  dotfiles clones\n")
 	}
 
 	fmt.Fprintln(&b)
@@ -561,6 +575,19 @@ func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, 
 		fmt.Fprintln(&b, "No drift detected.")
 	} else {
 		fmt.Fprintf(&b, "%d issue(s) — run dfinstall_install with module 'all' to fix\n", issues)
+	}
+
+	// Multi-clone drift: symlinks split across more than one dotfiles clone.
+	if d := core.DetectLinkDrift(); d.Split() {
+		fmt.Fprintf(&b, "\nSymlinks split across %d dotfiles clone(s):\n", len(d.Roots))
+		for _, root := range d.SortedRoots() {
+			marker := ""
+			if root == d.Canonical {
+				marker = " (canonical)"
+			}
+			fmt.Fprintf(&b, "  %s%s — %d link(s)\n", root, marker, len(d.Roots[root]))
+		}
+		fmt.Fprintf(&b, "Run dfinstall_install with module 'all' from %s to consolidate.\n", d.Canonical)
 	}
 	return mcp.NewToolResultText(b.String()), nil
 }
