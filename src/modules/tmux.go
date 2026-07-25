@@ -130,12 +130,7 @@ func (TmuxModule) Install() error {
 	os.Remove(core.XDGTarget("tmux", "tmux.conf.local"))
 	os.Remove(core.HomeTarget(".tmux.conf.local"))
 
-	if err := core.LinkFile(core.ConfigPath("tmux", "tmux.conf"), tmuxConf); err != nil {
-		return err
-	}
-
-	// Legacy symlink for tmux < 3.1
-	if err := core.LinkFile(tmuxConf, core.HomeTarget(".tmux.conf")); err != nil {
+	if err := (TmuxModule{}).Links().Apply(); err != nil {
 		return err
 	}
 
@@ -175,12 +170,8 @@ func (TmuxModule) Install() error {
 	return nil
 }
 
-func (TmuxModule) Uninstall() error {
-	tmuxConf := core.XDGTarget("tmux", "tmux.conf")
-	if err := core.UnlinkFile(core.ConfigPath("tmux", "tmux.conf"), tmuxConf); err != nil {
-		return err
-	}
-	if err := core.UnlinkFile(tmuxConf, core.HomeTarget(".tmux.conf")); err != nil {
+func (m TmuxModule) Uninstall() error {
+	if err := m.Links().Remove(); err != nil {
 		return err
 	}
 
@@ -200,26 +191,18 @@ func (TmuxModule) Uninstall() error {
 	return nil
 }
 
-func (TmuxModule) Links() []core.LinkPair {
+// The second pair chains: ~/.tmux.conf points at the XDG copy, which points at
+// the repo. tmux <3.1 only reads ~/.tmux.conf.
+func (TmuxModule) Links() core.LinkSet {
 	tmuxConf := core.XDGTarget("tmux", "tmux.conf")
-	return []core.LinkPair{
+	return core.LinkSet{
 		{Src: core.ConfigPath("tmux", "tmux.conf"), Dst: tmuxConf},
 		{Src: tmuxConf, Dst: core.HomeTarget(".tmux.conf")},
 	}
 }
 
-func (TmuxModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "tmux"}
-	if core.CheckLink(core.ConfigPath("tmux", "tmux.conf"), core.XDGTarget("tmux", "tmux.conf")) == "ok" {
-		s.Linked++
-	} else {
-		s.Missing++
-	}
-	if core.CheckLink(core.XDGTarget("tmux", "tmux.conf"), core.HomeTarget(".tmux.conf")) == "ok" {
-		s.Linked++
-	} else {
-		s.Missing++
-	}
+func (m TmuxModule) Status() core.ModuleStatus {
+	s := m.Links().Status("tmux")
 
 	// Check TPM
 	home, _ := os.UserHomeDir()

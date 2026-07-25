@@ -6,38 +6,27 @@ type HtopModule struct{}
 
 func (HtopModule) Name() string { return "htop" }
 
-func (HtopModule) Install() error {
-	core.Info("Linking htop config...")
-	if err := core.EnsureDir(core.XDGTarget("htop")); err != nil {
-		return err
+func (HtopModule) Links() core.LinkSet {
+	return core.LinkSet{
+		{Src: core.ConfigPath("htop", "htoprc"), Dst: core.XDGTarget("htop", "htoprc")},
 	}
-	if err := core.LinkFile(core.ConfigPath("htop", "htoprc"), core.XDGTarget("htop", "htoprc")); err != nil {
+}
+
+func (m HtopModule) Install() error {
+	core.Info("Linking htop config...")
+	if err := m.Links().Apply(); err != nil {
 		return err
 	}
 	core.Ok("htop config done")
 	return nil
 }
 
-func (HtopModule) Uninstall() error {
-	if err := core.UnlinkFile(core.ConfigPath("htop", "htoprc"), core.XDGTarget("htop", "htoprc")); err != nil {
+func (m HtopModule) Uninstall() error {
+	if err := m.Links().Remove(); err != nil {
 		return err
 	}
 	core.Ok("htop config uninstalled")
 	return nil
 }
 
-func (HtopModule) Links() []core.LinkPair {
-	return []core.LinkPair{
-		{Src: core.ConfigPath("htop", "htoprc"), Dst: core.XDGTarget("htop", "htoprc")},
-	}
-}
-
-func (HtopModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "htop"}
-	if core.CheckLink(core.ConfigPath("htop", "htoprc"), core.XDGTarget("htop", "htoprc")) == "ok" {
-		s.Linked++
-	} else {
-		s.Missing++
-	}
-	return s
-}
+func (m HtopModule) Status() core.ModuleStatus { return m.Links().Status("htop") }

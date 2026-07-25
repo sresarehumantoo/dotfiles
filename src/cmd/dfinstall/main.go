@@ -563,7 +563,11 @@ func runDiff() error {
 	var issues int
 
 	for _, m := range all {
-		if core.IsModuleSkipped(m.Name()) {
+		// SkipInAll, not IsModuleSkipped: this report ends with "run
+		// dfinstall install all to fix", so it must use the same predicate
+		// `install all` does. Otherwise an opt-out module (windev) is listed
+		// as fixable drift that no command will ever fix.
+		if core.SkipInAll(m.Name()) {
 			fmt.Printf("%-15s  skipped\n", m.Name())
 			continue
 		}

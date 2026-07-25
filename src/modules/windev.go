@@ -262,11 +262,24 @@ func fetchTarball(name, url, destDir string) error {
 
 // --- file wiring ---
 
-func linkWindevFiles() error {
-	if err := core.EnsureDir(core.HomeTarget(".local", "bin")); err != nil {
-		return err
+// Links are the symlinks windev owns. _lib.sh is deliberately absent: it is
+// devtools-owned and merely shared, so windev links it opportunistically but
+// must not claim it in diff or remove it on uninstall.
+//
+// The nvim plugin file is auto-loaded by kickstart's
+// { import = 'custom.plugins' }.
+func (WindevModule) Links() core.LinkSet {
+	ls := make(core.LinkSet, 0, len(windevLinks)+1)
+	for _, l := range windevLinks {
+		ls = append(ls, core.LinkPair{
+			Src: core.ConfigPath(l.src),
+			Dst: core.HomeTarget(l.dst),
+		})
 	}
+	return append(ls, core.LinkPair{Src: windevNvimSrc(), Dst: windevNvimDst()})
+}
 
+func linkWindevFiles() error {
 	// _lib.sh is normally provided by the devtools module; link it here too so
 	// winbuild works even when windev is installed standalone. Same src means
 	// the link is idempotent with devtools and isn't touched on uninstall.
@@ -278,21 +291,15 @@ func linkWindevFiles() error {
 		core.Warn("could not link _lib.sh: %v", err)
 	}
 
+	// The winbuild scripts need the executable bit on the source; the nvim
+	// plugin file doesn't, which is why this loops windevLinks and not Links().
 	for _, l := range windevLinks {
-		src := core.ConfigPath(l.src)
-		if err := os.Chmod(src, 0755); err != nil {
+		if err := os.Chmod(core.ConfigPath(l.src), 0755); err != nil {
 			core.Warn("chmod failed for %s: %v", l.src, err)
-		}
-		if err := core.LinkFile(src, core.HomeTarget(l.dst)); err != nil {
-			return err
 		}
 	}
 
-	// nvim plugin file — auto-loaded by kickstart's { import = 'custom.plugins' }.
-	if err := core.EnsureDir(core.XDGTarget("nvim", "lua", "custom", "plugins")); err != nil {
-		return err
-	}
-	return core.LinkFile(windevNvimSrc(), windevNvimDst())
+	return (WindevModule{}).Links().Apply()
 }
 
 // writeWindevPathSnippet writes a zsh fragment (sourced by zshrc) that puts the
@@ -322,13 +329,8 @@ export PATH
 	return os.WriteFile(windevZshPath(), []byte(content), 0644)
 }
 
-func (WindevModule) Uninstall() error {
-	for _, l := range windevLinks {
-		if err := core.UnlinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
-			return err
-		}
-	}
-	if err := core.UnlinkFile(windevNvimSrc(), windevNvimDst()); err != nil {
+func (m WindevModule) Uninstall() error {
+	if err := m.Links().Remove(); err != nil {
 		return err
 	}
 	if !core.DryRun {
@@ -340,25 +342,13 @@ func (WindevModule) Uninstall() error {
 	return nil
 }
 
-func (WindevModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "windev"}
+func (m WindevModule) Status() core.ModuleStatus {
 	if !core.Cfg.WindevEnabled {
-		s.Extra = "disabled"
-		return s
+		return core.ModuleStatus{Name: "windev", Extra: "disabled"}
 	}
 
 	// Owned symlinks (winbuild + nvim plugin file).
-	checkLink := func(src, dst string) {
-		if core.CheckLink(src, dst) == "ok" {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
-	for _, l := range windevLinks {
-		checkLink(core.ConfigPath(l.src), core.HomeTarget(l.dst))
-	}
-	checkLink(windevNvimSrc(), windevNvimDst())
+	s := m.Links().Status("windev")
 
 	// Toolchain summary (rough — PATH is fully wired only in a new shell).
 	hasBin := func(b string) bool { _, err := exec.LookPath(b); return err == nil }

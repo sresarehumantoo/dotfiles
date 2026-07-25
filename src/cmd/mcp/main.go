@@ -537,7 +537,8 @@ func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, 
 	var issues int
 
 	for _, m := range core.AllModules() {
-		if core.IsModuleSkipped(m.Name()) {
+		// SkipInAll, not IsModuleSkipped — see the CLI runDiff for why.
+		if core.SkipInAll(m.Name()) {
 			fmt.Fprintf(&b, "%-15s  skipped\n", m.Name())
 			continue
 		}

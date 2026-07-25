@@ -11,39 +11,48 @@ type DevtoolsModule struct{}
 
 func (DevtoolsModule) Name() string { return "devtools" }
 
-var devtoolsScripts = []struct{ src, dst string }{
-	{"devtools/_lib.sh", ".local/bin/_lib.sh"},
-	{"devtools/wsl-resize-disk", ".local/bin/wsl-resize-disk"},
-	{"devtools/wsl-restart", ".local/bin/wsl-restart"},
-	{"devtools/docker-cleanup", ".local/bin/docker-cleanup"},
-	{"devtools/git-prune-branches", ".local/bin/git-prune-branches"},
-	{"devtools/sysinfo", ".local/bin/sysinfo"},
-	{"devtools/tlog-clean", ".local/bin/tlog-clean"},
-	{"devtools/clipboard-vm", ".local/bin/clipboard-vm"},
-	{"devtools/tmux-restore", ".local/bin/tmux-restore"},
+// Each script links from config/devtools/<name> to ~/.local/bin/<name>.
+var devtoolsScripts = []string{
+	"_lib.sh",
+	"wsl-resize-disk",
+	"wsl-restart",
+	"docker-cleanup",
+	"git-prune-branches",
+	"sysinfo",
+	"tlog-clean",
+	"clipboard-vm",
+	"tmux-restore",
 }
 
-func (DevtoolsModule) Install() error {
+func (DevtoolsModule) Links() core.LinkSet {
+	ls := make(core.LinkSet, len(devtoolsScripts))
+	for i, name := range devtoolsScripts {
+		ls[i] = core.LinkPair{
+			Src: core.ConfigPath("devtools", name),
+			Dst: core.HomeTarget(".local", "bin", name),
+		}
+	}
+	return ls
+}
+
+// Install can't use LinkSet.Apply directly: each script needs the executable
+// bit set on the source (the symlink inherits it), and a single bad script
+// shouldn't abort the rest.
+func (m DevtoolsModule) Install() error {
 	core.Info("Installing devtools scripts...")
 
-	if err := core.EnsureDir(core.HomeTarget(".local", "bin")); err != nil {
-		return err
-	}
-
 	var failed int
-	for _, s := range devtoolsScripts {
-		src := core.ConfigPath(s.src)
+	for _, l := range m.Links() {
 		if !core.DryRun {
-			if err := os.Chmod(src, 0755); err != nil {
-				core.Warn("chmod failed for %s: %v", s.src, err)
+			if err := os.Chmod(l.Src, 0755); err != nil {
+				core.Warn("chmod failed for %s: %v", l.Src, err)
 				failed++
 				continue
 			}
 		}
-		if err := core.LinkFile(src, core.HomeTarget(s.dst)); err != nil {
-			core.Warn("link failed for %s: %v", s.dst, err)
+		if err := core.LinkFile(l.Src, l.Dst); err != nil {
+			core.Warn("link failed for %s: %v", l.Dst, err)
 			failed++
-			continue
 		}
 	}
 
@@ -54,32 +63,12 @@ func (DevtoolsModule) Install() error {
 	return nil
 }
 
-func (DevtoolsModule) Uninstall() error {
-	for _, s := range devtoolsScripts {
-		if err := core.UnlinkFile(core.ConfigPath(s.src), core.HomeTarget(s.dst)); err != nil {
-			return err
-		}
+func (m DevtoolsModule) Uninstall() error {
+	if err := m.Links().Remove(); err != nil {
+		return err
 	}
 	core.Ok("Devtools scripts uninstalled")
 	return nil
 }
 
-func (DevtoolsModule) Links() []core.LinkPair {
-	pairs := make([]core.LinkPair, len(devtoolsScripts))
-	for i, s := range devtoolsScripts {
-		pairs[i] = core.LinkPair{Src: core.ConfigPath(s.src), Dst: core.HomeTarget(s.dst)}
-	}
-	return pairs
-}
-
-func (DevtoolsModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "devtools"}
-	for _, l := range devtoolsScripts {
-		if core.CheckLink(core.ConfigPath(l.src), core.HomeTarget(l.dst)) == "ok" {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
-	return s
-}
+func (m DevtoolsModule) Status() core.ModuleStatus { return m.Links().Status("devtools") }

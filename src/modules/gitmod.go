@@ -13,9 +13,9 @@ type GitModule struct{}
 
 func (GitModule) Name() string { return "git" }
 
-func (GitModule) Install() error {
+func (m GitModule) Install() error {
 	core.Info("Linking git config...")
-	if err := core.LinkFile(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")); err != nil {
+	if err := m.Links().Apply(); err != nil {
 		return err
 	}
 
@@ -104,26 +104,18 @@ func promptGitIdentity(path string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
-func (GitModule) Uninstall() error {
-	if err := core.UnlinkFile(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")); err != nil {
+func (m GitModule) Uninstall() error {
+	if err := m.Links().Remove(); err != nil {
 		return err
 	}
 	core.Ok("Git config uninstalled")
 	return nil
 }
 
-func (GitModule) Links() []core.LinkPair {
-	return []core.LinkPair{
+func (GitModule) Links() core.LinkSet {
+	return core.LinkSet{
 		{Src: core.ConfigPath("git", "gitconfig"), Dst: core.HomeTarget(".gitconfig")},
 	}
 }
 
-func (GitModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "git"}
-	if core.CheckLink(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")) == "ok" {
-		s.Linked++
-	} else {
-		s.Missing++
-	}
-	return s
-}
+func (m GitModule) Status() core.ModuleStatus { return m.Links().Status("git") }

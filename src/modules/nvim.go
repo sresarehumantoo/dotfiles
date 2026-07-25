@@ -313,12 +313,8 @@ func (NvimModule) Install() error {
 	}
 
 	// Create all symlinks
-	for _, l := range nvimLinks {
-		src := core.ConfigPath(l.Src)
-		dst := filepath.Join(nvimDir, l.Dst)
-		if err := core.LinkFile(src, dst); err != nil {
-			return err
-		}
+	if err := (NvimModule{}).Links().Apply(); err != nil {
+		return err
 	}
 
 	// Sync plugins headlessly
@@ -335,42 +331,26 @@ func (NvimModule) Install() error {
 	return nil
 }
 
-func (NvimModule) Uninstall() error {
-	nvimDir := core.XDGTarget("nvim")
-	for _, l := range nvimLinks {
-		src := core.ConfigPath(l.Src)
-		dst := filepath.Join(nvimDir, l.Dst)
-		if err := core.UnlinkFile(src, dst); err != nil {
-			return err
-		}
+func (m NvimModule) Uninstall() error {
+	if err := m.Links().Remove(); err != nil {
+		return err
 	}
 	core.Ok("Neovim config uninstalled")
 	return nil
 }
 
-func (NvimModule) Links() []core.LinkPair {
+func (NvimModule) Links() core.LinkSet {
 	nvimDir := core.XDGTarget("nvim")
-	pairs := make([]core.LinkPair, len(nvimLinks))
+	ls := make(core.LinkSet, len(nvimLinks))
 	for i, l := range nvimLinks {
-		pairs[i] = core.LinkPair{
+		ls[i] = core.LinkPair{
 			Src: core.ConfigPath(l.Src),
 			Dst: filepath.Join(nvimDir, l.Dst),
 		}
 	}
-	return pairs
+	return ls
 }
 
-func (NvimModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "nvim"}
-	nvimDir := core.XDGTarget("nvim")
-	for _, l := range nvimLinks {
-		src := core.ConfigPath(l.Src)
-		dst := filepath.Join(nvimDir, l.Dst)
-		if core.CheckLink(src, dst) == "ok" {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
-	return s
+func (m NvimModule) Status() core.ModuleStatus {
+	return m.Links().Status("nvim")
 }
