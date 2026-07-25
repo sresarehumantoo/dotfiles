@@ -9,7 +9,7 @@ LOCAL_BIN  := $(HOME)/.local/bin
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-mcp build-all test lint fmt fmt-check ci \
+.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci \
         install uninstall install-bin install-mcp uninstall-mcp clean
 
 help: ## Show this help
@@ -28,6 +28,9 @@ build-all: build build-mcp ## Compile both binaries
 test: ## Run the test suite
 	$(GO) test ./src/... ./tests/...
 
+test-race: ## Run the test suite under the race detector
+	$(GO) test -race ./src/... ./tests/...
+
 lint: ## Run go vet
 	$(GO) vet ./src/... ./tests/...
 
@@ -40,7 +43,7 @@ fmt-check: ## Check formatting without modifying (same as CI)
 	  echo "Not gofmt -s formatted (run 'make fmt'):"; echo "$$unformatted"; exit 1; \
 	fi
 
-ci: fmt-check lint build-all test ## Run every check CI runs (fmt/vet/build/test)
+ci: fmt-check lint build-all test test-race ## Run every check CI runs (fmt/vet/build/test/race)
 
 install: build ## Build, then apply all dotfile modules (dfinstall install all)
 	./$(BUILD_DIR)/$(BINARY) install all
