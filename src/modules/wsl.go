@@ -71,10 +71,17 @@ func installWslConf() bool {
 			return false
 		}
 		core.Notice("Updating /etc/wsl.conf (backing up to /etc/wsl.conf.bak)")
-		sudoCopy(dstPath, dstPath+".bak")
+		// Don't overwrite the original if we couldn't back it up first.
+		if err := sudoCopy(dstPath, dstPath+".bak"); err != nil {
+			core.Warn("could not back up %s: %v — leaving it unchanged", dstPath, err)
+			return false
+		}
 	}
 
-	sudoCopyFrom(wslConf, dstPath)
+	if err := sudoCopy(wslConf, dstPath); err != nil {
+		core.Warn("failed to install %s: %v", dstPath, err)
+		return false
+	}
 	core.Ok("/etc/wsl.conf installed")
 	return true
 }
@@ -100,7 +107,10 @@ func installSysctl() {
 		}
 	}
 
-	sudoCopyFrom(sysctlSrc, dstPath)
+	if err := sudoCopy(sysctlSrc, dstPath); err != nil {
+		core.Warn("failed to install %s: %v", dstPath, err)
+		return
+	}
 	core.Info("Applying sysctl tweaks...")
 	if err := sudoRun("sysctl", "-p", dstPath); err != nil {
 		core.Warn("Some sysctl values may not apply until restart")
@@ -215,12 +225,8 @@ func sudoRun(args ...string) error {
 	return cmd.Run()
 }
 
-func sudoCopy(src, dst string) {
-	sudoRun("cp", src, dst)
-}
-
-func sudoCopyFrom(src, dst string) {
-	sudoRun("cp", src, dst)
+func sudoCopy(src, dst string) error {
+	return sudoRun("cp", src, dst)
 }
 
 func (WslModule) Status() core.ModuleStatus {

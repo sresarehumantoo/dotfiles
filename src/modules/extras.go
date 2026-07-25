@@ -377,17 +377,22 @@ func installHashicorpApt() error {
 	return nil
 }
 
+// terraformVersion is the release fetched by installHashicorpBinary. HashiCorp
+// publishes no "latest" alias on releases.hashicorp.com, so this is pinned and
+// must be bumped by hand.
+const terraformVersion = "1.9.8"
+
 func installHashicorpBinary() error {
 	if _, err := exec.LookPath("terraform"); err == nil {
 		core.Ok("Terraform already installed")
 		return nil
 	}
 
+	// Only these two are published for linux; anything else would build a URL
+	// that 404s with no explanation.
 	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "amd64"
-	} else if arch == "arm64" {
-		arch = "arm64"
+	if arch != "amd64" && arch != "arm64" {
+		return fmt.Errorf("no terraform binary published for %s", arch)
 	}
 
 	home, _ := os.UserHomeDir()
@@ -396,8 +401,8 @@ func installHashicorpBinary() error {
 		return fmt.Errorf("creating bin dir: %w", err)
 	}
 
-	// Download latest terraform zip and extract to ~/.local/bin
-	url := fmt.Sprintf("https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_%s.zip", arch)
+	// Download the pinned terraform zip and extract to ~/.local/bin
+	url := fmt.Sprintf("https://releases.hashicorp.com/terraform/%[1]s/terraform_%[1]s_linux_%[2]s.zip", terraformVersion, arch)
 	tmpZip := filepath.Join(os.TempDir(), "terraform.zip")
 	if err := runCmd("curl", "-fsSL", "-o", tmpZip, url); err != nil {
 		return fmt.Errorf("downloading terraform: %w", err)

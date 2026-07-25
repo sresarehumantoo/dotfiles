@@ -34,7 +34,7 @@ func (DefaultShellModule) Install() error {
 	// chsh prompts for the user's password. Use sudo chsh when the
 	// password is known (bootstrap) to avoid an interactive prompt.
 	var cmd *exec.Cmd
-	if pass := os.Getenv("_DFINSTALL_SUDO_PASS"); pass != "" {
+	if core.HasSudoPass() {
 		cmd = core.SudoCmd("chsh", "-s", zshPath, os.Getenv("USER"))
 	} else {
 		cmd = exec.Command("chsh", "-s", zshPath)

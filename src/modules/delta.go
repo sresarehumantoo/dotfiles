@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -54,7 +55,9 @@ func installDeltaDeb() error {
 	// Prefer dpkg for accurate arch detection, fall back to GOARCH
 	arch := runtime.GOARCH
 	if out, err := exec.Command("dpkg", "--print-architecture").Output(); err == nil {
-		arch = string(out[:len(out)-1]) // trim newline
+		if a := strings.TrimSpace(string(out)); a != "" {
+			arch = a
+		}
 	}
 
 	url := fmt.Sprintf("https://github.com/dandavison/delta/releases/latest/download/git-delta_%s.deb", arch)

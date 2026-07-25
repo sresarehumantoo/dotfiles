@@ -253,9 +253,9 @@ func runCmd(name string, args ...string) error {
 		}
 	}
 
-	// When password is piped via _DFINSTALL_SUDO_PASS, no TTY needed and
-	// no spinner interference is possible.
-	if directSudo && os.Getenv("_DFINSTALL_SUDO_PASS") != "" {
+	// When the sudo password was captured at startup it is piped to sudo -S,
+	// so no TTY is needed and no spinner interference is possible.
+	if directSudo && core.HasSudoPass() {
 		return cmd.Run()
 	}
 

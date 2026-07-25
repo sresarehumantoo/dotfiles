@@ -422,6 +422,34 @@ var sudoKeepAliveStop chan struct{}
 var sudoOnce sync.Once
 var sudoStopOnce sync.Once
 
+// sudoPass holds the password captured from DFINSTALL_SUDO_PASS at startup.
+// It is deliberately kept out of the process environment: anything in
+// os.Environ() is inherited by every child process we spawn (apt, curl, git,
+// go install, ...) and is readable via /proc/<pid>/environ.
+var (
+	sudoPassMu sync.Mutex
+	sudoPass   string
+)
+
+func setSudoPass(p string) {
+	sudoPassMu.Lock()
+	defer sudoPassMu.Unlock()
+	sudoPass = p
+}
+
+func getSudoPass() string {
+	sudoPassMu.Lock()
+	defer sudoPassMu.Unlock()
+	return sudoPass
+}
+
+// HasSudoPass reports whether a sudo password was captured at startup, meaning
+// SudoCmd can run non-interactively and needs no TTY. The password itself is
+// never exposed outside this package.
+func HasSudoPass() bool {
+	return getSudoPass() != ""
+}
+
 // PromptSudo validates sudo credentials before the spinner starts and launches
 // a background goroutine that refreshes them every 60 seconds. If
 // DFINSTALL_SUDO_PASS is set (e.g. during bootstrap where the password is
@@ -441,9 +469,10 @@ func PromptSudo() {
 	// feed it non-interactively so the spinner is never interrupted.
 	if pass := os.Getenv("DFINSTALL_SUDO_PASS"); pass != "" {
 		Debug("sudo: using DFINSTALL_SUDO_PASS")
-		// Clear from environment so child processes don't inherit it.
+		// Move it out of the environment and into process memory so child
+		// processes don't inherit it.
 		os.Unsetenv("DFINSTALL_SUDO_PASS")
-		os.Setenv("_DFINSTALL_SUDO_PASS", pass)
+		setSudoPass(pass)
 		cmd := exec.Command("sudo", "-S", "-v")
 		cmd.Stdin = strings.NewReader(pass + "\n")
 		if err := cmd.Run(); err != nil {
@@ -471,7 +500,7 @@ func PromptSudo() {
 func startSudoKeepAlive() {
 	sudoOnce.Do(func() {
 		sudoKeepAliveStop = make(chan struct{})
-		pass := os.Getenv("_DFINSTALL_SUDO_PASS")
+		pass := getSudoPass()
 		go func() {
 			ticker := time.NewTicker(60 * time.Second)
 			defer ticker.Stop()
@@ -507,7 +536,7 @@ func StopSudoKeepAlive() {
 // injects -S and pipes the password so no TTY prompt is needed. Otherwise
 // stdin is connected to the terminal.
 func SudoCmd(args ...string) *exec.Cmd {
-	if pass := os.Getenv("_DFINSTALL_SUDO_PASS"); pass != "" {
+	if pass := getSudoPass(); pass != "" {
 		cmdArgs := append([]string{"-S"}, args...)
 		cmd := exec.Command("sudo", cmdArgs...)
 		cmd.Stdin = strings.NewReader(pass + "\n")
