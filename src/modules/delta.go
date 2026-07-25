@@ -63,8 +63,7 @@ func installDeltaDeb() error {
 	url := fmt.Sprintf("https://github.com/dandavison/delta/releases/latest/download/git-delta_%s.deb", arch)
 	debPath := filepath.Join(tmp, "git-delta.deb")
 
-	cmd := exec.Command("curl", "-fsSL", url, "-o", debPath)
-	if err := cmd.Run(); err != nil {
+	if err := runCmd("curl", "-fsSL", url, "-o", debPath); err != nil {
 		// Fallback to package manager
 		if err := installPkg("git-delta"); err != nil {
 			core.Warn("Could not install delta automatically. Install from https://github.com/dandavison/delta/releases")
@@ -72,28 +71,14 @@ func installDeltaDeb() error {
 		return nil
 	}
 
-	core.PauseSpinner()
-	cmd = core.SudoCmd("dpkg", "-i", debPath)
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	if err := cmd.Run(); err != nil {
+	if err := runCmd("sudo", "dpkg", "-i", debPath); err != nil {
 		bin := core.AptBin()
 		if bin == "" {
 			core.Warn("dpkg failed and no apt binary available to fix dependencies")
-		} else {
-			fixCmd := core.SudoCmd(bin, "install", "-f", "-y")
-			if core.Level >= core.LogVerbose {
-				fixCmd.Stdout = os.Stdout
-				fixCmd.Stderr = os.Stderr
-			}
-			if fixErr := fixCmd.Run(); fixErr != nil {
-				core.Warn("%s install -f failed: %v", bin, fixErr)
-			}
+		} else if fixErr := runCmd("sudo", bin, "install", "-f", "-y"); fixErr != nil {
+			core.Warn("%s install -f failed: %v", bin, fixErr)
 		}
 	}
-	core.ResumeSpinner()
 
 	if _, err := exec.LookPath("delta"); err == nil {
 		core.Ok("delta installed")

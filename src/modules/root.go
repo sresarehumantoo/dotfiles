@@ -100,23 +100,9 @@ func RootStatus() (linked, missing int) {
 }
 
 func sudoMkdir(dir string) error {
-	core.PauseSpinner()
-	defer core.ResumeSpinner()
-	cmd := core.SudoCmd("mkdir", "-p", dir)
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	return cmd.Run()
+	return runCmd("sudo", "mkdir", "-p", dir)
 }
 
 func sudoLink(src, dst string) error {
-	core.PauseSpinner()
-	defer core.ResumeSpinner()
-	cmd := core.SudoCmd("ln", "-sfn", src, dst)
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	return cmd.Run()
+	return runCmd("sudo", "ln", "-sfn", src, dst)
 }

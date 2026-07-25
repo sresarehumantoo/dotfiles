@@ -549,7 +549,18 @@ func StopSudoKeepAlive() {
 // sudo password was captured from DFINSTALL_SUDO_PASS at startup, it
 // injects -S and pipes the password so no TTY prompt is needed. Otherwise
 // stdin is connected to the terminal.
+//
+// Already running as root, it execs the command directly — sudo may not even
+// be installed in a root container, and escalating from root is pointless.
 func SudoCmd(args ...string) *exec.Cmd {
+	if os.Geteuid() == 0 {
+		cmd := exec.Command(args[0], args[1:]...)
+		if Interactive {
+			cmd.Stdin = os.Stdin
+		}
+		return cmd
+	}
+
 	if pass := getSudoPass(); pass != "" {
 		cmdArgs := append([]string{"-S"}, args...)
 		cmd := exec.Command("sudo", cmdArgs...)

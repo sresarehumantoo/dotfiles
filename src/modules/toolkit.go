@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -864,20 +863,10 @@ func installRustup() bool {
 		return false
 	}
 	core.Info("Installing rustup (downloads ~200MB)...")
-	cmd := exec.Command("sh", "-c",
+	err := runCmd("sh", "-c",
 		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	} else {
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
-	}
-	core.PauseSpinner()
-	err := cmd.Run()
-	core.ResumeSpinner()
 	if err != nil {
-		core.AlwaysWarn("rustup install failed: %v — re-run with -v for full output", err)
+		core.AlwaysWarn("rustup install failed: %v", err)
 		return false
 	}
 

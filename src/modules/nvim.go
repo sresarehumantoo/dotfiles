@@ -325,12 +325,7 @@ func (NvimModule) Install() error {
 	if !core.DryRun {
 		if _, err := exec.LookPath("nvim"); err == nil {
 			core.Info("Syncing Neovim plugins...")
-			cmd := exec.Command("nvim", "--headless", "+Lazy! sync", "+qa")
-			if core.Level >= core.LogVerbose {
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-			}
-			if err := cmd.Run(); err != nil {
+			if err := runCmd("nvim", "--headless", "+Lazy! sync", "+qa"); err != nil {
 				core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
 			}
 		}

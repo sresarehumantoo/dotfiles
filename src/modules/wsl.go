@@ -207,22 +207,10 @@ func configureGitFsmonitor() {
 	core.Ok("git fsmonitor + untrackedcache enabled")
 }
 
+// sudoRun runs a command as root. core.SudoCmd already execs directly when we
+// are root, and runCmd handles spinner pausing and failure output.
 func sudoRun(args ...string) error {
-	core.PauseSpinner()
-	defer core.ResumeSpinner()
-
-	var cmd *exec.Cmd
-	if os.Geteuid() == 0 {
-		cmd = exec.Command(args[0], args[1:]...)
-		cmd.Stdin = os.Stdin
-	} else {
-		cmd = core.SudoCmd(args...)
-	}
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	return cmd.Run()
+	return runCmd("sudo", args...)
 }
 
 func sudoCopy(src, dst string) error {

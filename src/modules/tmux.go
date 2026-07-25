@@ -145,13 +145,8 @@ func (TmuxModule) Install() error {
 
 	if _, err := os.Stat(tpmDir); os.IsNotExist(err) {
 		core.Info("Installing TPM...")
-		cmd := exec.Command("git", "clone", "--depth=1",
-			"https://github.com/tmux-plugins/tpm", tpmDir)
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		if err := cmd.Run(); err != nil {
+		if err := runCmd("git", "clone", "--depth=1",
+			"https://github.com/tmux-plugins/tpm", tpmDir); err != nil {
 			core.Warn("TPM clone failed: %v", err)
 		}
 	} else {
@@ -171,12 +166,7 @@ func (TmuxModule) Install() error {
 			core.Debug("tmux set-environment: %v", err)
 		}
 
-		cmd := exec.Command(installScript)
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		if err := cmd.Run(); err != nil {
+		if err := runCmd(installScript); err != nil {
 			core.Warn("TPM plugin install failed: %v", err)
 		}
 	}

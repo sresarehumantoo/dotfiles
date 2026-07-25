@@ -3,7 +3,6 @@ package modules
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -37,13 +36,8 @@ func (OmzModule) Install() error {
 	zasDir := filepath.Join(zshCustom, "plugins", "zsh-autosuggestions")
 	if _, err := os.Stat(zasDir); os.IsNotExist(err) {
 		core.Info("Installing zsh-autosuggestions...")
-		cmd := exec.Command("git", "clone",
-			"https://github.com/zsh-users/zsh-autosuggestions", zasDir)
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		if err := cmd.Run(); err != nil {
+		if err := runCmd("git", "clone",
+			"https://github.com/zsh-users/zsh-autosuggestions", zasDir); err != nil {
 			core.Warn("zsh-autosuggestions clone failed: %v", err)
 		}
 	} else {
@@ -54,13 +48,8 @@ func (OmzModule) Install() error {
 	p10kDir := filepath.Join(zshCustom, "themes", "powerlevel10k")
 	if _, err := os.Stat(p10kDir); os.IsNotExist(err) {
 		core.Info("Installing powerlevel10k...")
-		cmd := exec.Command("git", "clone", "--depth=1",
-			"https://github.com/romkatv/powerlevel10k.git", p10kDir)
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		if err := cmd.Run(); err != nil {
+		if err := runCmd("git", "clone", "--depth=1",
+			"https://github.com/romkatv/powerlevel10k.git", p10kDir); err != nil {
 			core.Warn("powerlevel10k clone failed: %v", err)
 		}
 	} else {
@@ -119,13 +108,8 @@ func installOmz(omzDir string) error {
 	}
 
 	core.Info("Installing Oh My Zsh (git clone)...")
-	cmd := exec.Command("git", "clone", "--depth=1",
-		"https://github.com/ohmyzsh/ohmyzsh.git", omzDir)
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	if err := cmd.Run(); err != nil {
+	if err := runCmd("git", "clone", "--depth=1",
+		"https://github.com/ohmyzsh/ohmyzsh.git", omzDir); err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}
 
