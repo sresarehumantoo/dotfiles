@@ -2,7 +2,6 @@ package modules
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -473,53 +472,16 @@ func installDeb(ctx context.Context, name, repo string) error {
 
 	core.Info("Downloading %s .deb from GitHub...", name)
 
-	// Query GitHub releases API
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
+	assets, err := latestAssets(ctx, repo)
 	if err != nil {
-		return fmt.Errorf("fetch releases for %s: %w", repo, err)
+		return err
 	}
-
-	var release struct {
-		Assets []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.Unmarshal(out, &release); err != nil {
-		return fmt.Errorf("parse releases JSON for %s: %w", repo, err)
-	}
-
-	// Find the right .deb for the current architecture
-	arch := runtime.GOARCH
-	archPatterns := map[string][]string{
-		"amd64": {"amd64", "x86_64", "x64"},
-		"arm64": {"arm64", "aarch64"},
-	}
-	patterns, ok := archPatterns[arch]
+	asset, ok := pickAsset(assets, assetFilter{
+		ArchTokens: currentArchTokens(),
+		Suffix:     ".deb",
+	})
 	if !ok {
-		patterns = []string{arch}
-	}
-
-	var downloadURL string
-	for _, asset := range release.Assets {
-		lower := strings.ToLower(asset.Name)
-		if !strings.HasSuffix(lower, ".deb") {
-			continue
-		}
-		for _, p := range patterns {
-			if strings.Contains(lower, p) {
-				downloadURL = asset.BrowserDownloadURL
-				break
-			}
-		}
-		if downloadURL != "" {
-			break
-		}
-	}
-
-	if downloadURL == "" {
-		return fmt.Errorf("no .deb found for %s/%s", arch, name)
+		return fmt.Errorf("no .deb found for %s/%s", runtime.GOARCH, name)
 	}
 
 	// Download to temp file
@@ -531,7 +493,7 @@ func installDeb(ctx context.Context, name, repo string) error {
 	tmpFile.Close()
 	defer os.Remove(tmpPath)
 
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, asset.URL); err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 
@@ -568,58 +530,20 @@ func installAppImage(ctx context.Context, name, repo string) error {
 
 	core.Info("Downloading %s AppImage from GitHub...", name)
 
-	// Query GitHub releases API
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
+	assets, err := latestAssets(ctx, repo)
 	if err != nil {
-		return fmt.Errorf("fetch releases for %s: %w", repo, err)
+		return err
 	}
-
-	// Parse JSON to find AppImage URL
-	var release struct {
-		Assets []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.Unmarshal(out, &release); err != nil {
-		return fmt.Errorf("parse releases JSON for %s: %w", repo, err)
-	}
-
-	// Find the right AppImage for the current architecture
-	arch := runtime.GOARCH
-	archPatterns := map[string][]string{
-		"amd64": {"x86_64", "amd64", "x64"},
-		"arm64": {"aarch64", "arm64"},
-	}
-	patterns, ok := archPatterns[arch]
+	asset, ok := pickAsset(assets, assetFilter{
+		ArchTokens: currentArchTokens(),
+		Suffix:     ".AppImage",
+	})
 	if !ok {
-		patterns = []string{arch}
-	}
-
-	var downloadURL string
-	for _, asset := range release.Assets {
-		lower := strings.ToLower(asset.Name)
-		if !strings.HasSuffix(lower, ".appimage") {
-			continue
-		}
-		for _, p := range patterns {
-			if strings.Contains(strings.ToLower(asset.Name), strings.ToLower(p)) {
-				downloadURL = asset.BrowserDownloadURL
-				break
-			}
-		}
-		if downloadURL != "" {
-			break
-		}
-	}
-
-	if downloadURL == "" {
-		return fmt.Errorf("no AppImage found for %s/%s", arch, name)
+		return fmt.Errorf("no AppImage found for %s/%s", runtime.GOARCH, name)
 	}
 
 	// Download
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", destPath, downloadURL); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", destPath, asset.URL); err != nil {
 		os.Remove(destPath)
 		return fmt.Errorf("download %s: %w", name, err)
 	}
@@ -653,70 +577,20 @@ func installReleaseBinary(ctx context.Context, name, repo, pattern string) error
 
 	core.Info("Downloading %s from GitHub release...", name)
 
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
+	assets, err := latestAssets(ctx, repo)
 	if err != nil {
-		return fmt.Errorf("fetch releases for %s: %w", repo, err)
+		return err
 	}
-	var release struct {
-		Assets []struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.Unmarshal(out, &release); err != nil {
-		return fmt.Errorf("parse releases JSON for %s: %w", repo, err)
-	}
-
-	arch := runtime.GOARCH
-	archPatterns := map[string][]string{
-		"amd64": {"x86_64", "amd64", "x64"},
-		"arm64": {"aarch64", "arm64"},
-	}
-	patterns, ok := archPatterns[arch]
+	asset, ok := pickAsset(assets, assetFilter{
+		ArchTokens:   currentArchTokens(),
+		Contains:     pattern,
+		SkipSidecars: true,
+		LinuxOnly:    true,
+	})
 	if !ok {
-		patterns = []string{arch}
+		return fmt.Errorf("no release asset matched for %s (arch=%s, pattern=%q)", name, runtime.GOARCH, pattern)
 	}
-
-	patternLower := strings.ToLower(pattern)
-	var (
-		downloadURL string
-		assetName   string
-	)
-	for _, asset := range release.Assets {
-		lower := strings.ToLower(asset.Name)
-		// Skip checksum / signature / source-archive noise
-		if strings.HasSuffix(lower, ".sha256") || strings.HasSuffix(lower, ".sig") ||
-			strings.HasSuffix(lower, ".asc") || strings.HasSuffix(lower, ".sbom") ||
-			strings.HasSuffix(lower, ".pem") {
-			continue
-		}
-		if patternLower != "" && !strings.Contains(lower, patternLower) {
-			continue
-		}
-		archMatched := false
-		for _, p := range patterns {
-			if strings.Contains(lower, p) {
-				archMatched = true
-				break
-			}
-		}
-		if !archMatched {
-			continue
-		}
-		// Prefer Linux assets (skip darwin/windows when both ship)
-		if strings.Contains(lower, "darwin") || strings.Contains(lower, "windows") ||
-			strings.Contains(lower, ".exe") {
-			continue
-		}
-		downloadURL = asset.BrowserDownloadURL
-		assetName = asset.Name
-		break
-	}
-
-	if downloadURL == "" {
-		return fmt.Errorf("no release asset matched for %s (arch=%s, pattern=%q)", name, arch, pattern)
-	}
+	assetName := asset.Name
 
 	tmpDir, err := os.MkdirTemp("", "release-"+name+"-")
 	if err != nil {
@@ -724,7 +598,7 @@ func installReleaseBinary(ctx context.Context, name, repo, pattern string) error
 	}
 	defer os.RemoveAll(tmpDir)
 	tmpPath := filepath.Join(tmpDir, assetName)
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, asset.URL); err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 
