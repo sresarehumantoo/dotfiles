@@ -31,6 +31,14 @@ func (GitModule) Install() error {
 		} else {
 			core.Info("[dry-run] Would prompt for git identity and write %s", localCfg)
 		}
+	} else if !core.Interactive {
+		// Reading stdin here would consume the caller's protocol stream. Keep
+		// whatever is on disk (the same outcome as declining the prompt).
+		if exists {
+			core.Info("Keeping existing .gitconfig.local (non-interactive)")
+		} else {
+			core.Notice("Skipped git identity prompt (non-interactive) — set it with: git config --global user.name/user.email")
+		}
 	} else {
 		run := true
 		if exists {

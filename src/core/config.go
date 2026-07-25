@@ -31,6 +31,47 @@ func IsModuleSkipped(name string) bool {
 	return false
 }
 
+// SkipInAll reports whether a module should be omitted from `install all`.
+// Combines user SkipModules with opt-in modules that haven't been enabled yet
+// (currently just windev — explicit `install windev` flips Cfg.WindevEnabled
+// on, after which it's included like any other module).
+//
+// Every caller that iterates AllModules for an "install all" must use this, not
+// IsModuleSkipped alone; the MCP server previously used the latter and so
+// installed windev on machines that had opted out.
+func SkipInAll(name string) bool {
+	if IsModuleSkipped(name) {
+		return true
+	}
+	if name == "windev" && !Cfg.WindevEnabled {
+		return true
+	}
+	return false
+}
+
+// SetWindevOptIn records an explicit `install windev` so later `install all`
+// runs keep it current. The flag is persisted by InstallSession.Finish via
+// WindevMode. No-op under --dry-run so a preview never mutates config state.
+func SetWindevOptIn() {
+	if DryRun {
+		return
+	}
+	WindevMode = true
+	Cfg.WindevEnabled = true
+}
+
+// ClearWindevOptIn drops the opt-in on an explicit `uninstall windev` so
+// `install all` stops re-applying it. Best-effort: warns but doesn't fail.
+func ClearWindevOptIn() {
+	if DryRun || !Cfg.WindevEnabled {
+		return
+	}
+	Cfg.WindevEnabled = false
+	if err := SaveConfig(); err != nil {
+		Warn("failed to save config: %v", err)
+	}
+}
+
 // Cfg is the active configuration, loaded at startup.
 var Cfg Config
 

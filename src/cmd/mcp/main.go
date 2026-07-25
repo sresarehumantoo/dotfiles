@@ -20,6 +20,11 @@ func main() {
 
 	core.Level = core.LogQuiet
 
+	// os.Stdin carries the JSON-RPC request stream here, so nothing may read it
+	// looking for user input — a prompt would consume protocol bytes and wedge
+	// the session. Interactive paths check this and take a safe default.
+	core.Interactive = false
+
 	core.DetectEnvironment()
 	core.LoadConfig()
 	modules.RegisterAllModules()
@@ -173,11 +178,23 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	}
 
 	if name == "all" {
-		// Record the invoking clone as canonical (and repoint stray symlinks
-		// from other clones), matching the CLI's `install all`.
+		// Share the CLI's session: adopts the canonical clone (repointing
+		// stray symlinks), takes a restorable backup, and persists config.
+		sess, err := core.BeginInstall(core.InstallOptions{All: true})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		defer sess.Finish()
+
+		// Prime sudo so package steps don't each hit an unprimed sudo. With
+		// Interactive=false this only uses cached or known credentials and
+		// never prompts.
+		core.PromptSudo()
+		defer core.StopSudoKeepAlive()
+
 		var b strings.Builder
-		if prev, changed := core.AdoptCanonical(core.InvokingCloneDir()); changed && prev != "" {
-			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", core.InvokingCloneDir(), prev)
+		if sess.CanonicalNow != "" && sess.CanonicalPrev != "" {
+			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
 		}
 
 		beforeStatus := make(map[string]core.ModuleStatus)
@@ -187,7 +204,9 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 
 		var failures []string
 		for _, m := range core.AllModules() {
-			if core.IsModuleSkipped(m.Name()) {
+			// core.SkipInAll, not IsModuleSkipped: the latter ignores the
+			// windev opt-in and installed it on machines that never enabled it.
+			if core.SkipInAll(m.Name()) {
 				continue
 			}
 			if err := m.Install(); err != nil {
@@ -225,8 +244,21 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 		), nil
 	}
 
+	if name == "windev" {
+		core.SetWindevOptIn()
+	}
+
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	defer sess.Finish()
+
+	core.PromptSudo()
+	defer core.StopSudoKeepAlive()
+
 	before := m.Status()
-	err := m.Install()
+	err = m.Install()
 	after := m.Status()
 
 	var b strings.Builder
@@ -445,14 +477,17 @@ func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallT
 	}
 
 	if name == "all" {
+		core.PromptSudo()
+		defer core.StopSudoKeepAlive()
+
 		var b strings.Builder
 		for _, m := range core.AllModules() {
-			before := m.Status()
 			u, ok := m.(core.Uninstaller)
 			if !ok {
 				fmt.Fprintf(&b, "%s: no uninstall support\n", m.Name())
 				continue
 			}
+			before := m.Status()
 			if err := u.Uninstall(); err != nil {
 				fmt.Fprintf(&b, "%s: error: %v\n", m.Name(), err)
 				continue
@@ -475,6 +510,15 @@ func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallT
 	if !uOk {
 		return mcp.NewToolResultError(fmt.Sprintf("%s does not support uninstall", name)), nil
 	}
+
+	if name == "windev" {
+		core.ClearWindevOptIn()
+	}
+
+	// Modules that installed system packages (delta, toolkit) shell out to
+	// sudo when uninstalling.
+	core.PromptSudo()
+	defer core.StopSudoKeepAlive()
 
 	before := m.Status()
 	if err := u.Uninstall(); err != nil {

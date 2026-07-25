@@ -26,6 +26,10 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "dfinstall",
 		Short: "Dotfiles installer and manager",
+		// Runtime failures (a module erroring, a backup that won't start) are
+		// not usage errors — printing the full help after them buries the
+		// actual message. Cobra still shows usage for bad arguments.
+		SilenceUsage: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			switch {
 			case flagDebug:
@@ -121,13 +125,8 @@ func main() {
 		if !ok {
 			return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
 		}
-		// Explicit install of an opt-in module persists the enable flag so
-		// subsequent `install all` keeps it current. Mirrors how --toolkit
-		// /--extended set their Mode flags to trigger SaveConfig below.
-		// Skipped under --dry-run so a preview never mutates config state.
-		if target == "windev" && !core.DryRun {
-			core.WindevMode = true
-			core.Cfg.WindevEnabled = true
+		if target == "windev" {
+			core.SetWindevOptIn()
 		}
 		return installOne(m)
 	}
@@ -308,14 +307,8 @@ func main() {
 			if !ok {
 				return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
 			}
-			// Explicit uninstall of windev clears the opt-in so `install all`
-			// stops re-applying it. Best-effort save: warn but don't fail.
-			// Skipped under --dry-run so a preview never mutates config state.
-			if target == "windev" && core.Cfg.WindevEnabled && !core.DryRun {
-				core.Cfg.WindevEnabled = false
-				if err := core.SaveConfig(); err != nil {
-					core.Warn("failed to save config: %v", err)
-				}
+			if target == "windev" {
+				core.ClearWindevOptIn()
 			}
 			return uninstallOne(m)
 		},
@@ -358,58 +351,32 @@ func main() {
 	}
 }
 
-// skipInAll reports whether a module should be omitted from `install all`.
-// Combines user SkipModules with opt-in modules that haven't been enabled yet
-// (currently just windev — explicit `install windev` flips Cfg.WindevEnabled
-// on, after which it's included like any other module).
-func skipInAll(name string) bool {
-	if core.IsModuleSkipped(name) {
-		return true
-	}
-	if name == "windev" && !core.Cfg.WindevEnabled {
-		return true
-	}
-	return false
-}
-
-// adoptCanonical records the clone we're running from as this machine's
-// authoritative dotfiles dir. Because DotfilesDir() then resolves here for the
-// rest of the run, the module loop repoints any symlinks left pointing at other
-// clones — so `install all` both switches canonical and consolidates a machine
-// whose symlinks had drifted across clones.
-func adoptCanonical() {
-	invoking := core.InvokingCloneDir()
-	prev, changed := core.AdoptCanonical(invoking)
-	if !changed {
-		return
-	}
-	if prev != "" {
-		core.Status("Canonical dotfiles dir set to %s (was %s) — repointing symlinks", invoking, prev)
-	} else {
-		core.Debug("canonical dotfiles dir set to %s", invoking)
-	}
-}
-
 func installAll() error {
-	adoptCanonical()
+	sess, err := core.BeginInstall(core.InstallOptions{All: true, ForceBackup: flagBackup})
+	if err != nil {
+		return err
+	}
+	defer sess.Finish()
 
-	doBackup, firstRun := shouldBackup()
-
-	if doBackup {
-		if err := core.StartBackup(); err != nil {
-			return fmt.Errorf("start backup: %w", err)
+	if sess.CanonicalNow != "" {
+		if sess.CanonicalPrev != "" {
+			core.Status("Canonical dotfiles dir set to %s (was %s) — repointing symlinks",
+				sess.CanonicalNow, sess.CanonicalPrev)
+		} else {
+			core.Debug("canonical dotfiles dir set to %s", sess.CanonicalNow)
 		}
-		defer core.FinishBackup()
 	}
 
 	all := core.AllModules()
 	total := len(all)
 
-	// Verbose/debug: full detailed output
 	var skipped int
+	var failures []string
+
+	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
 		for _, m := range all {
-			if skipInAll(m.Name()) {
+			if core.SkipInAll(m.Name()) {
 				core.Info("--- %s --- (skipped)", m.Name())
 				skipped++
 				continue
@@ -417,27 +384,20 @@ func installAll() error {
 			core.Info("--- %s ---", m.Name())
 			if err := m.Install(); err != nil {
 				core.Err("%s failed: %v", m.Name(), err)
+				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
 		fmt.Println()
-		if firstRun {
-			saveFirstRunConfig()
-		} else if core.ExtendedMode || core.ToolkitMode || core.WindevMode {
-			if err := core.SaveConfig(); err != nil {
-				core.Warn("failed to save config: %v", err)
-			}
-		}
 		core.Info("Done! Open a new terminal or run: exec zsh")
-		return nil
+		return installFailure(failures)
 	}
 
 	// Default: spinner mode
 	sp := core.NewSpinner()
 	sp.Start()
 
-	var failures []string
 	for i, m := range all {
-		if skipInAll(m.Name()) {
+		if core.SkipInAll(m.Name()) {
 			skipped++
 			continue
 		}
@@ -454,19 +414,21 @@ func installAll() error {
 		core.Err("%s", f)
 	}
 
-	if firstRun {
-		saveFirstRunConfig()
-	} else if core.ExtendedMode || core.ToolkitMode {
-		if err := core.SaveConfig(); err != nil {
-			core.Warn("failed to save config: %v", err)
-		}
-	}
-	if doBackup {
+	if sess.DidBackup() {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
 	core.PrintResult(total-skipped, len(failures))
 	core.PrintHint("Open a new terminal or run: exec zsh")
-	return nil
+	return installFailure(failures)
+}
+
+// installFailure turns collected per-module failures into a non-zero exit.
+// The details are already on screen, so the returned error stays short.
+func installFailure(failures []string) error {
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d module(s) failed", len(failures))
 }
 
 func installOne(m core.Module) error {
@@ -480,26 +442,15 @@ func installOne(m core.Module) error {
 		}
 	}
 
-	doBackup, firstRun := shouldBackup()
-
-	if doBackup {
-		if err := core.StartBackup(); err != nil {
-			return fmt.Errorf("start backup: %w", err)
-		}
-		defer core.FinishBackup()
+	sess, err := core.BeginInstall(core.InstallOptions{ForceBackup: flagBackup})
+	if err != nil {
+		return err
 	}
+	defer sess.Finish()
 
 	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
-		err := m.Install()
-		if firstRun {
-			saveFirstRunConfig()
-		} else if core.ExtendedMode || core.ToolkitMode || core.WindevMode {
-			if err := core.SaveConfig(); err != nil {
-				core.Warn("failed to save config: %v", err)
-			}
-		}
-		return err
+		return m.Install()
 	}
 
 	// Default: spinner mode
@@ -507,71 +458,28 @@ func installOne(m core.Module) error {
 	sp.Update("Installing %s", m.Name())
 	sp.Start()
 
-	err := m.Install()
+	installErr := m.Install()
 	sp.Stop()
 
 	core.FlushWarnings()
 
-	if err != nil {
-		core.Err("%s: %v", m.Name(), err)
-		return err
+	if installErr != nil {
+		core.Err("%s: %v", m.Name(), installErr)
+		return installErr
 	}
 
-	if firstRun {
-		saveFirstRunConfig()
-	} else if core.ExtendedMode || core.ToolkitMode {
-		if err := core.SaveConfig(); err != nil {
-			core.Warn("failed to save config: %v", err)
-		}
-	}
-	if doBackup {
+	if sess.DidBackup() {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
 	core.PrintResult(1, 0)
 	return nil
 }
 
-// shouldBackup decides whether to create a backup and whether this is a first run.
-func shouldBackup() (doBackup bool, firstRun bool) {
-	if core.DryRun {
-		return false, false
-	}
-
-	// --backup flag always wins
-	if flagBackup {
-		return true, false
-	}
-
-	// No config file → first run, auto-backup
-	if !core.CfgFileExists {
-		core.Info("first run detected — creating automatic backup")
-		return true, true
-	}
-
-	// Config exists — respect skip_backup preference
-	if !core.Cfg.SkipBackup {
-		return true, false
-	}
-
-	return false, false
-}
-
-// saveFirstRunConfig writes the config with skip_backup: true after first-run auto-backup.
-func saveFirstRunConfig() {
-	if core.DryRun {
-		return
-	}
-	core.Cfg.SkipBackup = true
-	if err := core.SaveConfig(); err != nil {
-		core.Warn("failed to save config: %v", err)
-	} else {
-		core.Info("config saved: %s (skip_backup: true)", core.ConfigFilePath())
-	}
-}
-
 func uninstallAll() error {
 	all := core.AllModules()
 	total := len(all)
+
+	var failures []string
 
 	if core.Level >= core.LogVerbose {
 		for _, m := range all {
@@ -583,15 +491,15 @@ func uninstallAll() error {
 			core.Info("--- %s ---", m.Name())
 			if err := u.Uninstall(); err != nil {
 				core.Err("%s: %v", m.Name(), err)
+				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
-		return nil
+		return uninstallFailure(failures)
 	}
 
 	sp := core.NewSpinner()
 	sp.Start()
 
-	var failures []string
 	for i, m := range all {
 		u, ok := m.(core.Uninstaller)
 		if !ok {
@@ -610,7 +518,15 @@ func uninstallAll() error {
 	}
 
 	core.PrintResult(total, len(failures))
-	return nil
+	return uninstallFailure(failures)
+}
+
+// uninstallFailure turns collected per-module failures into a non-zero exit.
+func uninstallFailure(failures []string) error {
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d module(s) failed to uninstall", len(failures))
 }
 
 func uninstallOne(m core.Module) error {

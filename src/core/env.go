@@ -422,6 +422,12 @@ var sudoKeepAliveStop chan struct{}
 var sudoOnce sync.Once
 var sudoStopOnce sync.Once
 
+// Interactive reports whether it is safe to prompt on stdin. True for the CLI;
+// the MCP server sets it false because there os.Stdin carries the JSON-RPC
+// request stream — reading from it consumes protocol bytes and wedges the
+// session. Code that would prompt must check this and pick a safe default.
+var Interactive = true
+
 // sudoPass holds the password captured from DFINSTALL_SUDO_PASS at startup.
 // It is deliberately kept out of the process environment: anything in
 // os.Environ() is inherited by every child process we spawn (apt, curl, git,
@@ -481,6 +487,14 @@ func PromptSudo() {
 			startSudoKeepAlive()
 			return
 		}
+	}
+
+	// Nothing cached and no known password. Prompting requires a terminal; if
+	// stdin is a protocol stream, reading it would corrupt the session, so
+	// leave credentials unprimed and let individual sudo steps fail loudly.
+	if !Interactive {
+		Debug("sudo: not primed (non-interactive) — steps requiring sudo will fail")
+		return
 	}
 
 	Status("Some steps require sudo access")
@@ -543,6 +557,10 @@ func SudoCmd(args ...string) *exec.Cmd {
 		return cmd
 	}
 	cmd := exec.Command("sudo", args...)
-	cmd.Stdin = os.Stdin
+	if Interactive {
+		cmd.Stdin = os.Stdin
+	}
+	// Non-interactive: leave Stdin nil so sudo gets EOF and fails, rather than
+	// reading the caller's protocol stream while waiting for a password.
 	return cmd
 }
