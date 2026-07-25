@@ -5,14 +5,27 @@ export XDG_STATE_HOME="$HOME/.local/state"
 export XDG_CACHE_HOME="$HOME/.cache"
 
 # Make Python's requests/hvac/ansible community.hashi_vault and curl trust the
-# system CA bundle, which now includes the labcore.local root CA. Without this,
-# certifi-only Python tools (and any non-interactive bash subshell that skips
-# .zshrc → .zsh.d/exports.zsh) reject https://10.0.10.50:8200 (Vault).
-if [ -r /etc/ssl/certs/ca-certificates.crt ]; then
-  export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
-  export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-  export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+# labcore.local root CA (Vault at https://10.0.10.50:8200). The post-reimage
+# system bundle does NOT include it and adding it needs root, so maintain a
+# user-owned combined bundle (system bundle + labcore root), rebuilt whenever
+# either input is newer. Falls back to the plain system bundle if the labcore
+# CA (kept in the homenet-services repo) is missing.
+_labcore_ca="$HOME/projects/homenet-services/ansible/roles/internal_ca_trust/files/labcore-root-ca.crt"
+_ca_bundle=/etc/ssl/certs/ca-certificates.crt
+if [ -r "$_ca_bundle" ] && [ -r "$_labcore_ca" ]; then
+  _combined="$HOME/.local/share/labcore/ca-bundle.crt"
+  if [ ! -r "$_combined" ] || [ "$_ca_bundle" -nt "$_combined" ] || [ "$_labcore_ca" -nt "$_combined" ]; then
+    mkdir -p "${_combined%/*}" && cat "$_ca_bundle" "$_labcore_ca" > "$_combined"
+  fi
+  _ca_bundle="$_combined"
+  unset _combined
 fi
+if [ -r "$_ca_bundle" ]; then
+  export REQUESTS_CA_BUNDLE="$_ca_bundle"
+  export SSL_CERT_FILE="$_ca_bundle"
+  export CURL_CA_BUNDLE="$_ca_bundle"
+fi
+unset _labcore_ca _ca_bundle
 
 # npm: install global packages under a user-owned prefix (~/.local, on PATH) so
 # `npm i -g` and package self-updates don't need sudo — the default system

@@ -395,7 +395,13 @@ require('lazy').setup({
       local capabilities = require('blink.cmp').get_lsp_capabilities()
 
       local servers = {
-        clangd = {},
+        -- --query-driver lets clangd run the mingw-w64 cross compilers to
+        -- harvest their target + system includes, so <windows.h> and the Win32
+        -- API resolve when cross-developing Windows C/C++ from Linux (see
+        -- projects with a compile_commands.json / .clangd naming the driver).
+        clangd = {
+          cmd = { 'clangd', '--query-driver=/usr/bin/*-w64-mingw32-*' },
+        },
         gopls = {},
         -- Python: pyright owns types/hover/completion; ruff owns
         -- linting, import sorting and code actions (one fast binary).
