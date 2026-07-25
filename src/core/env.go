@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -412,13 +413,48 @@ func ConfigDir() string {
 	return filepath.Join(DotfilesDir(), "config")
 }
 
-// XDGConfigHome returns XDG_CONFIG_HOME or ~/.config.
+// HomeDir returns the user's home directory.
+//
+// os.UserHomeDir returns ("", err) when $HOME is unset — under cron, some
+// systemd units, or `sudo` without -H. Callers used to discard that error and
+// filepath.Join the empty string anyway, and Join("", ".oh-my-zsh") yields a
+// *relative* path, so every managed location silently retargeted at the
+// current working directory. Two of those are os.RemoveAll'd.
+//
+// Deliberately not cached: tests use t.Setenv("HOME", ...) per test, and a
+// cached first value would leak across them.
+func HomeDir() (string, error) {
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		return h, nil
+	}
+	if h := os.Getenv("HOME"); h != "" {
+		return h, nil
+	}
+	return "", errors.New("cannot determine home directory: $HOME is unset")
+}
+
+// XDGConfigHome returns XDG_CONFIG_HOME or ~/.config. Empty when the home
+// directory can't be resolved — see HomeTarget.
 func XDGConfigHome() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return xdg
 	}
-	home, _ := os.UserHomeDir()
+	home, err := HomeDir()
+	if err != nil {
+		warnNoHome(err)
+		return ""
+	}
 	return filepath.Join(home, ".config")
+}
+
+// warnNoHome reports an unresolvable home directory once per run, so a broken
+// environment is loud rather than silently producing relative paths.
+var noHomeOnce sync.Once
+
+func warnNoHome(err error) {
+	noHomeOnce.Do(func() {
+		AlwaysWarn("%v — managed paths cannot be resolved; no files will be touched", err)
+	})
 }
 
 // ── Sudo credential management ─────────────────────────────────

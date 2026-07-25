@@ -130,7 +130,7 @@ func escKeyMap() *huh.KeyMap {
 
 // ScanCustomShellFiles globs $HOME for shell-like dotfiles that aren't managed by dfinstall.
 func ScanCustomShellFiles() []DiscoveredFile {
-	home, err := os.UserHomeDir()
+	home, err := core.HomeDir()
 	if err != nil {
 		return nil
 	}
@@ -204,7 +204,7 @@ func ScanCustomShellFiles() []DiscoveredFile {
 // before the sourceable sniffer existed (e.g. .dmrc previously ended up in
 // preserved_files and now causes shell errors at startup).
 func SanitizePreservedFiles(paths []string) (cleaned, dropped []string) {
-	home, err := os.UserHomeDir()
+	home, err := core.HomeDir()
 	if err != nil {
 		return paths, nil
 	}

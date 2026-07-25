@@ -21,8 +21,7 @@ func (OmzModule) Install(ctx context.Context) error {
 
 	core.Info("Setting up Oh My Zsh...")
 
-	home, _ := os.UserHomeDir()
-	omzDir := filepath.Join(home, ".oh-my-zsh")
+	omzDir := core.HomeTarget(".oh-my-zsh")
 
 	if err := installOmz(ctx, omzDir); err != nil {
 		core.Warn("Oh My Zsh install failed: %v", err)
@@ -103,7 +102,7 @@ func installOmz(ctx context.Context, omzDir string) error {
 				return fmt.Errorf("preserve custom/: %w", err)
 			}
 		}
-		if err := os.RemoveAll(omzDir); err != nil {
+		if err := core.RemoveManagedDir(omzDir); err != nil {
 			return fmt.Errorf("remove partial omz dir: %w", err)
 		}
 	}
@@ -117,7 +116,7 @@ func installOmz(ctx context.Context, omzDir string) error {
 	// Restore preserved custom/ — overwrite OMZ's default sample custom/
 	// since the user's contents are more important.
 	if savedCustom != "" {
-		if err := os.RemoveAll(customDir); err != nil {
+		if err := core.RemoveManagedDir(customDir); err != nil {
 			return fmt.Errorf("remove fresh custom/: %w", err)
 		}
 		if err := os.Rename(savedCustom, customDir); err != nil {
@@ -135,8 +134,7 @@ func installOmz(ctx context.Context, omzDir string) error {
 
 func (OmzModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "omz"}
-	home, _ := os.UserHomeDir()
-	omzDir := filepath.Join(home, ".oh-my-zsh")
+	omzDir := core.HomeTarget(".oh-my-zsh")
 
 	// Check oh-my-zsh.sh (the canonical marker), not the directory — a
 	// partial install leaves the dir but no marker.

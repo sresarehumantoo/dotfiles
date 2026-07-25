@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -17,19 +16,18 @@ import (
 
 // isToolInstalled checks whether a registry tool is already present on the system.
 func isToolInstalled(t core.RegistryTool) bool {
-	home, _ := os.UserHomeDir()
 	switch t.Method {
 	case "appimage":
-		_, err := os.Stat(filepath.Join(home, ".local", "bin", t.Binary+".AppImage"))
+		_, err := os.Stat(core.HomeTarget(".local", "bin", t.Binary+".AppImage"))
 		return err == nil
 	case "git_clone":
-		fi, err := os.Stat(filepath.Join(home, ".local", "share", "toolkit", t.Binary))
+		fi, err := os.Stat(core.HomeTarget(".local", "share", "toolkit", t.Binary))
 		return err == nil && fi.IsDir()
 	case "release_binary":
-		_, err := os.Stat(filepath.Join(home, ".local", "bin", t.Binary))
+		_, err := os.Stat(core.HomeTarget(".local", "bin", t.Binary))
 		return err == nil
 	case "rustup":
-		_, err := os.Stat(filepath.Join(home, ".cargo", "bin", "rustup"))
+		_, err := os.Stat(core.HomeTarget(".cargo", "bin", "rustup"))
 		return err == nil
 	default:
 		_, err := exec.LookPath(t.Binary)

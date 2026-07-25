@@ -400,8 +400,7 @@ func installHashicorpBinary(ctx context.Context) error {
 		return fmt.Errorf("no terraform binary published for %s", arch)
 	}
 
-	home, _ := os.UserHomeDir()
-	binDir := filepath.Join(home, ".local", "bin")
+	binDir := core.HomeTarget(".local", "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		return fmt.Errorf("creating bin dir: %w", err)
 	}

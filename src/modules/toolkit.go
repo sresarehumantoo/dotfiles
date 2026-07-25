@@ -276,8 +276,6 @@ func (ToolkitModule) Status() core.ModuleStatus {
 		lookup[t.Name] = t
 	}
 
-	home, _ := os.UserHomeDir()
-
 	for _, name := range tools {
 		info, ok := lookup[name]
 		if !ok {
@@ -289,28 +287,28 @@ func (ToolkitModule) Status() core.ModuleStatus {
 		}
 		switch info.Method {
 		case "appimage":
-			appPath := filepath.Join(home, ".local", "bin", info.Binary+".AppImage")
+			appPath := core.HomeTarget(".local", "bin", info.Binary+".AppImage")
 			if _, err := os.Stat(appPath); err == nil {
 				s.Linked++
 			} else {
 				s.Missing++
 			}
 		case "git_clone":
-			clonePath := filepath.Join(home, ".local", "share", "toolkit", info.Binary)
+			clonePath := core.HomeTarget(".local", "share", "toolkit", info.Binary)
 			if fi, err := os.Stat(clonePath); err == nil && fi.IsDir() {
 				s.Linked++
 			} else {
 				s.Missing++
 			}
 		case "release_binary":
-			binPath := filepath.Join(home, ".local", "bin", info.Binary)
+			binPath := core.HomeTarget(".local", "bin", info.Binary)
 			if _, err := os.Stat(binPath); err == nil {
 				s.Linked++
 			} else {
 				s.Missing++
 			}
 		case "rustup":
-			if _, err := os.Stat(filepath.Join(home, ".cargo", "bin", "rustup")); err == nil {
+			if _, err := os.Stat(core.HomeTarget(".cargo", "bin", "rustup")); err == nil {
 				s.Linked++
 			} else {
 				s.Missing++
@@ -329,11 +327,6 @@ func (ToolkitModule) Status() core.ModuleStatus {
 }
 
 func (ToolkitModule) Uninstall(ctx context.Context) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("get home dir: %w", err)
-	}
-
 	reg, err := core.LoadCachedRegistry()
 	if err != nil {
 		core.Warn("Registry not available — can only remove known paths")
@@ -353,7 +346,7 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 
 		switch info.Method {
 		case "appimage":
-			appPath := filepath.Join(home, ".local", "bin", info.Binary+".AppImage")
+			appPath := core.HomeTarget(".local", "bin", info.Binary+".AppImage")
 			if _, err := os.Stat(appPath); err == nil {
 				if core.DryRun {
 					core.Info("would remove %s", appPath)
@@ -366,7 +359,7 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 				}
 			}
 		case "git_clone":
-			clonePath := filepath.Join(home, ".local", "share", "toolkit", info.Binary)
+			clonePath := core.HomeTarget(".local", "share", "toolkit", info.Binary)
 			if _, err := os.Stat(clonePath); err == nil {
 				if core.DryRun {
 					core.Info("would remove %s", clonePath)
@@ -392,7 +385,7 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 				}
 			}
 		case "release_binary":
-			binPath := filepath.Join(home, ".local", "bin", info.Binary)
+			binPath := core.HomeTarget(".local", "bin", info.Binary)
 			if _, err := os.Stat(binPath); err == nil {
 				if core.DryRun {
 					core.Info("would remove %s", binPath)
@@ -405,7 +398,7 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 				}
 			}
 		case "rustup":
-			rustupBin := filepath.Join(home, ".cargo", "bin", "rustup")
+			rustupBin := core.HomeTarget(".cargo", "bin", "rustup")
 			if _, err := os.Stat(rustupBin); err == nil {
 				if core.DryRun {
 					core.Info("would run: rustup self uninstall -y")
@@ -442,8 +435,7 @@ func pipxHasPkg(ctx context.Context, pkg string) bool {
 
 // toolkitDir returns the base directory for git-cloned toolkit repos.
 func toolkitDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "toolkit")
+	return core.HomeTarget(".local", "share", "toolkit")
 }
 
 // installGitClone clones a git repository to ~/.local/share/toolkit/<name>.
@@ -561,12 +553,7 @@ func installDeb(ctx context.Context, name, repo string) error {
 
 // installAppImage downloads an AppImage from a GitHub release to ~/.local/bin/.
 func installAppImage(ctx context.Context, name, repo string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("get home dir: %w", err)
-	}
-
-	destDir := filepath.Join(home, ".local", "bin")
+	destDir := core.HomeTarget(".local", "bin")
 	destPath := filepath.Join(destDir, name+".AppImage")
 
 	// Skip if already present
@@ -653,11 +640,7 @@ func installAppImage(ctx context.Context, name, repo string) error {
 // is a .tar.gz/.tgz, it's extracted and the file named <name> inside is
 // promoted to the destination.
 func installReleaseBinary(ctx context.Context, name, repo, pattern string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return fmt.Errorf("get home dir: %w", err)
-	}
-	destDir := filepath.Join(home, ".local", "bin")
+	destDir := core.HomeTarget(".local", "bin")
 	destPath := filepath.Join(destDir, name)
 
 	if _, err := os.Stat(destPath); err == nil {
@@ -843,8 +826,7 @@ func confirmRustupInstall(failedCount int, oldVersion string) bool {
 // user's shell profile for future shells. Idempotent — skips the
 // network install when ~/.cargo/bin/rustup already exists.
 func installRustup(ctx context.Context) bool {
-	home, _ := os.UserHomeDir()
-	cargoBin := filepath.Join(home, ".cargo", "bin")
+	cargoBin := core.HomeTarget(".cargo", "bin")
 	rustupBin := filepath.Join(cargoBin, "rustup")
 
 	addToPath := func() {

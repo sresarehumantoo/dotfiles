@@ -173,9 +173,7 @@ func RunDoctor() {
 }
 
 func homeDir(parts ...string) string {
-	home, _ := os.UserHomeDir()
-	args := append([]string{home}, parts...)
-	return filepath.Join(args...)
+	return core.HomeTarget(parts...)
 }
 
 func checkCommand(name string) func() string {

@@ -58,7 +58,7 @@ func CheckAliasCollisions() []AliasCollision {
 		return nil
 	}
 
-	home, err := os.UserHomeDir()
+	home, err := core.HomeDir()
 	if err != nil {
 		return nil
 	}
