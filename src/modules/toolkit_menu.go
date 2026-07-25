@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"sort"
 	"strings"
 
@@ -13,27 +12,6 @@ import (
 	"github.com/sresarehumantoo/dotfiles/src/core"
 	"golang.org/x/term"
 )
-
-// isToolInstalled checks whether a registry tool is already present on the system.
-func isToolInstalled(t core.RegistryTool) bool {
-	switch t.Method {
-	case "appimage":
-		_, err := os.Stat(core.HomeTarget(".local", "bin", t.Binary+".AppImage"))
-		return err == nil
-	case "git_clone":
-		fi, err := os.Stat(core.HomeTarget(".local", "share", "toolkit", t.Binary))
-		return err == nil && fi.IsDir()
-	case "release_binary":
-		_, err := os.Stat(core.HomeTarget(".local", "bin", t.Binary))
-		return err == nil
-	case "rustup":
-		_, err := os.Stat(core.HomeTarget(".cargo", "bin", "rustup"))
-		return err == nil
-	default:
-		_, err := exec.LookPath(t.Binary)
-		return err == nil
-	}
-}
 
 // RunToolkitMenu shows an interactive category-based menu for toolkit tools.
 // Returns the selected tool names.

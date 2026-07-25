@@ -284,40 +284,10 @@ func (ToolkitModule) Status() core.ModuleStatus {
 		if !core.ToolMatchesDistro(info) {
 			continue
 		}
-		switch info.Method {
-		case "appimage":
-			appPath := core.HomeTarget(".local", "bin", info.Binary+".AppImage")
-			if _, err := os.Stat(appPath); err == nil {
-				s.Linked++
-			} else {
-				s.Missing++
-			}
-		case "git_clone":
-			clonePath := core.HomeTarget(".local", "share", "toolkit", info.Binary)
-			if fi, err := os.Stat(clonePath); err == nil && fi.IsDir() {
-				s.Linked++
-			} else {
-				s.Missing++
-			}
-		case "release_binary":
-			binPath := core.HomeTarget(".local", "bin", info.Binary)
-			if _, err := os.Stat(binPath); err == nil {
-				s.Linked++
-			} else {
-				s.Missing++
-			}
-		case "rustup":
-			if _, err := os.Stat(core.HomeTarget(".cargo", "bin", "rustup")); err == nil {
-				s.Linked++
-			} else {
-				s.Missing++
-			}
-		default:
-			if _, err := exec.LookPath(info.Binary); err == nil {
-				s.Linked++
-			} else {
-				s.Missing++
-			}
+		if artifactFor(info).Installed() {
+			s.Linked++
+		} else {
+			s.Missing++
 		}
 	}
 
@@ -343,72 +313,56 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 			continue
 		}
 
+		art := artifactFor(info)
+		if !art.Installed() {
+			continue
+		}
+
 		switch info.Method {
-		case "appimage":
-			appPath := core.HomeTarget(".local", "bin", info.Binary+".AppImage")
-			if _, err := os.Stat(appPath); err == nil {
-				if core.DryRun {
-					core.Info("would remove %s", appPath)
-					continue
-				}
-				if err := os.Remove(appPath); err != nil {
-					core.Warn("Failed to remove %s: %v", appPath, err)
-				} else {
-					core.Ok("Removed %s", appPath)
-				}
+		case "appimage", "release_binary":
+			if core.DryRun {
+				core.Info("would remove %s", art.Path)
+				continue
 			}
+			if err := os.Remove(art.Path); err != nil {
+				core.Warn("Failed to remove %s: %v", art.Path, err)
+			} else {
+				core.Ok("Removed %s", art.Path)
+			}
+
 		case "git_clone":
-			clonePath := core.HomeTarget(".local", "share", "toolkit", info.Binary)
-			if _, err := os.Stat(clonePath); err == nil {
-				if core.DryRun {
-					core.Info("would remove %s", clonePath)
-					continue
-				}
-				if err := os.RemoveAll(clonePath); err != nil {
-					core.Warn("Failed to remove %s: %v", clonePath, err)
-				} else {
-					core.Ok("Removed %s", clonePath)
-				}
+			if core.DryRun {
+				core.Info("would remove %s", art.Path)
+				continue
 			}
+			if err := core.RemoveManagedDir(art.Path); err != nil {
+				core.Warn("Failed to remove %s: %v", art.Path, err)
+			} else {
+				core.Ok("Removed %s", art.Path)
+			}
+
 		case "deb":
-			if _, err := exec.LookPath(info.Binary); err == nil {
-				if core.DryRun {
-					core.Info("would run: sudo dpkg -r %s", info.Name)
-					continue
-				}
-				core.Info("Removing %s via dpkg...", info.Name)
-				if err := runCmd(ctx, "sudo", "dpkg", "-r", info.Name); err != nil {
-					core.Warn("Failed to remove %s: %v", info.Name, err)
-				} else {
-					core.Ok("Removed %s", info.Name)
-				}
+			if core.DryRun {
+				core.Info("would run: sudo dpkg -r %s", info.Name)
+				continue
 			}
-		case "release_binary":
-			binPath := core.HomeTarget(".local", "bin", info.Binary)
-			if _, err := os.Stat(binPath); err == nil {
-				if core.DryRun {
-					core.Info("would remove %s", binPath)
-					continue
-				}
-				if err := os.Remove(binPath); err != nil {
-					core.Warn("Failed to remove %s: %v", binPath, err)
-				} else {
-					core.Ok("Removed %s", binPath)
-				}
+			core.Info("Removing %s via dpkg...", info.Name)
+			if err := runCmd(ctx, "sudo", "dpkg", "-r", info.Name); err != nil {
+				core.Warn("Failed to remove %s: %v", info.Name, err)
+			} else {
+				core.Ok("Removed %s", info.Name)
 			}
+
 		case "rustup":
-			rustupBin := core.HomeTarget(".cargo", "bin", "rustup")
-			if _, err := os.Stat(rustupBin); err == nil {
-				if core.DryRun {
-					core.Info("would run: rustup self uninstall -y")
-					continue
-				}
-				core.Info("Removing rustup toolchain via 'rustup self uninstall'...")
-				if err := runCmd(ctx, rustupBin, "self", "uninstall", "-y"); err != nil {
-					core.Warn("Failed to uninstall rustup: %v", err)
-				} else {
-					core.Ok("rustup uninstalled")
-				}
+			if core.DryRun {
+				core.Info("would run: rustup self uninstall -y")
+				continue
+			}
+			core.Info("Removing rustup toolchain via 'rustup self uninstall'...")
+			if err := runCmd(ctx, art.Path, "self", "uninstall", "-y"); err != nil {
+				core.Warn("Failed to uninstall rustup: %v", err)
+			} else {
+				core.Ok("rustup uninstalled")
 			}
 		}
 	}
@@ -439,8 +393,8 @@ func toolkitDir() string {
 
 // installGitClone clones a git repository to ~/.local/share/toolkit/<name>.
 func installGitClone(ctx context.Context, name, repoURL string) error {
-	destDir := toolkitDir()
-	destPath := filepath.Join(destDir, name)
+	destPath := artifactForMethod("git_clone", name).Path
+	destDir := filepath.Dir(destPath)
 
 	// Skip if already present
 	if fi, err := os.Stat(destPath); err == nil && fi.IsDir() {
@@ -515,8 +469,8 @@ func installDeb(ctx context.Context, name, repo string) error {
 
 // installAppImage downloads an AppImage from a GitHub release to ~/.local/bin/.
 func installAppImage(ctx context.Context, name, repo string) error {
-	destDir := core.HomeTarget(".local", "bin")
-	destPath := filepath.Join(destDir, name+".AppImage")
+	destPath := artifactForMethod("appimage", name).Path
+	destDir := filepath.Dir(destPath)
 
 	// Skip if already present
 	if _, err := os.Stat(destPath); err == nil {
@@ -564,8 +518,8 @@ func installAppImage(ctx context.Context, name, repo string) error {
 // is a .tar.gz/.tgz, it's extracted and the file named <name> inside is
 // promoted to the destination.
 func installReleaseBinary(ctx context.Context, name, repo, pattern string) error {
-	destDir := core.HomeTarget(".local", "bin")
-	destPath := filepath.Join(destDir, name)
+	destPath := artifactForMethod("release_binary", name).Path
+	destDir := filepath.Dir(destPath)
 
 	if _, err := os.Stat(destPath); err == nil {
 		core.Ok("%s already installed", name)
