@@ -582,77 +582,7 @@ func uninstallOne(ctx context.Context, m core.Module) error {
 }
 
 func runDiff() error {
-	all := core.AllModules()
-	var issues int
-
-	for _, m := range all {
-		// SkipInAll, not IsModuleSkipped: this report ends with "run
-		// dfinstall install all to fix", so it must use the same predicate
-		// `install all` does. Otherwise an opt-out module (windev) is listed
-		// as fixable drift that no command will ever fix.
-		if core.SkipInAll(m.Name()) {
-			fmt.Printf("%-15s  skipped\n", m.Name())
-			continue
-		}
-
-		if le, ok := m.(core.LinkExporter); ok {
-			links := le.Links()
-			modOk := true
-			for _, lp := range links {
-				status := core.CheckLink(lp.Src, lp.Dst)
-				if status != "ok" {
-					if modOk {
-						fmt.Printf("%-15s\n", m.Name())
-						modOk = false
-					}
-					switch status {
-					case "missing":
-						fmt.Printf("  missing: %s\n", lp.Dst)
-					case "wrong":
-						fmt.Printf("  wrong target: %s\n", lp.Dst)
-					case "file":
-						fmt.Printf("  regular file (not symlinked): %s\n", lp.Dst)
-					}
-					issues++
-				}
-			}
-			if modOk {
-				fmt.Printf("%-15s  ok (%d links)\n", m.Name(), len(links))
-			}
-		} else {
-			s := m.Status()
-			if s.Missing > 0 {
-				fmt.Printf("%-15s  %d missing\n", m.Name(), s.Missing)
-				issues += s.Missing
-			} else {
-				extra := ""
-				if s.Extra != "" {
-					extra = " (" + s.Extra + ")"
-				}
-				fmt.Printf("%-15s  ok%s\n", m.Name(), extra)
-			}
-		}
-	}
-
-	fmt.Println()
-	if issues == 0 {
-		fmt.Println("No drift detected.")
-	} else {
-		fmt.Printf("%d issue(s) — run dfinstall install all to fix\n", issues)
-	}
-
-	// Flag the multi-clone case explicitly: symlinks split across dotfiles
-	// clones (each shows as a "wrong target" above, but the root cause is drift).
-	if d := core.DetectLinkDrift(); d.Split() {
-		fmt.Printf("\nSymlinks split across %d dotfiles clone(s):\n", len(d.Roots))
-		for _, root := range d.SortedRoots() {
-			marker := ""
-			if root == d.Canonical {
-				marker = " (canonical)"
-			}
-			fmt.Printf("  %s%s — %d link(s)\n", root, marker, len(d.Roots[root]))
-		}
-		fmt.Printf("Run 'dfinstall install all' from %s to consolidate.\n", d.Canonical)
-	}
+	modules.CollectDiff().Write(os.Stdout,
+		"run dfinstall install all to fix", "'dfinstall install all'")
 	return nil
 }

@@ -159,20 +159,7 @@ func registerTools(s *server.MCPServer) {
 
 func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-15s  %7s  %7s  %s\n", "MODULE", "LINKED", "MISSING", "INFO")
-	fmt.Fprintf(&b, "%-15s  %7s  %7s  %s\n", "------", "------", "-------", "----")
-
-	for _, m := range core.AllModules() {
-		s := m.Status()
-		if core.IsModuleSkipped(m.Name()) {
-			if s.Extra != "" {
-				s.Extra += ", skipped"
-			} else {
-				s.Extra = "skipped"
-			}
-		}
-		fmt.Fprintf(&b, "%-15s  %7d  %7d  %s\n", s.Name, s.Linked, s.Missing, s.Extra)
-	}
+	modules.WriteStatus(&b)
 	return mcp.NewToolResultText(b.String()), nil
 }
 
@@ -539,72 +526,8 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 
 func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var b strings.Builder
-	var issues int
-
-	for _, m := range core.AllModules() {
-		// SkipInAll, not IsModuleSkipped — see the CLI runDiff for why.
-		if core.SkipInAll(m.Name()) {
-			fmt.Fprintf(&b, "%-15s  skipped\n", m.Name())
-			continue
-		}
-
-		if le, ok := m.(core.LinkExporter); ok {
-			links := le.Links()
-			modOk := true
-			for _, lp := range links {
-				status := core.CheckLink(lp.Src, lp.Dst)
-				if status != "ok" {
-					if modOk {
-						fmt.Fprintf(&b, "%-15s\n", m.Name())
-						modOk = false
-					}
-					switch status {
-					case "missing":
-						fmt.Fprintf(&b, "  missing: %s\n", lp.Dst)
-					case "wrong":
-						fmt.Fprintf(&b, "  wrong target: %s\n", lp.Dst)
-					case "file":
-						fmt.Fprintf(&b, "  regular file (not symlinked): %s\n", lp.Dst)
-					}
-					issues++
-				}
-			}
-			if modOk {
-				fmt.Fprintf(&b, "%-15s  ok (%d links)\n", m.Name(), len(links))
-			}
-		} else {
-			s := m.Status()
-			if s.Missing > 0 {
-				fmt.Fprintf(&b, "%-15s  %d missing\n", m.Name(), s.Missing)
-				issues += s.Missing
-			} else {
-				extra := ""
-				if s.Extra != "" {
-					extra = " (" + s.Extra + ")"
-				}
-				fmt.Fprintf(&b, "%-15s  ok%s\n", m.Name(), extra)
-			}
-		}
-	}
-
-	fmt.Fprintln(&b)
-	if issues == 0 {
-		fmt.Fprintln(&b, "No drift detected.")
-	} else {
-		fmt.Fprintf(&b, "%d issue(s) — run dfinstall_install with module 'all' to fix\n", issues)
-	}
-
-	// Multi-clone drift: symlinks split across more than one dotfiles clone.
-	if d := core.DetectLinkDrift(); d.Split() {
-		fmt.Fprintf(&b, "\nSymlinks split across %d dotfiles clone(s):\n", len(d.Roots))
-		for _, root := range d.SortedRoots() {
-			marker := ""
-			if root == d.Canonical {
-				marker = " (canonical)"
-			}
-			fmt.Fprintf(&b, "  %s%s — %d link(s)\n", root, marker, len(d.Roots[root]))
-		}
-		fmt.Fprintf(&b, "Run dfinstall_install with module 'all' from %s to consolidate.\n", d.Canonical)
-	}
+	modules.CollectDiff().Write(&b,
+		"run dfinstall_install with module 'all' to fix",
+		"dfinstall_install with module 'all'")
 	return mcp.NewToolResultText(b.String()), nil
 }
