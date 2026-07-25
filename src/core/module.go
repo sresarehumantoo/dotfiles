@@ -1,5 +1,7 @@
 package core
 
+import "context"
+
 // ModuleStatus represents the install status of a module.
 type ModuleStatus struct {
 	Name    string
@@ -9,15 +11,20 @@ type ModuleStatus struct {
 }
 
 // Module is the interface every install module implements.
+//
+// Install takes a context so a long-running install can be cancelled: the CLI
+// binds it to SIGINT, and the MCP server passes the per-request context so a
+// disconnecting client doesn't leave apt running forever. Modules must pass it
+// down to every subprocess they spawn.
 type Module interface {
 	Name() string
-	Install() error
+	Install(ctx context.Context) error
 	Status() ModuleStatus
 }
 
 // Uninstaller is an optional interface for modules that support removal.
 type Uninstaller interface {
-	Uninstall() error
+	Uninstall(ctx context.Context) error
 }
 
 // LinkPair describes a single source → destination symlink.

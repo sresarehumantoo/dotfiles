@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func init() {
 }
 
 // InstallRoot symlinks a curated set of configs into /root/ via sudo.
-func InstallRoot() error {
+func InstallRoot(ctx context.Context) error {
 	core.Info("Linking configs into /root/ (via sudo)...")
 
 	// Collect unique parent directories to create
@@ -58,7 +59,7 @@ func InstallRoot() error {
 		dirs[filepath.Dir(l.dst)] = true
 	}
 	for d := range dirs {
-		if err := sudoMkdir(d); err != nil {
+		if err := sudoMkdir(ctx, d); err != nil {
 			return fmt.Errorf("mkdir %s: %w", d, err)
 		}
 	}
@@ -71,7 +72,7 @@ func InstallRoot() error {
 			failures++
 			continue
 		}
-		if err := sudoLink(src, l.dst); err != nil {
+		if err := sudoLink(ctx, src, l.dst); err != nil {
 			core.Warn("failed to link %s -> %s: %v", l.dst, src, err)
 			failures++
 			continue
@@ -99,10 +100,10 @@ func RootStatus() (linked, missing int) {
 	return
 }
 
-func sudoMkdir(dir string) error {
-	return runCmd("sudo", "mkdir", "-p", dir)
+func sudoMkdir(ctx context.Context, dir string) error {
+	return runCmd(ctx, "sudo", "mkdir", "-p", dir)
 }
 
-func sudoLink(src, dst string) error {
-	return runCmd("sudo", "ln", "-sfn", src, dst)
+func sudoLink(ctx context.Context, src, dst string) error {
+	return runCmd(ctx, "sudo", "ln", "-sfn", src, dst)
 }

@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"strings"
@@ -14,7 +15,7 @@ func (LocaleModule) Name() string { return "locale" }
 
 // localeGenerated checks if the given locale is available on the system.
 func localeGenerated(name string) bool {
-	out, err := exec.Command("locale", "-a").Output()
+	out, err := runProbe(context.Background(), "locale", "-a")
 	if err != nil {
 		return false
 	}
@@ -28,7 +29,7 @@ func localeGenerated(name string) bool {
 	return false
 }
 
-func (LocaleModule) Install() error {
+func (LocaleModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would configure locale: en_US.UTF-8")
 		return nil
@@ -43,7 +44,7 @@ func (LocaleModule) Install() error {
 
 	// Install locales package if locale-gen is missing
 	if _, err := exec.LookPath("locale-gen"); err != nil {
-		if err := installPkg("locales"); err != nil {
+		if err := installPkg(ctx, "locales"); err != nil {
 			core.Warn("Failed to install locales package: %v", err)
 			return nil
 		}
@@ -60,7 +61,7 @@ func (LocaleModule) Install() error {
 	content := string(data)
 	if strings.Contains(content, "# en_US.UTF-8 UTF-8") {
 		// Uncomment the existing line
-		if err := runCmd("sudo", "sed", "-i", "s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/", genPath); err != nil {
+		if err := runCmd(ctx, "sudo", "sed", "-i", "s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/", genPath); err != nil {
 			core.Warn("Failed to uncomment locale in %s: %v", genPath, err)
 			return nil
 		}
@@ -73,20 +74,20 @@ func (LocaleModule) Install() error {
 			newContent += "\n"
 		}
 		newContent += "en_US.UTF-8 UTF-8\n"
-		if err := writeFileAsRoot(genPath, []byte(newContent), 0644); err != nil {
+		if err := writeFileAsRoot(ctx, genPath, []byte(newContent), 0644); err != nil {
 			core.Warn("Failed to append locale to %s: %v", genPath, err)
 			return nil
 		}
 	}
 
 	// Generate the locale
-	if err := runCmd("sudo", "locale-gen"); err != nil {
+	if err := runCmd(ctx, "sudo", "locale-gen"); err != nil {
 		core.Warn("locale-gen failed: %v", err)
 		return nil
 	}
 
 	// Set as system default
-	if err := runCmd("sudo", "update-locale", "LANG=en_US.UTF-8"); err != nil {
+	if err := runCmd(ctx, "sudo", "update-locale", "LANG=en_US.UTF-8"); err != nil {
 		core.Warn("update-locale failed: %v", err)
 		return nil
 	}

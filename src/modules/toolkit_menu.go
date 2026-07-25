@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -38,14 +39,14 @@ func isToolInstalled(t core.RegistryTool) bool {
 
 // RunToolkitMenu shows an interactive category-based menu for toolkit tools.
 // Returns the selected tool names.
-func RunToolkitMenu() ([]string, error) {
+func RunToolkitMenu(ctx context.Context) ([]string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		core.Warn("stdin is not a terminal — skipping toolkit menu")
 		return core.Cfg.ToolkitTools, nil
 	}
 
 	// Always force refresh when the menu is shown
-	reg, err := core.LoadOrFetchRegistry(true)
+	reg, err := core.LoadOrFetchRegistry(ctx, true)
 	if err != nil {
 		return nil, fmt.Errorf("fetch toolkit registry: %w", err)
 	}

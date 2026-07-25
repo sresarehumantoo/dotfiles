@@ -1,6 +1,10 @@
 package modules
 
-import "github.com/sresarehumantoo/dotfiles/src/core"
+import (
+	"context"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
+)
 
 type HtopModule struct{}
 
@@ -12,7 +16,7 @@ func (HtopModule) Links() core.LinkSet {
 	}
 }
 
-func (m HtopModule) Install() error {
+func (m HtopModule) Install(ctx context.Context) error {
 	core.Info("Linking htop config...")
 	if err := m.Links().Apply(); err != nil {
 		return err
@@ -21,7 +25,7 @@ func (m HtopModule) Install() error {
 	return nil
 }
 
-func (m HtopModule) Uninstall() error {
+func (m HtopModule) Uninstall(ctx context.Context) error {
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}

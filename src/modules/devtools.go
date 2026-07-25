@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
 
@@ -38,7 +39,7 @@ func (DevtoolsModule) Links() core.LinkSet {
 // Install can't use LinkSet.Apply directly: each script needs the executable
 // bit set on the source (the symlink inherits it), and a single bad script
 // shouldn't abort the rest.
-func (m DevtoolsModule) Install() error {
+func (m DevtoolsModule) Install(ctx context.Context) error {
 	core.Info("Installing devtools scripts...")
 
 	var failed int
@@ -63,7 +64,7 @@ func (m DevtoolsModule) Install() error {
 	return nil
 }
 
-func (m DevtoolsModule) Uninstall() error {
+func (m DevtoolsModule) Uninstall(ctx context.Context) error {
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}

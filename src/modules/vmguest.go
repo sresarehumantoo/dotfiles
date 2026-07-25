@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"os/exec"
 	"strings"
 
@@ -30,14 +31,14 @@ var guestServices = map[core.VirtType][]string{
 	core.VirtVMware: {"open-vm-tools"},
 }
 
-func (VMGuestModule) Install() error {
+func (VMGuestModule) Install(ctx context.Context) error {
 	if core.IsWSL() {
 		core.Ok("Not a hardware VM (WSL), skipping vmguest")
 		return nil
 	}
 
-	virt := core.DetectVirt()
-	if !core.IsVM() {
+	virt := core.DetectVirt(ctx)
+	if !core.IsHardwareVirt(virt) {
 		if virt == core.VirtUnknown {
 			core.Notice("vmguest: virtualization detected but type unrecognized — skipping. Install guest tools manually if needed.")
 		} else {
@@ -58,7 +59,7 @@ func (VMGuestModule) Install() error {
 	}
 
 	core.Info("Installing %s guest tools: %v", virt, pkgs)
-	if err := installPkg(pkgs...); err != nil {
+	if err := installPkg(ctx, pkgs...); err != nil {
 		core.Warn("Some guest tools may have failed to install: %v", err)
 	}
 
@@ -67,7 +68,7 @@ func (VMGuestModule) Install() error {
 			core.Notice("systemctl not found — skipping service enablement for %s", svc)
 			break
 		}
-		if err := startSystemdUnit(svc); err != nil {
+		if err := startSystemdUnit(ctx, svc); err != nil {
 			core.Warn("start %s: %v", svc, err)
 		}
 	}
@@ -96,24 +97,24 @@ func systemdAvailable() bool {
 // qemu-guest-agent, newer spice-vdagentd — no [Install] section because
 // they're activated by socket/udev/host signal) `systemctl enable` refuses
 // with "no installation config", so just `start` instead.
-func startSystemdUnit(svc string) error {
-	state := unitInstallState(svc)
+func startSystemdUnit(ctx context.Context, svc string) error {
+	state := unitInstallState(ctx, svc)
 	switch state {
 	case "static", "alias", "indirect":
 		// Can't `enable` these — just start.
 		core.Info("Starting %s (static unit)...", svc)
-		return runCmd("sudo", "systemctl", "start", svc)
+		return runCmd(ctx, "sudo", "systemctl", "start", svc)
 	case "enabled", "enabled-runtime":
 		// Already enabled; just make sure it's running.
 		core.Info("Starting %s (already enabled)...", svc)
-		return runCmd("sudo", "systemctl", "start", svc)
+		return runCmd(ctx, "sudo", "systemctl", "start", svc)
 	default:
 		// "disabled", "masked", "" (unknown) — try enable --now and fall
 		// back to plain start if enable refuses.
 		core.Info("Enabling %s...", svc)
-		if err := runCmd("sudo", "systemctl", "enable", "--now", svc); err != nil {
+		if err := runCmd(ctx, "sudo", "systemctl", "enable", "--now", svc); err != nil {
 			core.Notice("enable %s failed (state=%q) — starting only", svc, state)
-			return runCmd("sudo", "systemctl", "start", svc)
+			return runCmd(ctx, "sudo", "systemctl", "start", svc)
 		}
 		return nil
 	}
@@ -121,25 +122,23 @@ func startSystemdUnit(svc string) error {
 
 // unitInstallState returns the systemctl is-enabled status for a unit, or
 // "" if the call failed. Trims trailing newline.
-func unitInstallState(svc string) string {
-	out, err := exec.Command("systemctl", "is-enabled", svc).Output()
-	if err != nil {
-		// is-enabled returns non-zero for "disabled", "static" etc but
-		// still prints the state to stdout. Honor the output even on
-		// non-zero exit.
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			_ = exitErr
-		}
-	}
+func unitInstallState(ctx context.Context, svc string) string {
+	out, err := runProbe(ctx, "systemctl", "is-enabled", svc)
+	// is-enabled returns non-zero for "disabled", "static" etc but still
+	// prints the state to stdout, so the output is honored either way.
+	_ = err
 	return strings.TrimSpace(string(out))
 }
 
 func (VMGuestModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "vmguest"}
-	virt := core.DetectVirt()
+
+	// Status has no context to inherit — it's a synchronous read for display.
+	// DetectVirt applies its own ProbeTimeout, so this can't hang.
+	virt := core.DetectVirt(context.Background())
 	s.Extra = string(virt)
 
-	if core.IsWSL() || !core.IsVM() {
+	if core.IsWSL() || !core.IsHardwareVirt(virt) {
 		return s
 	}
 

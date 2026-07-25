@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -279,32 +280,36 @@ func ParseIsUbuntuFamily(osRelease string) bool {
 	return false
 }
 
-// DisableReadonly disables the SteamOS readonly filesystem.
-func DisableReadonly() error {
+func setSteamOSReadonly(ctx context.Context, verb string) error {
+	ctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	defer cancel()
+
 	PauseSpinner()
 	defer ResumeSpinner()
-	cmd := SudoCmd("steamos-readonly", "disable")
+	cmd := SudoCmd(ctx, "steamos-readonly", verb)
 	if Level >= LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("steamos-readonly disable: %w", err)
+		return fmt.Errorf("steamos-readonly %s: %w", verb, err)
 	}
 	return nil
 }
 
+// DisableReadonly disables the SteamOS readonly filesystem.
+func DisableReadonly(ctx context.Context) error {
+	return setSteamOSReadonly(ctx, "disable")
+}
+
 // EnableReadonly re-enables the SteamOS readonly filesystem.
-func EnableReadonly() error {
-	PauseSpinner()
-	defer ResumeSpinner()
-	cmd := SudoCmd("steamos-readonly", "enable")
-	if Level >= LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("steamos-readonly enable: %w", err)
+//
+// It deliberately detaches from the caller's context: this runs as deferred
+// cleanup, and a cancelled ctx (Ctrl-C mid-install) must not stop us restoring
+// the filesystem state we changed.
+func EnableReadonly(ctx context.Context) error {
+	if err := setSteamOSReadonly(context.WithoutCancel(ctx), "enable"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -460,12 +465,14 @@ func HasSudoPass() bool {
 // a background goroutine that refreshes them every 60 seconds. If
 // DFINSTALL_SUDO_PASS is set (e.g. during bootstrap where the password is
 // known), it is piped to sudo -S so no interactive prompt is needed.
-func PromptSudo() {
+func PromptSudo(ctx context.Context) {
 	if DryRun {
 		return
 	}
 	// Check if sudo even needs a password (e.g. NOPASSWD configured)
-	if exec.Command("sudo", "-n", "true").Run() == nil {
+	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	defer cancel()
+	if exec.CommandContext(probeCtx, "sudo", "-n", "true").Run() == nil {
 		Debug("sudo: passwordless access available")
 		startSudoKeepAlive()
 		return
@@ -479,7 +486,7 @@ func PromptSudo() {
 		// processes don't inherit it.
 		os.Unsetenv("DFINSTALL_SUDO_PASS")
 		setSudoPass(pass)
-		cmd := exec.Command("sudo", "-S", "-v")
+		cmd := exec.CommandContext(probeCtx, "sudo", "-S", "-v")
 		cmd.Stdin = strings.NewReader(pass + "\n")
 		if err := cmd.Run(); err != nil {
 			Warn("sudo authentication via DFINSTALL_SUDO_PASS failed — will prompt")
@@ -498,7 +505,7 @@ func PromptSudo() {
 	}
 
 	Status("Some steps require sudo access")
-	cmd := exec.Command("sudo", "-v")
+	cmd := exec.CommandContext(ctx, "sudo", "-v")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -523,13 +530,17 @@ func startSudoKeepAlive() {
 				case <-sudoKeepAliveStop:
 					return
 				case <-ticker.C:
+					refresh, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
 					if pass != "" {
-						cmd := exec.Command("sudo", "-S", "-v")
+						cmd := exec.CommandContext(refresh, "sudo", "-S", "-v")
 						cmd.Stdin = strings.NewReader(pass + "\n")
-						cmd.Run()
-					} else {
-						exec.Command("sudo", "-n", "-v").Run()
+						if err := cmd.Run(); err != nil {
+							Debug("sudo keepalive refresh failed: %v", err)
+						}
+					} else if err := exec.CommandContext(refresh, "sudo", "-n", "-v").Run(); err != nil {
+						Debug("sudo keepalive refresh failed: %v", err)
 					}
+					cancel()
 				}
 			}
 		}()
@@ -552,9 +563,9 @@ func StopSudoKeepAlive() {
 //
 // Already running as root, it execs the command directly — sudo may not even
 // be installed in a root container, and escalating from root is pointless.
-func SudoCmd(args ...string) *exec.Cmd {
+func SudoCmd(ctx context.Context, args ...string) *exec.Cmd {
 	if os.Geteuid() == 0 {
-		cmd := exec.Command(args[0], args[1:]...)
+		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 		if Interactive {
 			cmd.Stdin = os.Stdin
 		}
@@ -563,11 +574,11 @@ func SudoCmd(args ...string) *exec.Cmd {
 
 	if pass := getSudoPass(); pass != "" {
 		cmdArgs := append([]string{"-S"}, args...)
-		cmd := exec.Command("sudo", cmdArgs...)
+		cmd := exec.CommandContext(ctx, "sudo", cmdArgs...)
 		cmd.Stdin = strings.NewReader(pass + "\n")
 		return cmd
 	}
-	cmd := exec.Command("sudo", args...)
+	cmd := exec.CommandContext(ctx, "sudo", args...)
 	if Interactive {
 		cmd.Stdin = os.Stdin
 	}

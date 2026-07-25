@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"os/exec"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -21,7 +22,7 @@ func ghosttyInstalled() bool {
 	return err == nil
 }
 
-func (m GhosttyModule) Install() error {
+func (m GhosttyModule) Install(ctx context.Context) error {
 	if !ghosttyInstalled() {
 		core.Debug("ghostty not installed — skipping config")
 		return nil
@@ -34,7 +35,7 @@ func (m GhosttyModule) Install() error {
 	return nil
 }
 
-func (m GhosttyModule) Uninstall() error {
+func (m GhosttyModule) Uninstall(ctx context.Context) error {
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}

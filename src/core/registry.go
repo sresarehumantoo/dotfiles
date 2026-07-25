@@ -1,10 +1,12 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -102,8 +104,12 @@ func RegistryCachePath() string {
 	return filepath.Join(home, ".local", "share", "dfinstall", "toolkit-registry.json")
 }
 
+// maxRegistrySize caps how much we'll read from a registry URL, so a hostile
+// or misconfigured endpoint can't stream until we run out of memory.
+const maxRegistrySize = 8 << 20 // 8 MiB
+
 // FetchRegistry downloads the registry from a URL and writes it to the cache.
-func FetchRegistry(url string) (*Registry, error) {
+func FetchRegistry(ctx context.Context, url string) (*Registry, error) {
 	Debug("fetching registry from %s", url)
 
 	var data []byte
@@ -123,10 +129,9 @@ func FetchRegistry(url string) (*Registry, error) {
 			return nil, fmt.Errorf("read local registry %s: %w", url, err)
 		}
 	} else {
-		// HTTP(S) URL — fetch with curl
-		data, err = exec.Command("curl", "-fsSL", url).Output()
+		data, err = fetchHTTP(ctx, url)
 		if err != nil {
-			return nil, fmt.Errorf("fetch registry from %s: %w", url, err)
+			return nil, err
 		}
 	}
 
@@ -150,6 +155,40 @@ func FetchRegistry(url string) (*Registry, error) {
 	}
 
 	return &reg, nil
+}
+
+// fetchHTTP retrieves a registry over HTTP(S).
+//
+// This used to shell out to `curl -fsSL`, which meant no timeout (a stalled TLS
+// handshake hung dfinstall indefinitely), a hard dependency on curl being
+// installed, and an unreadable "exit status 22" in place of the HTTP status.
+func fetchHTTP(ctx context.Context, url string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, NetworkTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request for %s: %w", url, err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch registry from %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch registry from %s: %s", url, resp.Status)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxRegistrySize+1))
+	if err != nil {
+		return nil, fmt.Errorf("read registry from %s: %w", url, err)
+	}
+	if len(data) > maxRegistrySize {
+		return nil, fmt.Errorf("registry at %s exceeds %d bytes", url, maxRegistrySize)
+	}
+	return data, nil
 }
 
 // CleanRegistryCache removes the cached registry file from disk.
@@ -188,14 +227,14 @@ func LoadCachedRegistry() (*Registry, error) {
 
 // LoadOrFetchRegistry loads the registry from cache or fetches it remotely.
 // If forceRefresh is true, always fetches from the remote URL.
-func LoadOrFetchRegistry(forceRefresh bool) (*Registry, error) {
+func LoadOrFetchRegistry(ctx context.Context, forceRefresh bool) (*Registry, error) {
 	url := Cfg.ToolkitRegistryURL
 	if url == "" {
 		url = DefaultRegistryURL
 	}
 
 	if forceRefresh {
-		return FetchRegistry(url)
+		return FetchRegistry(ctx, url)
 	}
 
 	// Try cache first
@@ -205,7 +244,7 @@ func LoadOrFetchRegistry(forceRefresh bool) (*Registry, error) {
 	}
 
 	// No cache — fetch
-	return FetchRegistry(url)
+	return FetchRegistry(ctx, url)
 }
 
 // ValidateRegistry checks the registry for correctness.

@@ -2,6 +2,7 @@ package modules
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -13,7 +14,7 @@ type GitModule struct{}
 
 func (GitModule) Name() string { return "git" }
 
-func (m GitModule) Install() error {
+func (m GitModule) Install(ctx context.Context) error {
 	core.Info("Linking git config...")
 	if err := m.Links().Apply(); err != nil {
 		return err
@@ -104,7 +105,7 @@ func promptGitIdentity(path string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
-func (m GitModule) Uninstall() error {
+func (m GitModule) Uninstall(ctx context.Context) error {
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}

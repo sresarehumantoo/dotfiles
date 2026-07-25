@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strings"
@@ -48,8 +50,8 @@ func IsHardwareVirt(v VirtType) bool {
 // DetectVirt returns the virtualization technology in use, or VirtNone for
 // bare metal. Prefers systemd-detect-virt; falls back to DMI inspection so
 // minimal images without systemd still get a useful answer.
-func DetectVirt() VirtType {
-	if v, ok := detectVirtSystemd(); ok {
+func DetectVirt(ctx context.Context) VirtType {
+	if v, ok := detectVirtSystemd(ctx); ok {
 		return v
 	}
 	return detectVirtDMI()
@@ -57,19 +59,20 @@ func DetectVirt() VirtType {
 
 // IsVM returns true when running inside a hardware-virtualized guest.
 // Excludes containers and WSL.
-func IsVM() bool {
-	return IsHardwareVirt(DetectVirt())
+func IsVM(ctx context.Context) bool {
+	return IsHardwareVirt(DetectVirt(ctx))
 }
 
-func detectVirtSystemd() (VirtType, bool) {
-	if _, err := exec.LookPath("systemd-detect-virt"); err != nil {
-		return "", false
-	}
-	out, err := exec.Command("systemd-detect-virt").Output()
+func detectVirtSystemd(ctx context.Context) (VirtType, bool) {
+	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	defer cancel()
+
+	out, err := exec.CommandContext(probeCtx, "systemd-detect-virt").Output()
 	if err != nil {
 		// systemd-detect-virt exits 1 when nothing is detected. That's not
 		// an error — it's the "none" answer.
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 			return VirtNone, true
 		}
 		return "", false

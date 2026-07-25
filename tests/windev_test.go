@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -14,7 +15,7 @@ func TestWindevModule_DryRunInstall_NoOp(t *testing.T) {
 	defer func() { core.DryRun = false }()
 
 	m := modules.WindevModule{}
-	if err := m.Install(); err != nil {
+	if err := m.Install(context.Background()); err != nil {
 		t.Fatalf("dry-run Install: %v", err)
 	}
 }

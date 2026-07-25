@@ -2,6 +2,7 @@ package modules
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -24,7 +25,7 @@ var (
 // aptUpdateWithRetry runs `<apt-bin> update` with exponential backoff on
 // failure. Returns nil on first success; otherwise the last error after all
 // attempts are exhausted.
-func aptUpdateWithRetry() error {
+func aptUpdateWithRetry(ctx context.Context) error {
 	bin := core.AptBin()
 	if bin == "" {
 		return fmt.Errorf("no apt binary found on PATH")
@@ -32,7 +33,7 @@ func aptUpdateWithRetry() error {
 
 	var lastErr error
 	for attempt := 1; attempt <= aptUpdateAttempts; attempt++ {
-		err := runCmd("sudo", bin, "update")
+		err := runCmd(ctx, "sudo", bin, "update")
 		if err == nil {
 			return nil
 		}
@@ -129,7 +130,7 @@ var aptUpdated bool
 
 // repairAptSources removes corrupt DEB822 .sources files left by a prior
 // dfinstall bug that wrote literal \n instead of real newlines.
-func repairAptSources() {
+func repairAptSources(ctx context.Context) {
 	matches, _ := filepath.Glob("/etc/apt/sources.list.d/*.sources")
 	for _, path := range matches {
 		data, err := os.ReadFile(path)
@@ -139,12 +140,12 @@ func repairAptSources() {
 		// A valid DEB822 file is multiline; a corrupt one has everything on one line with literal \n
 		if strings.Contains(string(data), `\nURIs:`) || strings.Contains(string(data), `\nSuites:`) {
 			core.Notice("Removing corrupt apt source: %s", path)
-			runCmd("sudo", "rm", path)
+			runCmd(ctx, "sudo", "rm", path)
 		}
 	}
 }
 
-func installPkg(pkgs ...string) error {
+func installPkg(ctx context.Context, pkgs ...string) error {
 	name, args := detectPkgManager()
 	if name == "" {
 		core.Err("No supported package manager found. Install manually: %v", pkgs)
@@ -153,9 +154,9 @@ func installPkg(pkgs ...string) error {
 
 	// Ensure apt cache is fresh on first use (minimal systems ship with empty lists)
 	if (name == "apt-get" || name == "apt") && !aptUpdated {
-		repairAptSources()
+		repairAptSources(ctx)
 		core.Info("Refreshing package lists...")
-		if err := aptUpdateWithRetry(); err != nil {
+		if err := aptUpdateWithRetry(ctx); err != nil {
 			core.Warn("%s update failed after retries: %v", name, err)
 		}
 		aptUpdated = true
@@ -171,7 +172,7 @@ func installPkg(pkgs ...string) error {
 	// bulk install. Only runs for apt — pacman/dnf/brew handle this
 	// differently and fail per-package already.
 	if name == "apt-get" || name == "apt" {
-		available, missing := filterAptAvailable(resolved)
+		available, missing := filterAptAvailable(ctx, resolved)
 		if len(missing) > 0 {
 			core.AlwaysWarn("Skipping apt packages with no installation candidate: %s", strings.Join(missing, ", "))
 		}
@@ -183,16 +184,16 @@ func installPkg(pkgs ...string) error {
 
 	core.SpinnerDetail("Installing: %s", strings.Join(resolved, ", "))
 	cmdArgs := append(args, resolved...)
-	return runCmd(cmdArgs[0], cmdArgs[1:]...)
+	return runCmd(ctx, cmdArgs[0], cmdArgs[1:]...)
 }
 
 // filterAptAvailable splits packages into those that have an installation
 // candidate in the current apt sources vs. those that don't (renamed,
 // obsoleted, or simply not in any configured source). Uses 'apt-cache
 // madison' which exits 0 either way; non-empty stdout means available.
-func filterAptAvailable(pkgs []string) (available, missing []string) {
+func filterAptAvailable(ctx context.Context, pkgs []string) (available, missing []string) {
 	for _, p := range pkgs {
-		out, err := exec.Command("apt-cache", "madison", p).Output()
+		out, err := runProbe(ctx, "apt-cache", "madison", p)
 		if err == nil && len(strings.TrimSpace(string(out))) > 0 {
 			available = append(available, p)
 		} else {
@@ -224,14 +225,36 @@ func ContainsSudoInvocation(name string, args []string) bool {
 	return false
 }
 
-func runCmd(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+// runProbe runs a short informational command and returns its stdout. Probes
+// get a tight deadline: they're meant to answer a question immediately, so one
+// that blocks is hung, not slow.
+func runProbe(ctx context.Context, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, core.ProbeTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+// runNetProbe is runProbe for commands that talk to the network (GitHub API
+// queries), which need a longer leash than a local probe.
+func runNetProbe(ctx context.Context, name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, core.NetworkTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output()
+}
+
+func runCmd(ctx context.Context, name string, args ...string) error {
+	// Backstop against a genuinely hung command. Generous enough that a real
+	// cargo build or SDK download never trips it.
+	ctx, cancel := context.WithTimeout(ctx, core.InstallTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, name, args...)
 
 	directSudo := name == "sudo"
 	needsTTY := ContainsSudoInvocation(name, args)
 
 	if directSudo {
-		cmd = core.SudoCmd(args...)
+		cmd = core.SudoCmd(ctx, args...)
 	}
 
 	// Output routing:
@@ -299,7 +322,7 @@ func tailLines(s string, n int) []string {
 	return append(out, lines[len(lines)-n:]...)
 }
 
-func (PackagesModule) Install() error {
+func (PackagesModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would install packages: git, zsh, curl, wget, htop, rsync, ...")
 		return nil
@@ -342,7 +365,7 @@ func (PackagesModule) Install() error {
 		core.Ok("All core packages already installed")
 	} else {
 		core.Info("Installing: %s", strings.Join(pkgs, ", "))
-		if err := installPkg(pkgs...); err != nil {
+		if err := installPkg(ctx, pkgs...); err != nil {
 			core.Warn("Some packages may have failed to install: %v", err)
 		}
 	}
@@ -350,7 +373,7 @@ func (PackagesModule) Install() error {
 	// zsh-syntax-highlighting
 	syntaxHL := "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
 	if _, err := os.Stat(syntaxHL); err != nil {
-		if err := installPkg("zsh-syntax-highlighting"); err != nil {
+		if err := installPkg(ctx, "zsh-syntax-highlighting"); err != nil {
 			core.Warn("Install zsh-syntax-highlighting manually")
 		}
 	}

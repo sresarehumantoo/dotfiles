@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -33,7 +35,8 @@ func main() {
 	registerTools(s)
 
 	stdioServer := server.NewStdioServer(s)
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	if err := stdioServer.Listen(ctx, os.Stdin, realStdout); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp server error: %v\n", err)
 		os.Exit(1)
@@ -171,7 +174,7 @@ func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult
 	return mcp.NewToolResultText(b.String()), nil
 }
 
-func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("module", "")
 	if name == "" {
 		return mcp.NewToolResultError("module parameter is required"), nil
@@ -189,7 +192,7 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 		// Prime sudo so package steps don't each hit an unprimed sudo. With
 		// Interactive=false this only uses cached or known credentials and
 		// never prompts.
-		core.PromptSudo()
+		core.PromptSudo(ctx)
 		defer core.StopSudoKeepAlive()
 
 		var b strings.Builder
@@ -209,7 +212,7 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 			if core.SkipInAll(m.Name()) {
 				continue
 			}
-			if err := m.Install(); err != nil {
+			if err := m.Install(ctx); err != nil {
 				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
@@ -254,11 +257,11 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 	}
 	defer sess.Finish()
 
-	core.PromptSudo()
+	core.PromptSudo(ctx)
 	defer core.StopSudoKeepAlive()
 
 	before := m.Status()
-	err = m.Install()
+	err = m.Install(ctx)
 	after := m.Status()
 
 	var b strings.Builder
@@ -458,26 +461,26 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}
 }
 
-func handleRegistryValidate(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleRegistryValidate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	source := request.GetString("source", "")
 	if source == "" {
 		return mcp.NewToolResultError("source parameter is required"), nil
 	}
-	reg, err := core.FetchRegistry(source)
+	reg, err := core.FetchRegistry(ctx, source)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid registry: %v", err)), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("registry valid (%d tools)", len(reg.Tools))), nil
 }
 
-func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("module", "")
 	if name == "" {
 		return mcp.NewToolResultError("module parameter is required"), nil
 	}
 
 	if name == "all" {
-		core.PromptSudo()
+		core.PromptSudo(ctx)
 		defer core.StopSudoKeepAlive()
 
 		var b strings.Builder
@@ -488,7 +491,7 @@ func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallT
 				continue
 			}
 			before := m.Status()
-			if err := u.Uninstall(); err != nil {
+			if err := u.Uninstall(ctx); err != nil {
 				fmt.Fprintf(&b, "%s: error: %v\n", m.Name(), err)
 				continue
 			}
@@ -517,11 +520,11 @@ func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallT
 
 	// Modules that installed system packages (delta, toolkit) shell out to
 	// sudo when uninstalling.
-	core.PromptSudo()
+	core.PromptSudo(ctx)
 	defer core.StopSudoKeepAlive()
 
 	before := m.Status()
-	if err := u.Uninstall(); err != nil {
+	if err := u.Uninstall(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("uninstall %s: %v", name, err)), nil
 	}
 	after := m.Status()

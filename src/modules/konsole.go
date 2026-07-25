@@ -1,6 +1,10 @@
 package modules
 
-import "github.com/sresarehumantoo/dotfiles/src/core"
+import (
+	"context"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
+)
 
 type KonsoleModule struct{}
 
@@ -21,7 +25,7 @@ func (KonsoleModule) Links() core.LinkSet {
 	}
 }
 
-func (m KonsoleModule) Install() error {
+func (m KonsoleModule) Install(ctx context.Context) error {
 	core.Info("Linking Konsole config...")
 	if err := m.Links().Apply(); err != nil {
 		return err
@@ -30,7 +34,7 @@ func (m KonsoleModule) Install() error {
 	return nil
 }
 
-func (m KonsoleModule) Uninstall() error {
+func (m KonsoleModule) Uninstall(ctx context.Context) error {
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}

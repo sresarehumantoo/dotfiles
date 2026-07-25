@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ type OmzModule struct{}
 
 func (OmzModule) Name() string { return "omz" }
 
-func (OmzModule) Install() error {
+func (OmzModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would install oh-my-zsh, zsh-autosuggestions, powerlevel10k")
 		return nil
@@ -23,7 +24,7 @@ func (OmzModule) Install() error {
 	home, _ := os.UserHomeDir()
 	omzDir := filepath.Join(home, ".oh-my-zsh")
 
-	if err := installOmz(omzDir); err != nil {
+	if err := installOmz(ctx, omzDir); err != nil {
 		core.Warn("Oh My Zsh install failed: %v", err)
 	}
 
@@ -36,7 +37,7 @@ func (OmzModule) Install() error {
 	zasDir := filepath.Join(zshCustom, "plugins", "zsh-autosuggestions")
 	if _, err := os.Stat(zasDir); os.IsNotExist(err) {
 		core.Info("Installing zsh-autosuggestions...")
-		if err := runCmd("git", "clone",
+		if err := runCmd(ctx, "git", "clone",
 			"https://github.com/zsh-users/zsh-autosuggestions", zasDir); err != nil {
 			core.Warn("zsh-autosuggestions clone failed: %v", err)
 		}
@@ -48,7 +49,7 @@ func (OmzModule) Install() error {
 	p10kDir := filepath.Join(zshCustom, "themes", "powerlevel10k")
 	if _, err := os.Stat(p10kDir); os.IsNotExist(err) {
 		core.Info("Installing powerlevel10k...")
-		if err := runCmd("git", "clone", "--depth=1",
+		if err := runCmd(ctx, "git", "clone", "--depth=1",
 			"https://github.com/romkatv/powerlevel10k.git", p10kDir); err != nil {
 			core.Warn("powerlevel10k clone failed: %v", err)
 		}
@@ -76,7 +77,7 @@ func (OmzModule) Install() error {
 //
 // Existence is determined by oh-my-zsh.sh, not the directory, so a stale
 // custom/ subtree from a botched run no longer masks the failure as success.
-func installOmz(omzDir string) error {
+func installOmz(ctx context.Context, omzDir string) error {
 	marker := filepath.Join(omzDir, "oh-my-zsh.sh")
 	if _, err := os.Stat(marker); err == nil {
 		core.Ok("oh-my-zsh already installed")
@@ -108,7 +109,7 @@ func installOmz(omzDir string) error {
 	}
 
 	core.Info("Installing Oh My Zsh (git clone)...")
-	if err := runCmd("git", "clone", "--depth=1",
+	if err := runCmd(ctx, "git", "clone", "--depth=1",
 		"https://github.com/ohmyzsh/ohmyzsh.git", omzDir); err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}

@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,7 +20,7 @@ type ToolkitModule struct{}
 
 func (ToolkitModule) Name() string { return "toolkit" }
 
-func (ToolkitModule) Install() error {
+func (ToolkitModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		tools := core.Cfg.ToolkitTools
 		if len(tools) == 0 {
@@ -37,7 +38,7 @@ func (ToolkitModule) Install() error {
 	}
 
 	// Load registry — force fetch only when --toolkit menu was shown
-	reg, err := core.LoadOrFetchRegistry(core.ToolkitMode)
+	reg, err := core.LoadOrFetchRegistry(ctx, core.ToolkitMode)
 	if err != nil {
 		// Try cache as fallback
 		reg, err = core.LoadCachedRegistry()
@@ -107,7 +108,7 @@ func (ToolkitModule) Install() error {
 	// Install apt packages in bulk
 	if len(aptPkgs) > 0 {
 		core.Info("Installing apt packages: %s", strings.Join(aptPkgs, ", "))
-		if err := installPkg(aptPkgs...); err != nil {
+		if err := installPkg(ctx, aptPkgs...); err != nil {
 			core.Warn("Some apt packages may have failed: %v", err)
 		}
 		core.Ok("apt packages done")
@@ -117,20 +118,20 @@ func (ToolkitModule) Install() error {
 	// compile against the rustup-provided toolchain rather than apt's
 	// older cargo.
 	if rustupRequested {
-		if !installRustup() {
+		if !installRustup(ctx) {
 			core.Warn("rustup install failed — cargo tools may fail with apt cargo's MSRV")
 		}
 	}
 
 	// Install go tools
-	if len(goTools) > 0 && ensureToolchain("go", "golang", len(goTools), "go tools") {
+	if len(goTools) > 0 && ensureToolchain(ctx, "go", "golang", len(goTools), "go tools") {
 		for _, t := range goTools {
 			if _, err := exec.LookPath(t.Binary); err == nil {
 				core.Ok("%s already installed", t.Binary)
 				continue
 			}
 			core.Info("Installing %s via go install...", t.Binary)
-			if err := runCmd("go", "install", t.Package); err != nil {
+			if err := runCmd(ctx, "go", "install", t.Package); err != nil {
 				core.Warn("Failed to install %s: %v", t.Binary, err)
 			} else {
 				core.Ok("%s installed", t.Binary)
@@ -143,7 +144,7 @@ func (ToolkitModule) Install() error {
 	// resolution which always pulls latest semver-compatible — that's how
 	// apt's stable cargo ends up trying to compile crates that bumped MSRV
 	// last week).
-	if len(cargoTools) > 0 && ensureToolchain("cargo", "cargo", len(cargoTools), "cargo tools") {
+	if len(cargoTools) > 0 && ensureToolchain(ctx, "cargo", "cargo", len(cargoTools), "cargo tools") {
 		var cargoFailed []core.RegistryTool
 		for _, t := range cargoTools {
 			if _, err := exec.LookPath(t.Binary); err == nil {
@@ -151,7 +152,7 @@ func (ToolkitModule) Install() error {
 				continue
 			}
 			core.Info("Installing %s via cargo install --locked...", t.Binary)
-			if err := runCmd("cargo", "install", "--locked", t.Package); err != nil {
+			if err := runCmd(ctx, "cargo", "install", "--locked", t.Package); err != nil {
 				core.Warn("Failed to install %s: %v", t.Binary, err)
 				cargoFailed = append(cargoFailed, t)
 			} else {
@@ -162,11 +163,11 @@ func (ToolkitModule) Install() error {
 		// tools, offer to install rustup and retry. Auto-install only on
 		// confirmation — rustup downloads ~200MB and modifies shell rc.
 		if len(cargoFailed) > 0 && isAptCargo() {
-			if confirmRustupInstall(len(cargoFailed), cargoVersion()) {
-				if installRustup() {
-					core.Info("Retrying %d cargo tool(s) with rustup cargo (%s)...", len(cargoFailed), cargoVersion())
+			if confirmRustupInstall(len(cargoFailed), cargoVersion(ctx)) {
+				if installRustup(ctx) {
+					core.Info("Retrying %d cargo tool(s) with rustup cargo (%s)...", len(cargoFailed), cargoVersion(ctx))
 					for _, t := range cargoFailed {
-						if err := runCmd("cargo", "install", "--locked", t.Package); err != nil {
+						if err := runCmd(ctx, "cargo", "install", "--locked", t.Package); err != nil {
 							core.AlwaysWarn("Still failed to install %s after rustup: %v", t.Binary, err)
 						} else {
 							core.Ok("%s installed", t.Binary)
@@ -182,14 +183,14 @@ func (ToolkitModule) Install() error {
 	}
 
 	// Install pipx tools
-	if len(pipxTools) > 0 && ensureToolchain("pipx", "pipx", len(pipxTools), "pipx tools") {
+	if len(pipxTools) > 0 && ensureToolchain(ctx, "pipx", "pipx", len(pipxTools), "pipx tools") {
 		for _, t := range pipxTools {
-			if pipxHasPkg(t.Package) {
+			if pipxHasPkg(ctx, t.Package) {
 				core.Ok("%s already installed via pipx", t.Package)
 				continue
 			}
 			core.Info("Installing %s via pipx...", t.Package)
-			if err := runCmd("pipx", "install", t.Package); err != nil {
+			if err := runCmd(ctx, "pipx", "install", t.Package); err != nil {
 				core.Warn("Failed to install %s: %v", t.Package, err)
 			} else {
 				core.Ok("%s installed", t.Package)
@@ -203,7 +204,7 @@ func (ToolkitModule) Install() error {
 			core.Warn("git not found — skipping %d git-clone tools", len(gitCloneTools))
 		} else {
 			for _, t := range gitCloneTools {
-				if err := installGitClone(t.Binary, t.GitRepo); err != nil {
+				if err := installGitClone(ctx, t.Binary, t.GitRepo); err != nil {
 					core.Warn("Failed to clone %s: %v", t.Binary, err)
 				}
 			}
@@ -216,7 +217,7 @@ func (ToolkitModule) Install() error {
 			core.Warn("curl not found — skipping %d AppImage tools", len(appImageTools))
 		} else {
 			for _, t := range appImageTools {
-				if err := installAppImage(t.Binary, t.AppRepo); err != nil {
+				if err := installAppImage(ctx, t.Binary, t.AppRepo); err != nil {
 					core.Warn("Failed to install %s AppImage: %v", t.Binary, err)
 				}
 			}
@@ -229,7 +230,7 @@ func (ToolkitModule) Install() error {
 			core.Warn("curl not found — skipping %d deb tools", len(debTools))
 		} else {
 			for _, t := range debTools {
-				if err := installDeb(t.Binary, t.DebRepo); err != nil {
+				if err := installDeb(ctx, t.Binary, t.DebRepo); err != nil {
 					core.Warn("Failed to install %s deb: %v", t.Binary, err)
 				}
 			}
@@ -242,7 +243,7 @@ func (ToolkitModule) Install() error {
 			core.Warn("curl not found — skipping %d release-binary tools", len(releaseBinaryTools))
 		} else {
 			for _, t := range releaseBinaryTools {
-				if err := installReleaseBinary(t.Binary, t.ReleaseRepo, t.AssetPattern); err != nil {
+				if err := installReleaseBinary(ctx, t.Binary, t.ReleaseRepo, t.AssetPattern); err != nil {
 					core.Warn("Failed to install %s: %v", t.Binary, err)
 				}
 			}
@@ -327,7 +328,7 @@ func (ToolkitModule) Status() core.ModuleStatus {
 	return s
 }
 
-func (ToolkitModule) Uninstall() error {
+func (ToolkitModule) Uninstall(ctx context.Context) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("get home dir: %w", err)
@@ -384,7 +385,7 @@ func (ToolkitModule) Uninstall() error {
 					continue
 				}
 				core.Info("Removing %s via dpkg...", info.Name)
-				if err := runCmd("sudo", "dpkg", "-r", info.Name); err != nil {
+				if err := runCmd(ctx, "sudo", "dpkg", "-r", info.Name); err != nil {
 					core.Warn("Failed to remove %s: %v", info.Name, err)
 				} else {
 					core.Ok("Removed %s", info.Name)
@@ -411,7 +412,7 @@ func (ToolkitModule) Uninstall() error {
 					continue
 				}
 				core.Info("Removing rustup toolchain via 'rustup self uninstall'...")
-				if err := runCmd(rustupBin, "self", "uninstall", "-y"); err != nil {
+				if err := runCmd(ctx, rustupBin, "self", "uninstall", "-y"); err != nil {
 					core.Warn("Failed to uninstall rustup: %v", err)
 				} else {
 					core.Ok("rustup uninstalled")
@@ -425,8 +426,8 @@ func (ToolkitModule) Uninstall() error {
 }
 
 // pipxHasPkg checks if a package is already installed via pipx.
-func pipxHasPkg(pkg string) bool {
-	out, err := exec.Command("pipx", "list", "--short").Output()
+func pipxHasPkg(ctx context.Context, pkg string) bool {
+	out, err := runProbe(ctx, "pipx", "list", "--short")
 	if err != nil {
 		return false
 	}
@@ -446,7 +447,7 @@ func toolkitDir() string {
 }
 
 // installGitClone clones a git repository to ~/.local/share/toolkit/<name>.
-func installGitClone(name, repoURL string) error {
+func installGitClone(ctx context.Context, name, repoURL string) error {
 	destDir := toolkitDir()
 	destPath := filepath.Join(destDir, name)
 
@@ -461,7 +462,7 @@ func installGitClone(name, repoURL string) error {
 	}
 
 	core.Info("Cloning %s...", name)
-	if err := runCmd("git", "clone", "--depth=1", repoURL, destPath); err != nil {
+	if err := runCmd(ctx, "git", "clone", "--depth=1", repoURL, destPath); err != nil {
 		os.RemoveAll(destPath)
 		return fmt.Errorf("clone %s: %w", name, err)
 	}
@@ -471,7 +472,7 @@ func installGitClone(name, repoURL string) error {
 }
 
 // installDeb downloads a .deb from a GitHub release and installs it via dpkg.
-func installDeb(name, repo string) error {
+func installDeb(ctx context.Context, name, repo string) error {
 	// Skip if already installed
 	if _, err := exec.LookPath(name); err == nil {
 		core.Ok("%s already installed", name)
@@ -482,7 +483,7 @@ func installDeb(name, repo string) error {
 
 	// Query GitHub releases API
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	out, err := exec.Command("curl", "-fsSL", apiURL).Output()
+	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
 	if err != nil {
 		return fmt.Errorf("fetch releases for %s: %w", repo, err)
 	}
@@ -538,18 +539,18 @@ func installDeb(name, repo string) error {
 	tmpFile.Close()
 	defer os.Remove(tmpPath)
 
-	if err := runCmd("curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 
 	// Install with dpkg, then fix any missing dependencies with apt
-	if err := runCmd("sudo", "dpkg", "-i", tmpPath); err != nil {
+	if err := runCmd(ctx, "sudo", "dpkg", "-i", tmpPath); err != nil {
 		core.Info("Fixing dependencies for %s...", name)
 		bin := core.AptBin()
 		if bin == "" {
 			return fmt.Errorf("install %s (dpkg failed and no apt binary available): %w", name, err)
 		}
-		if fixErr := runCmd("sudo", bin, "install", "-f", "-y"); fixErr != nil {
+		if fixErr := runCmd(ctx, "sudo", bin, "install", "-f", "-y"); fixErr != nil {
 			return fmt.Errorf("install %s (dpkg failed and apt fix failed): dpkg: %w, apt: %v", name, err, fixErr)
 		}
 	}
@@ -559,7 +560,7 @@ func installDeb(name, repo string) error {
 }
 
 // installAppImage downloads an AppImage from a GitHub release to ~/.local/bin/.
-func installAppImage(name, repo string) error {
+func installAppImage(ctx context.Context, name, repo string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("get home dir: %w", err)
@@ -582,7 +583,7 @@ func installAppImage(name, repo string) error {
 
 	// Query GitHub releases API
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	out, err := exec.Command("curl", "-fsSL", apiURL).Output()
+	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
 	if err != nil {
 		return fmt.Errorf("fetch releases for %s: %w", repo, err)
 	}
@@ -631,7 +632,7 @@ func installAppImage(name, repo string) error {
 	}
 
 	// Download
-	if err := runCmd("curl", "-fsSL", "-o", destPath, downloadURL); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", destPath, downloadURL); err != nil {
 		os.Remove(destPath)
 		return fmt.Errorf("download %s: %w", name, err)
 	}
@@ -651,7 +652,7 @@ func installAppImage(name, repo string) error {
 // then the asset must contain a token matching the current arch. If the asset
 // is a .tar.gz/.tgz, it's extracted and the file named <name> inside is
 // promoted to the destination.
-func installReleaseBinary(name, repo, pattern string) error {
+func installReleaseBinary(ctx context.Context, name, repo, pattern string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("get home dir: %w", err)
@@ -670,7 +671,7 @@ func installReleaseBinary(name, repo, pattern string) error {
 	core.Info("Downloading %s from GitHub release...", name)
 
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	out, err := exec.Command("curl", "-fsSL", apiURL).Output()
+	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
 	if err != nil {
 		return fmt.Errorf("fetch releases for %s: %w", repo, err)
 	}
@@ -740,14 +741,14 @@ func installReleaseBinary(name, repo, pattern string) error {
 	}
 	defer os.RemoveAll(tmpDir)
 	tmpPath := filepath.Join(tmpDir, assetName)
-	if err := runCmd("curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, downloadURL); err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 
 	lower := strings.ToLower(assetName)
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
-		if err := runCmd("tar", "-xzf", tmpPath, "-C", tmpDir); err != nil {
+		if err := runCmd(ctx, "tar", "-xzf", tmpPath, "-C", tmpDir); err != nil {
 			return fmt.Errorf("extract %s: %w", assetName, err)
 		}
 		found, ferr := findExtractedBinary(tmpDir, name)
@@ -787,8 +788,8 @@ func isAptCargo() bool {
 
 // cargoVersion returns the parsed cargo version string (e.g. "1.85.0") or
 // "unknown" if it can't be determined.
-func cargoVersion() string {
-	out, err := exec.Command("cargo", "--version").Output()
+func cargoVersion(ctx context.Context) string {
+	out, err := runProbe(ctx, "cargo", "--version")
 	if err != nil {
 		return "unknown"
 	}
@@ -841,7 +842,7 @@ func confirmRustupInstall(failedCount int, oldVersion string) bool {
 // invocations resolve to the new toolchain. Rustup itself updates the
 // user's shell profile for future shells. Idempotent — skips the
 // network install when ~/.cargo/bin/rustup already exists.
-func installRustup() bool {
+func installRustup(ctx context.Context) bool {
 	home, _ := os.UserHomeDir()
 	cargoBin := filepath.Join(home, ".cargo", "bin")
 	rustupBin := filepath.Join(cargoBin, "rustup")
@@ -863,7 +864,7 @@ func installRustup() bool {
 		return false
 	}
 	core.Info("Installing rustup (downloads ~200MB)...")
-	err := runCmd("sh", "-c",
+	err := runCmd(ctx, "sh", "-c",
 		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
 	if err != nil {
 		core.AlwaysWarn("rustup install failed: %v", err)
@@ -871,7 +872,7 @@ func installRustup() bool {
 	}
 
 	addToPath()
-	core.Ok("rustup installed (cargo: %s)", cargoVersion())
+	core.Ok("rustup installed (cargo: %s)", cargoVersion(ctx))
 	return true
 }
 
@@ -881,12 +882,12 @@ func installRustup() bool {
 // when the bootstrap failed (the per-method install loop should skip).
 // Used to auto-resolve missing cargo/pipx/go before running per-tool
 // install commands so users don't have to do a separate prereq install.
-func ensureToolchain(binName, pkgName string, n int, label string) bool {
+func ensureToolchain(ctx context.Context, binName, pkgName string, n int, label string) bool {
 	if _, err := exec.LookPath(binName); err == nil {
 		return true
 	}
 	core.Info("%s not found — installing %q (required for %d %s)...", binName, pkgName, n, label)
-	if err := installPkg(pkgName); err != nil {
+	if err := installPkg(ctx, pkgName); err != nil {
 		core.AlwaysWarn("Failed to install %s: %v — skipping %d %s", pkgName, err, n, label)
 		return false
 	}

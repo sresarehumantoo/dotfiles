@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -102,7 +103,7 @@ type TmuxModule struct{}
 
 func (TmuxModule) Name() string { return "tmux" }
 
-func (TmuxModule) Install() error {
+func (TmuxModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would link tmux.conf, write distro icon, clone TPM, install plugins")
 		return nil
@@ -140,7 +141,7 @@ func (TmuxModule) Install() error {
 
 	if _, err := os.Stat(tpmDir); os.IsNotExist(err) {
 		core.Info("Installing TPM...")
-		if err := runCmd("git", "clone", "--depth=1",
+		if err := runCmd(ctx, "git", "clone", "--depth=1",
 			"https://github.com/tmux-plugins/tpm", tpmDir); err != nil {
 			core.Warn("TPM clone failed: %v", err)
 		}
@@ -155,13 +156,13 @@ func (TmuxModule) Install() error {
 		// TPM resolves its plugin path from tmux's global environment.
 		// Set it so install_plugins works outside a running tmux session.
 		pluginsDir := filepath.Join(home, ".tmux", "plugins") + "/"
-		setEnv := exec.Command("tmux", "start-server", ";",
+		setEnv := exec.CommandContext(ctx, "tmux", "start-server", ";",
 			"set-environment", "-g", "TMUX_PLUGIN_MANAGER_PATH", pluginsDir)
 		if err := setEnv.Run(); err != nil {
 			core.Debug("tmux set-environment: %v", err)
 		}
 
-		if err := runCmd(installScript); err != nil {
+		if err := runCmd(ctx, installScript); err != nil {
 			core.Warn("TPM plugin install failed: %v", err)
 		}
 	}
@@ -170,7 +171,7 @@ func (TmuxModule) Install() error {
 	return nil
 }
 
-func (m TmuxModule) Uninstall() error {
+func (m TmuxModule) Uninstall(ctx context.Context) error {
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}

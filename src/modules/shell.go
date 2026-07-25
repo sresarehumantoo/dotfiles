@@ -1,9 +1,9 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -28,7 +28,7 @@ var shellLinks = []struct{ src, dst string }{
 	{"shell/zsh/locale.zsh", ".zsh.d/locale.zsh"},
 }
 
-func (ShellModule) Install() error {
+func (ShellModule) Install(ctx context.Context) error {
 	if !core.DryRun {
 		// Scan for custom shell files before linking overwrites zshrc
 		discovered := ScanCustomShellFiles()
@@ -91,7 +91,7 @@ func (ShellModule) Install() error {
 		return err
 	}
 
-	installCompletions()
+	installCompletions(ctx)
 
 	core.Ok("Shell dotfiles done")
 	return nil
@@ -103,7 +103,7 @@ func completionDst() string {
 }
 
 // installCompletions generates and installs zsh completions for dfinstall.
-func installCompletions() {
+func installCompletions(ctx context.Context) {
 	if core.DryRun {
 		core.Info("would install completions to %s", completionDst())
 		return
@@ -122,7 +122,7 @@ func installCompletions() {
 		exe = builtExe
 	}
 
-	raw, err := exec.Command(exe, "completion", "zsh").Output()
+	raw, err := runProbe(ctx, exe, "completion", "zsh")
 	if err != nil {
 		core.Debug("completions: generation failed: %v", err)
 		return
@@ -155,7 +155,7 @@ func installCompletions() {
 	core.Ok("installed completions: %s", dst)
 }
 
-func (m ShellModule) Uninstall() error {
+func (m ShellModule) Uninstall(ctx context.Context) error {
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}
