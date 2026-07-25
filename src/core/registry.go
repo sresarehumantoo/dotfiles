@@ -14,7 +14,45 @@ import (
 const DefaultRegistryURL = "https://raw.githubusercontent.com/sresarehumantoo/dotfiles-toolkit/main/registry.json"
 
 // ValidToolName matches safe tool names (alphanumeric, hyphens, underscores).
+// Also applied to Binary, which becomes a filename.
 var ValidToolName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]*$`)
+
+// The registry is remote by default and fully overridable (--registry, or
+// toolkit_registry_url), so every field below is untrusted input that reaches
+// either an exec argument or a filesystem path. The anchors matter:
+//
+//   - a leading alphanumeric stops a value being parsed as a command-line
+//     option (`-o=APT::...`, `--upload-pack=...`)
+//   - constraining the git scheme to https blocks git's remote helpers
+//     (`ext::sh -c ...`), which execute commands
+//   - rejecting ".." keeps repo slugs from redirecting the GitHub API URL they
+//     are interpolated into, and keeps paths inside their intended directory
+var (
+	// validRepoSlug matches a GitHub "owner/repo" pair.
+	validRepoSlug = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+	// validGitURL matches an https:// clone URL.
+	validGitURL = regexp.MustCompile(`^https://[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9._/-]+$`)
+
+	// validPackage matches a package spec for apt/go/cargo/pipx. The charset
+	// covers real specs such as "github.com/OJ/gobuster/v3@latest" and
+	// "git+https://github.com/Pennyw0rth/NetExec".
+	validPackage = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+:-]*$`)
+
+	// validAssetPattern matches a GitHub release asset substring.
+	validAssetPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._*-]*$`)
+)
+
+// checkField validates one untrusted registry field.
+func checkField(tool, field, value string, re *regexp.Regexp) error {
+	if !re.MatchString(value) {
+		return fmt.Errorf("tool %q: invalid %s %q", tool, field, value)
+	}
+	if strings.Contains(value, "..") {
+		return fmt.Errorf("tool %q: %s must not contain \"..\": %q", tool, field, value)
+	}
+	return nil
+}
 
 // validMethods lists the allowed install method strings.
 var validMethods = map[string]bool{
@@ -138,6 +176,13 @@ func LoadCachedRegistry() (*Registry, error) {
 		return nil, fmt.Errorf("parse cached registry: %w", err)
 	}
 
+	// Validate on read, not just on fetch. The cache is a plain file on disk
+	// and LoadOrFetchRegistry prefers it, so skipping this would let an edited
+	// or truncated cache bypass the trust boundary entirely.
+	if err := ValidateRegistry(&reg); err != nil {
+		return nil, fmt.Errorf("invalid cached registry: %w", err)
+	}
+
 	return &reg, nil
 }
 
@@ -194,39 +239,44 @@ func ValidateRegistry(r *Registry) error {
 		if t.Binary == "" {
 			return fmt.Errorf("tool %q: binary is required", t.Name)
 		}
+		// Binary is joined into ~/.local/bin and ~/.local/share/toolkit, is
+		// chmod 0755'd after download, and is os.RemoveAll'd on uninstall — so
+		// it must be a bare filename, not a path.
+		if err := checkField(t.Name, "binary", t.Binary, ValidToolName); err != nil {
+			return err
+		}
 
+		// requiredField pairs each method with the field it consumes and the
+		// pattern that field must satisfy.
+		var (
+			field string
+			value string
+			re    *regexp.Regexp
+		)
 		switch t.Method {
-		case "apt":
-			if t.Package == "" {
-				return fmt.Errorf("tool %q: package is required for apt method", t.Name)
-			}
-		case "go":
-			if t.Package == "" {
-				return fmt.Errorf("tool %q: package is required for go method", t.Name)
-			}
-		case "pipx":
-			if t.Package == "" {
-				return fmt.Errorf("tool %q: package is required for pipx method", t.Name)
-			}
-		case "cargo":
-			if t.Package == "" {
-				return fmt.Errorf("tool %q: package is required for cargo method", t.Name)
-			}
+		case "apt", "go", "pipx", "cargo":
+			field, value, re = "package", t.Package, validPackage
 		case "git_clone":
-			if t.GitRepo == "" {
-				return fmt.Errorf("tool %q: git_repo is required for git_clone method", t.Name)
-			}
+			field, value, re = "git_repo", t.GitRepo, validGitURL
 		case "appimage":
-			if t.AppRepo == "" {
-				return fmt.Errorf("tool %q: app_repo is required for appimage method", t.Name)
-			}
+			field, value, re = "app_repo", t.AppRepo, validRepoSlug
 		case "deb":
-			if t.DebRepo == "" {
-				return fmt.Errorf("tool %q: deb_repo is required for deb method", t.Name)
-			}
+			field, value, re = "deb_repo", t.DebRepo, validRepoSlug
 		case "release_binary":
-			if t.ReleaseRepo == "" {
-				return fmt.Errorf("tool %q: release_repo is required for release_binary method", t.Name)
+			field, value, re = "release_repo", t.ReleaseRepo, validRepoSlug
+		}
+		if field != "" {
+			if value == "" {
+				return fmt.Errorf("tool %q: %s is required for %s method", t.Name, field, t.Method)
+			}
+			if err := checkField(t.Name, field, value, re); err != nil {
+				return err
+			}
+		}
+
+		if t.AssetPattern != "" {
+			if err := checkField(t.Name, "asset_pattern", t.AssetPattern, validAssetPattern); err != nil {
+				return err
 			}
 		}
 
