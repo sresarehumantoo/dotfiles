@@ -28,7 +28,9 @@ func main() {
 	core.Interactive = false
 
 	core.DetectEnvironment()
-	core.LoadConfig()
+	if err := core.LoadConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "dfinstall: %v\n", err)
+	}
 	modules.RegisterAllModules()
 
 	s := server.NewMCPServer("dfinstall", "1.0.0")

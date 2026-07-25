@@ -46,7 +46,13 @@ func main() {
 					core.Level = core.LogVerbose
 				}
 			}
-			core.LoadConfig()
+			// A config that exists but can't be read is not a first run.
+			// Warn loudly and carry on with defaults — read-only commands
+			// still work, and SaveConfig refuses to overwrite it.
+			if err := core.LoadConfig(); err != nil {
+				core.AlwaysWarn("%v", err)
+				core.AlwaysWarn("continuing with defaults; settings will not be saved until this is fixed")
+			}
 			core.PrintBanner()
 		},
 	}
@@ -327,7 +333,9 @@ func main() {
 		Short: "Show drift between config and filesystem",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			core.DetectEnvironment()
-			core.LoadConfig()
+			if err := core.LoadConfig(); err != nil {
+				core.AlwaysWarn("%v", err)
+			}
 			return runDiff()
 		},
 	}
