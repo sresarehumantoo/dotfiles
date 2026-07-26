@@ -8,36 +8,47 @@ This document covers the core systems that make up `dfinstall`.
 dfinstall install all [--backup]
         |
         v
-  LoadConfig()             <- core/config.go (.config.yaml)
+  signal.NotifyContext()   <- cmd/dfinstall/main.go (ctx bound to SIGINT/SIGTERM)
         |
+        v
+  LoadConfig() error       <- core/config.go (.config.yaml; warns and continues
+        |                      on an unreadable file, never overwrites it)
         v
   RegisterAllModules()     <- modules/register.go (sets order)
         |
         v
-  DetectEnvironment()      <- core/env.go (WSL? Git Bash?)
+  DetectEnvironment()      <- core/env.go (WSL? Git Bash? distro?)
         |
         v
-  shouldBackup()           <- first run / --backup / config
-        |
+  core.BeginInstall(...)   <- core/install_session.go
+        |                     - adopts the canonical clone (install all)
+        |                     - decides whether to back up (first run/--backup/config)
+        |                     - StartBackup() if so
         v
-  [StartBackup()]          <- core/backup.go (if backup needed)
+  core.PromptSudo(ctx)     <- core/env.go (primes credentials before the spinner)
         |
         v
   for each module:
-    module.Install()       <- modules/<name>.go
-      -> core.LinkFile()   <- core/link.go (symlink with backup)
+    if core.SkipInAll(name) -> skip   <- user skip_modules + un-enabled opt-ins
+    module.Install(ctx)    <- modules/<name>.go
+      -> m.Links().Apply() <- core/module.go -> core.LinkFile()
         -> BackupFile()    <- core/backup.go (records pre-install state)
+      -> runCmd(ctx, ...)  <- modules/packages.go (deadline-bounded subprocess)
       -> core.Info/Ok()    <- core/output.go (respects log level)
         |
         v
-  [FinishBackup()]         <- core/backup.go (writes manifest)
-        |
-        v
-  [SaveConfig()]           <- core/config.go (first run only)
-        |
+  sess.Finish()            <- core/install_session.go
+        |                     - FinishBackup() writes the manifest
+        |                     - SaveConfig() on first run, or when an opt-in mode
+        |                       (--extended/--toolkit/windev) changed config
+        |                     - neither happens under --dry-run
         v
   spinner / summary        <- core/spinner.go
 ```
+
+Both the CLI and the MCP server go through `BeginInstall`/`Finish` and
+`SkipInAll`. They previously hand-rolled this and drifted: the MCP server took
+no backup and installed opt-out modules.
 
 ## Module System
 
@@ -47,9 +58,9 @@ Every module implements three methods (defined in `core/module.go`):
 
 ```go
 type Module interface {
-    Name() string           // identifier used in CLI ("shell", "nvim", etc.)
-    Install() error         // perform installation
-    Status() ModuleStatus   // report current state
+    Name() string                      // identifier used in CLI ("shell", "nvim", etc.)
+    Install(ctx context.Context) error // perform installation
+    Status() ModuleStatus              // report current state
 }
 
 type ModuleStatus struct {
@@ -60,24 +71,40 @@ type ModuleStatus struct {
 }
 ```
 
+`Install` takes a context so a long install can be cancelled — the CLI binds it
+to SIGINT, the MCP server to the per-request context. **Modules must pass it
+down to every subprocess they spawn.** `Status` deliberately takes none: it is a
+fast synchronous read for display, and anything slow enough to need cancelling
+doesn't belong in it.
+
 ### Optional Interfaces
 
 Link-based modules can optionally implement these interfaces for uninstall and diff support:
 
 ```go
 type Uninstaller interface {
-    Uninstall() error
+    Uninstall(ctx context.Context) error
 }
 
 type LinkExporter interface {
-    Links() []LinkPair
+    Links() LinkSet
 }
 
 type LinkPair struct {
     Src string
     Dst string
 }
+
+// LinkSet is a module's complete set of managed symlinks.
+type LinkSet []LinkPair
+
+func (ls LinkSet) Apply() error                      // create every link
+func (ls LinkSet) Remove() error                     // unlink every link
+func (ls LinkSet) Status(name string) ModuleStatus   // count what's in place
 ```
+
+Implementing `LinkExporter` is what makes a module's links visible to `diff` and
+to drift detection, so **every module with links should**.
 
 Non-link modules (locale, packages, extras, delta, fonts, omz, wsl, vmguest, defaultshell) don't implement either interface because their side effects can't be cleanly reversed via symlink removal. (The toolkit module is an exception — it has no links but implements `Uninstaller` to remove the tools it installed.)
 
@@ -93,25 +120,33 @@ Lookup functions:
 | `core.GetModule(name)` | single module by name |
 | `core.ModuleNames()` | string slice of names |
 
-### Data-Driven Pattern
+### One LinkSet per module
 
-Most modules follow the same structure -- a slice of `{src, dst}` pairs looped in both `Install()` and `Status()`:
+`Links()` is the single source of truth; `Install`, `Uninstall` and `Status` all
+derive from it:
 
 ```go
-var shellLinks = []struct{ src, dst string }{
-    {"shell/zshrc", ".zshrc"},
-    {"shell/aliases", ".aliases"},
-    // ...
-}
-
-func (ShellModule) Install() error {
-    for _, l := range shellLinks {
-        core.LinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst))
+func (KonsoleModule) Links() core.LinkSet {
+    return core.LinkSet{
+        {Src: core.ConfigPath("konsole", "konsolerc"), Dst: core.XDGTarget("konsolerc")},
+        {Src: core.ConfigPath("konsole", "Dotfiles.profile"),
+         Dst: core.HomeTarget(".local", "share", "konsole", "Dotfiles.profile")},
     }
 }
+
+func (m KonsoleModule) Install(ctx context.Context) error   { return m.Links().Apply() }
+func (m KonsoleModule) Uninstall(ctx context.Context) error { return m.Links().Remove() }
+func (m KonsoleModule) Status() core.ModuleStatus           { return m.Links().Status("konsole") }
 ```
 
-This keeps modules declarative and easy to extend.
+These four used to each spell out the same paths independently. Changing a path
+in three of them left the fourth silently disagreeing — `Status` reporting on
+links `Install` no longer creates, or `Uninstall` missing one. `konsole` was the
+worst case: its first entry targets a different root, so all four methods had to
+remember to slice `konsoleLinks[1:]`.
+
+`tests/linkset_test.go` asserts that every module's `Status` counts exactly what
+its `Links()` exports, so a hand-rolled `Status` fails the build.
 
 ## CLI
 
@@ -173,7 +208,7 @@ Defined in `core/output.go`. Nine functions, each with a colored prefix:
 
 `Status()` is for direct user-facing feedback after interactive prompts (e.g. the extended plugin menu). It prints with a green checkmark regardless of log level. `Notice()` is for expected operational messages (e.g. backups) that aren't warnings — always visible, but buffered in quiet mode. `AlwaysWarn()` surfaces a warning immediately (clearing the spinner line) when buffered output would arrive too late to act on.
 
-In quiet mode, both notices and warnings are buffered and flushed after the spinner stops via `FlushWarnings()` (notices first, then warnings). Errors and `AlwaysWarn()` always print and will clear the spinner line first (using an atomic `spinnerRunning` flag for thread safety).
+In quiet mode, both notices and warnings are buffered and flushed after the spinner stops via `FlushWarnings()` (notices first, then warnings). Errors and `AlwaysWarn()` always print and will clear the spinner line first (all state lives on the `Spinner` behind one mutex; `Pause`/`Resume` nest via a depth counter and nothing draws when stdout is not a TTY).
 
 ### Spinner
 
@@ -209,11 +244,25 @@ Every operation is idempotent. Running `dfinstall install all` twice produces th
 
 ### Path Helpers
 
+All are variadic — `HomeTarget(".local", "bin", name)`.
+
 | Helper | Resolves to |
 |--------|-------------|
-| `ConfigPath("shell/zshrc")` | `<dotfiles>/config/shell/zshrc` |
+| `ConfigPath("shell", "zshrc")` | `<dotfiles>/config/shell/zshrc` |
 | `HomeTarget(".zshrc")` | `$HOME/.zshrc` |
 | `XDGTarget("nvim")` | `$XDG_CONFIG_HOME/nvim` (or `~/.config/nvim`) |
+| `HomeDir() (string, error)` | `$HOME`, or an error if it can't be resolved |
+| `RemoveManagedDir(path)` | `os.RemoveAll` guarded by `checkTarget` |
+
+**Never call `os.UserHomeDir()` outside `core`.** With `$HOME` unset it returns
+`("", err)`, and `filepath.Join("", ".tmux")` is the *relative* `.tmux` — so a
+discarded error silently retargets every managed path at the current working
+directory. That is not hypothetical: `uninstall tmux` with `$HOME` unset used to
+delete `.tmux/plugins` from whatever directory you were standing in.
+
+`HomeTarget`/`XDGTarget` return `""` when the home directory can't be resolved,
+and `LinkFile`, `UnlinkFile`, `EnsureDir` and `RemoveManagedDir` all run
+`checkTarget`, which rejects empty and non-absolute paths.
 
 ## Environment Detection
 
@@ -291,9 +340,9 @@ type RegistryTool struct {
 
 | Function | Purpose |
 |----------|---------|
-| `FetchRegistry(url)` | Fetch from HTTP(S) URL (via `curl`), `file://` path, or plain file path; validates and writes the cache |
+| `FetchRegistry(ctx, url)` | Fetch over HTTP(S) with `net/http` under a `NetworkTimeout` deadline, `file://` path, or plain file path; validates and writes the cache |
 | `LoadCachedRegistry()` | Read the registry from the local cache file |
-| `LoadOrFetchRegistry(forceRefresh)` | Load from cache, or fetch remotely if missing / `forceRefresh` |
+| `LoadOrFetchRegistry(ctx, forceRefresh)` | Load from cache, or fetch remotely if missing / `forceRefresh` |
 | `ValidateRegistry(r)` | Check version, unique valid names, required category/binary, method-specific fields, distro filters |
 | `RegistryCachePath()` | `~/.local/share/dfinstall/toolkit-registry.json` |
 | `CleanRegistryCache()` | Remove the cached registry file |
@@ -331,14 +380,17 @@ The `vmguest` module (`modules/vmguest.go`) uses this: on a hardware VM it insta
 | `dismissed_files` | []string | *(empty)* | Custom shell files the user chose not to preserve (prevents re-prompting) |
 | `skip_modules` | []string | *(empty)* | Modules to skip during `install all` (machine profiles) |
 | `toolkit_tools` | []string | *(empty)* | Toolkit tools selected via `--toolkit` |
+| `windev_enabled` | bool | Whether the opt-in windev module is enabled (drives `core.SkipInAll`) |
 | `toolkit_registry_url` | string | *(empty)* | Custom toolkit registry URL override |
 
 ### Auto-Backup Logic
 
-Three states drive backup behavior on `install`:
+The backup decision lives in `shouldBackup` inside `core/install_session.go`
+and runs as part of `BeginInstall`. Four states drive it:
 
 | Condition | Backup? | Then |
 |-----------|---------|------|
+| `--dry-run` | No | and no config write either — a preview changes nothing |
 | `--backup` flag | Yes | nothing extra |
 | No config file (first run) | Yes | save config with `skip_backup: true` |
 | Config exists, `skip_backup: false` | Yes | respect user preference |
@@ -350,9 +402,12 @@ The key distinction is `CfgFileExists` — whether the config file was present a
 
 | Function | Purpose |
 |----------|---------|
-| `LoadConfig()` | Read and parse `.config.yaml`, set `CfgFileExists` |
-| `SaveConfig()` | Write `Cfg` to `.config.yaml` with comment header |
+| `LoadConfig() error` | Read and parse `.config.yaml`. **Only `fs.ErrNotExist` counts as a first run** — any other failure (permissions, EISDIR, malformed YAML) marks the config unreadable and is returned to the caller, which warns and continues on defaults |
+| `SaveConfig() error` | Write `Cfg` via temp file + `Sync` + rename. **Refuses** to write when `LoadConfig` couldn't read the existing file — otherwise a first-run save replaces the user's settings with defaults |
 | `ConfigFilePath()` | Return full path to the config file |
+| `IsModuleSkipped(name)` | Is the module in `skip_modules`? |
+| `SkipInAll(name)` | Should `install all` skip it? `IsModuleSkipped` **plus** un-enabled opt-ins. Use this, not `IsModuleSkipped`, in any `AllModules()` loop |
+| `SetWindevOptIn()` / `ClearWindevOptIn()` | Record/drop the windev opt-in |
 
 ## Backup & Restore
 
@@ -401,9 +456,64 @@ Individual failures are warned but don't stop the restore. A summary error is re
 | `RestoreBackup(ts)` | Restore from a specific backup |
 | `BackupDir()` | Base directory (config `backup_dir` or `~/.local/share/dfinstall/backups/`) |
 
+## Subprocess Execution
+
+`core/exec.go` defines the deadlines; `modules/packages.go` provides the wrappers.
+**Every** subprocess goes through one of them — there are no raw `exec.Command`
+calls in `src/`.
+
+| Wrapper | Deadline | For |
+|---------|----------|-----|
+| `runProbe(ctx, ...)` | `ProbeTimeout` — 30s | quick queries: `dpkg -s`, `cargo --version`, `pipx list` |
+| `runNetProbe(ctx, ...)` | `NetworkTimeout` — 10m | network reads, e.g. the GitHub releases API |
+| `runCmd(ctx, ...)` | `InstallTimeout` — 45m | everything that installs or builds |
+
+These are hang detectors, not performance budgets — each sits well past the
+slowest healthy run of its class. Before them, a `curl` to a blackholed host or
+an `apt` blocked on a dpkg lock hung the whole run behind a spinner with no way
+out but Ctrl-C, and under the MCP server there is no terminal to Ctrl-C from.
+
+`runCmd` also owns output routing (straight to the terminal under `-v`,
+otherwise captured and replayed on failure), spinner pausing, and sudo TTY
+teeing. Building an `exec.Cmd` by hand loses all of that.
+
+## Install Session
+
+`core/install_session.go` wraps the setup and teardown every install path
+shares, so the CLI and the MCP server cannot drift apart on it:
+
+```go
+sess, err := core.BeginInstall(core.InstallOptions{All: true, ForceBackup: flagBackup})
+if err != nil { return err }
+defer sess.Finish()
+```
+
+`BeginInstall` adopts the canonical clone (when `All`), decides whether to back
+up, and starts the backup. `Finish` writes the manifest and persists config.
+Rendering stays with the caller — the session reports `CanonicalPrev`,
+`CanonicalNow` and `DidBackup()` rather than printing.
+
+Before this existed the MCP server took no backup at all and ignored the windev
+opt-in, while being annotated idempotent and non-destructive.
+
+## Status & Diff Reporting
+
+`modules/report.go` collects and renders both reports once:
+
+| Function | Purpose |
+|----------|---------|
+| `StatusRows()` | one `ModuleStatus` per module, with the "skipped" annotation applied |
+| `WriteStatus(w)` | render the status table to any writer |
+| `CollectDiff()` | walk every module, returning a `DiffReport` |
+| `DiffReport.Write(w, fixHint, consolidateCmd)` | render it |
+
+The writer is why one implementation serves both surfaces: the CLI passes
+`os.Stdout`, the MCP server a `strings.Builder`. The two hint strings are the
+only thing that differs between them — each names its own command.
+
 ## Error Handling
 
-- Modules return `error` from `Install()`. The install loop logs the error and continues to the next module.
+- Modules return `error` from `Install(ctx)`. The install loop logs the error and continues to the next module.
 - Individual link/chmod failures within a module (like devtools) are warned and counted, with a summary error returned at the end.
 - In quiet mode, errors are always printed immediately (clearing the spinner line). Warnings are buffered and shown after the spinner stops.
 - `doctor` never fails -- it prints warnings and a summary.

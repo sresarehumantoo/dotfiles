@@ -68,10 +68,11 @@ Run `make` (or `make help`) to list every target.
 | `build-mcp` | `go build ...` | Compile the MCP server to `bin/dfinstall-mcp` |
 | `build-all` | `build` + `build-mcp` | Compile both binaries |
 | `test` | `go test ./src/... ./tests/...` | Run all unit tests |
+| `test-race` | `go test -race ./src/... ./tests/...` | Run the suite under the race detector |
 | `lint` | `go vet ./src/... ./tests/...` | Static analysis |
 | `fmt` | `gofmt -s -w src/ tests/` | Format source code in place |
 | `fmt-check` | `gofmt -s -l src tests` | Check formatting without modifying (same check as CI) |
-| `ci` | `fmt-check` + `lint` + `build-all` + `test` | Run every check CI runs, locally |
+| `ci` | `fmt-check` + `lint` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
 | `uninstall` | `make build && bin/dfinstall uninstall all` | Remove all managed symlinks |
 | `install-bin` | `install ... ~/.local/bin` | Install both binaries onto `PATH` (`~/.local/bin`) |
@@ -82,7 +83,7 @@ Run `make` (or `make help`) to list every target.
 ## Development Workflow
 
 ```bash
-# Run every check CI runs (fmt-check + vet + build both + test)
+# Run every check CI runs (fmt-check + vet + build both + test + race)
 make ci
 
 # Test a single module
@@ -140,7 +141,9 @@ src/
     shell_preserve.go  #   Custom shell file preservation menu and writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
     ...                #   19 modules total
-tests/                 # Unit tests (17 files)
+tests/                 # Black-box tests (23 files, package tests)
+                       # In-package tests also live in src/core/*_test.go
+                       # and src/modules/*_test.go for unexported internals
 ```
 
 ## Testing

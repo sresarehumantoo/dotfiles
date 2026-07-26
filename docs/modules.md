@@ -1,6 +1,6 @@
 # Module Reference
 
-Every module is a single Go file in `src/modules/`. They run in the order listed here.
+Most modules are a single Go file in `src/modules/`. They run in the order listed here.
 
 ---
 
@@ -59,7 +59,7 @@ After installing tealdeer, updates the tldr page cache (best-effort — skipped 
 
 ## toolkit
 
-**File:** `modules/toolkit.go`, `modules/toolkit_menu.go`
+**File:** `modules/toolkit.go`, `modules/toolkit_menu.go`, `modules/toolkit_artifact.go` (where each method's artifact lands on disk), `modules/github_release.go` (shared GitHub-release fetch/selection)
 
 Optional security, CTF, DFIR, development, and productivity tools. Running `dfinstall install toolkit --toolkit` or `dfinstall install all --toolkit` opens a two-level interactive menu (category picker → tool multi-select). Installed tools are shown with `✓` and pre-selected. Deselecting an installed tool marks it for removal. The Done option shows summary stats: installed, to install, to remove.
 
@@ -92,13 +92,30 @@ The registry defines 50 tools across 15 categories: Active Directory, Applicatio
 - **cargo install:** Installed to `~/.cargo/bin/`, skipped if binary already in PATH (requires Rust toolchain)
 - **pipx:** Installed via `pipx install`, skipped if already in `pipx list`
 - **git clone:** Shallow-cloned to `~/.local/share/toolkit/<name>`, skipped if directory exists
-- **AppImage:** Downloaded from GitHub releases API to `~/.local/bin/`, chmod +x
+- **AppImage:** Downloaded from the GitHub releases API to `~/.local/bin/<binary>.AppImage`, chmod +x
+- **deb:** `.deb` from a GitHub release, installed with `dpkg -i` (falls back to `apt install -f` for dependencies)
+- **release_binary:** A bare binary (or one inside a `.tar.gz`) from a GitHub release, placed at `~/.local/bin/<binary>`
+- **rustup:** Installs the rustup toolchain to `~/.cargo/bin/rustup`
+
+The three GitHub-release methods (deb, AppImage, release_binary) share one
+engine in `modules/github_release.go` — it fetches the latest release's assets
+and picks the one matching this machine's architecture, skipping checksums,
+signatures and other platforms' builds.
 
 Selections are saved to `.config.yaml` under `toolkit_tools`. Subsequent installs (without `--toolkit`) use the saved selections. To change, re-run with `--toolkit`.
 
 **Status:** Shows `N/M tools` when tools are configured. Shows "run --toolkit to configure" when no tools are selected. Shows "registry not fetched" when no cache exists.
 
-**Uninstall:** Removes AppImage files from `~/.local/bin/` and git clone directories from `~/.local/share/toolkit/`. apt/go/cargo/pipx tools must be removed manually.
+**Uninstall:** Removes what dfinstall placed — AppImage and release-binary files
+from `~/.local/bin/`, git clones from `~/.local/share/toolkit/` (via
+`core.RemoveManagedDir`), `.deb` packages via `sudo dpkg -r`, and rustup via
+`rustup self uninstall`. apt/go/cargo/pipx tools must be removed manually, since
+their package manager owns the location.
+
+Where each method's artifact lives is decided in one place —
+`modules/toolkit_artifact.go` — which the installers, `Status`, `Uninstall` and
+the selection menu all consult. A second copy of that mapping would mean
+uninstall deleting the wrong path.
 
 ---
 
