@@ -221,7 +221,17 @@ Leader: **Space**
 |-----|--------|
 | `leader u` | Toggle undotree |
 | `leader q` | Open diagnostic quickfix list |
-| `Esc Esc` (terminal) | Exit terminal mode |
+| `q` | Disabled (mapped to `<Nop>`) — stops accidental macro recording |
+| `Q` | Record macro (register) — the relocated `q`, replacing Ex mode |
+
+### Terminal Mode
+
+| Key | Action |
+|-----|--------|
+| `Esc Esc` | Exit terminal mode |
+| `C-h` / `C-j` / `C-k` / `C-l` | Leave terminal mode and move focus to the left/lower/upper/right window |
+
+`C-h/j/k/l` mirror the Normal-mode window-nav maps, dropping to Normal via `<C-\><C-n>` first so no `Esc Esc` is needed. Caveat: this shadows the shell's `C-l` clear-screen inside terminal buffers — use `clear` or `reset` instead.
 
 ### Completion (blink.cmp)
 

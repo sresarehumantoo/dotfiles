@@ -178,6 +178,7 @@ bash -n config/devtools/my-script  # syntax check
 - **Never call `os.UserHomeDir()`** outside `core` — use `core.HomeDir()` / `core.HomeTarget()`. With `$HOME` unset it returns `("", err)`, and joining that gives a *relative* path, which once caused `uninstall tmux` to delete `.tmux/plugins` from the current working directory. For recursive deletes use `core.RemoveManagedDir`, not `os.RemoveAll`.
 - **Extend a home-derived path with `core.SubPath`, not `filepath.Join`.** `HomeTarget`/`XDGTarget` return `""` when home is unresolvable, but `filepath.Join("", "custom")` turns that straight back into a relative path — and `git clone`, `os.WriteFile` and `os.MkdirAll` never reach `checkTarget`. Before acting on such a path directly, call `core.CheckTarget(path)`.
 - **`core.SkipInAll(name)`, not `IsModuleSkipped`,** in any loop over `AllModules()` for an install-all or a fixable-drift report. The MCP server once used the latter and installed an opt-out module.
+- **Call `sess.MarkFailed()` on every install path's error path** — including the `install all` loops, which must call it when *any* module failed. Without it, `Finish` still persists `skip_backup: true`, so a failed first run disarms the automatic backup and the *next* run, the one that actually replaces the user's dotfiles, takes no snapshot. The asymmetry is deliberate: a needless extra backup costs disk, a missing one costs the user's dotfiles. `install all` was missed when this was introduced.
 
 ### Shell Scripts
 
@@ -206,9 +207,16 @@ In default (quiet) mode, the CLI shows a spinner. `Info`/`Ok` calls are suppress
 
 ### External Commands
 
-Every subprocess goes through `runCmd(ctx, ...)` (`src/modules/packages.go`).
-There are **no** raw `exec.Command` calls in `src/` — `go vet` won't catch a new
-one, so this is on you.
+**Never `exec.Command`** — every subprocess must be cancellable, so it takes a
+`context.Context`. `go vet` won't catch a new one, so this is on you.
+
+Beyond cancellation, prefer the wrappers in `src/modules/packages.go` —
+`runCmd(ctx, ...)`, `runProbe(ctx, ...)`, `runNetProbe(ctx, ...)`. They add a
+deadline from `src/core/exec.go`, output capture with a tail replayed on
+failure, and spinner/sudo handling. A bare `exec.CommandContext` gets none of
+that; a handful remain (`fonts.go`, `extras.go`, `wsl.go`, `tmux.go`) and are
+debt, not a pattern to copy. `defaultshell.go`'s `chsh` is the one deliberate
+exception — it is interactive and needs the user's real TTY.
 
 ```go
 if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
@@ -241,7 +249,7 @@ if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
 
 Tests live in two places, deliberately:
 
-- **`tests/`** (23 files, `package tests`) — black-box. Anything reachable
+- **`tests/`** (`package tests`) — black-box. Anything reachable
   through the exported API goes here.
 - **In-package** (`src/core/*_test.go`, `src/modules/*_test.go`) — for
   invariants about unexported state: the spinner's state machine, `checkTarget`,
@@ -288,4 +296,7 @@ Every push and pull request runs:
 
 - **`go`** — `gofmt -s` formatting, `go vet`, build of the `dfinstall` and MCP
   binaries, the test suite, and the suite again under the race detector.
-- **`shellcheck`** — all shell scripts under `config/`.
+- **`shellcheck`** — the standalone bash scripts in `config/devtools/` and
+  `bootstrap/` (the two `scandir`s in `ci.yml`). A repo-wide scan is
+  deliberately not run: it would pull in `config/shell/` — zsh files and
+  shebang-less rc files ShellCheck can't parse.
