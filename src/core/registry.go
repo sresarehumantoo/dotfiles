@@ -109,6 +109,19 @@ const maxRegistrySize = 8 << 20 // 8 MiB
 
 // FetchRegistry downloads the registry from a URL and writes it to the cache.
 func FetchRegistry(ctx context.Context, url string) (*Registry, error) {
+	return fetchRegistry(ctx, url, true)
+}
+
+// InspectRegistry parses and validates a registry without caching it.
+//
+// `registry validate` is a read-only check, often pointed at a file the user is
+// merely reviewing. Caching it there would be enough to change what the next
+// `install toolkit` installs, because LoadOrFetchRegistry prefers the cache.
+func InspectRegistry(ctx context.Context, url string) (*Registry, error) {
+	return fetchRegistry(ctx, url, false)
+}
+
+func fetchRegistry(ctx context.Context, url string, cache bool) (*Registry, error) {
 	Debug("fetching registry from %s", url)
 
 	var data []byte
@@ -141,6 +154,10 @@ func FetchRegistry(ctx context.Context, url string) (*Registry, error) {
 
 	if err := ValidateRegistry(&reg); err != nil {
 		return nil, fmt.Errorf("invalid registry: %w", err)
+	}
+
+	if !cache {
+		return &reg, nil
 	}
 
 	// Write to cache
