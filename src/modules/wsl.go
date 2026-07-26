@@ -122,9 +122,12 @@ func installSysctl(ctx context.Context) {
 // resolveWinHome returns the WSL mount path for the Windows user home directory
 // (e.g. /mnt/c/Users/<username>), or empty string on failure.
 // Shared with doctor checks, which have no context — bounded by ProbeTimeout.
+//
+// The cmd.exe call is the one that talks to Windows, so it is the one that
+// hangs when interop stalls; it has to go through runProbe like the wslpath
+// call below, or Status() and doctor block forever.
 func resolveWinHome() string {
-	cmd := exec.CommandContext(context.Background(), "cmd.exe", "/C", "echo %USERPROFILE%")
-	out, err := cmd.Output()
+	out, err := runProbe(context.Background(), "cmd.exe", "/C", "echo %USERPROFILE%")
 	if err != nil {
 		return ""
 	}
