@@ -33,7 +33,7 @@ func main() {
 	}
 	modules.RegisterAllModules()
 
-	s := server.NewMCPServer("dfinstall", "1.0.0")
+	s := server.NewMCPServer("dfinstall", core.Version)
 	registerTools(s)
 
 	stdioServer := server.NewStdioServer(s)

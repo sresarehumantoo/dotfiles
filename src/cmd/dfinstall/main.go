@@ -27,8 +27,9 @@ func main() {
 	modules.RegisterAllModules()
 
 	rootCmd := &cobra.Command{
-		Use:   "dfinstall",
-		Short: "Dotfiles installer and manager",
+		Use:     "dfinstall",
+		Short:   "Dotfiles installer and manager",
+		Version: core.Version,
 		// Runtime failures (a module erroring, a backup that won't start) are
 		// not usage errors — printing the full help after them buries the
 		// actual message. Cobra still shows usage for bad arguments.

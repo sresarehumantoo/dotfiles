@@ -38,6 +38,27 @@ The `-ldflags` flag bakes the dotfiles directory path into the binary at compile
 
 So the baked path is a fallback used only when neither `$DOTFILES` nor the canonical pointer applies. Recording the canonical clone on `install all` is what prevents symlink drift across multiple clones; verify with `dfinstall doctor` or `dfinstall diff`.
 
+## Version stamping
+
+The Makefile passes a second `-X` for `core.Version`, derived from the tag:
+
+```makefile
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+```
+
+Both binaries read it — `dfinstall --version`, and the `serverInfo.version` the
+MCP server reports in its `initialize` response. A plain `go build` without the
+Makefile leaves it at `dev` rather than claiming a release.
+
+**Anything that reports a version must read `core.Version`.** The MCP server
+previously announced a hardcoded `"1.0.0"` literal that no release process
+bumped, so it would have kept reporting `1.0.0` indefinitely.
+
+```console
+$ make build && ./bin/dfinstall --version
+dfinstall version v1.0.0
+```
+
 ## Go Dependencies
 
 Dependencies are managed via Go modules (`go.mod` / `go.sum`) and fetched automatically on first build.
