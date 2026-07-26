@@ -17,7 +17,7 @@ import (
 // CanonicalPointerPath returns the machine-global file that records the
 // authoritative dotfiles clone for this host.
 func CanonicalPointerPath() string {
-	return filepath.Join(XDGConfigHome(), "dfinstall", "dotfiles-dir")
+	return XDGTarget("dfinstall", "dotfiles-dir")
 }
 
 // looksLikeDotfilesRepo reports whether dir is plausibly a dotfiles checkout:
@@ -71,6 +71,12 @@ func AdoptCanonical(dir string) (prev string, changed bool) {
 // machine, writing atomically so a crash can't leave a half-written pointer.
 func WriteCanonicalDir(dir string) error {
 	path := CanonicalPointerPath()
+	// An unresolved $XDG_CONFIG_HOME/$HOME yields "" here. Writing the pointer
+	// to a CWD-relative path would leave it unreadable from anywhere else, so
+	// every later run would re-adopt whichever clone it was invoked from.
+	if err := checkTarget(path); err != nil {
+		return fmt.Errorf("canonical pointer: %w", err)
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create dfinstall config dir: %w", err)
 	}

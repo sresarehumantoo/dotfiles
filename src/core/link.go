@@ -156,6 +156,26 @@ func HomeTarget(parts ...string) string {
 	return filepath.Join(append([]string{home}, parts...)...)
 }
 
+// SubPath extends a base produced by HomeTarget/XDGTarget, propagating an empty
+// base instead of turning it into a relative path.
+//
+// filepath.Join("", "custom") is "custom", so joining onto an unresolved home
+// rebuilds the exact bug HomeTarget's empty return exists to prevent — and the
+// result never reaches checkTarget, because git clone, os.WriteFile and
+// os.MkdirAll don't go through LinkFile. Always use this rather than
+// filepath.Join when the first element came from HomeTarget or XDGTarget.
+func SubPath(base string, parts ...string) string {
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{base}, parts...)...)
+}
+
+// CheckTarget is the guard LinkFile and friends apply, exported for callers
+// that act on a path directly — a git clone destination, an os.WriteFile — and
+// so must make the same refusal themselves.
+func CheckTarget(path string) error { return checkTarget(path) }
+
 // checkTarget rejects paths we must never act on. A path assembled from an
 // unresolved $HOME comes out relative, so refusing non-absolute targets stops
 // a link, unlink, or delete from landing in the current working directory.

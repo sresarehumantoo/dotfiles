@@ -394,6 +394,11 @@ func toolkitDir() string {
 // installGitClone clones a git repository to ~/.local/share/toolkit/<name>.
 func installGitClone(ctx context.Context, name, repoURL string) error {
 	destPath := artifactForMethod("git_clone", name).Path
+	// git clone doesn't go through LinkFile, so make the same refusal here
+	// rather than cloning into the current working directory.
+	if err := core.CheckTarget(destPath); err != nil {
+		return fmt.Errorf("clone dest for %s: %w", name, err)
+	}
 	destDir := filepath.Dir(destPath)
 
 	// Skip if already present
@@ -408,7 +413,9 @@ func installGitClone(ctx context.Context, name, repoURL string) error {
 
 	core.Info("Cloning %s...", name)
 	if err := runCmd(ctx, "git", "clone", "--depth=1", repoURL, destPath); err != nil {
-		os.RemoveAll(destPath)
+		if rmErr := core.RemoveManagedDir(destPath); rmErr != nil {
+			core.Warn("could not clean up partial clone %s: %v", destPath, rmErr)
+		}
 		return fmt.Errorf("clone %s: %w", name, err)
 	}
 

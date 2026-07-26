@@ -43,7 +43,7 @@ func windevNvimDst() string {
 }
 
 func windevZshPath() string {
-	return filepath.Join(core.XDGConfigHome(), "dfinstall", "windev.zsh")
+	return core.XDGTarget("dfinstall", "windev.zsh")
 }
 
 func (WindevModule) Install(ctx context.Context) error {
