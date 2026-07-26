@@ -411,6 +411,9 @@ func installAll(ctx context.Context) error {
 				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
+		if len(failures) > 0 {
+			sess.MarkFailed()
+		}
 		fmt.Println()
 		core.Info("Done! Open a new terminal or run: exec zsh")
 		return installFailure(failures)
@@ -432,6 +435,10 @@ func installAll(ctx context.Context) error {
 		}
 	}
 	sp.Stop()
+
+	if len(failures) > 0 {
+		sess.MarkFailed()
+	}
 
 	core.FlushWarnings()
 	for _, f := range failures {

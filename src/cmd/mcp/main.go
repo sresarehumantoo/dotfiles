@@ -220,6 +220,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		}
 
 		if len(failures) > 0 {
+			sess.MarkFailed()
 			fmt.Fprintf(&b, "\nFailures:\n")
 			for _, f := range failures {
 				fmt.Fprintf(&b, "  - %s\n", f)
