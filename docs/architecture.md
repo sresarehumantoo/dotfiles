@@ -252,6 +252,8 @@ All are variadic — `HomeTarget(".local", "bin", name)`.
 | `HomeTarget(".zshrc")` | `$HOME/.zshrc` |
 | `XDGTarget("nvim")` | `$XDG_CONFIG_HOME/nvim` (or `~/.config/nvim`) |
 | `HomeDir() (string, error)` | `$HOME`, or an error if it can't be resolved |
+| `SubPath(base, parts...)` | extend a `HomeTarget`/`XDGTarget` result, propagating an empty base |
+| `CheckTarget(path)` | the refusal `LinkFile` applies, for callers that act on a path directly |
 | `RemoveManagedDir(path)` | `os.RemoveAll` guarded by `checkTarget` |
 
 **Never call `os.UserHomeDir()` outside `core`.** With `$HOME` unset it returns
@@ -263,6 +265,22 @@ delete `.tmux/plugins` from whatever directory you were standing in.
 `HomeTarget`/`XDGTarget` return `""` when the home directory can't be resolved,
 and `LinkFile`, `UnlinkFile`, `EnsureDir` and `RemoveManagedDir` all run
 `checkTarget`, which rejects empty and non-absolute paths.
+
+**That empty return only helps if you propagate it.** `filepath.Join("",
+"custom")` is `"custom"` — the relative path all over again — and it never
+reaches `checkTarget`, because `git clone`, `os.WriteFile` and `os.MkdirAll`
+don't go through `LinkFile`. So:
+
+- Extend a home- or XDG-derived path with **`core.SubPath(base, parts...)`**,
+  never `filepath.Join`. It returns `""` for an empty base.
+- Prefer `XDGTarget("dfinstall", "plugins.zsh")` over
+  `filepath.Join(XDGConfigHome(), ...)` for the same reason.
+- Before acting on a path directly — a clone destination, a file you write —
+  call **`core.CheckTarget(path)`** and make the same refusal.
+
+With `$HOME` and `$XDG_CONFIG_HOME` unset, `install all` used to create
+`./dfinstall/`, `./custom/plugins/zsh-autosuggestions/` and
+`./custom/themes/powerlevel10k/` in whatever directory you were standing in.
 
 ## Environment Detection
 
@@ -341,6 +359,7 @@ type RegistryTool struct {
 | Function | Purpose |
 |----------|---------|
 | `FetchRegistry(ctx, url)` | Fetch over HTTP(S) with `net/http` under a `NetworkTimeout` deadline, `file://` path, or plain file path; validates and writes the cache |
+| `InspectRegistry(ctx, url)` | Same fetch and validation, **without** writing the cache — this is what `registry validate` uses |
 | `LoadCachedRegistry()` | Read the registry from the local cache file |
 | `LoadOrFetchRegistry(ctx, forceRefresh)` | Load from cache, or fetch remotely if missing / `forceRefresh` |
 | `ValidateRegistry(r)` | Check version, unique valid names, required category/binary, method-specific fields, distro filters |
@@ -495,6 +514,23 @@ Rendering stays with the caller — the session reports `CanonicalPrev`,
 
 Before this existed the MCP server took no backup at all and ignored the windev
 opt-in, while being annotated idempotent and non-destructive.
+
+Three rules the session enforces, each of which was once a data-loss bug:
+
+- **`BeginInstall` takes a process-wide lock that `Finish` releases.** The
+  backup session, the canonical pointer and `Cfg` are all global. Two overlapping
+  installs meant the second `StartBackup` replaced the first's manager, and the
+  first `FinishBackup` then wrote its manifest into the second's directory —
+  leaving the first's copied files with no manifest, invisible to `restore`. The
+  CLI only ever runs one install; the MCP server dispatches tool calls from a
+  worker pool, so its handlers really can overlap. They queue instead.
+- **Call `sess.MarkFailed()` when the install fails.** Otherwise the deferred
+  `Finish` still persists the first-run config, and `skip_backup: true` disarms
+  the automatic backup before the run that actually replaces the user's dotfiles.
+- **Nothing here mutates persisted state under `--dry-run`** — not the config,
+  and not the canonical pointer. A preview that adopts the clone you previewed
+  from is exactly the multi-clone drift the pointer exists to prevent. The
+  session still *reports* the adoption it would have made.
 
 ## Status & Diff Reporting
 
