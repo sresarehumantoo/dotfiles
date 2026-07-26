@@ -1,6 +1,20 @@
 package core
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
+
+// installMu serializes whole install sessions. The backup session, the
+// canonical pointer, and Cfg are all process-global, so two installs running at
+// once corrupt each other: the second StartBackup replaces the first's manager,
+// and the first FinishBackup then writes its manifest into the second's
+// directory, leaving the first's copied files unlisted and unrestorable.
+//
+// The CLI only ever runs one install, but the MCP server dispatches tool calls
+// from a pool of workers, so two dfinstall_install calls really can overlap.
+// They queue here instead.
+var installMu sync.Mutex
 
 // InstallOptions configures an install session.
 type InstallOptions struct {
@@ -25,6 +39,8 @@ type InstallOptions struct {
 type InstallSession struct {
 	doBackup bool
 	firstRun bool
+	failed   bool
+	finished bool
 
 	// CanonicalPrev is the previously-recorded canonical clone when an
 	// `install all` moved the pointer; empty when it was already correct or
@@ -35,23 +51,39 @@ type InstallSession struct {
 
 // BeginInstall performs the pre-install work shared by all install paths.
 func BeginInstall(opt InstallOptions) (*InstallSession, error) {
+	installMu.Lock()
 	s := &InstallSession{}
 
 	if opt.All {
-		// Adopting first means DotfilesDir() resolves here for the rest of the
-		// run, so the module loop repoints symlinks left pointing at other
-		// clones — `install all` both switches canonical and consolidates a
-		// machine whose links had drifted.
 		invoking := InvokingCloneDir()
-		if prev, changed := AdoptCanonical(invoking); changed {
-			s.CanonicalPrev = prev
-			s.CanonicalNow = invoking
+		switch {
+		case DryRun:
+			// The canonical pointer is machine-global, so adopting during a
+			// preview would make whichever clone you previewed from
+			// authoritative for every later run. Report the change instead of
+			// making it; links below still preview against the current
+			// canonical clone, which is where an unconfirmed run leaves them.
+			if prev := ReadCanonicalDir(); prev != invoking {
+				s.CanonicalPrev = prev
+				s.CanonicalNow = invoking
+			}
+		default:
+			// Adopting first means DotfilesDir() resolves here for the rest of
+			// the run, so the module loop repoints symlinks left pointing at
+			// other clones — `install all` both switches canonical and
+			// consolidates a machine whose links had drifted.
+			if prev, changed := AdoptCanonical(invoking); changed {
+				s.CanonicalPrev = prev
+				s.CanonicalNow = invoking
+			}
 		}
 	}
 
 	s.doBackup, s.firstRun = shouldBackup(opt.ForceBackup)
 	if s.doBackup {
 		if err := StartBackup(); err != nil {
+			// No session is returned, so no Finish will run to release this.
+			installMu.Unlock()
 			return nil, fmt.Errorf("start backup: %w", err)
 		}
 	}
@@ -61,8 +93,21 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 // DidBackup reports whether a restorable snapshot was taken.
 func (s *InstallSession) DidBackup() bool { return s.doBackup }
 
-// Finish closes the backup and persists config. Safe to defer.
+// MarkFailed records that the install did not succeed, so Finish leaves
+// persisted state alone. Without it a failed first run still writes
+// skip_backup: true, and the next run — the one that actually replaces the
+// user's dotfiles — silently takes no backup.
+func (s *InstallSession) MarkFailed() { s.failed = true }
+
+// Finish closes the backup, persists config, and releases the install lock.
+// Safe to defer, and idempotent so a double Finish can't unlock twice.
 func (s *InstallSession) Finish() {
+	if s.finished {
+		return
+	}
+	s.finished = true
+	defer installMu.Unlock()
+
 	if s.doBackup {
 		if err := FinishBackup(); err != nil {
 			Warn("failed to finish backup: %v", err)
@@ -74,6 +119,12 @@ func (s *InstallSession) Finish() {
 func (s *InstallSession) saveConfig() {
 	// A preview must never mutate persisted state.
 	if DryRun {
+		return
+	}
+
+	// Neither must a run that accomplished nothing: a failed first run has to
+	// stay a first run so its automatic backup is still armed next time.
+	if s.failed {
 		return
 	}
 
