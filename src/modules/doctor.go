@@ -44,7 +44,7 @@ func RunDoctorChecks() []DoctorResult {
 		{"fonts", checkFontMatch("HackNerdFont-Regular.ttf")},
 		{"nvim config", checkLink(
 			core.ConfigPath("nvim", "init.lua"),
-			filepath.Join(core.XDGConfigHome(), "nvim", "init.lua"),
+			core.XDGTarget("nvim", "init.lua"),
 		)},
 		{"shell config", checkLink(
 			core.ConfigPath("shell", "zshrc"),
@@ -56,7 +56,7 @@ func RunDoctorChecks() []DoctorResult {
 		)},
 		{"tmux config", checkLink(
 			core.ConfigPath("tmux", "tmux.conf"),
-			filepath.Join(core.XDGConfigHome(), "tmux", "tmux.conf"),
+			core.XDGTarget("tmux", "tmux.conf"),
 		)},
 	}
 

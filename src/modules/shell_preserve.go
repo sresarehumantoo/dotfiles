@@ -320,7 +320,10 @@ func RunPreserveMenu(files []DiscoveredFile) (preserved, dismissed []string, err
 
 // WriteCustomSourcesFile writes the generated custom-sources.zsh sourced by zshrc.
 func WriteCustomSourcesFile(paths []string) error {
-	dir := filepath.Join(core.XDGConfigHome(), "dfinstall")
+	dir := core.XDGTarget("dfinstall")
+	if err := core.CheckTarget(dir); err != nil {
+		return fmt.Errorf("dfinstall config dir: %w", err)
+	}
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("create dfinstall config dir: %w", err)
 	}
@@ -352,7 +355,7 @@ func WriteCustomSourcesFile(paths []string) error {
 
 // CustomSourcesFilePath returns the path to the generated custom-sources.zsh file.
 func CustomSourcesFilePath() string {
-	return filepath.Join(core.XDGConfigHome(), "dfinstall", "custom-sources.zsh")
+	return core.XDGTarget("dfinstall", "custom-sources.zsh")
 }
 
 // MergeUnique appends additions to existing, deduplicating.

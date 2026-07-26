@@ -22,6 +22,11 @@ func (OmzModule) Install(ctx context.Context) error {
 	core.Info("Setting up Oh My Zsh...")
 
 	omzDir := core.HomeTarget(".oh-my-zsh")
+	// Nothing below goes through LinkFile, so checkTarget never sees these
+	// paths: an unresolved $HOME would git-clone oh-my-zsh into the CWD.
+	if err := core.CheckTarget(omzDir); err != nil {
+		return fmt.Errorf("oh-my-zsh dir: %w", err)
+	}
 
 	if err := installOmz(ctx, omzDir); err != nil {
 		core.Warn("Oh My Zsh install failed: %v", err)
@@ -31,6 +36,9 @@ func (OmzModule) Install(ctx context.Context) error {
 	zshCustom := os.Getenv("ZSH_CUSTOM")
 	if zshCustom == "" {
 		zshCustom = filepath.Join(omzDir, "custom")
+	}
+	if err := core.CheckTarget(zshCustom); err != nil {
+		return fmt.Errorf("ZSH_CUSTOM: %w", err)
 	}
 
 	zasDir := filepath.Join(zshCustom, "plugins", "zsh-autosuggestions")

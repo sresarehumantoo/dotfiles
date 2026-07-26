@@ -350,7 +350,7 @@ func main() {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			reg, err := core.FetchRegistry(ctx, args[0])
+			reg, err := core.InspectRegistry(ctx, args[0])
 			if err != nil {
 				return err
 			}
@@ -473,7 +473,11 @@ func installOne(ctx context.Context, m core.Module) error {
 
 	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
-		return m.Install(ctx)
+		if err := m.Install(ctx); err != nil {
+			sess.MarkFailed()
+			return err
+		}
+		return nil
 	}
 
 	// Default: spinner mode
@@ -487,6 +491,7 @@ func installOne(ctx context.Context, m core.Module) error {
 	core.FlushWarnings()
 
 	if installErr != nil {
+		sess.MarkFailed()
 		core.Err("%s: %v", m.Name(), installErr)
 		return installErr
 	}

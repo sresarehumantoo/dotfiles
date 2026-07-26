@@ -40,3 +40,7 @@ config/nvim/lazy-lock.json
 *.exe
 *.test
 *.out
+
+# Compiled binaries built outside bin/ (make build targets bin/)
+/dfinstall
+/dfinstall-mcp

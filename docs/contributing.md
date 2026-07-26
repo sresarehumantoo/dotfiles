@@ -176,6 +176,7 @@ bash -n config/devtools/my-script  # syntax check
 - **Error handling:** Return errors, don't call `os.Exit()`. Warn and continue for non-fatal issues.
 - **One `Links()`:** declare `Links() core.LinkSet` once and call `.Apply()` / `.Remove()` / `.Status(name)` from the other three methods. Never list a path in more than one place.
 - **Never call `os.UserHomeDir()`** outside `core` — use `core.HomeDir()` / `core.HomeTarget()`. With `$HOME` unset it returns `("", err)`, and joining that gives a *relative* path, which once caused `uninstall tmux` to delete `.tmux/plugins` from the current working directory. For recursive deletes use `core.RemoveManagedDir`, not `os.RemoveAll`.
+- **Extend a home-derived path with `core.SubPath`, not `filepath.Join`.** `HomeTarget`/`XDGTarget` return `""` when home is unresolvable, but `filepath.Join("", "custom")` turns that straight back into a relative path — and `git clone`, `os.WriteFile` and `os.MkdirAll` never reach `checkTarget`. Before acting on such a path directly, call `core.CheckTarget(path)`.
 - **`core.SkipInAll(name)`, not `IsModuleSkipped`,** in any loop over `AllModules()` for an install-all or a fixable-drift report. The MCP server once used the latter and installed an opt-out module.
 
 ### Shell Scripts

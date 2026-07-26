@@ -306,8 +306,8 @@ func (NvimModule) Install(ctx context.Context) error {
 
 	// Ensure directories
 	dirs := []string{
-		filepath.Join(nvimDir, "lua", "custom", "plugins"),
-		filepath.Join(nvimDir, "lua", "kickstart", "plugins"),
+		core.SubPath(nvimDir, "lua", "custom", "plugins"),
+		core.SubPath(nvimDir, "lua", "kickstart", "plugins"),
 	}
 	for _, d := range dirs {
 		if err := core.EnsureDir(d); err != nil {

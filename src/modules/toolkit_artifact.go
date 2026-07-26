@@ -3,7 +3,6 @@ package modules
 import (
 	"os"
 	"os/exec"
-	"path/filepath"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -38,7 +37,10 @@ func artifactForMethod(method, binary string) toolArtifact {
 	case "appimage":
 		return toolArtifact{Path: core.HomeTarget(".local", "bin", binary+".AppImage")}
 	case "git_clone":
-		return toolArtifact{Path: filepath.Join(toolkitDir(), binary), IsDir: true}
+		// SubPath, not filepath.Join: an unresolved $HOME makes toolkitDir()
+		// empty, and a relative Path is one the installer clones into and
+		// Uninstall deletes from the current working directory.
+		return toolArtifact{Path: core.SubPath(toolkitDir(), binary), IsDir: true}
 	case "release_binary":
 		return toolArtifact{Path: core.HomeTarget(".local", "bin", binary)}
 	case "rustup":
