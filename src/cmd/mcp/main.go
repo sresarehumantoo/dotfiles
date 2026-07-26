@@ -255,6 +255,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 
 	var b strings.Builder
 	if err != nil {
+		sess.MarkFailed()
 		fmt.Fprintf(&b, "install %s error: %v\n", name, err)
 	}
 	fmt.Fprintf(&b, "before: %d linked, %d missing\n", before.Linked, before.Missing)
@@ -455,7 +456,7 @@ func handleRegistryValidate(ctx context.Context, request mcp.CallToolRequest) (*
 	if source == "" {
 		return mcp.NewToolResultError("source parameter is required"), nil
 	}
-	reg, err := core.FetchRegistry(ctx, source)
+	reg, err := core.InspectRegistry(ctx, source)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid registry: %v", err)), nil
 	}
@@ -503,16 +504,20 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError(fmt.Sprintf("%s does not support uninstall", name)), nil
 	}
 
-	if name == "windev" {
-		core.ClearWindevOptIn()
-	}
-
 	// Modules that installed system packages (delta, toolkit) shell out to
 	// sudo when uninstalling.
 	core.PromptSudo(ctx)
 	defer core.StopSudoKeepAlive()
 
+	// Read the before-state first: WindevModule.Status() short-circuits to
+	// "disabled" once the opt-in is cleared, so clearing first reported every
+	// windev uninstall as 0 links removed no matter how many it deleted.
 	before := m.Status()
+
+	if name == "windev" {
+		core.ClearWindevOptIn()
+	}
+
 	if err := u.Uninstall(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("uninstall %s: %v", name, err)), nil
 	}
