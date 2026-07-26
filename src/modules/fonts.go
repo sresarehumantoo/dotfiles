@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -12,7 +13,7 @@ type FontsModule struct{}
 
 func (FontsModule) Name() string { return "fonts" }
 
-func (FontsModule) Install() error {
+func (FontsModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would install fonts to ~/.local/share/fonts/")
 		return nil
@@ -69,9 +70,9 @@ func (FontsModule) Install() error {
 			defer os.RemoveAll(tmp)
 			zipPath := filepath.Join(tmp, "Hack.zip")
 			url := "https://github.com/ryanoasis/nerd-fonts/releases/latest/download/Hack.zip"
-			cmd := exec.Command("curl", "-fsSL", url, "-o", zipPath)
+			cmd := exec.CommandContext(ctx, "curl", "-fsSL", url, "-o", zipPath)
 			if err := cmd.Run(); err == nil {
-				cmd = exec.Command("unzip", "-qo", zipPath, "-d", fontDir)
+				cmd = exec.CommandContext(ctx, "unzip", "-qo", zipPath, "-d", fontDir)
 				if err := cmd.Run(); err == nil {
 					needCache = true
 					core.Ok("Hack Nerd Font downloaded")
@@ -84,7 +85,7 @@ func (FontsModule) Install() error {
 
 	if needCache {
 		if _, err := exec.LookPath("fc-cache"); err == nil {
-			exec.Command("fc-cache", "-f", fontDir).Run()
+			exec.CommandContext(ctx, "fc-cache", "-f", fontDir).Run()
 		}
 	}
 

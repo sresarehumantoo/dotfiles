@@ -132,7 +132,8 @@ config/                  # Config files symlinked into ~
 src/
   cmd/dfinstall/         # CLI entry point (Cobra)
   cmd/mcp/               # MCP server (stdio JSON-RPC)
-  core/                  # Module interface, linking, backup/restore, output, spinner, env detection
+  core/                  # Module interface + LinkSet, linking, backup/restore, output, spinner,
+                       # env detection, install session, subprocess timeouts, toolkit registry
   modules/               # One file per module
 tests/                   # Unit tests
 docs/                    # In-depth documentation
@@ -150,7 +151,8 @@ make test           # go test ./src/... ./tests/...
 make lint           # go vet
 make fmt            # gofmt -s -w (in place)
 make fmt-check      # gofmt -s check (non-mutating, same as CI)
-make ci             # run every check CI runs (fmt-check + lint + build-all + test)
+make test-race      # run the test suite under the race detector
+make ci             # run every check CI runs (fmt-check + lint + build-all + test + test-race)
 make install        # build + dfinstall install all
 make uninstall      # build + dfinstall uninstall all
 make install-bin    # install both binaries onto PATH (~/.local/bin)
@@ -188,7 +190,7 @@ See [Building from Source](docs/building.md) for more detail on dependencies, cr
 
 GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on every push and pull request to `main` and `develop`:
 
-- **Go** -- `gofmt -s` check, `go vet`, builds both binaries (`dfinstall` + MCP), and `go test`. The Go version tracks `go.mod`.
+- **Go** -- `gofmt -s` check, `go vet`, builds both binaries (`dfinstall` + MCP), `go test`, and the suite again under `go test -race`. The Go version tracks `go.mod`.
 - **ShellCheck** -- lints the bash scripts in `config/devtools/` and `bootstrap/`.
 
 `main` is protected: both checks must pass before a pull request can be merged.

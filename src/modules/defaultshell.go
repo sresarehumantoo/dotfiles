@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"os"
 	"os/exec"
 
@@ -11,7 +12,7 @@ type DefaultShellModule struct{}
 
 func (DefaultShellModule) Name() string { return "defaultshell" }
 
-func (DefaultShellModule) Install() error {
+func (DefaultShellModule) Install(ctx context.Context) error {
 	zshPath, err := exec.LookPath("zsh")
 	if err != nil {
 		core.Warn("zsh not found — install it first")
@@ -34,10 +35,10 @@ func (DefaultShellModule) Install() error {
 	// chsh prompts for the user's password. Use sudo chsh when the
 	// password is known (bootstrap) to avoid an interactive prompt.
 	var cmd *exec.Cmd
-	if pass := os.Getenv("_DFINSTALL_SUDO_PASS"); pass != "" {
-		cmd = core.SudoCmd("chsh", "-s", zshPath, os.Getenv("USER"))
+	if core.HasSudoPass() {
+		cmd = core.SudoCmd(ctx, "chsh", "-s", zshPath, os.Getenv("USER"))
 	} else {
-		cmd = exec.Command("chsh", "-s", zshPath)
+		cmd = exec.CommandContext(ctx, "chsh", "-s", zshPath)
 		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr

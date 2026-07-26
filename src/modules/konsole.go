@@ -1,92 +1,45 @@
 package modules
 
-import "github.com/sresarehumantoo/dotfiles/src/core"
+import (
+	"context"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
+)
 
 type KonsoleModule struct{}
 
 func (KonsoleModule) Name() string { return "konsole" }
 
-var konsoleLinks = []struct{ src, dst string }{
-	{src: "konsolerc", dst: "konsolerc"},
-	{src: "Dotfiles.profile", dst: "Dotfiles.profile"},
-	{src: "Dotfiles.colorscheme", dst: "Dotfiles.colorscheme"},
+// Links spans two roots: konsolerc lives in ~/.config, while the profile and
+// colorscheme go to ~/.local/share/konsole. Spelling both out here removes the
+// konsoleLinks[1:] slicing that Install/Uninstall/Links/Status each had to
+// remember — adding an entry at the front used to break all four.
+func (KonsoleModule) Links() core.LinkSet {
+	shareDir := func(name string) string {
+		return core.HomeTarget(".local", "share", "konsole", name)
+	}
+	return core.LinkSet{
+		{Src: core.ConfigPath("konsole", "konsolerc"), Dst: core.XDGTarget("konsolerc")},
+		{Src: core.ConfigPath("konsole", "Dotfiles.profile"), Dst: shareDir("Dotfiles.profile")},
+		{Src: core.ConfigPath("konsole", "Dotfiles.colorscheme"), Dst: shareDir("Dotfiles.colorscheme")},
+	}
 }
 
-func (KonsoleModule) Install() error {
+func (m KonsoleModule) Install(ctx context.Context) error {
 	core.Info("Linking Konsole config...")
-	if err := core.EnsureDir(core.HomeTarget(".local", "share", "konsole")); err != nil {
+	if err := m.Links().Apply(); err != nil {
 		return err
-	}
-	// konsolerc → ~/.config/konsolerc
-	if err := core.LinkFile(
-		core.ConfigPath("konsole", "konsolerc"),
-		core.XDGTarget("konsolerc"),
-	); err != nil {
-		return err
-	}
-	// profile and colorscheme → ~/.local/share/konsole/
-	for _, l := range konsoleLinks[1:] {
-		if err := core.LinkFile(
-			core.ConfigPath("konsole", l.src),
-			core.HomeTarget(".local", "share", "konsole", l.dst),
-		); err != nil {
-			return err
-		}
 	}
 	core.Ok("Konsole config done")
 	return nil
 }
 
-func (KonsoleModule) Uninstall() error {
-	if err := core.UnlinkFile(
-		core.ConfigPath("konsole", "konsolerc"),
-		core.XDGTarget("konsolerc"),
-	); err != nil {
+func (m KonsoleModule) Uninstall(ctx context.Context) error {
+	if err := m.Links().Remove(); err != nil {
 		return err
-	}
-	for _, l := range konsoleLinks[1:] {
-		if err := core.UnlinkFile(
-			core.ConfigPath("konsole", l.src),
-			core.HomeTarget(".local", "share", "konsole", l.dst),
-		); err != nil {
-			return err
-		}
 	}
 	core.Ok("Konsole config uninstalled")
 	return nil
 }
 
-func (KonsoleModule) Links() []core.LinkPair {
-	pairs := []core.LinkPair{
-		{Src: core.ConfigPath("konsole", "konsolerc"), Dst: core.XDGTarget("konsolerc")},
-	}
-	for _, l := range konsoleLinks[1:] {
-		pairs = append(pairs, core.LinkPair{
-			Src: core.ConfigPath("konsole", l.src),
-			Dst: core.HomeTarget(".local", "share", "konsole", l.dst),
-		})
-	}
-	return pairs
-}
-
-func (KonsoleModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "konsole"}
-	// konsolerc
-	if core.CheckLink(core.ConfigPath("konsole", "konsolerc"), core.XDGTarget("konsolerc")) == "ok" {
-		s.Linked++
-	} else {
-		s.Missing++
-	}
-	// profile and colorscheme
-	for _, l := range konsoleLinks[1:] {
-		if core.CheckLink(
-			core.ConfigPath("konsole", l.src),
-			core.HomeTarget(".local", "share", "konsole", l.dst),
-		) == "ok" {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
-	return s
-}
+func (m KonsoleModule) Status() core.ModuleStatus { return m.Links().Status("konsole") }

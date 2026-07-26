@@ -1,11 +1,10 @@
 package modules
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -14,38 +13,16 @@ import (
 	"golang.org/x/term"
 )
 
-// isToolInstalled checks whether a registry tool is already present on the system.
-func isToolInstalled(t core.RegistryTool) bool {
-	home, _ := os.UserHomeDir()
-	switch t.Method {
-	case "appimage":
-		_, err := os.Stat(filepath.Join(home, ".local", "bin", t.Binary+".AppImage"))
-		return err == nil
-	case "git_clone":
-		fi, err := os.Stat(filepath.Join(home, ".local", "share", "toolkit", t.Binary))
-		return err == nil && fi.IsDir()
-	case "release_binary":
-		_, err := os.Stat(filepath.Join(home, ".local", "bin", t.Binary))
-		return err == nil
-	case "rustup":
-		_, err := os.Stat(filepath.Join(home, ".cargo", "bin", "rustup"))
-		return err == nil
-	default:
-		_, err := exec.LookPath(t.Binary)
-		return err == nil
-	}
-}
-
 // RunToolkitMenu shows an interactive category-based menu for toolkit tools.
 // Returns the selected tool names.
-func RunToolkitMenu() ([]string, error) {
+func RunToolkitMenu(ctx context.Context) ([]string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		core.Warn("stdin is not a terminal — skipping toolkit menu")
 		return core.Cfg.ToolkitTools, nil
 	}
 
 	// Always force refresh when the menu is shown
-	reg, err := core.LoadOrFetchRegistry(true)
+	reg, err := core.LoadOrFetchRegistry(ctx, true)
 	if err != nil {
 		return nil, fmt.Errorf("fetch toolkit registry: %w", err)
 	}

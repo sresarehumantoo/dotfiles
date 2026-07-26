@@ -255,3 +255,110 @@ func TestRestoreRoundTrip(t *testing.T) {
 		t.Errorf("missingPath should not exist after restore, got err=%v", err)
 	}
 }
+
+// Backups hold copies of private files, so the session dir and manifest must
+// not be group/world readable.
+func TestBackupArtifactsAreOwnerOnly(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	secret := filepath.Join(tmp, "id_rsa")
+	if err := os.WriteFile(secret, []byte("PRIVATE KEY"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := core.StartBackup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.BackupFile(secret); err != nil {
+		t.Fatal(err)
+	}
+	if err := core.FinishBackup(); err != nil {
+		t.Fatal(err)
+	}
+
+	backups, _ := core.ListBackups()
+	if len(backups) != 1 {
+		t.Fatalf("expected 1 backup, got %d", len(backups))
+	}
+	sessionDir := filepath.Join(core.BackupDir(), backups[0].Timestamp)
+
+	for _, tc := range []struct {
+		path string
+		want os.FileMode
+	}{
+		{sessionDir, 0700},
+		{filepath.Join(sessionDir, "files"), 0700},
+		{filepath.Join(sessionDir, "manifest.json"), 0600},
+	} {
+		fi, err := os.Stat(tc.path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", tc.path, err)
+		}
+		if got := fi.Mode().Perm(); got != tc.want {
+			t.Errorf("%s mode = %#o, want %#o", tc.path, got, tc.want)
+		}
+	}
+}
+
+// --dry-run must preview a restore without touching the filesystem. This
+// previously wiped live config because RestoreBackup had no DryRun guard.
+func TestRestoreBackup_DryRunIsNonDestructive(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("HOME", tmp)
+
+	oldDryRun := core.DryRun
+	defer func() { core.DryRun = oldDryRun }()
+
+	cfg := filepath.Join(tmp, "myconfig")
+	if err := os.WriteFile(cfg, []byte("original"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	removed := filepath.Join(tmp, "placed-by-dfinstall")
+
+	if err := core.StartBackup(); err != nil {
+		t.Fatal(err)
+	}
+	core.BackupFile(cfg)
+	core.BackupFile(removed) // recorded as "missing"
+	if err := core.FinishBackup(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Simulate dfinstall having overwritten one file and created another.
+	if err := os.WriteFile(cfg, []byte("modified"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(removed, []byte("new"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	backups, _ := core.ListBackups()
+	if len(backups) == 0 {
+		t.Fatal("no backups found")
+	}
+	ts := backups[0].Timestamp
+
+	core.DryRun = true
+	if err := core.RestoreBackup(ts); err != nil {
+		t.Fatalf("dry-run RestoreBackup: %v", err)
+	}
+	if data, _ := os.ReadFile(cfg); string(data) != "modified" {
+		t.Errorf("dry run modified %s: content = %q, want %q", cfg, data, "modified")
+	}
+	if _, err := os.Lstat(removed); err != nil {
+		t.Errorf("dry run deleted %s: %v", removed, err)
+	}
+
+	// The same restore without --dry-run must still do the work.
+	core.DryRun = false
+	if err := core.RestoreBackup(ts); err != nil {
+		t.Fatalf("RestoreBackup: %v", err)
+	}
+	if data, _ := os.ReadFile(cfg); string(data) != "original" {
+		t.Errorf("after restore %s = %q, want %q", cfg, data, "original")
+	}
+	if _, err := os.Lstat(removed); !os.IsNotExist(err) {
+		t.Errorf("%s should have been removed, got err=%v", removed, err)
+	}
+}

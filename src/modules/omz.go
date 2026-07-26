@@ -1,9 +1,9 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -13,7 +13,7 @@ type OmzModule struct{}
 
 func (OmzModule) Name() string { return "omz" }
 
-func (OmzModule) Install() error {
+func (OmzModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would install oh-my-zsh, zsh-autosuggestions, powerlevel10k")
 		return nil
@@ -21,10 +21,9 @@ func (OmzModule) Install() error {
 
 	core.Info("Setting up Oh My Zsh...")
 
-	home, _ := os.UserHomeDir()
-	omzDir := filepath.Join(home, ".oh-my-zsh")
+	omzDir := core.HomeTarget(".oh-my-zsh")
 
-	if err := installOmz(omzDir); err != nil {
+	if err := installOmz(ctx, omzDir); err != nil {
 		core.Warn("Oh My Zsh install failed: %v", err)
 	}
 
@@ -37,13 +36,8 @@ func (OmzModule) Install() error {
 	zasDir := filepath.Join(zshCustom, "plugins", "zsh-autosuggestions")
 	if _, err := os.Stat(zasDir); os.IsNotExist(err) {
 		core.Info("Installing zsh-autosuggestions...")
-		cmd := exec.Command("git", "clone",
-			"https://github.com/zsh-users/zsh-autosuggestions", zasDir)
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		if err := cmd.Run(); err != nil {
+		if err := runCmd(ctx, "git", "clone",
+			"https://github.com/zsh-users/zsh-autosuggestions", zasDir); err != nil {
 			core.Warn("zsh-autosuggestions clone failed: %v", err)
 		}
 	} else {
@@ -54,13 +48,8 @@ func (OmzModule) Install() error {
 	p10kDir := filepath.Join(zshCustom, "themes", "powerlevel10k")
 	if _, err := os.Stat(p10kDir); os.IsNotExist(err) {
 		core.Info("Installing powerlevel10k...")
-		cmd := exec.Command("git", "clone", "--depth=1",
-			"https://github.com/romkatv/powerlevel10k.git", p10kDir)
-		if core.Level >= core.LogVerbose {
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-		}
-		if err := cmd.Run(); err != nil {
+		if err := runCmd(ctx, "git", "clone", "--depth=1",
+			"https://github.com/romkatv/powerlevel10k.git", p10kDir); err != nil {
 			core.Warn("powerlevel10k clone failed: %v", err)
 		}
 	} else {
@@ -87,7 +76,7 @@ func (OmzModule) Install() error {
 //
 // Existence is determined by oh-my-zsh.sh, not the directory, so a stale
 // custom/ subtree from a botched run no longer masks the failure as success.
-func installOmz(omzDir string) error {
+func installOmz(ctx context.Context, omzDir string) error {
 	marker := filepath.Join(omzDir, "oh-my-zsh.sh")
 	if _, err := os.Stat(marker); err == nil {
 		core.Ok("oh-my-zsh already installed")
@@ -113,26 +102,21 @@ func installOmz(omzDir string) error {
 				return fmt.Errorf("preserve custom/: %w", err)
 			}
 		}
-		if err := os.RemoveAll(omzDir); err != nil {
+		if err := core.RemoveManagedDir(omzDir); err != nil {
 			return fmt.Errorf("remove partial omz dir: %w", err)
 		}
 	}
 
 	core.Info("Installing Oh My Zsh (git clone)...")
-	cmd := exec.Command("git", "clone", "--depth=1",
-		"https://github.com/ohmyzsh/ohmyzsh.git", omzDir)
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	if err := cmd.Run(); err != nil {
+	if err := runCmd(ctx, "git", "clone", "--depth=1",
+		"https://github.com/ohmyzsh/ohmyzsh.git", omzDir); err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}
 
 	// Restore preserved custom/ — overwrite OMZ's default sample custom/
 	// since the user's contents are more important.
 	if savedCustom != "" {
-		if err := os.RemoveAll(customDir); err != nil {
+		if err := core.RemoveManagedDir(customDir); err != nil {
 			return fmt.Errorf("remove fresh custom/: %w", err)
 		}
 		if err := os.Rename(savedCustom, customDir); err != nil {
@@ -150,8 +134,7 @@ func installOmz(omzDir string) error {
 
 func (OmzModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "omz"}
-	home, _ := os.UserHomeDir()
-	omzDir := filepath.Join(home, ".oh-my-zsh")
+	omzDir := core.HomeTarget(".oh-my-zsh")
 
 	// Check oh-my-zsh.sh (the canonical marker), not the directory — a
 	// partial install leaves the dir but no marker.

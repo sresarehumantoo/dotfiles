@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"os/exec"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -10,45 +11,43 @@ type GhosttyModule struct{}
 
 func (GhosttyModule) Name() string { return "ghostty" }
 
-func (GhosttyModule) Install() error {
-	if _, err := exec.LookPath("ghostty"); err != nil {
+func (GhosttyModule) Links() core.LinkSet {
+	return core.LinkSet{
+		{Src: core.ConfigPath("ghostty", "config"), Dst: core.XDGTarget("ghostty", "config")},
+	}
+}
+
+func ghosttyInstalled() bool {
+	_, err := exec.LookPath("ghostty")
+	return err == nil
+}
+
+func (m GhosttyModule) Install(ctx context.Context) error {
+	if !ghosttyInstalled() {
 		core.Debug("ghostty not installed — skipping config")
 		return nil
 	}
 	core.Info("Linking Ghostty config...")
-	if err := core.EnsureDir(core.XDGTarget("ghostty")); err != nil {
-		return err
-	}
-	if err := core.LinkFile(core.ConfigPath("ghostty", "config"), core.XDGTarget("ghostty", "config")); err != nil {
+	if err := m.Links().Apply(); err != nil {
 		return err
 	}
 	core.Ok("Ghostty config done")
 	return nil
 }
 
-func (GhosttyModule) Uninstall() error {
-	if err := core.UnlinkFile(core.ConfigPath("ghostty", "config"), core.XDGTarget("ghostty", "config")); err != nil {
+func (m GhosttyModule) Uninstall(ctx context.Context) error {
+	if err := m.Links().Remove(); err != nil {
 		return err
 	}
 	core.Ok("Ghostty config uninstalled")
 	return nil
 }
 
-func (GhosttyModule) Links() []core.LinkPair {
-	return []core.LinkPair{
-		{Src: core.ConfigPath("ghostty", "config"), Dst: core.XDGTarget("ghostty", "config")},
+func (m GhosttyModule) Status() core.ModuleStatus {
+	// Report nothing rather than "missing" when ghostty isn't installed —
+	// Install skips it, so it isn't a gap.
+	if !ghosttyInstalled() {
+		return core.ModuleStatus{Name: "ghostty"}
 	}
-}
-
-func (GhosttyModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "ghostty"}
-	if _, err := exec.LookPath("ghostty"); err != nil {
-		return s
-	}
-	if core.CheckLink(core.ConfigPath("ghostty", "config"), core.XDGTarget("ghostty", "config")) == "ok" {
-		s.Linked++
-	} else {
-		s.Missing++
-	}
-	return s
+	return m.Links().Status("ghostty")
 }

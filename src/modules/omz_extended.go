@@ -59,12 +59,11 @@ var extendedPluginOptions = []pluginOption{
 
 // isOmzPluginAvailable checks whether an OMZ plugin directory exists.
 func isOmzPluginAvailable(name string) bool {
-	home, _ := os.UserHomeDir()
-	bundled := filepath.Join(home, ".oh-my-zsh", "plugins", name)
+	bundled := core.HomeTarget(".oh-my-zsh", "plugins", name)
 	if fi, err := os.Stat(bundled); err == nil && fi.IsDir() {
 		return true
 	}
-	custom := filepath.Join(home, ".oh-my-zsh", "custom", "plugins", name)
+	custom := core.HomeTarget(".oh-my-zsh", "custom", "plugins", name)
 	if fi, err := os.Stat(custom); err == nil && fi.IsDir() {
 		return true
 	}

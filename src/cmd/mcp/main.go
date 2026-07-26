@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -20,15 +22,23 @@ func main() {
 
 	core.Level = core.LogQuiet
 
+	// os.Stdin carries the JSON-RPC request stream here, so nothing may read it
+	// looking for user input — a prompt would consume protocol bytes and wedge
+	// the session. Interactive paths check this and take a safe default.
+	core.Interactive = false
+
 	core.DetectEnvironment()
-	core.LoadConfig()
+	if err := core.LoadConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "dfinstall: %v\n", err)
+	}
 	modules.RegisterAllModules()
 
 	s := server.NewMCPServer("dfinstall", "1.0.0")
 	registerTools(s)
 
 	stdioServer := server.NewStdioServer(s)
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	if err := stdioServer.Listen(ctx, os.Stdin, realStdout); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp server error: %v\n", err)
 		os.Exit(1)
@@ -149,35 +159,34 @@ func registerTools(s *server.MCPServer) {
 
 func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%-15s  %7s  %7s  %s\n", "MODULE", "LINKED", "MISSING", "INFO")
-	fmt.Fprintf(&b, "%-15s  %7s  %7s  %s\n", "------", "------", "-------", "----")
-
-	for _, m := range core.AllModules() {
-		s := m.Status()
-		if core.IsModuleSkipped(m.Name()) {
-			if s.Extra != "" {
-				s.Extra += ", skipped"
-			} else {
-				s.Extra = "skipped"
-			}
-		}
-		fmt.Fprintf(&b, "%-15s  %7d  %7d  %s\n", s.Name, s.Linked, s.Missing, s.Extra)
-	}
+	modules.WriteStatus(&b)
 	return mcp.NewToolResultText(b.String()), nil
 }
 
-func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("module", "")
 	if name == "" {
 		return mcp.NewToolResultError("module parameter is required"), nil
 	}
 
 	if name == "all" {
-		// Record the invoking clone as canonical (and repoint stray symlinks
-		// from other clones), matching the CLI's `install all`.
+		// Share the CLI's session: adopts the canonical clone (repointing
+		// stray symlinks), takes a restorable backup, and persists config.
+		sess, err := core.BeginInstall(core.InstallOptions{All: true})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		defer sess.Finish()
+
+		// Prime sudo so package steps don't each hit an unprimed sudo. With
+		// Interactive=false this only uses cached or known credentials and
+		// never prompts.
+		core.PromptSudo(ctx)
+		defer core.StopSudoKeepAlive()
+
 		var b strings.Builder
-		if prev, changed := core.AdoptCanonical(core.InvokingCloneDir()); changed && prev != "" {
-			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", core.InvokingCloneDir(), prev)
+		if sess.CanonicalNow != "" && sess.CanonicalPrev != "" {
+			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
 		}
 
 		beforeStatus := make(map[string]core.ModuleStatus)
@@ -187,10 +196,12 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 
 		var failures []string
 		for _, m := range core.AllModules() {
-			if core.IsModuleSkipped(m.Name()) {
+			// core.SkipInAll, not IsModuleSkipped: the latter ignores the
+			// windev opt-in and installed it on machines that never enabled it.
+			if core.SkipInAll(m.Name()) {
 				continue
 			}
-			if err := m.Install(); err != nil {
+			if err := m.Install(ctx); err != nil {
 				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
@@ -225,8 +236,21 @@ func handleInstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToo
 		), nil
 	}
 
+	if name == "windev" {
+		core.SetWindevOptIn()
+	}
+
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	defer sess.Finish()
+
+	core.PromptSudo(ctx)
+	defer core.StopSudoKeepAlive()
+
 	before := m.Status()
-	err := m.Install()
+	err = m.Install(ctx)
 	after := m.Status()
 
 	var b strings.Builder
@@ -426,34 +450,37 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 	}
 }
 
-func handleRegistryValidate(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleRegistryValidate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	source := request.GetString("source", "")
 	if source == "" {
 		return mcp.NewToolResultError("source parameter is required"), nil
 	}
-	reg, err := core.FetchRegistry(source)
+	reg, err := core.FetchRegistry(ctx, source)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("invalid registry: %v", err)), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("registry valid (%d tools)", len(reg.Tools))), nil
 }
 
-func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("module", "")
 	if name == "" {
 		return mcp.NewToolResultError("module parameter is required"), nil
 	}
 
 	if name == "all" {
+		core.PromptSudo(ctx)
+		defer core.StopSudoKeepAlive()
+
 		var b strings.Builder
 		for _, m := range core.AllModules() {
-			before := m.Status()
 			u, ok := m.(core.Uninstaller)
 			if !ok {
 				fmt.Fprintf(&b, "%s: no uninstall support\n", m.Name())
 				continue
 			}
-			if err := u.Uninstall(); err != nil {
+			before := m.Status()
+			if err := u.Uninstall(ctx); err != nil {
 				fmt.Fprintf(&b, "%s: error: %v\n", m.Name(), err)
 				continue
 			}
@@ -476,8 +503,17 @@ func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError(fmt.Sprintf("%s does not support uninstall", name)), nil
 	}
 
+	if name == "windev" {
+		core.ClearWindevOptIn()
+	}
+
+	// Modules that installed system packages (delta, toolkit) shell out to
+	// sudo when uninstalling.
+	core.PromptSudo(ctx)
+	defer core.StopSudoKeepAlive()
+
 	before := m.Status()
-	if err := u.Uninstall(); err != nil {
+	if err := u.Uninstall(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("uninstall %s: %v", name, err)), nil
 	}
 	after := m.Status()
@@ -490,71 +526,8 @@ func handleUninstall(_ context.Context, request mcp.CallToolRequest) (*mcp.CallT
 
 func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var b strings.Builder
-	var issues int
-
-	for _, m := range core.AllModules() {
-		if core.IsModuleSkipped(m.Name()) {
-			fmt.Fprintf(&b, "%-15s  skipped\n", m.Name())
-			continue
-		}
-
-		if le, ok := m.(core.LinkExporter); ok {
-			links := le.Links()
-			modOk := true
-			for _, lp := range links {
-				status := core.CheckLink(lp.Src, lp.Dst)
-				if status != "ok" {
-					if modOk {
-						fmt.Fprintf(&b, "%-15s\n", m.Name())
-						modOk = false
-					}
-					switch status {
-					case "missing":
-						fmt.Fprintf(&b, "  missing: %s\n", lp.Dst)
-					case "wrong":
-						fmt.Fprintf(&b, "  wrong target: %s\n", lp.Dst)
-					case "file":
-						fmt.Fprintf(&b, "  regular file (not symlinked): %s\n", lp.Dst)
-					}
-					issues++
-				}
-			}
-			if modOk {
-				fmt.Fprintf(&b, "%-15s  ok (%d links)\n", m.Name(), len(links))
-			}
-		} else {
-			s := m.Status()
-			if s.Missing > 0 {
-				fmt.Fprintf(&b, "%-15s  %d missing\n", m.Name(), s.Missing)
-				issues += s.Missing
-			} else {
-				extra := ""
-				if s.Extra != "" {
-					extra = " (" + s.Extra + ")"
-				}
-				fmt.Fprintf(&b, "%-15s  ok%s\n", m.Name(), extra)
-			}
-		}
-	}
-
-	fmt.Fprintln(&b)
-	if issues == 0 {
-		fmt.Fprintln(&b, "No drift detected.")
-	} else {
-		fmt.Fprintf(&b, "%d issue(s) — run dfinstall_install with module 'all' to fix\n", issues)
-	}
-
-	// Multi-clone drift: symlinks split across more than one dotfiles clone.
-	if d := core.DetectLinkDrift(); d.Split() {
-		fmt.Fprintf(&b, "\nSymlinks split across %d dotfiles clone(s):\n", len(d.Roots))
-		for _, root := range d.SortedRoots() {
-			marker := ""
-			if root == d.Canonical {
-				marker = " (canonical)"
-			}
-			fmt.Fprintf(&b, "  %s%s — %d link(s)\n", root, marker, len(d.Roots[root]))
-		}
-		fmt.Fprintf(&b, "Run dfinstall_install with module 'all' from %s to consolidate.\n", d.Canonical)
-	}
+	modules.CollectDiff().Write(&b,
+		"run dfinstall_install with module 'all' to fix",
+		"dfinstall_install with module 'all'")
 	return mcp.NewToolResultText(b.String()), nil
 }

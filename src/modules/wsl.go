@@ -2,6 +2,7 @@ package modules
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -14,7 +15,7 @@ type WslModule struct{}
 
 func (WslModule) Name() string { return "wsl" }
 
-func (WslModule) Install() error {
+func (WslModule) Install(ctx context.Context) error {
 	if !core.IsWSL() {
 		core.Ok("Not running in WSL, skipping")
 		return nil
@@ -27,8 +28,8 @@ func (WslModule) Install() error {
 
 	core.Info("Configuring WSL environment...")
 
-	installWslConf()
-	installSysctl()
+	installWslConf(ctx)
+	installSysctl(ctx)
 
 	// interop-dependent steps require cmd.exe, which is only available
 	// after wsl.conf enables interop and WSL is restarted.
@@ -41,7 +42,7 @@ func (WslModule) Install() error {
 		core.Warn("Then relaunch and run: dfinstall install wsl")
 	}
 
-	configureGitFsmonitor()
+	configureGitFsmonitor(ctx)
 
 	return nil
 }
@@ -53,7 +54,7 @@ func hasInterop() bool {
 }
 
 // installWslConf installs /etc/wsl.conf and returns true if the file was changed.
-func installWslConf() bool {
+func installWslConf(ctx context.Context) bool {
 	wslConf := core.ConfigPath("wsl", "wsl.conf")
 	if _, err := os.Stat(wslConf); err != nil {
 		return false
@@ -71,15 +72,22 @@ func installWslConf() bool {
 			return false
 		}
 		core.Notice("Updating /etc/wsl.conf (backing up to /etc/wsl.conf.bak)")
-		sudoCopy(dstPath, dstPath+".bak")
+		// Don't overwrite the original if we couldn't back it up first.
+		if err := sudoCopy(ctx, dstPath, dstPath+".bak"); err != nil {
+			core.Warn("could not back up %s: %v — leaving it unchanged", dstPath, err)
+			return false
+		}
 	}
 
-	sudoCopyFrom(wslConf, dstPath)
+	if err := sudoCopy(ctx, wslConf, dstPath); err != nil {
+		core.Warn("failed to install %s: %v", dstPath, err)
+		return false
+	}
 	core.Ok("/etc/wsl.conf installed")
 	return true
 }
 
-func installSysctl() {
+func installSysctl(ctx context.Context) {
 	sysctlSrc := core.ConfigPath("wsl", "99-wsl-sysctl.conf")
 	if _, err := os.Stat(sysctlSrc); err != nil {
 		return
@@ -90,7 +98,7 @@ func installSysctl() {
 		return
 	}
 
-	sudoRun("mkdir", "-p", "/etc/sysctl.d")
+	sudoRun(ctx, "mkdir", "-p", "/etc/sysctl.d")
 
 	dstPath := "/etc/sysctl.d/99-wsl.conf"
 	if dstData, err := os.ReadFile(dstPath); err == nil {
@@ -100,9 +108,12 @@ func installSysctl() {
 		}
 	}
 
-	sudoCopyFrom(sysctlSrc, dstPath)
+	if err := sudoCopy(ctx, sysctlSrc, dstPath); err != nil {
+		core.Warn("failed to install %s: %v", dstPath, err)
+		return
+	}
 	core.Info("Applying sysctl tweaks...")
-	if err := sudoRun("sysctl", "-p", dstPath); err != nil {
+	if err := sudoRun(ctx, "sysctl", "-p", dstPath); err != nil {
 		core.Warn("Some sysctl values may not apply until restart")
 	}
 	core.Ok("/etc/sysctl.d/99-wsl.conf installed")
@@ -110,8 +121,9 @@ func installSysctl() {
 
 // resolveWinHome returns the WSL mount path for the Windows user home directory
 // (e.g. /mnt/c/Users/<username>), or empty string on failure.
+// Shared with doctor checks, which have no context — bounded by ProbeTimeout.
 func resolveWinHome() string {
-	cmd := exec.Command("cmd.exe", "/C", "echo %USERPROFILE%")
+	cmd := exec.CommandContext(context.Background(), "cmd.exe", "/C", "echo %USERPROFILE%")
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -119,7 +131,7 @@ func resolveWinHome() string {
 
 	winUserDir := strings.TrimSpace(strings.ReplaceAll(string(out), "\r", ""))
 
-	wslPath, err := exec.Command("wslpath", winUserDir).Output()
+	wslPath, err := runProbe(context.Background(), "wslpath", winUserDir)
 	if err != nil {
 		return ""
 	}
@@ -184,43 +196,27 @@ func linkWinHome() {
 	}
 }
 
-func configureGitFsmonitor() {
+func configureGitFsmonitor(ctx context.Context) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return
 	}
-	if err := exec.Command("git", "config", "--global", "core.fsmonitor", "true").Run(); err != nil {
+	if err := exec.CommandContext(ctx, "git", "config", "--global", "core.fsmonitor", "true").Run(); err != nil {
 		core.Warn("failed to enable git fsmonitor: %v", err)
 	}
-	if err := exec.Command("git", "config", "--global", "core.untrackedcache", "true").Run(); err != nil {
+	if err := exec.CommandContext(ctx, "git", "config", "--global", "core.untrackedcache", "true").Run(); err != nil {
 		core.Warn("failed to enable git untrackedcache: %v", err)
 	}
 	core.Ok("git fsmonitor + untrackedcache enabled")
 }
 
-func sudoRun(args ...string) error {
-	core.PauseSpinner()
-	defer core.ResumeSpinner()
-
-	var cmd *exec.Cmd
-	if os.Geteuid() == 0 {
-		cmd = exec.Command(args[0], args[1:]...)
-		cmd.Stdin = os.Stdin
-	} else {
-		cmd = core.SudoCmd(args...)
-	}
-	if core.Level >= core.LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	return cmd.Run()
+// sudoRun runs a command as root. core.SudoCmd already execs directly when we
+// are root, and runCmd handles spinner pausing and failure output.
+func sudoRun(ctx context.Context, args ...string) error {
+	return runCmd(ctx, "sudo", args...)
 }
 
-func sudoCopy(src, dst string) {
-	sudoRun("cp", src, dst)
-}
-
-func sudoCopyFrom(src, dst string) {
-	sudoRun("cp", src, dst)
+func sudoCopy(ctx context.Context, src, dst string) error {
+	return sudoRun(ctx, "cp", src, dst)
 }
 
 func (WslModule) Status() core.ModuleStatus {

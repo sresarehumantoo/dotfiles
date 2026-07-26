@@ -2,6 +2,7 @@ package modules
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -13,9 +14,9 @@ type GitModule struct{}
 
 func (GitModule) Name() string { return "git" }
 
-func (GitModule) Install() error {
+func (m GitModule) Install(ctx context.Context) error {
 	core.Info("Linking git config...")
-	if err := core.LinkFile(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")); err != nil {
+	if err := m.Links().Apply(); err != nil {
 		return err
 	}
 
@@ -30,6 +31,14 @@ func (GitModule) Install() error {
 			core.Info("[dry-run] Would prompt to override %s", localCfg)
 		} else {
 			core.Info("[dry-run] Would prompt for git identity and write %s", localCfg)
+		}
+	} else if !core.Interactive {
+		// Reading stdin here would consume the caller's protocol stream. Keep
+		// whatever is on disk (the same outcome as declining the prompt).
+		if exists {
+			core.Info("Keeping existing .gitconfig.local (non-interactive)")
+		} else {
+			core.Notice("Skipped git identity prompt (non-interactive) — set it with: git config --global user.name/user.email")
 		}
 	} else {
 		run := true
@@ -96,26 +105,18 @@ func promptGitIdentity(path string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
 
-func (GitModule) Uninstall() error {
-	if err := core.UnlinkFile(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")); err != nil {
+func (m GitModule) Uninstall(ctx context.Context) error {
+	if err := m.Links().Remove(); err != nil {
 		return err
 	}
 	core.Ok("Git config uninstalled")
 	return nil
 }
 
-func (GitModule) Links() []core.LinkPair {
-	return []core.LinkPair{
+func (GitModule) Links() core.LinkSet {
+	return core.LinkSet{
 		{Src: core.ConfigPath("git", "gitconfig"), Dst: core.HomeTarget(".gitconfig")},
 	}
 }
 
-func (GitModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "git"}
-	if core.CheckLink(core.ConfigPath("git", "gitconfig"), core.HomeTarget(".gitconfig")) == "ok" {
-		s.Linked++
-	} else {
-		s.Missing++
-	}
-	return s
-}
+func (m GitModule) Status() core.ModuleStatus { return m.Links().Status("git") }

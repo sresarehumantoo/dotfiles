@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,7 +46,7 @@ func windevZshPath() string {
 	return filepath.Join(core.XDGConfigHome(), "dfinstall", "windev.zsh")
 }
 
-func (WindevModule) Install() error {
+func (WindevModule) Install(ctx context.Context) error {
 	core.Info("Setting up Windows cross-development environment...")
 
 	if core.DryRun {
@@ -59,10 +60,10 @@ func (WindevModule) Install() error {
 
 	// Each language set is best-effort: a failure warns but doesn't abort the
 	// rest, so one missing toolchain never blocks the nvim/helper wiring.
-	installWindevCpp()
-	installWindevGo()
-	installWindevRust()
-	installWindevDotnet()
+	installWindevCpp(ctx)
+	installWindevGo(ctx)
+	installWindevRust(ctx)
+	installWindevDotnet(ctx)
 
 	if err := linkWindevFiles(); err != nil {
 		return err
@@ -77,42 +78,42 @@ func (WindevModule) Install() error {
 
 // --- toolchain installers (best-effort) ---
 
-func installWindevCpp() {
+func installWindevCpp(ctx context.Context) {
 	core.Info("Installing C/C++ Windows cross toolchain (MinGW-w64)...")
 	// mingw-w64 provides x86_64-w64-mingw32-{gcc,g++}; clangd/clang-format power
 	// the Neovim C/C++ experience; cmake/ninja are common build drivers.
-	if err := installPkg("mingw-w64", "cmake", "ninja-build", "clangd", "clang-format"); err != nil {
+	if err := installPkg(ctx, "mingw-w64", "cmake", "ninja-build", "clangd", "clang-format"); err != nil {
 		core.Warn("C/C++ toolchain install had issues: %v", err)
 	}
 }
 
-func installWindevGo() {
+func installWindevGo(ctx context.Context) {
 	// Go cross-compiles to Windows natively (GOOS=windows). Ensure the
 	// toolchain, then the LSP (gopls) and debugger (delve).
-	if !ensureToolchain("go", "golang", 1, "Go dev tools") {
+	if !ensureToolchain(ctx, "go", "golang", 1, "Go dev tools") {
 		return
 	}
-	goInstall("gopls", "golang.org/x/tools/gopls@latest")
-	goInstall("dlv", "github.com/go-delve/delve/cmd/dlv@latest")
+	goInstall(ctx, "gopls", "golang.org/x/tools/gopls@latest")
+	goInstall(ctx, "dlv", "github.com/go-delve/delve/cmd/dlv@latest")
 }
 
-func goInstall(bin, pkg string) {
+func goInstall(ctx context.Context, bin, pkg string) {
 	if _, err := exec.LookPath(bin); err == nil {
 		core.Ok("%s already installed", bin)
 		return
 	}
 	core.Info("Installing %s via go install...", bin)
-	if err := runCmd("go", "install", pkg); err != nil {
+	if err := runCmd(ctx, "go", "install", pkg); err != nil {
 		core.Warn("go install %s failed: %v", pkg, err)
 	}
 }
 
-func installWindevRust() {
+func installWindevRust(ctx context.Context) {
 	// Reuse toolkit.go's installRustup — it's idempotent, handles curl/PATH,
 	// and returns true on success. Returns false (already-warned) if rustup
 	// couldn't be installed; skip the rest in that case.
 	if _, err := exec.LookPath("rustup"); err != nil {
-		if !installRustup() {
+		if !installRustup(ctx) {
 			core.Warn("rustup unavailable — skipping Rust windows-gnu setup")
 			return
 		}
@@ -120,10 +121,10 @@ func installWindevRust() {
 	rustup := rustupExe()
 	core.Info("Adding Rust windows-gnu target + components...")
 	// windows-gnu links via the MinGW toolchain installed above (no MSVC needed).
-	if err := runCmd(rustup, "target", "add", "x86_64-pc-windows-gnu"); err != nil {
+	if err := runCmd(ctx, rustup, "target", "add", "x86_64-pc-windows-gnu"); err != nil {
 		core.Warn("rustup target add failed: %v", err)
 	}
-	if err := runCmd(rustup, "component", "add", "rust-analyzer", "rustfmt", "clippy"); err != nil {
+	if err := runCmd(ctx, rustup, "component", "add", "rust-analyzer", "rustfmt", "clippy"); err != nil {
 		core.Warn("rustup component add failed: %v", err)
 	}
 }
@@ -141,11 +142,11 @@ func rustupExe() string {
 	return "rustup"
 }
 
-func installWindevDotnet() {
+func installWindevDotnet(ctx context.Context) {
 	dotnet := dotnetBin()
 	if dotnet == "" {
 		core.Info("Installing .NET SDK (dotnet-install.sh → ~/.dotnet)...")
-		if err := installDotnetSDK(); err != nil {
+		if err := installDotnetSDK(ctx); err != nil {
 			core.Warn(".NET SDK install failed: %v — skipping C# setup", err)
 			return
 		}
@@ -159,12 +160,12 @@ func installWindevDotnet() {
 	}
 
 	// Formatter (global dotnet tool → ~/.dotnet/tools, on PATH via windev.zsh).
-	if err := runCmd(dotnet, "tool", "install", "-g", "csharpier"); err != nil {
+	if err := runCmd(ctx, dotnet, "tool", "install", "-g", "csharpier"); err != nil {
 		core.Debug("csharpier install skipped: %v (likely already installed)", err)
 	}
 	// LSP + debugger have no apt packages — fetch release tarballs into windevDir.
-	installOmnisharp()
-	installNetcoredbg()
+	installOmnisharp(ctx)
+	installNetcoredbg(ctx)
 }
 
 func dotnetBin() string {
@@ -178,7 +179,7 @@ func dotnetBin() string {
 	return ""
 }
 
-func installDotnetSDK() error {
+func installDotnetSDK(ctx context.Context) error {
 	tmp, err := os.MkdirTemp("", "dotnet-*")
 	if err != nil {
 		return err
@@ -186,16 +187,16 @@ func installDotnetSDK() error {
 	defer os.RemoveAll(tmp)
 
 	script := filepath.Join(tmp, "dotnet-install.sh")
-	if err := runCmd("curl", "-fsSL", "-o", script, "https://dot.net/v1/dotnet-install.sh"); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", script, "https://dot.net/v1/dotnet-install.sh"); err != nil {
 		return fmt.Errorf("download dotnet-install.sh: %w", err)
 	}
 	if err := os.Chmod(script, 0755); err != nil {
 		return err
 	}
-	return runCmd("bash", script, "--channel", "LTS", "--install-dir", core.HomeTarget(".dotnet"))
+	return runCmd(ctx, "bash", script, "--channel", "LTS", "--install-dir", core.HomeTarget(".dotnet"))
 }
 
-func installOmnisharp() {
+func installOmnisharp(ctx context.Context) {
 	asset := pick(runtime.GOARCH, "omnisharp-linux-x64.tar.gz", "omnisharp-linux-arm64.tar.gz")
 	if asset == "" {
 		core.Warn("no OmniSharp release for arch %s — skipping C# LSP", runtime.GOARCH)
@@ -203,12 +204,12 @@ func installOmnisharp() {
 	}
 	core.Info("Installing OmniSharp (C# LSP)...")
 	url := "https://github.com/OmniSharp/omnisharp-roslyn/releases/latest/download/" + asset
-	if err := fetchTarball("omnisharp", url, windevDir()); err != nil {
+	if err := fetchTarball(ctx, "omnisharp", url, windevDir()); err != nil {
 		core.Warn("OmniSharp install failed: %v", err)
 	}
 }
 
-func installNetcoredbg() {
+func installNetcoredbg(ctx context.Context) {
 	asset := pick(runtime.GOARCH, "netcoredbg-linux-amd64.tar.gz", "netcoredbg-linux-arm64.tar.gz")
 	if asset == "" {
 		core.Warn("no netcoredbg release for arch %s — skipping C# debugger", runtime.GOARCH)
@@ -216,7 +217,7 @@ func installNetcoredbg() {
 	}
 	core.Info("Installing netcoredbg (C# debugger)...")
 	url := "https://github.com/Samsung/netcoredbg/releases/latest/download/" + asset
-	if err := fetchTarball("netcoredbg", url, windevDir()); err != nil {
+	if err := fetchTarball(ctx, "netcoredbg", url, windevDir()); err != nil {
 		core.Warn("netcoredbg install failed: %v", err)
 	}
 }
@@ -234,7 +235,7 @@ func pick(arch, amd64, arm64 string) string {
 
 // fetchTarball downloads a .tar.gz and extracts it into destDir/<name>,
 // wiping any prior extraction first.
-func fetchTarball(name, url, destDir string) error {
+func fetchTarball(ctx context.Context, name, url, destDir string) error {
 	if err := core.EnsureDir(destDir); err != nil {
 		return err
 	}
@@ -245,7 +246,7 @@ func fetchTarball(name, url, destDir string) error {
 	defer os.RemoveAll(tmp)
 
 	tgz := filepath.Join(tmp, name+".tar.gz")
-	if err := runCmd("curl", "-fsSL", "-o", tgz, url); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tgz, url); err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 
@@ -254,7 +255,7 @@ func fetchTarball(name, url, destDir string) error {
 	if err := core.EnsureDir(target); err != nil {
 		return err
 	}
-	if err := runCmd("tar", "-xzf", tgz, "-C", target); err != nil {
+	if err := runCmd(ctx, "tar", "-xzf", tgz, "-C", target); err != nil {
 		return fmt.Errorf("extract %s: %w", name, err)
 	}
 	return nil
@@ -262,11 +263,24 @@ func fetchTarball(name, url, destDir string) error {
 
 // --- file wiring ---
 
-func linkWindevFiles() error {
-	if err := core.EnsureDir(core.HomeTarget(".local", "bin")); err != nil {
-		return err
+// Links are the symlinks windev owns. _lib.sh is deliberately absent: it is
+// devtools-owned and merely shared, so windev links it opportunistically but
+// must not claim it in diff or remove it on uninstall.
+//
+// The nvim plugin file is auto-loaded by kickstart's
+// { import = 'custom.plugins' }.
+func (WindevModule) Links() core.LinkSet {
+	ls := make(core.LinkSet, 0, len(windevLinks)+1)
+	for _, l := range windevLinks {
+		ls = append(ls, core.LinkPair{
+			Src: core.ConfigPath(l.src),
+			Dst: core.HomeTarget(l.dst),
+		})
 	}
+	return append(ls, core.LinkPair{Src: windevNvimSrc(), Dst: windevNvimDst()})
+}
 
+func linkWindevFiles() error {
 	// _lib.sh is normally provided by the devtools module; link it here too so
 	// winbuild works even when windev is installed standalone. Same src means
 	// the link is idempotent with devtools and isn't touched on uninstall.
@@ -278,21 +292,15 @@ func linkWindevFiles() error {
 		core.Warn("could not link _lib.sh: %v", err)
 	}
 
+	// The winbuild scripts need the executable bit on the source; the nvim
+	// plugin file doesn't, which is why this loops windevLinks and not Links().
 	for _, l := range windevLinks {
-		src := core.ConfigPath(l.src)
-		if err := os.Chmod(src, 0755); err != nil {
+		if err := os.Chmod(core.ConfigPath(l.src), 0755); err != nil {
 			core.Warn("chmod failed for %s: %v", l.src, err)
-		}
-		if err := core.LinkFile(src, core.HomeTarget(l.dst)); err != nil {
-			return err
 		}
 	}
 
-	// nvim plugin file — auto-loaded by kickstart's { import = 'custom.plugins' }.
-	if err := core.EnsureDir(core.XDGTarget("nvim", "lua", "custom", "plugins")); err != nil {
-		return err
-	}
-	return core.LinkFile(windevNvimSrc(), windevNvimDst())
+	return (WindevModule{}).Links().Apply()
 }
 
 // writeWindevPathSnippet writes a zsh fragment (sourced by zshrc) that puts the
@@ -322,13 +330,8 @@ export PATH
 	return os.WriteFile(windevZshPath(), []byte(content), 0644)
 }
 
-func (WindevModule) Uninstall() error {
-	for _, l := range windevLinks {
-		if err := core.UnlinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
-			return err
-		}
-	}
-	if err := core.UnlinkFile(windevNvimSrc(), windevNvimDst()); err != nil {
+func (m WindevModule) Uninstall(ctx context.Context) error {
+	if err := m.Links().Remove(); err != nil {
 		return err
 	}
 	if !core.DryRun {
@@ -340,25 +343,13 @@ func (WindevModule) Uninstall() error {
 	return nil
 }
 
-func (WindevModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "windev"}
+func (m WindevModule) Status() core.ModuleStatus {
 	if !core.Cfg.WindevEnabled {
-		s.Extra = "disabled"
-		return s
+		return core.ModuleStatus{Name: "windev", Extra: "disabled"}
 	}
 
 	// Owned symlinks (winbuild + nvim plugin file).
-	checkLink := func(src, dst string) {
-		if core.CheckLink(src, dst) == "ok" {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
-	for _, l := range windevLinks {
-		checkLink(core.ConfigPath(l.src), core.HomeTarget(l.dst))
-	}
-	checkLink(windevNvimSrc(), windevNvimDst())
+	s := m.Links().Status("windev")
 
 	// Toolchain summary (rough — PATH is fully wired only in a new shell).
 	hasBin := func(b string) bool { _, err := exec.LookPath(b); return err == nil }

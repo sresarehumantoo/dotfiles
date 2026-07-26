@@ -1,7 +1,9 @@
 package core
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -31,6 +33,47 @@ func IsModuleSkipped(name string) bool {
 	return false
 }
 
+// SkipInAll reports whether a module should be omitted from `install all`.
+// Combines user SkipModules with opt-in modules that haven't been enabled yet
+// (currently just windev — explicit `install windev` flips Cfg.WindevEnabled
+// on, after which it's included like any other module).
+//
+// Every caller that iterates AllModules for an "install all" must use this, not
+// IsModuleSkipped alone; the MCP server previously used the latter and so
+// installed windev on machines that had opted out.
+func SkipInAll(name string) bool {
+	if IsModuleSkipped(name) {
+		return true
+	}
+	if name == "windev" && !Cfg.WindevEnabled {
+		return true
+	}
+	return false
+}
+
+// SetWindevOptIn records an explicit `install windev` so later `install all`
+// runs keep it current. The flag is persisted by InstallSession.Finish via
+// WindevMode. No-op under --dry-run so a preview never mutates config state.
+func SetWindevOptIn() {
+	if DryRun {
+		return
+	}
+	WindevMode = true
+	Cfg.WindevEnabled = true
+}
+
+// ClearWindevOptIn drops the opt-in on an explicit `uninstall windev` so
+// `install all` stops re-applying it. Best-effort: warns but doesn't fail.
+func ClearWindevOptIn() {
+	if DryRun || !Cfg.WindevEnabled {
+		return
+	}
+	Cfg.WindevEnabled = false
+	if err := SaveConfig(); err != nil {
+		Warn("failed to save config: %v", err)
+	}
+}
+
 // Cfg is the active configuration, loaded at startup.
 var Cfg Config
 
@@ -53,30 +96,55 @@ func ConfigFilePath() string {
 	return filepath.Join(DotfilesDir(), ".config.yaml")
 }
 
+// cfgUnreadable is set when the config file is present but could not be read or
+// parsed. SaveConfig refuses to write while it is set: overwriting a file we
+// failed to understand would silently discard the user's settings.
+var cfgUnreadable bool
+
 // LoadConfig reads the config file into Cfg.
-// If the file does not exist, Cfg gets sensible defaults and CfgFileExists is false.
-func LoadConfig() {
+//
+// Only a genuinely missing file counts as a first run. Any other failure —
+// permissions, EISDIR, an I/O error, malformed YAML — leaves Cfg at defaults
+// but marks the config unreadable, because the alternative is data loss: a
+// missing file makes shouldBackup report a first run, and InstallSession then
+// writes defaults straight over the config it couldn't read.
+func LoadConfig() error {
 	path := ConfigFilePath()
 
+	Cfg = Config{SkipBackup: false}
+	CfgFileExists = false
+	cfgUnreadable = false
+
 	data, err := os.ReadFile(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil // genuine first run
+	}
 	if err != nil {
-		// File missing or unreadable — first run defaults
-		CfgFileExists = false
-		Cfg = Config{SkipBackup: false}
-		return
+		CfgFileExists = true
+		cfgUnreadable = true
+		return fmt.Errorf("read config %s: %w", path, err)
 	}
 
 	CfgFileExists = true
-	Cfg = Config{SkipBackup: false}
 	if err := yaml.Unmarshal(data, &Cfg); err != nil {
-		Warn("config: failed to parse %s: %v (using defaults)", path, err)
 		Cfg = Config{SkipBackup: false}
+		cfgUnreadable = true
+		return fmt.Errorf("parse config %s: %w", path, err)
 	}
+	return nil
 }
 
 // SaveConfig writes the current Cfg to disk with a comment header.
+//
+// It refuses to run when LoadConfig couldn't read the existing file: Cfg is
+// only defaults in that case, so writing would replace the user's real
+// settings with an empty config.
 func SaveConfig() error {
 	path := ConfigFilePath()
+
+	if cfgUnreadable {
+		return fmt.Errorf("refusing to overwrite %s: it exists but could not be read; fix or remove it first", path)
+	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
@@ -90,13 +158,37 @@ func SaveConfig() error {
 	header := "# dfinstall configuration\n# Auto-generated after first install run.\n\n"
 	content := header + string(data)
 
-	// Atomic write: temp file + rename to avoid corruption on crash.
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
+	// Atomic write: unique temp file in the target dir + rename. A fixed
+	// "<path>.tmp" name meant two concurrent dfinstall runs wrote the same
+	// scratch file and one renamed the other's half-written content into place.
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".config.yaml.tmp*")
+	if err != nil {
+		return fmt.Errorf("create temp config: %w", err)
+	}
+	tmpPath := tmp.Name()
+
+	if _, err := tmp.WriteString(content); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
 		return fmt.Errorf("write config: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+	// Flush to disk before the rename, so a crash can't leave the new name
+	// pointing at empty content — which is what "atomic" is supposed to buy.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return fmt.Errorf("sync config: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close config: %w", err)
+	}
+	if err := os.Chmod(tmpPath, 0644); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("chmod config: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
 		return fmt.Errorf("rename config: %w", err)
 	}
 

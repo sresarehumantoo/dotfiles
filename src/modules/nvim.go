@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -49,7 +50,9 @@ func detectNvim() (nvimInfo, bool) {
 		real = p
 	}
 	info := nvimInfo{path: real}
-	out, err := exec.Command("nvim", "--version").Output()
+	// No context here: this probe is shared with Status()/doctor, which have
+	// none to inherit. ProbeTimeout still bounds it.
+	out, err := runProbe(context.Background(), "nvim", "--version")
 	if err != nil {
 		return info, true
 	}
@@ -81,7 +84,7 @@ func nvimOwner(realPath string) string {
 	if strings.HasPrefix(realPath, "/opt/nvim-linux-") {
 		return "opt-prebuilt"
 	}
-	if out, err := exec.Command("dpkg", "-S", realPath).Output(); err == nil {
+	if out, err := runProbe(context.Background(), "dpkg", "-S", realPath); err == nil {
 		if i := strings.IndexByte(string(out), ':'); i > 0 {
 			return "apt:" + strings.TrimSpace(string(out)[:i])
 		}
@@ -103,7 +106,7 @@ func nvimPrebuiltAsset() string {
 
 // ensureNvim makes sure a Neovim >= minNvim is available. If an older nvim
 // is found, asks the user before removing it and installing the prebuilt.
-func ensureNvim() error {
+func ensureNvim(ctx context.Context) error {
 	info, present := detectNvim()
 	if present && info.atLeast(minNvimMajor, minNvimMinor) {
 		return nil
@@ -123,15 +126,15 @@ func ensureNvim() error {
 			core.AlwaysWarn("Skipping Neovim upgrade — kickstart plugins requiring %d.%d may fail", minNvimMajor, minNvimMinor)
 			return nil
 		}
-		if err := removeOldNvim(info.path, owner); err != nil {
+		if err := removeOldNvim(ctx, info.path, owner); err != nil {
 			core.AlwaysWarn("Couldn't fully remove old Neovim: %v — continuing", err)
 		}
 	}
 
 	if runtime.GOOS == "linux" {
-		return installPrebuiltNvimLinux()
+		return installPrebuiltNvimLinux(ctx)
 	}
-	return installPkg("neovim")
+	return installPkg(ctx, "neovim")
 }
 
 // confirmNvimUpgrade asks the user whether to replace an outdated nvim.
@@ -185,7 +188,7 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 // installed. opt-prebuilt is a no-op (installPrebuiltNvimLinux wipes the
 // extraction dir before re-extracting). Manual installs are left alone with
 // a warning.
-func removeOldNvim(path, owner string) error {
+func removeOldNvim(ctx context.Context, path, owner string) error {
 	switch {
 	case strings.HasPrefix(owner, "apt:"):
 		pkg := strings.TrimPrefix(owner, "apt:")
@@ -194,7 +197,7 @@ func removeOldNvim(path, owner string) error {
 			args = append(args, "neovim-runtime")
 		}
 		core.Info("Removing old Neovim apt packages: %v", args[3:])
-		return runCmd("sudo", args...)
+		return runCmd(ctx, "sudo", args...)
 	case owner == "opt-prebuilt":
 		return nil
 	default:
@@ -203,7 +206,7 @@ func removeOldNvim(path, owner string) error {
 	}
 }
 
-func installPrebuiltNvimLinux() error {
+func installPrebuiltNvimLinux(ctx context.Context) error {
 	asset := nvimPrebuiltAsset()
 	if asset == "" {
 		core.Warn("no prebuilt Neovim for arch %s — install manually", runtime.GOARCH)
@@ -214,19 +217,19 @@ func installPrebuiltNvimLinux() error {
 	tmp := filepath.Join(os.TempDir(), asset)
 
 	core.Info("Installing prebuilt Neovim (%s)...", asset)
-	if err := runCmd("curl", "-fsSL", "-o", tmp, url); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmp, url); err != nil {
 		return fmt.Errorf("download nvim: %w", err)
 	}
 	defer os.Remove(tmp)
 
 	// Wipe any prior extraction so a partial download doesn't leak in.
-	_ = runCmd("sudo", "rm", "-rf", filepath.Join("/opt", dir))
-	if err := runCmd("sudo", "tar", "-xzf", tmp, "-C", "/opt"); err != nil {
+	_ = runCmd(ctx, "sudo", "rm", "-rf", filepath.Join("/opt", dir))
+	if err := runCmd(ctx, "sudo", "tar", "-xzf", tmp, "-C", "/opt"); err != nil {
 		return fmt.Errorf("extract nvim: %w", err)
 	}
 
 	target := filepath.Join("/opt", dir, "bin", "nvim")
-	if err := runCmd("sudo", "ln", "-sfn", target, "/usr/local/bin/nvim"); err != nil {
+	if err := runCmd(ctx, "sudo", "ln", "-sfn", target, "/usr/local/bin/nvim"); err != nil {
 		return fmt.Errorf("symlink nvim: %w", err)
 	}
 	core.Ok("Installed prebuilt Neovim to /opt/%s", dir)
@@ -273,12 +276,12 @@ var nvimLinks = []nvimLink{
 	{"nvim/lua/kickstart/plugins/neo-tree.lua", "lua/kickstart/plugins/neo-tree.lua"},
 }
 
-func (NvimModule) Install() error {
+func (NvimModule) Install(ctx context.Context) error {
 	core.Info("Setting up Neovim config...")
 
 	if core.DryRun {
 		core.Info("would ensure Neovim >= %d.%d", minNvimMajor, minNvimMinor)
-	} else if err := ensureNvim(); err != nil {
+	} else if err := ensureNvim(ctx); err != nil {
 		core.AlwaysWarn("Failed to ensure Neovim >= %d.%d: %v", minNvimMajor, minNvimMinor, err)
 	}
 
@@ -313,24 +316,15 @@ func (NvimModule) Install() error {
 	}
 
 	// Create all symlinks
-	for _, l := range nvimLinks {
-		src := core.ConfigPath(l.Src)
-		dst := filepath.Join(nvimDir, l.Dst)
-		if err := core.LinkFile(src, dst); err != nil {
-			return err
-		}
+	if err := (NvimModule{}).Links().Apply(); err != nil {
+		return err
 	}
 
 	// Sync plugins headlessly
 	if !core.DryRun {
 		if _, err := exec.LookPath("nvim"); err == nil {
 			core.Info("Syncing Neovim plugins...")
-			cmd := exec.Command("nvim", "--headless", "+Lazy! sync", "+qa")
-			if core.Level >= core.LogVerbose {
-				cmd.Stdout = os.Stdout
-				cmd.Stderr = os.Stderr
-			}
-			if err := cmd.Run(); err != nil {
+			if err := runCmd(ctx, "nvim", "--headless", "+Lazy! sync", "+qa"); err != nil {
 				core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
 			}
 		}
@@ -340,42 +334,26 @@ func (NvimModule) Install() error {
 	return nil
 }
 
-func (NvimModule) Uninstall() error {
-	nvimDir := core.XDGTarget("nvim")
-	for _, l := range nvimLinks {
-		src := core.ConfigPath(l.Src)
-		dst := filepath.Join(nvimDir, l.Dst)
-		if err := core.UnlinkFile(src, dst); err != nil {
-			return err
-		}
+func (m NvimModule) Uninstall(ctx context.Context) error {
+	if err := m.Links().Remove(); err != nil {
+		return err
 	}
 	core.Ok("Neovim config uninstalled")
 	return nil
 }
 
-func (NvimModule) Links() []core.LinkPair {
+func (NvimModule) Links() core.LinkSet {
 	nvimDir := core.XDGTarget("nvim")
-	pairs := make([]core.LinkPair, len(nvimLinks))
+	ls := make(core.LinkSet, len(nvimLinks))
 	for i, l := range nvimLinks {
-		pairs[i] = core.LinkPair{
+		ls[i] = core.LinkPair{
 			Src: core.ConfigPath(l.Src),
 			Dst: filepath.Join(nvimDir, l.Dst),
 		}
 	}
-	return pairs
+	return ls
 }
 
-func (NvimModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "nvim"}
-	nvimDir := core.XDGTarget("nvim")
-	for _, l := range nvimLinks {
-		src := core.ConfigPath(l.Src)
-		dst := filepath.Join(nvimDir, l.Dst)
-		if core.CheckLink(src, dst) == "ok" {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
-	return s
+func (m NvimModule) Status() core.ModuleStatus {
+	return m.Links().Status("nvim")
 }

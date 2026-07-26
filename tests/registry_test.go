@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -251,7 +252,7 @@ func TestFetchRegistry_LocalFile(t *testing.T) {
 		t.Fatalf("write registry: %v", err)
 	}
 
-	reg, err := core.FetchRegistry(regFile)
+	reg, err := core.FetchRegistry(context.Background(), regFile)
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}
@@ -279,7 +280,7 @@ func TestFetchRegistry_FileURL(t *testing.T) {
 		t.Fatalf("write registry: %v", err)
 	}
 
-	reg, err := core.FetchRegistry("file://" + regFile)
+	reg, err := core.FetchRegistry(context.Background(), "file://"+regFile)
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
 	}

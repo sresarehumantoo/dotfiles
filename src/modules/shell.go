@@ -1,9 +1,9 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -28,7 +28,7 @@ var shellLinks = []struct{ src, dst string }{
 	{"shell/zsh/locale.zsh", ".zsh.d/locale.zsh"},
 }
 
-func (ShellModule) Install() error {
+func (ShellModule) Install(ctx context.Context) error {
 	if !core.DryRun {
 		// Scan for custom shell files before linking overwrites zshrc
 		discovered := ScanCustomShellFiles()
@@ -87,13 +87,11 @@ func (ShellModule) Install() error {
 	}
 
 	core.Info("Linking shell dotfiles...")
-	for _, l := range shellLinks {
-		if err := core.LinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
-			return err
-		}
+	if err := (ShellModule{}).Links().Apply(); err != nil {
+		return err
 	}
 
-	installCompletions()
+	installCompletions(ctx)
 
 	core.Ok("Shell dotfiles done")
 	return nil
@@ -105,7 +103,7 @@ func completionDst() string {
 }
 
 // installCompletions generates and installs zsh completions for dfinstall.
-func installCompletions() {
+func installCompletions(ctx context.Context) {
 	if core.DryRun {
 		core.Info("would install completions to %s", completionDst())
 		return
@@ -124,7 +122,7 @@ func installCompletions() {
 		exe = builtExe
 	}
 
-	raw, err := exec.Command(exe, "completion", "zsh").Output()
+	raw, err := runProbe(ctx, exe, "completion", "zsh")
 	if err != nil {
 		core.Debug("completions: generation failed: %v", err)
 		return
@@ -157,11 +155,9 @@ func installCompletions() {
 	core.Ok("installed completions: %s", dst)
 }
 
-func (ShellModule) Uninstall() error {
-	for _, l := range shellLinks {
-		if err := core.UnlinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
-			return err
-		}
+func (m ShellModule) Uninstall(ctx context.Context) error {
+	if err := m.Links().Remove(); err != nil {
+		return err
 	}
 	// Remove generated files
 	for _, f := range []string{CustomSourcesFilePath(), completionDst()} {
@@ -175,23 +171,18 @@ func (ShellModule) Uninstall() error {
 	return nil
 }
 
-func (ShellModule) Links() []core.LinkPair {
-	pairs := make([]core.LinkPair, len(shellLinks))
+// shellLinks stays the source table because shell_preserve.go needs the
+// destinations in their $HOME-relative form to exclude them from its scan.
+func (ShellModule) Links() core.LinkSet {
+	ls := make(core.LinkSet, len(shellLinks))
 	for i, l := range shellLinks {
-		pairs[i] = core.LinkPair{Src: core.ConfigPath(l.src), Dst: core.HomeTarget(l.dst)}
+		ls[i] = core.LinkPair{Src: core.ConfigPath(l.src), Dst: core.HomeTarget(l.dst)}
 	}
-	return pairs
+	return ls
 }
 
-func (ShellModule) Status() core.ModuleStatus {
-	s := core.ModuleStatus{Name: "shell"}
-	for _, l := range shellLinks {
-		if core.CheckLink(core.ConfigPath(l.src), core.HomeTarget(l.dst)) == "ok" {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
+func (m ShellModule) Status() core.ModuleStatus {
+	s := m.Links().Status("shell")
 	if n := len(core.Cfg.PreservedFiles); n > 0 {
 		s.Extra = fmt.Sprintf("+%d preserved", n)
 	}

@@ -1,6 +1,8 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -279,32 +281,36 @@ func ParseIsUbuntuFamily(osRelease string) bool {
 	return false
 }
 
-// DisableReadonly disables the SteamOS readonly filesystem.
-func DisableReadonly() error {
+func setSteamOSReadonly(ctx context.Context, verb string) error {
+	ctx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	defer cancel()
+
 	PauseSpinner()
 	defer ResumeSpinner()
-	cmd := SudoCmd("steamos-readonly", "disable")
+	cmd := SudoCmd(ctx, "steamos-readonly", verb)
 	if Level >= LogVerbose {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("steamos-readonly disable: %w", err)
+		return fmt.Errorf("steamos-readonly %s: %w", verb, err)
 	}
 	return nil
 }
 
+// DisableReadonly disables the SteamOS readonly filesystem.
+func DisableReadonly(ctx context.Context) error {
+	return setSteamOSReadonly(ctx, "disable")
+}
+
 // EnableReadonly re-enables the SteamOS readonly filesystem.
-func EnableReadonly() error {
-	PauseSpinner()
-	defer ResumeSpinner()
-	cmd := SudoCmd("steamos-readonly", "enable")
-	if Level >= LogVerbose {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("steamos-readonly enable: %w", err)
+//
+// It deliberately detaches from the caller's context: this runs as deferred
+// cleanup, and a cancelled ctx (Ctrl-C mid-install) must not stop us restoring
+// the filesystem state we changed.
+func EnableReadonly(ctx context.Context) error {
+	if err := setSteamOSReadonly(context.WithoutCancel(ctx), "enable"); err != nil {
+		return err
 	}
 	return nil
 }
@@ -407,13 +413,48 @@ func ConfigDir() string {
 	return filepath.Join(DotfilesDir(), "config")
 }
 
-// XDGConfigHome returns XDG_CONFIG_HOME or ~/.config.
+// HomeDir returns the user's home directory.
+//
+// os.UserHomeDir returns ("", err) when $HOME is unset — under cron, some
+// systemd units, or `sudo` without -H. Callers used to discard that error and
+// filepath.Join the empty string anyway, and Join("", ".oh-my-zsh") yields a
+// *relative* path, so every managed location silently retargeted at the
+// current working directory. Two of those are os.RemoveAll'd.
+//
+// Deliberately not cached: tests use t.Setenv("HOME", ...) per test, and a
+// cached first value would leak across them.
+func HomeDir() (string, error) {
+	if h, err := os.UserHomeDir(); err == nil && h != "" {
+		return h, nil
+	}
+	if h := os.Getenv("HOME"); h != "" {
+		return h, nil
+	}
+	return "", errors.New("cannot determine home directory: $HOME is unset")
+}
+
+// XDGConfigHome returns XDG_CONFIG_HOME or ~/.config. Empty when the home
+// directory can't be resolved — see HomeTarget.
 func XDGConfigHome() string {
 	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
 		return xdg
 	}
-	home, _ := os.UserHomeDir()
+	home, err := HomeDir()
+	if err != nil {
+		warnNoHome(err)
+		return ""
+	}
 	return filepath.Join(home, ".config")
+}
+
+// warnNoHome reports an unresolvable home directory once per run, so a broken
+// environment is loud rather than silently producing relative paths.
+var noHomeOnce sync.Once
+
+func warnNoHome(err error) {
+	noHomeOnce.Do(func() {
+		AlwaysWarn("%v — managed paths cannot be resolved; no files will be touched", err)
+	})
 }
 
 // ── Sudo credential management ─────────────────────────────────
@@ -422,16 +463,52 @@ var sudoKeepAliveStop chan struct{}
 var sudoOnce sync.Once
 var sudoStopOnce sync.Once
 
+// Interactive reports whether it is safe to prompt on stdin. True for the CLI;
+// the MCP server sets it false because there os.Stdin carries the JSON-RPC
+// request stream — reading from it consumes protocol bytes and wedges the
+// session. Code that would prompt must check this and pick a safe default.
+var Interactive = true
+
+// sudoPass holds the password captured from DFINSTALL_SUDO_PASS at startup.
+// It is deliberately kept out of the process environment: anything in
+// os.Environ() is inherited by every child process we spawn (apt, curl, git,
+// go install, ...) and is readable via /proc/<pid>/environ.
+var (
+	sudoPassMu sync.Mutex
+	sudoPass   string
+)
+
+func setSudoPass(p string) {
+	sudoPassMu.Lock()
+	defer sudoPassMu.Unlock()
+	sudoPass = p
+}
+
+func getSudoPass() string {
+	sudoPassMu.Lock()
+	defer sudoPassMu.Unlock()
+	return sudoPass
+}
+
+// HasSudoPass reports whether a sudo password was captured at startup, meaning
+// SudoCmd can run non-interactively and needs no TTY. The password itself is
+// never exposed outside this package.
+func HasSudoPass() bool {
+	return getSudoPass() != ""
+}
+
 // PromptSudo validates sudo credentials before the spinner starts and launches
 // a background goroutine that refreshes them every 60 seconds. If
 // DFINSTALL_SUDO_PASS is set (e.g. during bootstrap where the password is
 // known), it is piped to sudo -S so no interactive prompt is needed.
-func PromptSudo() {
+func PromptSudo(ctx context.Context) {
 	if DryRun {
 		return
 	}
 	// Check if sudo even needs a password (e.g. NOPASSWD configured)
-	if exec.Command("sudo", "-n", "true").Run() == nil {
+	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
+	defer cancel()
+	if exec.CommandContext(probeCtx, "sudo", "-n", "true").Run() == nil {
 		Debug("sudo: passwordless access available")
 		startSudoKeepAlive()
 		return
@@ -441,10 +518,11 @@ func PromptSudo() {
 	// feed it non-interactively so the spinner is never interrupted.
 	if pass := os.Getenv("DFINSTALL_SUDO_PASS"); pass != "" {
 		Debug("sudo: using DFINSTALL_SUDO_PASS")
-		// Clear from environment so child processes don't inherit it.
+		// Move it out of the environment and into process memory so child
+		// processes don't inherit it.
 		os.Unsetenv("DFINSTALL_SUDO_PASS")
-		os.Setenv("_DFINSTALL_SUDO_PASS", pass)
-		cmd := exec.Command("sudo", "-S", "-v")
+		setSudoPass(pass)
+		cmd := exec.CommandContext(probeCtx, "sudo", "-S", "-v")
 		cmd.Stdin = strings.NewReader(pass + "\n")
 		if err := cmd.Run(); err != nil {
 			Warn("sudo authentication via DFINSTALL_SUDO_PASS failed — will prompt")
@@ -454,8 +532,16 @@ func PromptSudo() {
 		}
 	}
 
+	// Nothing cached and no known password. Prompting requires a terminal; if
+	// stdin is a protocol stream, reading it would corrupt the session, so
+	// leave credentials unprimed and let individual sudo steps fail loudly.
+	if !Interactive {
+		Debug("sudo: not primed (non-interactive) — steps requiring sudo will fail")
+		return
+	}
+
 	Status("Some steps require sudo access")
-	cmd := exec.Command("sudo", "-v")
+	cmd := exec.CommandContext(ctx, "sudo", "-v")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -471,7 +557,7 @@ func PromptSudo() {
 func startSudoKeepAlive() {
 	sudoOnce.Do(func() {
 		sudoKeepAliveStop = make(chan struct{})
-		pass := os.Getenv("_DFINSTALL_SUDO_PASS")
+		pass := getSudoPass()
 		go func() {
 			ticker := time.NewTicker(60 * time.Second)
 			defer ticker.Stop()
@@ -480,13 +566,17 @@ func startSudoKeepAlive() {
 				case <-sudoKeepAliveStop:
 					return
 				case <-ticker.C:
+					refresh, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
 					if pass != "" {
-						cmd := exec.Command("sudo", "-S", "-v")
+						cmd := exec.CommandContext(refresh, "sudo", "-S", "-v")
 						cmd.Stdin = strings.NewReader(pass + "\n")
-						cmd.Run()
-					} else {
-						exec.Command("sudo", "-n", "-v").Run()
+						if err := cmd.Run(); err != nil {
+							Debug("sudo keepalive refresh failed: %v", err)
+						}
+					} else if err := exec.CommandContext(refresh, "sudo", "-n", "-v").Run(); err != nil {
+						Debug("sudo keepalive refresh failed: %v", err)
 					}
+					cancel()
 				}
 			}
 		}()
@@ -506,14 +596,29 @@ func StopSudoKeepAlive() {
 // sudo password was captured from DFINSTALL_SUDO_PASS at startup, it
 // injects -S and pipes the password so no TTY prompt is needed. Otherwise
 // stdin is connected to the terminal.
-func SudoCmd(args ...string) *exec.Cmd {
-	if pass := os.Getenv("_DFINSTALL_SUDO_PASS"); pass != "" {
+//
+// Already running as root, it execs the command directly — sudo may not even
+// be installed in a root container, and escalating from root is pointless.
+func SudoCmd(ctx context.Context, args ...string) *exec.Cmd {
+	if os.Geteuid() == 0 {
+		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+		if Interactive {
+			cmd.Stdin = os.Stdin
+		}
+		return cmd
+	}
+
+	if pass := getSudoPass(); pass != "" {
 		cmdArgs := append([]string{"-S"}, args...)
-		cmd := exec.Command("sudo", cmdArgs...)
+		cmd := exec.CommandContext(ctx, "sudo", cmdArgs...)
 		cmd.Stdin = strings.NewReader(pass + "\n")
 		return cmd
 	}
-	cmd := exec.Command("sudo", args...)
-	cmd.Stdin = os.Stdin
+	cmd := exec.CommandContext(ctx, "sudo", args...)
+	if Interactive {
+		cmd.Stdin = os.Stdin
+	}
+	// Non-interactive: leave Stdin nil so sudo gets EOF and fails, rather than
+	// reading the caller's protocol stream while waiting for a password.
 	return cmd
 }

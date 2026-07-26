@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fatih/color"
@@ -21,35 +20,80 @@ var (
 )
 
 // Spinner renders an animated progress indicator on the terminal.
+//
+// All of its state lives behind mu. An earlier version split it across three
+// places — s.active, a package-level spinnerRunning, and a spinnerPaused
+// atomic — which let them disagree: calling s.Pause() directly cleared two of
+// them but not the third, so the matching ResumeSpinner silently did nothing.
 type Spinner struct {
-	mu     sync.Mutex
-	text   string
-	frame  int
-	active bool
-	done   chan struct{}
+	mu sync.Mutex
+
+	text  string
+	frame int
+
+	// running is true between Start and Stop. pauseDepth counts nested
+	// Pause calls; the animation draws only at depth 0.
+	running    bool
+	pauseDepth int
+	stopped    bool
+
+	// tty is false when stdout is redirected, in which case we never emit
+	// cursor escapes — they'd fill a log file with control characters.
+	tty bool
+
+	done chan struct{}
+	wg   sync.WaitGroup
 }
 
-// activeSpinner holds the current spinner so modules can pause it for
-// interactive prompts (e.g. sudo password).
-var activeSpinner *Spinner
+// activeSpinner holds the current spinner so callers can pause it around
+// interactive prompts. Guarded by activeMu rather than being a bare global.
+var (
+	activeMu      sync.Mutex
+	activeSpinner *Spinner
+)
+
+func setActiveSpinner(s *Spinner) {
+	activeMu.Lock()
+	activeSpinner = s
+	activeMu.Unlock()
+}
+
+func getActiveSpinner() *Spinner {
+	activeMu.Lock()
+	defer activeMu.Unlock()
+	return activeSpinner
+}
 
 // NewSpinner creates a new Spinner (call Start to begin).
 func NewSpinner() *Spinner {
 	s := &Spinner{
 		done: make(chan struct{}),
+		tty:  term.IsTerminal(int(os.Stdout.Fd())),
 	}
-	activeSpinner = s
+	setActiveSpinner(s)
 	return s
 }
 
-// Start begins the spinner animation in a background goroutine.
+// Start begins the spinner animation in a background goroutine. Calling it
+// twice is a no-op rather than starting a second goroutine drawing at double
+// the frame rate.
 func (s *Spinner) Start() {
 	s.mu.Lock()
-	s.active = true
+	if s.running || s.stopped {
+		s.mu.Unlock()
+		return
+	}
+	s.running = true
+	tty := s.tty
 	s.mu.Unlock()
-	spinnerRunning.Store(true)
 
+	if !tty {
+		return
+	}
+
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		ticker := time.NewTicker(80 * time.Millisecond)
 		defer ticker.Stop()
 		for {
@@ -57,94 +101,137 @@ func (s *Spinner) Start() {
 			case <-s.done:
 				return
 			case <-ticker.C:
+				// Snapshot under s.mu, then write under the output lock.
+				// Never hold both: emit() checks spinner state before taking
+				// the output lock, so nesting them in the other order here
+				// would invert the lock order and could deadlock.
 				s.mu.Lock()
-				if s.active {
-					fmt.Printf("\r\033[K  %s %s", spinColor(spinFrames[s.frame]), s.text)
+				draw := s.running && s.pauseDepth == 0
+				frame, text := spinFrames[s.frame], s.text
+				if draw {
 					s.frame = (s.frame + 1) % len(spinFrames)
 				}
 				s.mu.Unlock()
+
+				if draw {
+					outMu.Lock()
+					fmt.Printf("\r\033[K  %s %s", spinColor(frame), text)
+					outMu.Unlock()
+				}
 			}
 		}
 	}()
 }
 
 // Update changes the spinner text. Truncates to fit terminal width so long
-// detail strings (e.g. apt package lists) don't wrap onto multiple rows —
-// the per-tick redraw only clears one row with \r\033[K, so wrap remnants
-// from the previous tick would otherwise pile up visibly.
+// detail strings (e.g. apt package lists) don't wrap onto multiple rows — the
+// per-tick redraw only clears one row with \r\033[K, so wrap remnants from the
+// previous tick would otherwise pile up visibly.
 func (s *Spinner) Update(msg string, args ...any) {
 	text := fmt.Sprintf(msg, args...)
+
 	if w, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && w > 0 {
 		// Prefix is "  X " (4 cols) + a 1-col safety margin for the cursor.
 		avail := w - 5
 		if avail < 20 {
 			avail = 20
 		}
-		if len(text) > avail {
-			text = text[:avail-1] + "…"
+		// Count and slice runes, not bytes: package names and paths are not
+		// always ASCII, and cutting mid-rune renders as replacement junk.
+		if r := []rune(text); len(r) > avail {
+			text = string(r[:avail-1]) + "…"
 		}
 	}
+
 	s.mu.Lock()
 	s.text = text
 	s.mu.Unlock()
 }
 
-// Pause temporarily suspends the spinner animation and clears its line.
-// The spinner can be resumed with Resume. This is used to allow interactive
-// prompts (like sudo password) to be visible.
+// Pause suspends the animation and clears its line so an interactive prompt is
+// visible. Pauses nest: two Pause calls need two Resumes before the animation
+// comes back, which is what stops an inner Resume from redrawing over an outer
+// caller's prompt.
 func (s *Spinner) Pause() {
 	s.mu.Lock()
-	s.active = false
+	s.pauseDepth++
+	first := s.pauseDepth == 1 && s.running && s.tty
 	s.mu.Unlock()
-	spinnerRunning.Store(false)
-	fmt.Print("\r\033[K")
-}
 
-// Resume restarts the spinner animation after a Pause.
-func (s *Spinner) Resume() {
-	s.mu.Lock()
-	s.active = true
-	s.mu.Unlock()
-	spinnerRunning.Store(true)
-}
-
-// Stop halts the spinner and clears its line.
-func (s *Spinner) Stop() {
-	s.mu.Lock()
-	s.active = false
-	s.mu.Unlock()
-	spinnerRunning.Store(false)
-	activeSpinner = nil
-	close(s.done)
-	fmt.Print("\r\033[K")
-}
-
-// spinnerPaused tracks whether PauseSpinner actually paused a running spinner.
-var spinnerPaused atomic.Bool
-
-// PauseSpinner temporarily suspends the active spinner so interactive
-// prompts (like sudo password) are visible. No-op if no spinner is running.
-func PauseSpinner() {
-	if activeSpinner != nil && spinnerRunning.Load() {
-		activeSpinner.Pause()
-		spinnerPaused.Store(true)
+	if first {
+		clearLine()
 	}
 }
 
-// ResumeSpinner restarts the active spinner after a PauseSpinner call.
-// No-op if no spinner was paused.
+// Resume restarts the animation once every matching Pause has been released.
+func (s *Spinner) Resume() {
+	s.mu.Lock()
+	if s.pauseDepth > 0 {
+		s.pauseDepth--
+	}
+	s.mu.Unlock()
+}
+
+// Stop halts the spinner and clears its line. It is idempotent — a second call
+// (an error path plus a defer, say) returns rather than panicking on a closed
+// channel, and it waits for the render goroutine so the final clear can't race
+// a half-written frame.
+func (s *Spinner) Stop() {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return
+	}
+	s.stopped = true
+	s.running = false
+	wasTTY := s.tty
+	close(s.done)
+	s.mu.Unlock()
+
+	s.wg.Wait()
+
+	if wasTTY {
+		clearLine()
+	}
+	setActiveSpinner(nil)
+}
+
+// drawing reports whether this spinner is currently painting the line.
+func (s *Spinner) drawing() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.running && s.pauseDepth == 0 && s.tty
+}
+
+func clearLine() {
+	outMu.Lock()
+	fmt.Print("\r\033[K")
+	outMu.Unlock()
+}
+
+// PauseSpinner temporarily suspends the active spinner so interactive prompts
+// (like a sudo password) are visible. No-op if no spinner exists.
+func PauseSpinner() {
+	if s := getActiveSpinner(); s != nil {
+		s.Pause()
+	}
+}
+
+// ResumeSpinner releases one PauseSpinner. No-op if no spinner exists.
 func ResumeSpinner() {
-	if spinnerPaused.CompareAndSwap(true, false) && activeSpinner != nil {
-		activeSpinner.Resume()
+	if s := getActiveSpinner(); s != nil {
+		s.Resume()
 	}
 }
 
 // SpinnerDetail updates the active spinner's detail text.
 // Use to show sub-step progress (e.g. which package is being installed).
-// No-op if no spinner is running.
 func SpinnerDetail(msg string, args ...any) {
-	if activeSpinner != nil && spinnerRunning.Load() {
-		activeSpinner.Update(msg, args...)
+	if s := getActiveSpinner(); s != nil {
+		s.Update(msg, args...)
 	}
 }
 
@@ -152,17 +239,17 @@ func SpinnerDetail(msg string, args ...any) {
 func PrintResult(total, failed int) {
 	if failed == 0 {
 		if total == 1 {
-			fmt.Printf("  %s Done\n", doneColor("✓"))
+			emitRaw(fmt.Sprintf("  %s Done\n", doneColor("✓")))
 		} else {
-			fmt.Printf("  %s Done — %d modules installed\n", doneColor("✓"), total)
+			emitRaw(fmt.Sprintf("  %s Done — %d modules installed\n", doneColor("✓"), total))
 		}
-	} else {
-		installed := total - failed
-		fmt.Printf("  %s Done — %d/%d modules installed\n", failColor("⚠"), installed, total)
+		return
 	}
+	installed := total - failed
+	emitRaw(fmt.Sprintf("  %s Done — %d/%d modules installed\n", failColor("⚠"), installed, total))
 }
 
 // PrintHint prints a dimmed hint message.
 func PrintHint(msg string) {
-	fmt.Printf("  %s\n", hintColor(msg))
+	emitRaw(fmt.Sprintf("  %s\n", hintColor(msg)))
 }

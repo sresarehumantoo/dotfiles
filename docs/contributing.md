@@ -11,39 +11,56 @@ Create `src/modules/<name>.go`:
 ```go
 package modules
 
-import "github.com/sresarehumantoo/dotfiles/src/core"
+import (
+    "context"
+
+    "github.com/sresarehumantoo/dotfiles/src/core"
+)
 
 type FooModule struct{}
 
 func (FooModule) Name() string { return "foo" }
 
-var fooLinks = []struct{ src, dst string }{
-    {"foo/config.toml", ".config/foo/config.toml"},
+// Links is the single source of truth for what this module manages.
+// Install, Uninstall and Status all derive from it — never restate a path.
+func (FooModule) Links() core.LinkSet {
+    return core.LinkSet{
+        {Src: core.ConfigPath("foo", "config.toml"), Dst: core.XDGTarget("foo", "config.toml")},
+    }
 }
 
-func (FooModule) Install() error {
+func (m FooModule) Install(ctx context.Context) error {
     core.Info("Setting up foo...")
-    for _, l := range fooLinks {
-        if err := core.LinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
-            return err
-        }
+    if err := m.Links().Apply(); err != nil {
+        return err
     }
     core.Ok("Foo done")
     return nil
 }
 
-func (FooModule) Status() core.ModuleStatus {
-    s := core.ModuleStatus{Name: "foo"}
-    for _, l := range fooLinks {
-        if core.CheckLink(core.ConfigPath(l.src), core.HomeTarget(l.dst)) == "ok" {
-            s.Linked++
-        } else {
-            s.Missing++
-        }
+func (m FooModule) Uninstall(ctx context.Context) error {
+    if err := m.Links().Remove(); err != nil {
+        return err
     }
-    return s
+    core.Ok("Foo uninstalled")
+    return nil
 }
+
+func (m FooModule) Status() core.ModuleStatus { return m.Links().Status("foo") }
 ```
+
+That is the whole module. No `EnsureDir` — `LinkFile` creates parent directories.
+No separate `Status` loop — `LinkSet.Status` counts what `Links()` exports.
+
+`htop.go` is the minimal real example, `konsole.go` shows two destination roots,
+and `devtools.go` shows an `Install` that needs extra work (chmod, best-effort
+per-file errors) while still driving off `Links()`.
+
+> **Why one `Links()`.** `Install`, `Uninstall`, `Status` and `Links` used to
+> each spell out the same paths. Change a path in three of them and the fourth
+> silently disagrees — `Status` reports on links `Install` no longer creates, or
+> `Uninstall` misses one. `tests/linkset_test.go` asserts every module's
+> `Status` counts exactly what its `Links()` exports.
 
 ### 2. Add config files
 
@@ -60,29 +77,25 @@ func RegisterAllModules() {
 }
 ```
 
-### 4. (Optional) Add uninstall support
+### 4. Non-link modules
 
-For link-based modules, implement `Uninstaller` and `LinkExporter`:
+A module that installs packages rather than symlinks skips `Links()` and
+implements `Install(ctx)` directly. It must start with a dry-run guard:
 
 ```go
-func (FooModule) Uninstall() error {
-    for _, l := range fooLinks {
-        if err := core.UnlinkFile(core.ConfigPath(l.src), core.HomeTarget(l.dst)); err != nil {
-            return err
-        }
+func (FooModule) Install(ctx context.Context) error {
+    if core.DryRun {
+        core.Info("would install foo")
+        return nil
     }
-    core.Ok("Foo uninstalled")
-    return nil
-}
-
-func (FooModule) Links() []core.LinkPair {
-    pairs := make([]core.LinkPair, len(fooLinks))
-    for i, l := range fooLinks {
-        pairs[i] = core.LinkPair{Src: core.ConfigPath(l.src), Dst: core.HomeTarget(l.dst)}
-    }
-    return pairs
+    return installPkg(ctx, "foo")
 }
 ```
+
+If the module is **opt-in** (installed only on explicit request, like windev),
+it also has to be handled in `core.SkipInAll` — everything that loops over
+`core.AllModules()` for an `install all`, including the `diff` report, gates on
+that rather than `core.IsModuleSkipped`.
 
 ### 5. Update the test
 
@@ -137,11 +150,14 @@ ok "Done."
 In `src/modules/devtools.go`, add to the `devtoolsScripts` slice:
 
 ```go
-var devtoolsScripts = []struct{ src, dst string }{
+var devtoolsScripts = []string{
     // ... existing scripts ...
-    {"devtools/my-script", ".local/bin/my-script"},
+    "my-script",
 }
 ```
+
+Just the filename — `Links()` derives `config/devtools/<name>` →
+`~/.local/bin/<name>` from it.
 
 ### 3. Test
 
@@ -158,7 +174,9 @@ bash -n config/devtools/my-script  # syntax check
 - **Path helpers:** `ConfigPath()` for sources, `HomeTarget()` for `$HOME`, `XDGTarget()` for `$XDG_CONFIG_HOME`
 - **Logging:** `core.Info`, `core.Ok`, `core.Warn`, `core.Err`, `core.Debug`
 - **Error handling:** Return errors, don't call `os.Exit()`. Warn and continue for non-fatal issues.
-- **Data-driven:** Define a `var links = []struct{ src, dst string }` slice and loop it in both `Install()` and `Status()`
+- **One `Links()`:** declare `Links() core.LinkSet` once and call `.Apply()` / `.Remove()` / `.Status(name)` from the other three methods. Never list a path in more than one place.
+- **Never call `os.UserHomeDir()`** outside `core` — use `core.HomeDir()` / `core.HomeTarget()`. With `$HOME` unset it returns `("", err)`, and joining that gives a *relative* path, which once caused `uninstall tmux` to delete `.tmux/plugins` from the current working directory. For recursive deletes use `core.RemoveManagedDir`, not `os.RemoveAll`.
+- **`core.SkipInAll(name)`, not `IsModuleSkipped`,** in any loop over `AllModules()` for an install-all or a fixable-drift report. The MCP server once used the latter and installed an opt-out module.
 
 ### Shell Scripts
 
@@ -187,49 +205,86 @@ In default (quiet) mode, the CLI shows a spinner. `Info`/`Ok` calls are suppress
 
 ### External Commands
 
-When running external commands (`exec.Command`):
+Every subprocess goes through `runCmd(ctx, ...)` (`src/modules/packages.go`).
+There are **no** raw `exec.Command` calls in `src/` — `go vet` won't catch a new
+one, so this is on you.
 
-- **Always check errors:** `if err := cmd.Run(); err != nil { core.Warn(...) }`
-- **Suppress output in quiet mode:** only set `cmd.Stdout`/`cmd.Stderr` when `core.Level >= core.LogVerbose`
-- **Spinner + sudo:** Call `core.PauseSpinner()` before and `core.ResumeSpinner()` after commands that need terminal access (sudo, chsh). Always connect `cmd.Stdin = os.Stdin` for these.
-- **Validate before writing to shell files:** Any values written to files that are later `source`d must be validated (alphanumeric + hyphens/underscores only).
+```go
+if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
+    core.Warn("clone failed: %v", err)
+}
+```
+
+- **Thread the context.** `Install(ctx)` receives it; pass it to every command,
+  and to every helper that runs one. The CLI binds it to SIGINT so Ctrl-C tears
+  down a running `apt`; the MCP server binds it to the request.
+- **Don't wire `Stdout`/`Stderr` yourself.** `runCmd` sends output to the
+  terminal under `-v` and otherwise captures both streams, replaying the tail on
+  failure. Hand-rolled routing is how failures used to surface as a bare
+  `exit status 128` with no reason.
+- **Use `runCmd(ctx, "sudo", ...)`** rather than `core.SudoCmd` plus a manual
+  `PauseSpinner`. `runCmd` detects sudo (even inside a `bash -c` string) and
+  pauses the spinner for the password prompt. `core.SudoCmd` execs directly when
+  already root.
+- **Quick queries use `runProbe(ctx, ...)`**, network fetches `runNetProbe`.
+  They carry `ProbeTimeout` (30s) and `NetworkTimeout` (10m) from
+  `src/core/exec.go`; `runCmd` carries `InstallTimeout` (45m). Every command
+  must have a deadline — a hung `curl` or an apt blocked on a dpkg lock used to
+  hang the whole run with no way out.
+- **`PauseSpinner`/`ResumeSpinner` are for interactive prompts only** (huh
+  forms, `bufio` reads, `chsh`) — not for command output.
+- **Validate before writing to shell files:** any value written to a file that
+  is later `source`d must be validated (alphanumeric + hyphens/underscores).
 
 ## Testing
 
-Tests live in `tests/` and cover:
+Tests live in two places, deliberately:
 
-| File | What it tests |
-|------|--------------|
-| `module_test.go` | Module registration order, lookup |
-| `link_test.go` | Symlink creation, idempotency, backup, nested dirs |
-| `env_test.go` | WSL detection from /proc/version |
-| `status_test.go` | Status line formatting |
-| `backup_test.go` | Backup/restore: path flattening, system path detection, entry types, dedup, empty cleanup, round-trip |
-| `config_test.go` | Config: load/save round-trip, missing file defaults, BackupDir override |
-| `shell_preserve_test.go` | Custom file scan/filter, managed/non-shell/symlink exclusion, path validation, injection rejection |
-| `unlink_test.go` | UnlinkFile: correct/wrong/missing/regular-file cases |
-| `dryrun_test.go` | DryRun mode: LinkFile, EnsureDir, UnlinkFile skip filesystem changes |
-| `config_skip_test.go` | IsModuleSkipped helper with skip_modules config |
+- **`tests/`** (23 files, `package tests`) — black-box. Anything reachable
+  through the exported API goes here.
+- **In-package** (`src/core/*_test.go`, `src/modules/*_test.go`) — for
+  invariants about unexported state: the spinner's state machine, `checkTarget`,
+  `pickAsset`, `artifactFor`. Asserting these from `tests/` would mean exporting
+  internals purely for the test.
 
-Run with:
+Notable coverage: module registration order, symlink create/unlink/dry-run,
+backup and restore round-trips, config load/save integrity (including refusing
+to overwrite an unreadable config), registry validation as a security boundary,
+`LinkSet` behaviour and the Status/Links agreement, status and diff rendering,
+spinner concurrency, and GitHub release asset selection from a fixture.
 
 ```bash
 make test       # go test ./src/... ./tests/...
+make test-race  # go test -race ./src/... ./tests/...
 make lint       # go vet
-make ci         # fmt-check + lint + build both binaries + test (everything CI runs)
+make ci         # fmt-check + lint + build both binaries + test + test-race
 ```
 
-Tests use temp directories and don't touch real system files.
+Tests use `t.TempDir()` and `t.Setenv` and don't touch real system files. Any
+test that writes config must point `$DOTFILES` at a temp dir — otherwise
+`SaveConfig` writes to the real repo's `.config.yaml`.
 
-## Pull Requests
+### Verifying a change by hand
 
-CI must pass before a PR can merge. Both GitHub Actions jobs run on every PR to `main` and `develop`:
+`make ci` is necessary, not sufficient. This tool symlinks, deletes and shells
+out under sudo across a real `$HOME`, and most install paths have no test.
 
-- **`go`** -- `gofmt -s` formatting, `go vet`, build of the `dfinstall` and MCP binaries, and the full test suite.
-- **`shellcheck`** -- lints the bash scripts in `config/devtools/` and `bootstrap/`.
+- Drive the real binary in a sandbox: `HOME=<tmp> DOTFILES=<tmp-clone> ./bin/dfinstall <cmd>`.
+  Both variables matter — set only `HOME` and it still reads the real repo's
+  config; set only `DOTFILES` and it writes into your actual home.
+- Before believing a before/after comparison is "identical", confirm **both**
+  sides produced output. A failed build or an unconfigured fixture yields two
+  empty files and a false pass.
+- Prefer `git worktree` over `git stash` for building a "before" binary — stash
+  drops untracked files and can fail to reapply a deletion.
+- For a bug fix, run the new test against the old code and watch it fail.
+- `--dry-run` is the safe way to exercise destructive paths, and is worth
+  testing in its own right: it has been the *source* of data loss here before.
 
-The `main` branch is protected, so both checks must be green before merging.
+## CI
 
-## Doctor Checks
+Every push and pull request runs:
 
-When adding a module that installs a new tool or creates a new symlink, consider adding a check to `RunDoctorChecks()` in `modules/doctor.go`. That function is the single source of truth shared by the CLI `doctor` command and the MCP `dfinstall_doctor` tool, so a check added there shows up in both.
+- **`go`** — `gofmt -s` formatting, `go vet`, build of the `dfinstall` and MCP
+  binaries, the test suite, and the suite again under the race detector.
+- **`shellcheck`** — all shell scripts under `config/`.

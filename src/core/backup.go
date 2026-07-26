@@ -48,8 +48,7 @@ func BackupDir() string {
 	if Cfg.BackupDirP != "" {
 		return Cfg.BackupDirP
 	}
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".local", "share", "dfinstall", "backups")
+	return HomeTarget(".local", "share", "dfinstall", "backups")
 }
 
 // StartBackup begins a new backup session.
@@ -58,7 +57,13 @@ func StartBackup() error {
 	dir := filepath.Join(BackupDir(), ts)
 	filesDir := filepath.Join(dir, "files")
 
-	if err := os.MkdirAll(filesDir, 0755); err != nil {
+	// Backups hold copies of private files (~/.ssh/config, ~/.gitconfig,
+	// tokens), so the per-session dirs are owner-only. The shared parent keeps
+	// default perms so it behaves like any other XDG data dir.
+	if err := os.MkdirAll(BackupDir(), 0755); err != nil {
+		return fmt.Errorf("create backup dir: %w", err)
+	}
+	if err := os.MkdirAll(filesDir, 0700); err != nil {
 		return fmt.Errorf("create backup dir: %w", err)
 	}
 
@@ -180,7 +185,7 @@ func FinishBackup() error {
 	// Atomic write: temp file + rename to avoid corrupt manifest on crash.
 	manifestPath := filepath.Join(activeBackup.dir, "manifest.json")
 	tmpPath := manifestPath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return fmt.Errorf("write manifest: %w", err)
 	}
 	if err := os.Rename(tmpPath, manifestPath); err != nil {
@@ -230,6 +235,21 @@ func RestoreBackup(ts string) error {
 	manifest, err := loadManifest(dir)
 	if err != nil {
 		return fmt.Errorf("load backup %s: %w", ts, err)
+	}
+
+	if DryRun {
+		for _, entry := range manifest.Entries {
+			switch entry.Type {
+			case "missing":
+				Info("would remove: %s", entry.Path)
+			case "symlink":
+				Info("would restore symlink: %s -> %s", entry.Path, entry.SymlinkTarget)
+			case "file":
+				Info("would restore file: %s", entry.Path)
+			}
+		}
+		Info("dry run: %d entries from backup %s left untouched", len(manifest.Entries), ts)
+		return nil
 	}
 
 	var failures int

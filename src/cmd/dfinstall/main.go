@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -26,6 +29,10 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:   "dfinstall",
 		Short: "Dotfiles installer and manager",
+		// Runtime failures (a module erroring, a backup that won't start) are
+		// not usage errors — printing the full help after them buries the
+		// actual message. Cobra still shows usage for bad arguments.
+		SilenceUsage: true,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
 			switch {
 			case flagDebug:
@@ -39,7 +46,13 @@ func main() {
 					core.Level = core.LogVerbose
 				}
 			}
-			core.LoadConfig()
+			// A config that exists but can't be read is not a first run.
+			// Warn loudly and carry on with defaults — read-only commands
+			// still work, and SaveConfig refuses to overwrite it.
+			if err := core.LoadConfig(); err != nil {
+				core.AlwaysWarn("%v", err)
+				core.AlwaysWarn("continuing with defaults; settings will not be saved until this is fixed")
+			}
 			core.PrintBanner()
 		},
 	}
@@ -49,6 +62,8 @@ func main() {
 	rootCmd.PersistentFlags().BoolVar(&flagDryRun, "dry-run", false, "Preview changes without modifying the filesystem")
 
 	runInstall := func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+
 		if os.Geteuid() == 0 {
 			core.Err("Running as root is not supported.")
 			core.Err("Run as your normal user instead. To apply configs to /root, use:")
@@ -61,12 +76,12 @@ func main() {
 
 		if core.IsSteamOS() && !core.DryRun {
 			core.Info("SteamOS detected — disabling readonly filesystem...")
-			if err := core.DisableReadonly(); err != nil {
+			if err := core.DisableReadonly(ctx); err != nil {
 				return fmt.Errorf("failed to disable readonly mode: %w", err)
 			}
 			defer func() {
 				core.Info("Re-enabling readonly filesystem...")
-				core.EnableReadonly()
+				core.EnableReadonly(ctx)
 			}()
 		}
 
@@ -89,7 +104,7 @@ func main() {
 
 		// Run toolkit menu before install (before spinner starts)
 		if flagToolkit {
-			selected, err := modules.RunToolkitMenu()
+			selected, err := modules.RunToolkitMenu(ctx)
 			if err != nil {
 				return fmt.Errorf("toolkit menu: %w", err)
 			}
@@ -97,7 +112,7 @@ func main() {
 		}
 
 		// Prompt for sudo before spinner starts so the password prompt is visible
-		core.PromptSudo()
+		core.PromptSudo(ctx)
 		defer core.StopSudoKeepAlive()
 
 		// Infer module from standalone flags when no positional arg given
@@ -114,22 +129,17 @@ func main() {
 		}
 
 		if target == "all" {
-			return installAll()
+			return installAll(ctx)
 		}
 
 		m, ok := core.GetModule(target)
 		if !ok {
 			return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
 		}
-		// Explicit install of an opt-in module persists the enable flag so
-		// subsequent `install all` keeps it current. Mirrors how --toolkit
-		// /--extended set their Mode flags to trigger SaveConfig below.
-		// Skipped under --dry-run so a preview never mutates config state.
-		if target == "windev" && !core.DryRun {
-			core.WindevMode = true
-			core.Cfg.WindevEnabled = true
+		if target == "windev" {
+			core.SetWindevOptIn()
 		}
-		return installOne(m)
+		return installOne(ctx, m)
 	}
 
 	installCmd := &cobra.Command{
@@ -234,6 +244,7 @@ func main() {
 		Short: "Symlink configs into /root/ via sudo",
 		Long:  "Apply a curated subset of dotfiles (shell, git, nvim, tmux, htop) to the root user via sudo.",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
 			if os.Geteuid() == 0 {
 				core.Err("Do not run this command as root directly.")
 				core.Err("Run as your normal user — sudo will be invoked automatically.")
@@ -244,18 +255,18 @@ func main() {
 
 			// Prime sudo before any spinner starts so the password prompt
 			// (if any) is visible — this command is sudo-heavy.
-			core.PromptSudo()
+			core.PromptSudo(ctx)
 			defer core.StopSudoKeepAlive()
 
 			if core.Level >= core.LogVerbose {
-				return modules.InstallRoot()
+				return modules.InstallRoot(ctx)
 			}
 
 			sp := core.NewSpinner()
 			sp.Update("Linking root configs (sudo)")
 			sp.Start()
 
-			err := modules.InstallRoot()
+			err := modules.InstallRoot(ctx)
 			sp.Stop()
 
 			core.FlushWarnings()
@@ -295,29 +306,24 @@ func main() {
 			modules.ValidModuleNames()),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
 			core.DetectEnvironment()
 			// Prime sudo — modules that installed system packages (delta,
 			// toolkit) shell out to sudo when uninstalling.
-			core.PromptSudo()
+			core.PromptSudo(ctx)
 			defer core.StopSudoKeepAlive()
 			target := args[0]
 			if target == "all" {
-				return uninstallAll()
+				return uninstallAll(ctx)
 			}
 			m, ok := core.GetModule(target)
 			if !ok {
 				return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
 			}
-			// Explicit uninstall of windev clears the opt-in so `install all`
-			// stops re-applying it. Best-effort save: warn but don't fail.
-			// Skipped under --dry-run so a preview never mutates config state.
-			if target == "windev" && core.Cfg.WindevEnabled && !core.DryRun {
-				core.Cfg.WindevEnabled = false
-				if err := core.SaveConfig(); err != nil {
-					core.Warn("failed to save config: %v", err)
-				}
+			if target == "windev" {
+				core.ClearWindevOptIn()
 			}
-			return uninstallOne(m)
+			return uninstallOne(ctx, m)
 		},
 	}
 	uninstallCmd.ValidArgsFunction = completeModules
@@ -327,7 +333,9 @@ func main() {
 		Short: "Show drift between config and filesystem",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			core.DetectEnvironment()
-			core.LoadConfig()
+			if err := core.LoadConfig(); err != nil {
+				core.AlwaysWarn("%v", err)
+			}
 			return runDiff()
 		},
 	}
@@ -341,7 +349,8 @@ func main() {
 		Short: "Validate a toolkit registry file (for CI)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			reg, err := core.FetchRegistry(args[0])
+			ctx := cmd.Context()
+			reg, err := core.FetchRegistry(ctx, args[0])
 			if err != nil {
 				return err
 			}
@@ -353,97 +362,71 @@ func main() {
 
 	rootCmd.AddCommand(installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd, uninstallCmd, diffCmd, registryCmd)
 
-	if err := rootCmd.Execute(); err != nil {
+	// Bind the command tree to a context cancelled on SIGINT/SIGTERM, so a
+	// Ctrl-C during a long apt or cargo run tears the child process down
+	// instead of leaving it orphaned. A second signal restores the default
+	// handler and kills us outright.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
 }
 
-// skipInAll reports whether a module should be omitted from `install all`.
-// Combines user SkipModules with opt-in modules that haven't been enabled yet
-// (currently just windev — explicit `install windev` flips Cfg.WindevEnabled
-// on, after which it's included like any other module).
-func skipInAll(name string) bool {
-	if core.IsModuleSkipped(name) {
-		return true
+func installAll(ctx context.Context) error {
+	sess, err := core.BeginInstall(core.InstallOptions{All: true, ForceBackup: flagBackup})
+	if err != nil {
+		return err
 	}
-	if name == "windev" && !core.Cfg.WindevEnabled {
-		return true
-	}
-	return false
-}
+	defer sess.Finish()
 
-// adoptCanonical records the clone we're running from as this machine's
-// authoritative dotfiles dir. Because DotfilesDir() then resolves here for the
-// rest of the run, the module loop repoints any symlinks left pointing at other
-// clones — so `install all` both switches canonical and consolidates a machine
-// whose symlinks had drifted across clones.
-func adoptCanonical() {
-	invoking := core.InvokingCloneDir()
-	prev, changed := core.AdoptCanonical(invoking)
-	if !changed {
-		return
-	}
-	if prev != "" {
-		core.Status("Canonical dotfiles dir set to %s (was %s) — repointing symlinks", invoking, prev)
-	} else {
-		core.Debug("canonical dotfiles dir set to %s", invoking)
-	}
-}
-
-func installAll() error {
-	adoptCanonical()
-
-	doBackup, firstRun := shouldBackup()
-
-	if doBackup {
-		if err := core.StartBackup(); err != nil {
-			return fmt.Errorf("start backup: %w", err)
+	if sess.CanonicalNow != "" {
+		if sess.CanonicalPrev != "" {
+			core.Status("Canonical dotfiles dir set to %s (was %s) — repointing symlinks",
+				sess.CanonicalNow, sess.CanonicalPrev)
+		} else {
+			core.Debug("canonical dotfiles dir set to %s", sess.CanonicalNow)
 		}
-		defer core.FinishBackup()
 	}
 
 	all := core.AllModules()
 	total := len(all)
 
-	// Verbose/debug: full detailed output
 	var skipped int
+	var failures []string
+
+	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
 		for _, m := range all {
-			if skipInAll(m.Name()) {
+			if core.SkipInAll(m.Name()) {
 				core.Info("--- %s --- (skipped)", m.Name())
 				skipped++
 				continue
 			}
 			core.Info("--- %s ---", m.Name())
-			if err := m.Install(); err != nil {
+			if err := m.Install(ctx); err != nil {
 				core.Err("%s failed: %v", m.Name(), err)
+				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
 		fmt.Println()
-		if firstRun {
-			saveFirstRunConfig()
-		} else if core.ExtendedMode || core.ToolkitMode || core.WindevMode {
-			if err := core.SaveConfig(); err != nil {
-				core.Warn("failed to save config: %v", err)
-			}
-		}
 		core.Info("Done! Open a new terminal or run: exec zsh")
-		return nil
+		return installFailure(failures)
 	}
 
 	// Default: spinner mode
 	sp := core.NewSpinner()
 	sp.Start()
 
-	var failures []string
 	for i, m := range all {
-		if skipInAll(m.Name()) {
+		if core.SkipInAll(m.Name()) {
 			skipped++
 			continue
 		}
 		sp.Update("Installing %s (%d/%d)", m.Name(), i+1, total)
 		core.Debug("starting module %s", m.Name())
-		if err := m.Install(); err != nil {
+		if err := m.Install(ctx); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 		}
 	}
@@ -454,22 +437,24 @@ func installAll() error {
 		core.Err("%s", f)
 	}
 
-	if firstRun {
-		saveFirstRunConfig()
-	} else if core.ExtendedMode || core.ToolkitMode {
-		if err := core.SaveConfig(); err != nil {
-			core.Warn("failed to save config: %v", err)
-		}
-	}
-	if doBackup {
+	if sess.DidBackup() {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
 	core.PrintResult(total-skipped, len(failures))
 	core.PrintHint("Open a new terminal or run: exec zsh")
-	return nil
+	return installFailure(failures)
 }
 
-func installOne(m core.Module) error {
+// installFailure turns collected per-module failures into a non-zero exit.
+// The details are already on screen, so the returned error stays short.
+func installFailure(failures []string) error {
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d module(s) failed", len(failures))
+}
+
+func installOne(ctx context.Context, m core.Module) error {
 	// Under canonical-always semantics a partial install links into the
 	// canonical clone, not necessarily the one you're sitting in. Say so, so it
 	// isn't surprising — and point at how to switch.
@@ -480,26 +465,15 @@ func installOne(m core.Module) error {
 		}
 	}
 
-	doBackup, firstRun := shouldBackup()
-
-	if doBackup {
-		if err := core.StartBackup(); err != nil {
-			return fmt.Errorf("start backup: %w", err)
-		}
-		defer core.FinishBackup()
+	sess, err := core.BeginInstall(core.InstallOptions{ForceBackup: flagBackup})
+	if err != nil {
+		return err
 	}
+	defer sess.Finish()
 
 	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
-		err := m.Install()
-		if firstRun {
-			saveFirstRunConfig()
-		} else if core.ExtendedMode || core.ToolkitMode || core.WindevMode {
-			if err := core.SaveConfig(); err != nil {
-				core.Warn("failed to save config: %v", err)
-			}
-		}
-		return err
+		return m.Install(ctx)
 	}
 
 	// Default: spinner mode
@@ -507,71 +481,28 @@ func installOne(m core.Module) error {
 	sp.Update("Installing %s", m.Name())
 	sp.Start()
 
-	err := m.Install()
+	installErr := m.Install(ctx)
 	sp.Stop()
 
 	core.FlushWarnings()
 
-	if err != nil {
-		core.Err("%s: %v", m.Name(), err)
-		return err
+	if installErr != nil {
+		core.Err("%s: %v", m.Name(), installErr)
+		return installErr
 	}
 
-	if firstRun {
-		saveFirstRunConfig()
-	} else if core.ExtendedMode || core.ToolkitMode {
-		if err := core.SaveConfig(); err != nil {
-			core.Warn("failed to save config: %v", err)
-		}
-	}
-	if doBackup {
+	if sess.DidBackup() {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
 	core.PrintResult(1, 0)
 	return nil
 }
 
-// shouldBackup decides whether to create a backup and whether this is a first run.
-func shouldBackup() (doBackup bool, firstRun bool) {
-	if core.DryRun {
-		return false, false
-	}
-
-	// --backup flag always wins
-	if flagBackup {
-		return true, false
-	}
-
-	// No config file → first run, auto-backup
-	if !core.CfgFileExists {
-		core.Info("first run detected — creating automatic backup")
-		return true, true
-	}
-
-	// Config exists — respect skip_backup preference
-	if !core.Cfg.SkipBackup {
-		return true, false
-	}
-
-	return false, false
-}
-
-// saveFirstRunConfig writes the config with skip_backup: true after first-run auto-backup.
-func saveFirstRunConfig() {
-	if core.DryRun {
-		return
-	}
-	core.Cfg.SkipBackup = true
-	if err := core.SaveConfig(); err != nil {
-		core.Warn("failed to save config: %v", err)
-	} else {
-		core.Info("config saved: %s (skip_backup: true)", core.ConfigFilePath())
-	}
-}
-
-func uninstallAll() error {
+func uninstallAll(ctx context.Context) error {
 	all := core.AllModules()
 	total := len(all)
+
+	var failures []string
 
 	if core.Level >= core.LogVerbose {
 		for _, m := range all {
@@ -581,24 +512,24 @@ func uninstallAll() error {
 				continue
 			}
 			core.Info("--- %s ---", m.Name())
-			if err := u.Uninstall(); err != nil {
+			if err := u.Uninstall(ctx); err != nil {
 				core.Err("%s: %v", m.Name(), err)
+				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
-		return nil
+		return uninstallFailure(failures)
 	}
 
 	sp := core.NewSpinner()
 	sp.Start()
 
-	var failures []string
 	for i, m := range all {
 		u, ok := m.(core.Uninstaller)
 		if !ok {
 			continue
 		}
 		sp.Update("Uninstalling %s (%d/%d)", m.Name(), i+1, total)
-		if err := u.Uninstall(); err != nil {
+		if err := u.Uninstall(ctx); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 		}
 	}
@@ -610,10 +541,18 @@ func uninstallAll() error {
 	}
 
 	core.PrintResult(total, len(failures))
-	return nil
+	return uninstallFailure(failures)
 }
 
-func uninstallOne(m core.Module) error {
+// uninstallFailure turns collected per-module failures into a non-zero exit.
+func uninstallFailure(failures []string) error {
+	if len(failures) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d module(s) failed to uninstall", len(failures))
+}
+
+func uninstallOne(ctx context.Context, m core.Module) error {
 	u, ok := m.(core.Uninstaller)
 	if !ok {
 		core.Warn("%s does not support uninstall", m.Name())
@@ -621,14 +560,14 @@ func uninstallOne(m core.Module) error {
 	}
 
 	if core.Level >= core.LogVerbose {
-		return u.Uninstall()
+		return u.Uninstall(ctx)
 	}
 
 	sp := core.NewSpinner()
 	sp.Update("Uninstalling %s", m.Name())
 	sp.Start()
 
-	err := u.Uninstall()
+	err := u.Uninstall(ctx)
 	sp.Stop()
 
 	core.FlushWarnings()
@@ -643,73 +582,7 @@ func uninstallOne(m core.Module) error {
 }
 
 func runDiff() error {
-	all := core.AllModules()
-	var issues int
-
-	for _, m := range all {
-		if core.IsModuleSkipped(m.Name()) {
-			fmt.Printf("%-15s  skipped\n", m.Name())
-			continue
-		}
-
-		if le, ok := m.(core.LinkExporter); ok {
-			links := le.Links()
-			modOk := true
-			for _, lp := range links {
-				status := core.CheckLink(lp.Src, lp.Dst)
-				if status != "ok" {
-					if modOk {
-						fmt.Printf("%-15s\n", m.Name())
-						modOk = false
-					}
-					switch status {
-					case "missing":
-						fmt.Printf("  missing: %s\n", lp.Dst)
-					case "wrong":
-						fmt.Printf("  wrong target: %s\n", lp.Dst)
-					case "file":
-						fmt.Printf("  regular file (not symlinked): %s\n", lp.Dst)
-					}
-					issues++
-				}
-			}
-			if modOk {
-				fmt.Printf("%-15s  ok (%d links)\n", m.Name(), len(links))
-			}
-		} else {
-			s := m.Status()
-			if s.Missing > 0 {
-				fmt.Printf("%-15s  %d missing\n", m.Name(), s.Missing)
-				issues += s.Missing
-			} else {
-				extra := ""
-				if s.Extra != "" {
-					extra = " (" + s.Extra + ")"
-				}
-				fmt.Printf("%-15s  ok%s\n", m.Name(), extra)
-			}
-		}
-	}
-
-	fmt.Println()
-	if issues == 0 {
-		fmt.Println("No drift detected.")
-	} else {
-		fmt.Printf("%d issue(s) — run dfinstall install all to fix\n", issues)
-	}
-
-	// Flag the multi-clone case explicitly: symlinks split across dotfiles
-	// clones (each shows as a "wrong target" above, but the root cause is drift).
-	if d := core.DetectLinkDrift(); d.Split() {
-		fmt.Printf("\nSymlinks split across %d dotfiles clone(s):\n", len(d.Roots))
-		for _, root := range d.SortedRoots() {
-			marker := ""
-			if root == d.Canonical {
-				marker = " (canonical)"
-			}
-			fmt.Printf("  %s%s — %d link(s)\n", root, marker, len(d.Roots[root]))
-		}
-		fmt.Printf("Run 'dfinstall install all' from %s to consolidate.\n", d.Canonical)
-	}
+	modules.CollectDiff().Write(os.Stdout,
+		"run dfinstall install all to fix", "'dfinstall install all'")
 	return nil
 }

@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,7 +20,7 @@ func (ExtrasModule) Name() string { return "extras" }
 // writeFileAsRoot writes data to a root-owned file via a tmp-then-install
 // dance. Replaces the `cat <<EOF | sudo tee` pattern so the sudo invocation
 // goes through the proper sudo handling (spinner pause, stderr connected).
-func writeFileAsRoot(dst string, data []byte, mode os.FileMode) error {
+func writeFileAsRoot(ctx context.Context, dst string, data []byte, mode os.FileMode) error {
 	tmp, err := os.CreateTemp("", "dfinstall-asroot-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -36,7 +37,7 @@ func writeFileAsRoot(dst string, data []byte, mode os.FileMode) error {
 	}
 
 	modeStr := fmt.Sprintf("%#o", mode)
-	if err := runCmd("sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
+	if err := runCmd(ctx, "sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
 		return fmt.Errorf("install %s: %w", dst, err)
 	}
 	return nil
@@ -45,7 +46,7 @@ func writeFileAsRoot(dst string, data []byte, mode os.FileMode) error {
 // downloadAndInstallAsRoot fetches a URL to a temp file (as the user) then
 // installs it to a root-owned destination. Replaces the `curl | sudo tee`
 // pattern.
-func downloadAndInstallAsRoot(url, dst string, mode os.FileMode) error {
+func downloadAndInstallAsRoot(ctx context.Context, url, dst string, mode os.FileMode) error {
 	tmp, err := os.CreateTemp("", "dfinstall-dl-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -54,19 +55,19 @@ func downloadAndInstallAsRoot(url, dst string, mode os.FileMode) error {
 	tmp.Close()
 	defer os.Remove(tmpPath)
 
-	if err := runCmd("curl", "-fsSL", "-o", tmpPath, url); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, url); err != nil {
 		return fmt.Errorf("download %s: %w", url, err)
 	}
 
 	modeStr := fmt.Sprintf("%#o", mode)
-	if err := runCmd("sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
+	if err := runCmd(ctx, "sudo", "install", "-m", modeStr, "-o", "root", "-g", "root", tmpPath, dst); err != nil {
 		return fmt.Errorf("install %s: %w", dst, err)
 	}
 	return nil
 }
 
 // addAptRepo sets up a third-party apt repository if not already configured.
-func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
+func addAptRepo(ctx context.Context, name, keyURL, keyPath, repoContent, repoPath string) error {
 	if existing, err := os.ReadFile(repoPath); err == nil {
 		if strings.TrimSpace(string(existing)) == strings.TrimSpace(repoContent) {
 			core.Ok("%s repo already configured", name)
@@ -78,20 +79,20 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 	core.Info("Adding %s apt repository...", name)
 
 	// Download GPG key
-	if err := runCmd("sudo", "mkdir", "-p", filepath.Dir(keyPath)); err != nil {
+	if err := runCmd(ctx, "sudo", "mkdir", "-p", filepath.Dir(keyPath)); err != nil {
 		return fmt.Errorf("creating keyring dir: %w", err)
 	}
-	if err := downloadAndInstallAsRoot(keyURL, keyPath, 0644); err != nil {
+	if err := downloadAndInstallAsRoot(ctx, keyURL, keyPath, 0644); err != nil {
 		return fmt.Errorf("downloading %s GPG key: %w", name, err)
 	}
 
 	// Write repo file (heredoc preserves newlines in DEB822 format)
-	if err := writeFileAsRoot(repoPath, []byte(repoContent), 0644); err != nil {
+	if err := writeFileAsRoot(ctx, repoPath, []byte(repoContent), 0644); err != nil {
 		return fmt.Errorf("writing %s repo file: %w", name, err)
 	}
 
 	// Update apt
-	if err := aptUpdateWithRetry(); err != nil {
+	if err := aptUpdateWithRetry(ctx); err != nil {
 		return fmt.Errorf("apt update after adding %s repo: %w", name, err)
 	}
 
@@ -100,14 +101,18 @@ func addAptRepo(name, keyURL, keyPath, repoContent, repoPath string) error {
 }
 
 // dpkgInstalled checks if a Debian package is installed.
+// dpkgInstalled and pacmanInstalled are called from Status() as well as the
+// install path, so they have no context to inherit. runProbe/CommandContext
+// still bound them with ProbeTimeout, which is what stops a wedged dpkg from
+// hanging the run.
 func dpkgInstalled(pkg string) bool {
-	cmd := exec.Command("dpkg", "-s", pkg)
+	cmd := exec.CommandContext(context.Background(), "dpkg", "-s", pkg)
 	return cmd.Run() == nil
 }
 
 // pacmanInstalled checks if a pacman package is installed.
 func pacmanInstalled(pkg string) bool {
-	return exec.Command("pacman", "-Qi", pkg).Run() == nil
+	return exec.CommandContext(context.Background(), "pacman", "-Qi", pkg).Run() == nil
 }
 
 // pkgInstalled checks if a package is installed using the appropriate package manager.
@@ -144,7 +149,7 @@ func userInGroup(group string) bool {
 	return false
 }
 
-func (ExtrasModule) Install() error {
+func (ExtrasModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would install: CLI utils, Python tooling, Docker, Terraform")
 		return nil
@@ -177,7 +182,7 @@ func (ExtrasModule) Install() error {
 	if len(cliPkgs) == 0 {
 		core.Ok("All CLI utilities already installed")
 	} else {
-		if err := installPkg(cliPkgs...); err != nil {
+		if err := installPkg(ctx, cliPkgs...); err != nil {
 			core.Warn("Some CLI utils may have failed: %v", err)
 		}
 	}
@@ -185,7 +190,7 @@ func (ExtrasModule) Install() error {
 	// Update tldr page cache (best-effort — may fail on spotty networks)
 	if _, err := exec.LookPath("tldr"); err == nil {
 		core.Info("Updating tldr page cache...")
-		if _, err := exec.Command("tldr", "--update").CombinedOutput(); err != nil {
+		if _, err := exec.CommandContext(ctx, "tldr", "--update").CombinedOutput(); err != nil {
 			core.Info("tldr cache update skipped (network unavailable — run 'tldr --update' later)")
 		}
 	}
@@ -203,7 +208,7 @@ func (ExtrasModule) Install() error {
 	if len(pythonPkgs) == 0 {
 		core.Ok("Python tooling already installed")
 	} else {
-		if err := installPkg(pythonPkgs...); err != nil {
+		if err := installPkg(ctx, pythonPkgs...); err != nil {
 			core.Warn("Some Python packages may have failed: %v", err)
 		}
 		core.Ok("Python tooling done")
@@ -211,7 +216,7 @@ func (ExtrasModule) Install() error {
 
 	// --- Docker ---
 	core.Info("Installing Docker...")
-	if err := installDocker(); err != nil {
+	if err := installDocker(ctx); err != nil {
 		core.Warn("Docker setup failed: %v", err)
 	} else {
 		core.Ok("Docker done")
@@ -219,7 +224,7 @@ func (ExtrasModule) Install() error {
 
 	// --- Hashicorp / Terraform ---
 	core.Info("Installing Terraform...")
-	if err := installHashicorp(); err != nil {
+	if err := installHashicorp(ctx); err != nil {
 		core.Warn("Terraform setup failed: %v", err)
 	} else {
 		core.Ok("Terraform done")
@@ -228,11 +233,11 @@ func (ExtrasModule) Install() error {
 	return nil
 }
 
-func installDocker() error {
+func installDocker(ctx context.Context) error {
 	if core.IsArchBased() {
-		return installDockerPacman()
+		return installDockerPacman(ctx)
 	}
-	return installDockerApt()
+	return installDockerApt(ctx)
 }
 
 // DockerRepoBaseURL returns the Docker CE apt repo base for this distro family.
@@ -246,7 +251,7 @@ func DockerRepoBaseURL(ubuntuFamily bool) string {
 	return "https://download.docker.com/linux/debian"
 }
 
-func installDockerApt() error {
+func installDockerApt(ctx context.Context) error {
 	arch := runtime.GOARCH
 	codename := core.UpstreamDebianCodename()
 	base := DockerRepoBaseURL(core.IsUbuntuFamily())
@@ -258,7 +263,7 @@ Components: stable
 Architectures: %s
 Signed-By: /etc/apt/keyrings/docker.asc`, base, codename, arch)
 
-	if err := addAptRepo(
+	if err := addAptRepo(ctx,
 		"Docker",
 		base+"/gpg",
 		"/etc/apt/keyrings/docker.asc",
@@ -275,24 +280,24 @@ Signed-By: /etc/apt/keyrings/docker.asc`, base, codename, arch)
 	// docker-compose-plugin package also wants to install — dpkg refuses
 	// to overwrite, the install fails, and the apt cache is left dirty.
 	// Docker's own install docs require this removal step.
-	removeConflictingDockerPackages()
+	removeConflictingDockerPackages(ctx)
 
 	pkgs := []string{
 		"docker-ce", "docker-ce-cli", "containerd.io",
 		"docker-buildx-plugin", "docker-compose-plugin",
 	}
-	if err := installPkg(pkgs...); err != nil {
+	if err := installPkg(ctx, pkgs...); err != nil {
 		return fmt.Errorf("installing docker packages: %w", err)
 	}
 
-	addDockerGroup()
+	addDockerGroup(ctx)
 	return nil
 }
 
 // removeConflictingDockerPackages purges distro-shipped Docker packages
 // that overlap with Docker CE. Per Docker's official install instructions
 // for Debian/Ubuntu derivatives.
-func removeConflictingDockerPackages() {
+func removeConflictingDockerPackages(ctx context.Context) {
 	candidates := []string{
 		"docker.io",
 		"docker-compose",
@@ -313,21 +318,21 @@ func removeConflictingDockerPackages() {
 	}
 	core.Notice("Removing distro packages that conflict with Docker CE: %v", present)
 	args := append([]string{"sudo", "apt-get", "remove", "-y"}, present...)
-	if err := runCmd(args[0], args[1:]...); err != nil {
+	if err := runCmd(ctx, args[0], args[1:]...); err != nil {
 		core.Warn("conflict removal: %v (will try install anyway)", err)
 	}
 }
 
-func installDockerPacman() error {
-	if err := installPkg("docker", "docker-compose", "docker-buildx"); err != nil {
+func installDockerPacman(ctx context.Context) error {
+	if err := installPkg(ctx, "docker", "docker-compose", "docker-buildx"); err != nil {
 		return fmt.Errorf("installing docker packages: %w", err)
 	}
 
-	addDockerGroup()
+	addDockerGroup(ctx)
 	return nil
 }
 
-func addDockerGroup() {
+func addDockerGroup(ctx context.Context) {
 	if !userInGroup("docker") {
 		u, err := user.Current()
 		if err != nil {
@@ -335,7 +340,7 @@ func addDockerGroup() {
 			return
 		}
 		core.Info("Adding %s to docker group...", u.Username)
-		if err := runCmd("sudo", "usermod", "-aG", "docker", u.Username); err != nil {
+		if err := runCmd(ctx, "sudo", "usermod", "-aG", "docker", u.Username); err != nil {
 			core.Warn("Failed to add user to docker group: %v", err)
 		} else {
 			core.Ok("Added %s to docker group (log out and back in to take effect)", u.Username)
@@ -343,14 +348,14 @@ func addDockerGroup() {
 	}
 }
 
-func installHashicorp() error {
+func installHashicorp(ctx context.Context) error {
 	if core.IsArchBased() {
-		return installHashicorpBinary()
+		return installHashicorpBinary(ctx)
 	}
-	return installHashicorpApt()
+	return installHashicorpApt(ctx)
 }
 
-func installHashicorpApt() error {
+func installHashicorpApt(ctx context.Context) error {
 	arch := runtime.GOARCH
 
 	// The /gpg endpoint serves an ASCII-armored key, so it must land at a .asc
@@ -361,7 +366,7 @@ func installHashicorpApt() error {
 		arch, core.UpstreamDebianCodename(),
 	)
 
-	if err := addAptRepo(
+	if err := addAptRepo(ctx,
 		"Hashicorp",
 		"https://apt.releases.hashicorp.com/gpg",
 		"/usr/share/keyrings/hashicorp-archive-keyring.asc",
@@ -371,40 +376,44 @@ func installHashicorpApt() error {
 		return err
 	}
 
-	if err := installPkg("terraform"); err != nil {
+	if err := installPkg(ctx, "terraform"); err != nil {
 		return fmt.Errorf("installing terraform: %w", err)
 	}
 	return nil
 }
 
-func installHashicorpBinary() error {
+// terraformVersion is the release fetched by installHashicorpBinary. HashiCorp
+// publishes no "latest" alias on releases.hashicorp.com, so this is pinned and
+// must be bumped by hand.
+const terraformVersion = "1.9.8"
+
+func installHashicorpBinary(ctx context.Context) error {
 	if _, err := exec.LookPath("terraform"); err == nil {
 		core.Ok("Terraform already installed")
 		return nil
 	}
 
+	// Only these two are published for linux; anything else would build a URL
+	// that 404s with no explanation.
 	arch := runtime.GOARCH
-	if arch == "amd64" {
-		arch = "amd64"
-	} else if arch == "arm64" {
-		arch = "arm64"
+	if arch != "amd64" && arch != "arm64" {
+		return fmt.Errorf("no terraform binary published for %s", arch)
 	}
 
-	home, _ := os.UserHomeDir()
-	binDir := filepath.Join(home, ".local", "bin")
+	binDir := core.HomeTarget(".local", "bin")
 	if err := os.MkdirAll(binDir, 0755); err != nil {
 		return fmt.Errorf("creating bin dir: %w", err)
 	}
 
-	// Download latest terraform zip and extract to ~/.local/bin
-	url := fmt.Sprintf("https://releases.hashicorp.com/terraform/1.9.8/terraform_1.9.8_linux_%s.zip", arch)
+	// Download the pinned terraform zip and extract to ~/.local/bin
+	url := fmt.Sprintf("https://releases.hashicorp.com/terraform/%[1]s/terraform_%[1]s_linux_%[2]s.zip", terraformVersion, arch)
 	tmpZip := filepath.Join(os.TempDir(), "terraform.zip")
-	if err := runCmd("curl", "-fsSL", "-o", tmpZip, url); err != nil {
+	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpZip, url); err != nil {
 		return fmt.Errorf("downloading terraform: %w", err)
 	}
 	defer os.Remove(tmpZip)
 
-	if err := runCmd("unzip", "-o", tmpZip, "-d", binDir); err != nil {
+	if err := runCmd(ctx, "unzip", "-o", tmpZip, "-d", binDir); err != nil {
 		return fmt.Errorf("extracting terraform: %w", err)
 	}
 

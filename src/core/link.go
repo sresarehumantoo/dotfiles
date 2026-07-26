@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,9 @@ var DryRun bool
 // - Existing regular file -> backup via backup manager, then .bak fallback, then link
 // - Missing parent dirs -> create them
 func LinkFile(src, dst string) error {
+	if err := checkTarget(dst); err != nil {
+		return err
+	}
 	if DryRun {
 		Info("would link: %s -> %s", dst, src)
 		return nil
@@ -79,6 +83,9 @@ func CheckLink(src, dst string) string {
 
 // EnsureDir creates a directory (and parents) if it doesn't exist.
 func EnsureDir(dir string) error {
+	if err := checkTarget(dir); err != nil {
+		return err
+	}
 	if DryRun {
 		Debug("would create dir: %s", dir)
 		return nil
@@ -89,6 +96,10 @@ func EnsureDir(dir string) error {
 // UnlinkFile removes the symlink at dst only if it points to src.
 // Returns nil if dst is missing, not a symlink, or points elsewhere (with warning).
 func UnlinkFile(src, dst string) error {
+	if err := checkTarget(dst); err != nil {
+		return err
+	}
+
 	fi, err := os.Lstat(dst)
 	if os.IsNotExist(err) {
 		return nil
@@ -131,14 +142,48 @@ func ConfigPath(parts ...string) string {
 }
 
 // HomeTarget returns a path under $HOME.
+//
+// Returns "" when the home directory can't be resolved, rather than the
+// relative path filepath.Join would produce from an empty home — that would
+// silently retarget every managed file at the current working directory.
+// checkTarget rejects the empty result at each operation.
 func HomeTarget(parts ...string) string {
-	home, _ := os.UserHomeDir()
-	args := append([]string{home}, parts...)
-	return filepath.Join(args...)
+	home, err := HomeDir()
+	if err != nil {
+		warnNoHome(err)
+		return ""
+	}
+	return filepath.Join(append([]string{home}, parts...)...)
 }
 
-// XDGTarget returns a path under $XDG_CONFIG_HOME.
+// checkTarget rejects paths we must never act on. A path assembled from an
+// unresolved $HOME comes out relative, so refusing non-absolute targets stops
+// a link, unlink, or delete from landing in the current working directory.
+func checkTarget(path string) error {
+	if path == "" {
+		return errors.New("empty target path (home directory unresolved?)")
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("refusing to operate on non-absolute path %q", path)
+	}
+	return nil
+}
+
+// RemoveManagedDir removes a directory dfinstall owns, refusing anything that
+// isn't an absolute path.
+func RemoveManagedDir(path string) error {
+	if err := checkTarget(path); err != nil {
+		return err
+	}
+	return os.RemoveAll(path)
+}
+
+// XDGTarget returns a path under $XDG_CONFIG_HOME. Empty when the config home
+// can't be resolved, for the same reason as HomeTarget.
 func XDGTarget(parts ...string) string {
-	args := append([]string{XDGConfigHome()}, parts...)
-	return filepath.Join(args...)
+	base := XDGConfigHome()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{base}, parts...)...)
 }
