@@ -59,13 +59,20 @@ if command -v asciinema &>/dev/null; then
   }
 fi
 
-# agg re-renders the *text* of a cast, so it uses its own font, not the
-# terminal's — default is DejaVu Sans Mono here. Match the terminal instead.
-# The fallback entries are load-bearing: a font-family that resolves to nothing
-# is a hard error ("no faces matching font family options"), not a fallback.
-# Note --font-size is omitted deliberately; agg's default is already 16.
+# agg re-renders the *text* of a cast, so it picks its own font rather than the
+# terminal's. Do NOT point it at the Ghostty font ("Hack Nerd Font"): agg
+# measures glyph advances itself and rejects the patched Nerd variants with
+#   [WARN agg] first font family "Hack Nerd Font" is not monospaced;
+#              terminal cell metrics may be incorrect
+# and then renders overlapping cells — a command and its output run together on
+# one line. fontconfig disagrees (it reports spacing=100), so this is only
+# visible in agg's own warning, on stderr.
+#
+# agg's default list already resolves to a real monospace face and still renders
+# Nerd Font glyphs through fallback, so no --font-family is the correct answer.
+# --font-size is omitted for a duller reason: agg's default is already 16.
 if command -v agg &>/dev/null; then
-  alias render="agg --font-family 'Hack Nerd Font,DejaVu Sans Mono,Liberation Mono'"
+  alias render="agg"
 fi
 
 # Navigation
