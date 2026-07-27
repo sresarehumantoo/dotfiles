@@ -740,23 +740,39 @@ cmd_render() {
     # starts after the file does; `lag` is that difference, and both cuts are
     # corrected by it rather than trusting the clock.
     if [[ -n "$SHUTDOWN" ]]; then
-        local dur lag
+        local dur lag keep
         dur="$("$ff" -v error -i "$in_arg" -f null - -progress pipe:1 -nostats 2>/dev/null \
                | awk -F= '/^out_time_ms=/{t=$2} END{ if (t) printf "%.3f", t/1000000 }')"
-        if [[ -n "$dur" ]]; then
-            # Content ends where the recorder was told to stop, not where it did.
+
+        # Guard: a hard-killed fragmented mp4 does not always measure cleanly,
+        # and every cut here is derived from this number. Trimming on a bad
+        # measurement produced one-second clips out of real recordings, so an
+        # implausible duration means no automatic cutting at all. Losing the
+        # trim is a blemish; losing the recording is not recoverable.
+        if [[ -z "$dur" ]] || ! awk -v d="${dur:-0}" 'BEGIN{ exit !(d >= 2) }'; then
+            [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+                warn "debug: duration unmeasurable (${dur:-none}) — cutting nothing"
+            TRIM=0
+        else
             ENDCUT="$(awk -v d="$dur" -v s="$SHUTDOWN" -v t="$TAIL" \
                 'BEGIN{ e = d - s - t + 0.6; if (e > d) e = d; if (e < 0.5) e = 0.5; printf "%.3f", e }')"
-            # Wall seconds that never made it into the clip; the countdown was
-            # partly or wholly among them, so trim by whatever is left of it.
             if [[ -n "$ELAPSED" ]] && gt0 "$TRIM"; then
                 lag="$(awk -v e="$ELAPSED" -v d="$dur" -v s="$SHUTDOWN" \
                     'BEGIN{ l = e - (d - s); if (l < 0) l = 0; printf "%.3f", l }')"
                 TRIM="$(awk -v t="$TRIM" -v l="$lag" \
                     'BEGIN{ v = t - l; if (v < 0) v = 0; printf "%.3f", v }')"
             fi
+
+            # Second guard: whatever the arithmetic says, refuse to throw away
+            # most of the recording unless it was asked for explicitly.
+            keep="$(awk -v e="$ENDCUT" -v t="$TRIM" 'BEGIN{ printf "%.3f", e - t }')"
+            if ! gt0 "$TAIL" && awk -v k="$keep" -v d="$dur" 'BEGIN{ exit !(k < d * 0.5) }'; then
+                [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+                    warn "debug: cuts would keep only ${keep}s of ${dur}s — cutting nothing"
+                ENDCUT=""; TRIM=0
+            fi
             [[ -n "${DEMOREC_DEBUG:-}" ]] && \
-                warn "debug: raw=${dur}s shutdown=${SHUTDOWN}s elapsed=${ELAPSED}s lag=${lag:-0}s -> trim=$TRIM end=$ENDCUT"
+                warn "debug: raw=${dur}s shutdown=${SHUTDOWN}s elapsed=${ELAPSED}s lag=${lag:-0}s -> trim=$TRIM end=${ENDCUT:-none}"
         fi
     fi
 
