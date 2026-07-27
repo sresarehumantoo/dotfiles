@@ -97,6 +97,13 @@ func (s *InstallSession) DidBackup() bool { return s.doBackup }
 // persisted state alone. Without it a failed first run still writes
 // skip_backup: true, and the next run — the one that actually replaces the
 // user's dotfiles — silently takes no backup.
+//
+// **Every install path must call this on its error path**, including the
+// install-all loops, which must call it when *any* module failed. The
+// asymmetry is deliberate: an unnecessary extra backup costs some disk, a
+// missing one costs the user's dotfiles. `install all` was missed when this
+// was introduced, so a first run where every module failed still disarmed the
+// backup.
 func (s *InstallSession) MarkFailed() { s.failed = true }
 
 // Finish closes the backup, persists config, and releases the install lock.

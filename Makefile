@@ -4,7 +4,12 @@ BUILD_DIR  := bin
 SRC_DIR    := src/cmd/dfinstall
 MCP_SRC    := src/cmd/mcp
 GO         := go
-LDFLAGS    := -X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(CURDIR)
+# Derived from the tag so the version a binary reports can't drift from the
+# release it was built at. Falls back to the short SHA on an untagged tree, and
+# to "dev" outside a git checkout.
+VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS    := -X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(CURDIR) \
+              -X github.com/sresarehumantoo/dotfiles/src/core.Version=$(VERSION)
 LOCAL_BIN  := $(HOME)/.local/bin
 
 .DEFAULT_GOAL := help

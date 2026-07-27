@@ -159,7 +159,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `uninstall <module\|all>` | Remove symlinks created by dfinstall |
 | `diff` | Show drift between config and filesystem |
 | `status` | Print table of link counts per module |
-| `doctor` | Run 25+ health checks |
+| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL, alias collisions) |
 | `restore [timestamp]` | Restore files from a backup snapshot |
 | `root` | Symlink configs into `/root/` via sudo |
 | `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
@@ -187,8 +187,10 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | *(none)* | `LogQuiet` | Animated spinner, suppressed detail |
 | `-v` / `--verbose` | `LogVerbose` | Full `[info]` `[ok]` `[warn]` `[err]` output |
 | `--debug` | `LogDebug` | Verbose + `[debug]` messages |
+| `--dry-run` | forces `LogVerbose` | Preview changes without modifying the filesystem (sets `core.DryRun`) |
+| `--version` | — | Print the binary's version (`core.Version`, stamped from `git describe` via the Makefile's `-ldflags`; `"dev"` for a plain `go build`) |
 
-Flags are persistent (apply to all subcommands). The level is set in `PersistentPreRun` and stored in `core.Level`.
+`-v`/`--verbose`, `--debug` and `--dry-run` are persistent (apply to all subcommands). The level is set in `PersistentPreRun` and stored in `core.Level`. `--version` is Cobra's built-in flag, enabled by setting `Version` on the root command.
 
 ## Output System
 
@@ -313,8 +315,9 @@ Git Bash is **rejected** (via `AssertEnvironment()`) with an error pointing the 
 | `CanonicalPointerPath()` | `$XDG_CONFIG_HOME/dfinstall/dotfiles-dir` (lives outside any clone) |
 | `ReadCanonicalDir()` | Return the recorded canonical dir, or `""` if unset/unreadable — **self-healing**: a stale path (clone deleted/renamed, no `config/` dir) is ignored, so `DotfilesDir()` falls through and the next `install all` rewrites it |
 | `WriteCanonicalDir(dir)` | Record `dir` atomically (temp file + rename) |
+| `AdoptCanonical(dir)` | Record `dir` as canonical if it isn't already and reset the cached `DotfilesDir()`; returns `(prev string, changed bool)` |
 
-`install all` calls `adoptCanonical()` first: it records the invoking clone as canonical, then the module loop repoints any stray symlinks — so `install all` both switches the canonical clone and consolidates a machine onto it. A partial `install <module>` links into the canonical clone (not necessarily the one you're sitting in) and `AlwaysWarn()`s if those differ.
+For an `install all`, `core.BeginInstall` (`core/install_session.go`) calls `AdoptCanonical()` before the module loop — and only when not under `--dry-run`, since the pointer is machine-global and a preview must change nothing (it records `CanonicalPrev`/`CanonicalNow` on the session instead). It records the invoking clone as canonical, then the module loop repoints any stray symlinks — so `install all` both switches the canonical clone and consolidates a machine onto it. A partial `install <module>` links into the canonical clone (not necessarily the one you're sitting in) and `AlwaysWarn()`s if those differ.
 
 ### Link Drift Detection
 
@@ -375,8 +378,8 @@ Tool names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. The cache is aut
 
 | Function | Purpose |
 |----------|---------|
-| `DetectVirt()` | Returns a `VirtType` — prefers `systemd-detect-virt`, falls back to DMI inspection (`/sys/class/dmi/id/`) for minimal images |
-| `IsVM()` | True only for hardware-virtualized guests (excludes containers and WSL) |
+| `DetectVirt(ctx)` | Returns a `VirtType` — prefers `systemd-detect-virt` (under a `ProbeTimeout` derived from `ctx`), falls back to DMI inspection (`/sys/class/dmi/id/`) for minimal images |
+| `IsVM(ctx)` | True only for hardware-virtualized guests (excludes containers and WSL) |
 | `IsHardwareVirt(v)` | Shared predicate for "is this a true VM that benefits from guest tools" |
 | `ParseSystemdVirt(s)` / `ParseDMIVendor(v, p)` | Exported parsers for testing |
 
@@ -399,7 +402,7 @@ The `vmguest` module (`modules/vmguest.go`) uses this: on a hardware VM it insta
 | `dismissed_files` | []string | *(empty)* | Custom shell files the user chose not to preserve (prevents re-prompting) |
 | `skip_modules` | []string | *(empty)* | Modules to skip during `install all` (machine profiles) |
 | `toolkit_tools` | []string | *(empty)* | Toolkit tools selected via `--toolkit` |
-| `windev_enabled` | bool | Whether the opt-in windev module is enabled (drives `core.SkipInAll`) |
+| `windev_enabled` | bool | `false` | Whether the opt-in windev module is enabled (drives `core.SkipInAll`) |
 | `toolkit_registry_url` | string | *(empty)* | Custom toolkit registry URL override |
 
 ### Auto-Backup Logic
@@ -478,8 +481,11 @@ Individual failures are warned but don't stop the restore. A summary error is re
 ## Subprocess Execution
 
 `core/exec.go` defines the deadlines; `modules/packages.go` provides the wrappers.
-**Every** subprocess goes through one of them — there are no raw `exec.Command`
-calls in `src/`.
+
+The rule is that **every** subprocess is cancellable: `src/` contains no
+`exec.Command` calls at all, only `exec.CommandContext`, so a Ctrl-C (or an MCP
+request cancellation) tears down whatever is running. The three wrappers below
+are how a command *additionally* gets a deadline.
 
 | Wrapper | Deadline | For |
 |---------|----------|-----|
@@ -495,6 +501,30 @@ out but Ctrl-C, and under the MCP server there is no terminal to Ctrl-C from.
 `runCmd` also owns output routing (straight to the terminal under `-v`,
 otherwise captured and replayed on failure), spinner pausing, and sudo TTY
 teeing. Building an `exec.Cmd` by hand loses all of that.
+
+### Direct `exec.CommandContext` call sites
+
+A handful of short-lived local commands still call `exec.CommandContext`
+directly. They inherit the caller's context (so they remain cancellable) but get
+**no** timeout of their own:
+
+| Site | Command |
+|------|---------|
+| `modules/fonts.go` | `curl` (Nerd Font download), `unzip`, `fc-cache` |
+| `modules/extras.go` | `tldr --update` |
+| `modules/wsl.go` | `git config --global` (×2) |
+| `modules/tmux.go` | `tmux start-server` |
+| `modules/defaultshell.go` | `chsh` |
+
+`chsh` is deliberate: it prompts for the user's password, so it needs
+`os.Stdin`/`os.Stdout`/`os.Stderr` wired straight to the terminal, which is
+exactly what `runCmd`'s capture-and-replay routing takes away. The rest are candidates for a
+wrapper — the `curl` in `fonts.go` most of all, since it is the one that talks
+to the network and so is the one that can actually hang.
+
+Not every direct call site is unbounded, though: `core/virt.go`'s
+`systemd-detect-virt` probe and the sudo probes in `core/env.go` derive their own
+`ProbeTimeout` context before spawning.
 
 ## Install Session
 

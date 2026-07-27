@@ -22,7 +22,9 @@ If `locale-gen` is missing, installs the `locales` package first. Then uncomment
 
 Installs core system packages using the detected package manager (apt-get, dnf, pacman, or brew).
 
-**Packages:** git, zsh, curl, wget, htop, neovim, tmux, nodejs, npm, python3, golang, zsh-syntax-highlighting
+**Packages:** git, zsh, curl, wget, htop, rsync, tmux, nodejs, npm, python3, golang, locales, zsh-syntax-highlighting
+
+Neovim is deliberately **not** installed here — apt's neovim is too old (Debian stable ships 0.7–0.10, telescope.nvim needs >= 0.11), so the nvim module installs the official prebuilt tarball instead.
 
 Skips packages that are already installed. External command output is suppressed in default mode (shown with `-v`). Spinner pauses automatically for sudo password prompts.
 
@@ -53,7 +55,7 @@ Reads `/etc/os-release` for `VERSION_CODENAME` to construct apt repo URLs.
 
 After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
 
-**Status:** Checks 19 binaries/packages.
+**Status:** Checks 18 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, and terraform).
 
 ---
 
@@ -254,7 +256,7 @@ See [Devtools Scripts](devtools.md) for detailed script documentation.
 
 ## git
 
-**File:** `modules/git.go`
+**File:** `modules/gitmod.go`
 
 Symlinks `config/git/gitconfig` to `~/.gitconfig`.
 
@@ -276,17 +278,22 @@ Key settings:
 
 Sets up a full Neovim configuration under `~/.config/nvim/`:
 
-- **20 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
+- **21 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
 - **Plugin sync:** Runs `nvim --headless "+Lazy! sync" "+qa"` after linking
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
 
 Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
-**Custom plugins:** colorizer, comment, flash, harpoon, markdown, oil, undotree
+**Custom plugins:** colorizer, comment, flash, harpoon, markdown, oil, smear-cursor, undotree
+
+smear-cursor draws a cursor trail inside nvim. It disables itself when running under
+Ghostty, whose `custom-shader` already draws one across the whole terminal — otherwise the
+two stack into a double trail. Set `DF_SMEAR_CURSOR=1` to force it on anyway, or `0` to
+force it off on a terminal without its own trail.
 
 **Kickstart plugins:** autopairs, debug, gitsigns, indent_line, lint, neo-tree
 
-**Status:** Checks 20 symlinks.
+**Status:** Checks 21 symlinks.
 
 ---
 
@@ -396,9 +403,21 @@ Symlinks Konsole terminal configuration:
 
 **File:** `modules/ghostty.go`
 
-Symlinks `config/ghostty/config` to `$XDG_CONFIG_HOME/ghostty/config`.
+Symlinks `config/ghostty/config` to `$XDG_CONFIG_HOME/ghostty/config`, plus the three
+cursor-trail shaders in `config/ghostty/shaders/*.glsl` (vendored from
+[sahaj-b/ghostty-cursor-shaders](https://github.com/sahaj-b/ghostty-cursor-shaders), MIT).
+The config selects one via `custom-shader`; `cursor_warp.glsl` is the active default.
 
-**Status:** Checks 1 symlink.
+The whole module no-ops when `ghostty` isn't on `PATH` — including `Status()`, which
+reports nothing rather than "missing".
+
+Because Ghostty resolves a relative `custom-shader` against the config file's *resolved*
+path, a symlinked config loads the shader straight out of the repo, so editing a `.glsl` is
+live on the next Ghostty restart with no `dfinstall` run. The `shaders/` symlinks are
+insurance for the case where that config is ever a real file. Config changes need a
+restart, not just a reload.
+
+**Status:** Checks 4 symlinks.
 
 ---
 
@@ -438,7 +457,7 @@ Uses `cmd.exe` and `wslpath` for Windows path resolution. Prompts the user to re
 
 **File:** `modules/vmguest.go`
 
-Installs hypervisor guest tools when running inside a hardware VM. Skips entirely on WSL and on systems that aren't VMs. Detects the hypervisor type via `core.DetectVirt()` and installs the matching packages:
+Installs hypervisor guest tools when running inside a hardware VM. Skips entirely on WSL and on systems that aren't VMs. Detects the hypervisor type via `core.DetectVirt(ctx)` and installs the matching packages:
 
 | Hypervisor | Packages |
 |------------|----------|
@@ -457,8 +476,8 @@ After installing, enables/starts the relevant systemd units (`qemu-guest-agent`,
 
 **File:** `modules/defaultshell.go`
 
-Sets zsh as the default login shell via `chsh -s $(which zsh)`. Skips if `$SHELL` already ends with `zsh`.
+Sets zsh as the default login shell via `chsh -s $(which zsh)`. Skips if `$SHELL` is exactly the zsh path resolved from `$PATH` — a `$SHELL` of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
 
-Runs with stdin/stdout attached (may prompt for password).
+If no sudo password was captured at startup and the session is non-interactive (e.g. under the MCP server, where stdin is the JSON-RPC stream), it warns with the `chsh -s <path>` command to run and does nothing. When a sudo password is available it runs `chsh` through `core.SudoCmd` with no stdin wiring; only the interactive fallback attaches stdin/stdout and may prompt for a password.
 
 **Status:** Reports "zsh" if default, or the current shell path.

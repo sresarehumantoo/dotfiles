@@ -119,6 +119,30 @@ vim.api.nvim_create_autocmd('TextYankPost', {
   end,
 })
 
+-- 'formatoptions' carries r/o, so <CR> in insert and o/O in normal continue the
+-- comment leader — handy right up until you change your mind and are left with a
+-- bare `//`. Clear a line holding nothing but indent + leader when insert ends.
+-- Mid-typing the fastest escape is still <C-u>, which wipes back to the indent.
+vim.api.nvim_create_autocmd('InsertLeave', {
+  desc = 'Drop a line left holding only an auto-inserted comment leader',
+  group = vim.api.nvim_create_augroup('custom-strip-empty-comment', { clear = true }),
+  callback = function()
+    local cms = vim.bo.commentstring
+    if cms == '' then
+      return
+    end
+    -- '// %s' -> '//', '/* %s */' -> '/*'
+    local leader = vim.trim((cms:gsub('%%s.*', '')))
+    if leader == '' then
+      return
+    end
+    if vim.api.nvim_get_current_line():match('^%s*' .. vim.pesc(leader) .. '%s*$') then
+      vim.api.nvim_set_current_line ''
+      vim.api.nvim_win_set_cursor(0, { vim.api.nvim_win_get_cursor(0)[1], 0 })
+    end
+  end,
+})
+
 -- [[ Tmux status bar: collapse fancy gap while in nvim ]]
 if vim.env.TMUX then
   local tmux_group = vim.api.nvim_create_augroup('tmux-status-toggle', { clear = true })
