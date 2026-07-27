@@ -8,9 +8,13 @@
 #
 # Capture is necessarily platform-specific, rendering is not:
 #
-#   GNOME/Wayland  org.gnome.Shell.Screencast over D-Bus. ffmpeg cannot do this
-#                  itself — its pipewiregrab is an unmerged RFC, so there is no
-#                  native Wayland capture in any stable release.
+#   wlroots        wf-recorder, via the wlr-screencopy protocol. sway, Hyprland,
+#                  Wayfire and river implement it; this is by far the simplest
+#                  of the three backends.
+#   GNOME/Wayland  org.gnome.Shell.Screencast over D-Bus. Mutter is not wlroots
+#                  and does not implement wlr-screencopy, so wf-recorder cannot
+#                  work there. ffmpeg cannot do it either — its pipewiregrab is
+#                  an unmerged RFC, absent from every stable release.
 #   WSL            ffmpeg.exe via interop using the ddagrab (Desktop Duplication)
 #                  source filter. Nothing inside WSL can capture: WSLg is Weston
 #                  with a RAIL shell, so there is no wlr-screencopy, no portal,
@@ -69,9 +73,22 @@ usage() {
 }
 
 # ── Backend detection ────────────────────────────────────────────
+# Compositors implementing wlr-screencopy, which is what wf-recorder needs.
+# Checked before GNOME: these are mutually exclusive sessions, and a wlroots
+# session must not fall through to the D-Bus path, which would fail confusingly.
+wlroots_session() {
+    [[ -n "${SWAYSOCK:-}" || -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && return 0
+    case "${XDG_CURRENT_DESKTOP,,}" in
+        *sway*|*hyprland*|*wayfire*|*river*) return 0 ;;
+    esac
+    return 1
+}
+
 detect_backend() {
     if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
         echo "wsl"
+    elif wlroots_session; then
+        echo "wlroots"
     elif gdbus introspect --session --dest org.gnome.Shell.Screencast \
             --object-path /org/gnome/Shell/Screencast &>/dev/null; then
         echo "gnome"
@@ -114,7 +131,7 @@ if not ok:
     sys.exit(1)
 
 with open(state, "w") as fh:
-    fh.write("backend=gnome\npid=%d\nfile=%s\n" % (os.getpid(), name))
+    fh.write("backend=gnome\npid=%d\nfile=%s\nsignal=TERM\n" % (os.getpid(), name))
 
 loop = GLib.MainLoop()
 
@@ -153,10 +170,55 @@ cmd_start() {
     done
 
     case "$(detect_backend)" in
-        gnome) start_gnome "$base" ;;
-        wsl)   start_wsl   "$base" ;;
-        none)  die "No supported capture backend (need GNOME/Wayland or WSL interop)." ;;
+        gnome)   start_gnome   "$base" ;;
+        wlroots) start_wlroots "$base" ;;
+        wsl)     start_wsl     "$base" ;;
+        none)    die "No supported capture backend (need wlroots, GNOME/Wayland, or WSL interop)." ;;
     esac
+}
+
+# NOTE: untested at runtime. Flags verified against the upstream manpage and the
+# binary's own parser, but never run in a real wlroots session.
+start_wlroots() {
+    local base="$1"
+    command -v wf-recorder &>/dev/null \
+        || die "wf-recorder is not installed (apt install wf-recorder)."
+
+    local out="$base.mp4"
+    local args=(-f "$out")
+
+    # Damage tracking is on by default (i.e. no -D): wf-recorder asks the
+    # compositor for a frame only when the screen actually changes, which is
+    # already variable-rate and much smaller than GNOME's fixed-QP stream.
+    # Do NOT pass -r: that forces a hard CFR by *duplicating* frames, throwing
+    # the saving away. -B is the framerate hint that preserves VFR.
+    args+=(-B "$FPS")
+
+    if [[ -n "$AREA" ]]; then
+        # demorec takes X,Y,W,H; wf-recorder wants "x,y WxH".
+        IFS=, read -r ax ay aw ah <<<"$AREA"
+        args+=(-g "$ax,$ay ${aw}x${ah}")
+    fi
+
+    (( CURSOR )) || warn "wf-recorder has no cursor option; the pointer will be included."
+
+    nohup wf-recorder "${args[@]}" >"$LOG_FILE" 2>&1 &
+    local pid=$!
+
+    # wf-recorder exits immediately if the compositor lacks wlr-screencopy, so
+    # a short grace period turns that into a real error rather than a dead
+    # session file the user only discovers at stop time.
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        err "wf-recorder failed to start:"
+        sed 's/^/      /' "$LOG_FILE" >&2 || true
+        exit 1
+    fi
+
+    # SIGINT, not SIGTERM: wf-recorder finalises the file on interrupt.
+    printf 'backend=wlroots\npid=%s\nfile=%s\nsignal=INT\n' "$pid" "$out" >"$STATE_FILE"
+    ok "Recording — $out"
+    info "Stop with: demorec stop"
 }
 
 start_gnome() {
@@ -222,7 +284,7 @@ start_wsl() {
     # Hold the FIFO open so ffmpeg does not see EOF and exit immediately.
     exec 9>"$fifo"
 
-    printf 'backend=wsl\npid=%s\nfile=%s\nfifo=%s\n' "$pid" "$out" "$fifo" >"$STATE_FILE"
+    printf 'backend=wsl\npid=%s\nfile=%s\nfifo=%s\nsignal=TERM\n' "$pid" "$out" "$fifo" >"$STATE_FILE"
     ok "Recording — $out"
     info "Stop with: demorec stop"
 }
@@ -231,16 +293,20 @@ start_wsl() {
 cmd_stop() {
     [[ -f "$STATE_FILE" ]] || die "No recording in progress."
 
-    local backend pid file fifo
+    local backend pid file fifo signal
     backend="$(sed -n 's/^backend=//p' "$STATE_FILE")"
     pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
     file="$(sed -n 's/^file=//p' "$STATE_FILE")"
     fifo="$(sed -n 's/^fifo=//p' "$STATE_FILE")"
+    # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
+    # property of the backend rather than a constant.
+    signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
+    signal="${signal:-TERM}"
 
     if [[ "$backend" == "wsl" && -n "$fifo" && -p "$fifo" ]]; then
         printf 'q' >"$fifo" 2>/dev/null || true
     fi
-    kill -TERM "$pid" 2>/dev/null || true
+    kill -"$signal" "$pid" 2>/dev/null || true
 
     local waited=0
     while kill -0 "$pid" 2>/dev/null; do

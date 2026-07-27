@@ -362,10 +362,28 @@ size pass, not the fidelity pass). A failed render never deletes the raw.
 
 **Capture is platform-specific; rendering is not.**
 
-| | Backend |
-|---|---|
-| GNOME/Wayland | `org.gnome.Shell.Screencast` over D-Bus |
-| WSL | `ffmpeg.exe` via interop, `ddagrab` source filter |
+| Session | Backend | Stop signal |
+|---|---|---|
+| wlroots (sway, Hyprland, Wayfire, river) | `wf-recorder` via `wlr-screencopy` | `SIGINT` |
+| GNOME/Wayland | `org.gnome.Shell.Screencast` over D-Bus | `SIGTERM` |
+| WSL | `ffmpeg.exe` via interop, `ddagrab` source filter | `SIGTERM` |
+
+The wlroots path is the simplest of the three and produces the smallest raw
+capture: wf-recorder's default damage tracking asks the compositor for a frame
+only when the screen actually changes, so the file is already variable-rate
+before `render` touches it. Two flags matter and are easy to get backwards —
+`-r` forces a *constant* framerate by duplicating frames, which throws that
+saving away, so demorec passes `-B` (the framerate hint that preserves VFR)
+instead. wf-recorder also has **no cursor option at all**, so `--no-cursor` is
+warned about rather than honoured there, and it finalises on **SIGINT** while
+ignoring SIGTERM — hence the per-backend stop signal recorded in the session
+file.
+
+Detection order is WSL, then wlroots, then GNOME. wlroots is checked before
+GNOME so a sway session cannot fall through to the D-Bus path, which would fail
+confusingly. Mutter is not wlroots and does not implement `wlr-screencopy`, so
+wf-recorder cannot work under GNOME — it exits immediately with `compositor
+doesn't support wlr-screencopy-unstable-v1`.
 
 ffmpeg cannot capture on Wayland itself — its `pipewiregrab` is an unmerged RFC,
 absent from every stable release. And nothing *inside* WSL can capture at all:
@@ -405,6 +423,13 @@ fires on movement rather than blink.
 
 > The WSL backend is **untested** — written from the `ddagrab` docs and interop
 > behaviour, but never exercised on a real WSL box. Verify before relying on it.
+>
+> The wlroots backend has **not been run in a real wlroots session** either, but
+> less of it is guesswork: the argument vector was executed against the real
+> wf-recorder binary (0.5.0), which accepted every flag and the geometry string
+> and failed only at `wlr-screencopy`, and the start-failure path, backend
+> detection, missing-binary message and cursor warning were all driven on GNOME.
+> What remains unverified is a successful recording and the SIGINT finalise.
 
 ---
 
