@@ -523,21 +523,26 @@ cmd_stop() {
     rm -f "$STATE_FILE"
 
     if [[ -f "$file" ]]; then
-        ok "Saved $file ($(du -h "$file" | cut -f1))"
+        local size; size="$(du -h "$file" | cut -f1)"
         if (( RENDER )); then
+            # Deliberately no path here: with --render this file is about to be
+            # deleted, and printing it invited copying a path that no longer
+            # exists. Only paths that survive the command get printed.
+            info "Captured $size"
             local small="${file%.*}-small.mp4"
             # If ffmpeg fails, set -e aborts here and the raw is left untouched —
             # the delete below is only ever reached on a real output file.
             cmd_render "$file" "$small"
             if (( KEEP_RAW )); then
-                info "Kept raw capture: $file"
+                info "Raw capture kept: $file"
             elif [[ -s "$small" ]]; then
                 rm -f "$file"
-                info "Discarded raw capture (--keep-raw to retain it)"
+                info "Raw capture discarded (--keep-raw to retain it)"
             else
-                warn "Render produced no output; keeping raw capture."
+                warn "Render produced no output; raw capture kept: $file"
             fi
         else
+            ok "Saved $file ($size)"
             info "Shrink it with: demorec render \"$file\""
         fi
     else
