@@ -328,7 +328,9 @@ cmd_start() {
     # Anchor for the end cut. The video's t=0 is roughly now, so stop can work
     # out where in the clip it was invoked and discard everything after that:
     # the stop command being typed, and however long the recorder takes to die.
-    printf 'started=%s\n' "$(date +%s)" >>"$STATE_FILE"
+    # Sub-second resolution matters — whole seconds alone could misplace the cut
+    # by nearly a second, and it only ever erred towards cutting real content.
+    printf 'started=%s\n' "$(date +%s.%N)" >>"$STATE_FILE"
 
     run_countdown
 }
@@ -586,10 +588,14 @@ cmd_stop() {
     # Work out the cut point *before* stopping anything: the clip should end
     # where the demo did, not where the recorder finally exited. --tail removes
     # a little more, for the seconds spent typing the stop command itself.
+    # The grace deliberately leans towards keeping a moment of the stop command
+    # rather than clipping the end of the demo: a stray keystroke on screen is a
+    # nuisance, a truncated final command is a lost recording. --tail trims it
+    # back for anyone who would rather have it tight.
     local started; started="$(sed -n 's/^started=//p' "$STATE_FILE")"
     if [[ -n "$started" ]]; then
-        ENDCUT="$(awk -v s="$started" -v n="$(date +%s)" -v t="$TAIL" \
-            'BEGIN{ e = n - s - t; if (e < 0.5) e = 0.5; print e }')"
+        ENDCUT="$(awk -v s="$started" -v n="$(date +%s.%N)" -v t="$TAIL" \
+            'BEGIN{ e = n - s - t + 0.6; if (e < 0.5) e = 0.5; printf "%.3f", e }')"
     fi
     # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
     # property of the backend rather than a constant.
