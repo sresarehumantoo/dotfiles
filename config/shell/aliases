@@ -20,6 +20,54 @@ elif command -v xsel &>/dev/null; then
   alias clip="xsel --clipboard --input"
 fi
 
+# Terminal recording (asciinema) → GIF (agg)
+# `asciinema rec` with no filename records to a temp file and then offers
+# (s)ave/(u)pload/(d)iscard, where `u` publishes to asciinema.org — one keystroke
+# away from putting a session's target IPs, creds and flags on the public web
+# (and -y/-q skips the prompt and uploads outright). So a bare `record` saves to
+# a local timestamped file instead. Pass a filename to choose your own; flags
+# alone still get the local default, since a flag is not a filename.
+if command -v asciinema &>/dev/null; then
+  record() {
+    # Only a positional arg is a filename — testing `$#` would let `record -c cmd`
+    # through to the upload prompt, which is the exact case this guards against.
+    # The listed flags take a value, so skip the token after them.
+    local arg has_file=0 skip=0
+    for arg in "$@"; do
+      if (( skip )); then skip=0; continue; fi
+      case "$arg" in
+        -c|--command|-e|--env|-t|--title|-i|--idle-time-limit|--cols|--rows) skip=1 ;;
+        -) has_file=1 ;;   # explicit "record to stdout"
+        -*) ;;
+        *) has_file=1 ;;
+      esac
+    done
+
+    if (( has_file )); then
+      asciinema rec "$@"
+    else
+      local dir="${XDG_DATA_HOME:-$HOME/.local/share}/asciinema"
+      mkdir -p "$dir" || return 1
+      # Two recordings in the same second would otherwise collide, and asciinema
+      # aborts on an existing non-empty file rather than overwriting — safe for
+      # the old cast, but it throws away the one just recorded.
+      local base="$dir/$(date +%Y%m%d-%H%M%S)" file n=1
+      file="$base.cast"
+      while [[ -e "$file" ]]; do file="$base-$((n++)).cast"; done
+      asciinema rec "$@" "$file"
+    fi
+  }
+fi
+
+# agg re-renders the *text* of a cast, so it uses its own font, not the
+# terminal's — default is DejaVu Sans Mono here. Match the terminal instead.
+# The fallback entries are load-bearing: a font-family that resolves to nothing
+# is a hard error ("no faces matching font family options"), not a fallback.
+# Note --font-size is omitted deliberately; agg's default is already 16.
+if command -v agg &>/dev/null; then
+  alias render="agg --font-family 'Hack Nerd Font,DejaVu Sans Mono,Liberation Mono'"
+fi
+
 # Navigation
 alias ..="cd .."
 alias ...="cd ../.."
