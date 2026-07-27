@@ -46,6 +46,7 @@ KEEP_RAW=0
 OUTPUT=""
 COUNTDOWN=3
 TRIM=0
+HOLD=0
 
 usage() {
     header "demorec"
@@ -76,6 +77,8 @@ usage() {
     echo "  --crop W:H:X:Y   Crop before encoding"
     echo "  --trim N         Drop N seconds off the front (set automatically"
     echo "                   from the countdown when stopping a recording)"
+    echo "  --hold N         Hold the final frame N seconds so the ending does"
+    echo "                   not flash past. Trailing dead air is still dropped."
     echo "  --no-decimate    Keep duplicate frames (default drops them)"
     echo ""
     echo "Environment:"
@@ -667,6 +670,26 @@ cmd_render() {
     # ever needs its ending to sit still.
     (( DECIMATE )) && filters+=("mpdecimate")
 
+    # --hold keeps the final frame on screen instead of letting it flash past.
+    # tpad pads at *end of stream*, so on its own it would drag every trailing
+    # duplicate back in as a held frame. Probing for the last on-screen change
+    # first, and limiting the input to that point, gives "content, then hold"
+    # rather than "content, dead air, then hold".
+    local limit=()
+    if (( HOLD > 0 )); then
+        filters+=("tpad=stop_mode=clone:stop_duration=$HOLD")
+        if (( DECIMATE )); then
+            local last
+            last="$("$ff" -v error -i "$in_arg" -vf mpdecimate -fps_mode vfr \
+                        -f null - -progress pipe:1 -nostats 2>/dev/null \
+                    | awk -F= '/^out_time_ms=/{t=$2} END{ if (t) printf "%.3f", t/1000000 }')"
+            # -t is an input option and counts from the start of the file, so it
+            # composes with the output-side -ss used for --trim.
+            [[ -n "$last" ]] && limit=(-t "$(awk -v d="$last" -v t="$TRIM" \
+                'BEGIN{ if (d <= t) d = t + 0.05; print d }')")
+        fi
+    fi
+
     local vf=""
     (( ${#filters[@]} )) && vf="$(IFS=,; echo "${filters[*]}")"
 
@@ -682,7 +705,8 @@ cmd_render() {
     local seek=()
     (( TRIM > 0 )) && seek=(-ss "$TRIM")
 
-    "$ff" -hide_banner -loglevel error -y -i "$in_arg" \
+    "$ff" -hide_banner -loglevel error -y \
+        ${limit[@]+"${limit[@]}"} -i "$in_arg" \
         ${seek[@]+"${seek[@]}"} \
         ${vf:+-vf "$vf"} -fps_mode vfr \
         -c:v libx264 -preset veryslow -tune stillimage -crf "$CRF" \
@@ -719,6 +743,7 @@ while [[ $# -gt 0 ]]; do
         --keep-raw)    KEEP_RAW=1; shift ;;
         --countdown)   COUNTDOWN="$2"; shift 2 ;;
         --trim)        TRIM="$2"; shift 2 ;;
+        --hold)        HOLD="$2"; shift 2 ;;
         -*)            die "Unknown option: $1" ;;
         *)             args+=("$1"); shift ;;
     esac

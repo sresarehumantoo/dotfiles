@@ -458,10 +458,24 @@ Two behaviours that are easy to get wrong and are deliberate here:
   returns, so ffmpeg would hit EOF on stdin at an unpredictable point. The
   fragmented muxer already makes the graceful path unnecessary.
 
-`render` drops duplicate frames (`mpdecimate`) at variable frame rate, which
-keeps real timing while collapsing the long static stretches a terminal spends
-most of its time in. It never rescales — resampling text is what makes
-screencasts look mushy.
+`render` drops duplicate frames (`mpdecimate`) at variable frame rate, keeping
+the retained frames at their real timestamps while collapsing the long static
+stretches a terminal spends most of its time in. It never rescales — resampling
+text is what makes screencasts look mushy.
+
+Trailing duplicates are dropped too, so a clip **ends at the last on-screen
+change**, not when recording stopped. That discards dead air, but it also means
+a demo ending on its result has that result flash past. `--hold N` keeps the
+final frame up for N seconds. It is not simply `tpad`: that pads at end of
+stream and would drag all the trailing dead air back in as a held frame, so
+`render` first probes for the last change (a decode-only pass) and limits the
+input to that point. Measured on an 11.4s capture whose last change was at 4.7s:
+
+| | Duration |
+|---|---|
+| default | 4.5s — ends at the last change |
+| `--hold 2` | 6.7s — content, then a 2s hold |
+| `--no-decimate --hold 2` | 13.4s — nothing was truncated, so nothing is compensated |
 
 **A blinking cursor is the single biggest cost.** It changes pixels twice a
 second forever, so almost nothing dedupes. Measured on a 10s idle 1200x800 clip:
