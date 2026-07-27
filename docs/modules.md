@@ -286,6 +286,11 @@ Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
 **Custom plugins:** colorizer, comment, flash, harpoon, markdown, oil, smear-cursor, undotree
 
+smear-cursor draws a cursor trail inside nvim. It disables itself when running under
+Ghostty, whose `custom-shader` already draws one across the whole terminal — otherwise the
+two stack into a double trail. Set `DF_SMEAR_CURSOR=1` to force it on anyway, or `0` to
+force it off on a terminal without its own trail.
+
 **Kickstart plugins:** autopairs, debug, gitsigns, indent_line, lint, neo-tree
 
 **Status:** Checks 21 symlinks.
