@@ -30,6 +30,10 @@ STATE_DIR="${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/demorec"
 STATE_FILE="$STATE_DIR/session"
 LOG_FILE="$STATE_DIR/last.log"
 OUT_DIR="${DEMOREC_DIR:-$HOME/Videos/demos}"
+# WSL capture binary. Defaults to whatever interop finds on the Windows PATH,
+# but can point at a standalone build (see docs/devtools.md) so nothing has to
+# be installed or added to PATH on the Windows side.
+FFMPEG_EXE="${DEMOREC_FFMPEG:-ffmpeg.exe}"
 
 FPS=30
 CURSOR=1
@@ -67,6 +71,10 @@ usage() {
     echo "  --crf N          Quality, lower is bigger/better (default $CRF)"
     echo "  --crop W:H:X:Y   Crop before encoding"
     echo "  --no-decimate    Keep duplicate frames (default drops them)"
+    echo ""
+    echo "Environment:"
+    echo "  DEMOREC_DIR      Where recordings are written (default ~/Videos/demos)"
+    echo "  DEMOREC_FFMPEG   WSL only: path to ffmpeg.exe (default: from PATH)"
     echo ""
     echo "Notes:"
     echo "  A blinking cursor changes pixels ~2x/second, which defeats duplicate"
@@ -357,7 +365,8 @@ start_gnome() {
 # not exercised on a real WSL box — verify before trusting it.
 start_wsl() {
     local base="$1"
-    require_cmd ffmpeg.exe
+    command -v "$FFMPEG_EXE" &>/dev/null || die \
+        "$FFMPEG_EXE not found. Install ffmpeg on Windows, or point DEMOREC_FFMPEG at a standalone build."
     require_cmd wslpath
 
     local out="$base.mp4"
@@ -383,7 +392,7 @@ start_wsl() {
     # would then see EOF on stdin at an unpredictable moment. The fragmented
     # muxer already guarantees a playable file on a hard stop, so the FIFO bought
     # nothing but a failure mode.
-    nohup ffmpeg.exe -hide_banner -loglevel error -nostdin \
+    nohup "$FFMPEG_EXE" -hide_banner -loglevel error -nostdin \
         -filter_complex "$grab,hwdownload,format=bgra" \
         -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \
         -movflags +frag_keyframe+empty_moov -an \
@@ -394,7 +403,7 @@ start_wsl() {
     # ddagrab is unavailable, so surface that now rather than at stop time.
     sleep 1
     if ! kill -0 "$pid" 2>/dev/null; then
-        err "ffmpeg.exe failed to start:"
+        err "$FFMPEG_EXE failed to start:"
         sed 's/^/      /' "$LOG_FILE" >&2 || true
         exit 1
     fi

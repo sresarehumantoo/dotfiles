@@ -457,6 +457,33 @@ Setting `cursor-style-blink = false` in the Ghostty config while recording is
 worth more than any encoder flag. It does not affect the cursor trail, which
 fires on movement rather than blink.
 
+**WSL prerequisites.** Only two, and one is optional:
+
+| Command | Needed for | Source |
+|---|---|---|
+| `ffmpeg.exe` | capture | supplied by you (see below) |
+| `ffmpeg` (Linux) | `render` only | `apt install ffmpeg` |
+| `powershell.exe` | `demorec outputs` only | built into Windows |
+| `wslpath` | path translation | built into WSL |
+
+Nothing needs installing on Windows: a standalone build works, and
+`DEMOREC_FFMPEG` points at it without touching the Windows PATH. The static
+BtbN builds are a single self-contained `ffmpeg.exe`, and `ddagrab` is compiled
+in (verified against `ffmpeg-n7.1-latest-win64-gpl`):
+
+```bash
+mkdir -p /mnt/c/tools && cd /mnt/c/tools
+curl -L -o ffmpeg.zip \
+  https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-7.1.zip
+unzip -j ffmpeg.zip '*/bin/ffmpeg.exe'    # -j flattens; the zip has a version prefix
+export DEMOREC_FFMPEG=/mnt/c/tools/ffmpeg.exe
+```
+
+Put it under `/mnt/c` rather than the Linux filesystem: a Windows binary run
+from `\\wsl.localhost\...` goes over the 9p bridge, and the same applies to the
+capture output. Set `DEMOREC_DIR` to a `/mnt/c` path too — an 11 Mbit/s stream
+written across that bridge will be slow and may fail outright.
+
 > The WSL backend is **untested** — written from the `ddagrab` docs and interop
 > behaviour, but never exercised on a real WSL box. Verify before relying on it.
 >
