@@ -29,7 +29,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 STATE_DIR="${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/demorec"
 STATE_FILE="$STATE_DIR/session"
 LOG_FILE="$STATE_DIR/last.log"
-OUT_DIR="${DEMOREC_DIR:-$HOME/Videos/demos}"
+OUT_DIR="${DEMOREC_DIR:-}"   # resolved lazily; see default_out_dir
 # WSL capture binary. Defaults to whatever interop finds on the Windows PATH,
 # but can point at a standalone build (see docs/devtools.md) so nothing has to
 # be installed or added to PATH on the Windows side.
@@ -246,7 +246,32 @@ cmd_outputs() {
 }
 
 # ── start ────────────────────────────────────────────────────────
+# Where recordings land when DEMOREC_DIR is unset. Resolved here rather than at
+# the top of the script so the Windows round-trip only happens on a WSL start,
+# not on every render or status call.
+default_out_dir() {
+    if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+        # Writing an ~11 Mbit/s capture to the Linux filesystem sends every
+        # frame across the 9p bridge, which is slow enough to drop frames or
+        # fail outright. Default to the Windows profile instead.
+        local winprofile linuxpath
+        # shellcheck disable=SC2016  # $env: is PowerShell, not shell
+        winprofile="$(powershell.exe -NoProfile -Command '$env:USERPROFILE' 2>/dev/null | tr -d '\r')"
+        if [[ -n "$winprofile" ]]; then
+            linuxpath="$(wslpath -u "$winprofile" 2>/dev/null || true)"
+            if [[ -n "$linuxpath" && -d "$linuxpath" ]]; then
+                printf '%s/Videos/demos\n' "$linuxpath"
+                return
+            fi
+        fi
+        warn "Could not resolve the Windows profile; recording to the Linux"
+        warn "filesystem, which may be too slow. Set DEMOREC_DIR to a /mnt path."
+    fi
+    printf '%s/Videos/demos\n' "$HOME"
+}
+
 cmd_start() {
+    [[ -n "$OUT_DIR" ]] || OUT_DIR="$(default_out_dir)"
     mkdir -p "$STATE_DIR" "$OUT_DIR"
 
     if [[ -f "$STATE_FILE" ]]; then

@@ -467,22 +467,26 @@ fires on movement rather than blink.
 | `wslpath` | path translation | built into WSL |
 
 Nothing needs installing on Windows: a standalone build works, and
-`DEMOREC_FFMPEG` points at it without touching the Windows PATH. The static
-BtbN builds are a single self-contained `ffmpeg.exe`, and `ddagrab` is compiled
-in (verified against `ffmpeg-n7.1-latest-win64-gpl`):
+`DEMOREC_FFMPEG` points at it wherever you keep it — no Windows PATH change
+required. If the location is already on the Windows PATH, interop resolves plain
+`ffmpeg.exe` and the variable is unnecessary. The static BtbN builds are a single
+self-contained `ffmpeg.exe`, and `ddagrab` is compiled in (verified against
+`ffmpeg-n7.1-latest-win64-gpl`):
 
 ```bash
-mkdir -p /mnt/c/tools && cd /mnt/c/tools
 curl -L -o ffmpeg.zip \
   https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-7.1.zip
 unzip -j ffmpeg.zip '*/bin/ffmpeg.exe'    # -j flattens; the zip has a version prefix
-export DEMOREC_FFMPEG=/mnt/c/tools/ffmpeg.exe
+export DEMOREC_FFMPEG=/mnt/c/Users/<you>/bin/ffmpeg.exe   # wherever you put it
 ```
 
-Put it under `/mnt/c` rather than the Linux filesystem: a Windows binary run
-from `\\wsl.localhost\...` goes over the 9p bridge, and the same applies to the
-capture output. Set `DEMOREC_DIR` to a `/mnt/c` path too — an 11 Mbit/s stream
-written across that bridge will be slow and may fail outright.
+Keep it on the Windows filesystem rather than the Linux one — a Windows binary
+run from `\\wsl.localhost\...` goes over the 9p bridge. The same applies more
+sharply to the capture output, which is why `demorec` defaults `DEMOREC_DIR` on
+WSL to `Videos/demos` under the **Windows** user profile (resolved via
+`$env:USERPROFILE` and `wslpath`) rather than `$HOME`. An ~11 Mbit/s stream
+written across that bridge is slow enough to drop frames or fail outright. If
+the profile cannot be resolved, it warns and falls back to `$HOME`.
 
 > The WSL backend is **untested** — written from the `ddagrab` docs and interop
 > behaviour, but never exercised on a real WSL box. Verify before relying on it.
