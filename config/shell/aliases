@@ -43,8 +43,16 @@ if command -v asciinema &>/dev/null; then
       esac
     done
 
+    # Record as xterm, not tmux/screen. Inside tmux, TERM is tmux-256color, and
+    # oh-my-zsh's termsupport then sets the title with the screen sequence
+    # (ESC k … ESC \). agg does not parse that and renders the title text into
+    # the frame, so a title of "whoami" lands on the same line as the output and
+    # reads as "whoamiowen". Under xterm* the same code emits OSC 2, which agg
+    # handles correctly. Only affects the recorded shell, not this one.
+    local -a term_env=(env TERM=xterm-256color)
+
     if (( has_file )); then
-      asciinema rec "$@"
+      "${term_env[@]}" asciinema rec "$@"
     else
       local dir="${XDG_DATA_HOME:-$HOME/.local/share}/asciinema"
       mkdir -p "$dir" || return 1
@@ -54,7 +62,7 @@ if command -v asciinema &>/dev/null; then
       local base="$dir/$(date +%Y%m%d-%H%M%S)" file n=1
       file="$base.cast"
       while [[ -e "$file" ]]; do file="$base-$((n++)).cast"; done
-      asciinema rec "$@" "$file"
+      "${term_env[@]}" asciinema rec "$@" "$file"
     fi
   }
 fi
