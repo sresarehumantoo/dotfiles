@@ -431,6 +431,15 @@ Two behaviours that are easy to get wrong and are deliberate here:
   returns success and then records nothing, leaving a 48-byte file holding only
   an `ftyp` box. `start` therefore leaves a small Python holder running for the
   duration, and `stop` signals it.
+- **Signals do not cross the WSL interop boundary.** Killing the Linux-side
+  process leaves `ffmpeg.exe` running as an orphaned Windows process, and
+  `kill -0` on the now-dead shim looks exactly like a clean exit — so `stop`
+  would report success while the recording continued and the file stayed locked.
+  On WSL, `stop` therefore asks Windows directly: it finds the `ffmpeg.exe`
+  whose command line contains the output filename (so an unrelated ffmpeg is
+  never touched) and runs `taskkill /PID … /T /F`, then re-queries to confirm.
+  A stop that cannot confirm the process is gone **keeps the session file** so
+  it can be retried, rather than stranding a live recording with no state.
 - **The WSL muxer is fragmented** (`+frag_keyframe+empty_moov`) so a hard kill
   still yields a playable file instead of one with no `moov` atom. GNOME's own
   pipeline does the same (`fragment-mode=first-moov-then-finalise`), so both

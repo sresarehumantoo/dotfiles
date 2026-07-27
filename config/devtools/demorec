@@ -433,36 +433,80 @@ start_wsl() {
         exit 1
     fi
 
-    printf 'backend=wsl\npid=%s\nfile=%s\nsignal=TERM\n' "$pid" "$out" >"$STATE_FILE"
+    printf 'backend=wsl\npid=%s\nfile=%s\nwinfile=%s\nsignal=TERM\n' \
+        "$pid" "$out" "$winout" >"$STATE_FILE"
     ok "Recording — $out"
     info "Stop with: demorec stop"
 }
 
 # ── stop ─────────────────────────────────────────────────────────
+
+# Signals do not cross the WSL interop boundary: killing the Linux-side process
+# leaves ffmpeg.exe running as an orphaned Windows process, and `kill -0` on the
+# dead shim then looks like a clean exit. Ask Windows directly instead, matching
+# on the output filename so an unrelated ffmpeg is never touched.
+wsl_ffmpeg_pids() {
+    local needle="$1"
+    powershell.exe -NoProfile -Command \
+        "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | Where-Object { \$_.CommandLine -like '*${needle}*' } | ForEach-Object { \$_.ProcessId }" \
+        2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' || true
+}
+
+stop_wsl() {
+    local pid="$1" file="$2" wpid waited=0
+    local needle; needle="$(basename "$file")"
+
+    for wpid in $(wsl_ffmpeg_pids "$needle"); do
+        # /T kills the child tree; /F because a console app never sees WM_CLOSE.
+        # The fragmented muxer is what makes a hard kill safe.
+        taskkill.exe /PID "$wpid" /T /F >/dev/null 2>&1 || true
+    done
+    kill -TERM "$pid" 2>/dev/null || true
+
+    while [[ -n "$(wsl_ffmpeg_pids "$needle")" ]]; do
+        sleep 0.5
+        waited=$((waited + 1))
+        (( waited > 20 )) && return 1
+    done
+    return 0
+}
+
 cmd_stop() {
     [[ -f "$STATE_FILE" ]] || die "No recording in progress."
 
-    local pid file signal
+    local backend pid file winfile signal
+    backend="$(sed -n 's/^backend=//p' "$STATE_FILE")"
     pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
     file="$(sed -n 's/^file=//p' "$STATE_FILE")"
+    winfile="$(sed -n 's/^winfile=//p' "$STATE_FILE")"
     # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
     # property of the backend rather than a constant.
     signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
     signal="${signal:-TERM}"
 
-    kill -"$signal" "$pid" 2>/dev/null || true
-
-    local waited=0
-    while kill -0 "$pid" 2>/dev/null; do
-        sleep 0.2
-        waited=$((waited + 1))
-        if (( waited > 50 )); then
-            warn "Recorder did not exit; killing."
-            kill -KILL "$pid" 2>/dev/null || true
-            break
+    if [[ "$backend" == "wsl" ]]; then
+        if ! stop_wsl "$pid" "$file"; then
+            err "ffmpeg.exe is still running and would not stop."
+            err "The session has been kept, so 'demorec stop' can be retried."
+            err "To clear it by hand:  taskkill.exe /IM ffmpeg.exe /F"
+            exit 1
         fi
-    done
+    else
+        kill -"$signal" "$pid" 2>/dev/null || true
+        local waited=0
+        while kill -0 "$pid" 2>/dev/null; do
+            sleep 0.2
+            waited=$((waited + 1))
+            if (( waited > 50 )); then
+                warn "Recorder did not exit; killing."
+                kill -KILL "$pid" 2>/dev/null || true
+                break
+            fi
+        done
+    fi
 
+    # Only remove the session once the recorder is confirmed gone. Removing it
+    # earlier stranded a live recording with no state to stop it from.
     rm -f "$STATE_FILE"
 
     if [[ -f "$file" ]]; then
@@ -484,7 +528,18 @@ cmd_stop() {
             info "Shrink it with: demorec render \"$file\""
         fi
     else
-        err "Recorder exited but $file does not exist. Log:"
+        err "Recorder stopped but the capture is missing:"
+        err "  linux path:   $file"
+        [[ -n "$winfile" ]] && err "  windows path: $winfile"
+        local dir; dir="$(dirname "$file")"
+        if [[ -d "$dir" ]]; then
+            err "  directory exists; contents:"
+            find "$dir" -maxdepth 1 -printf '%10s  %p\n' 2>/dev/null \
+                | sed 's/^/      /' >&2 || true
+        else
+            err "  directory does not exist either: $dir"
+        fi
+        err "  log (empty means ffmpeg reported nothing):"
         sed 's/^/      /' "$LOG_FILE" >&2 || true
         exit 1
     fi
