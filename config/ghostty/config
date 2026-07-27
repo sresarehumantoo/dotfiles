@@ -37,3 +37,12 @@ palette = 15=#CACCD3
 
 shell-integration = detect
 scrollback-limit = 10000
+
+# Animated cursor trail (Ghostty 1.2+ feeds cursor state to custom shaders).
+# This smears the *real* terminal cursor, so it applies inside tmux panes and
+# copy-mode too — tmux only positions the cursor, it never draws it.
+# Swap for shaders/cursor_sweep.glsl or shaders/cursor_tail.glsl (kitty-like);
+# tunables (duration, size, blur, easing) live at the top of each file.
+# `animation = always` stops the effect freezing when the window loses focus.
+custom-shader = shaders/cursor_warp.glsl
+custom-shader-animation = always

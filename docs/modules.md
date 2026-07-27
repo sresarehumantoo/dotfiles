@@ -398,9 +398,21 @@ Symlinks Konsole terminal configuration:
 
 **File:** `modules/ghostty.go`
 
-Symlinks `config/ghostty/config` to `$XDG_CONFIG_HOME/ghostty/config`.
+Symlinks `config/ghostty/config` to `$XDG_CONFIG_HOME/ghostty/config`, plus the three
+cursor-trail shaders in `config/ghostty/shaders/*.glsl` (vendored from
+[sahaj-b/ghostty-cursor-shaders](https://github.com/sahaj-b/ghostty-cursor-shaders), MIT).
+The config selects one via `custom-shader`; `cursor_warp.glsl` is the active default.
 
-**Status:** Checks 1 symlink.
+The whole module no-ops when `ghostty` isn't on `PATH` — including `Status()`, which
+reports nothing rather than "missing".
+
+Because Ghostty resolves a relative `custom-shader` against the config file's *resolved*
+path, a symlinked config loads the shader straight out of the repo, so editing a `.glsl` is
+live on the next Ghostty restart with no `dfinstall` run. The `shaders/` symlinks are
+insurance for the case where that config is ever a real file. Config changes need a
+restart, not just a reload.
+
+**Status:** Checks 4 symlinks.
 
 ---
 
