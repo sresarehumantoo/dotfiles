@@ -49,6 +49,8 @@ TRIM=0
 HOLD=0
 TAIL=0
 ENDCUT=""
+SHUTDOWN=""     # seconds the recorder took to die, measured in cmd_stop
+ELAPSED=""      # wall seconds from capture going live to stop being invoked
 
 usage() {
     header "demorec"
@@ -171,6 +173,11 @@ signal.signal(signal.SIGTERM, stop)
 signal.signal(signal.SIGINT, stop)
 loop.run()
 PY
+
+# Numeric tests that tolerate fractions. TRIM in particular stops being a whole
+# number once it is corrected against the clip's real duration, and bash's (( ))
+# is integer-only — it errors outright on "0.400".
+gt0() { awk -v v="${1:-0}" 'BEGIN{ exit !(v > 0) }'; }
 
 # ── Display enumeration ──────────────────────────────────────────
 # Each backend prints "ID<TAB>WxH+X+Y<TAB>note". The ID is what --output takes.
@@ -582,21 +589,22 @@ cmd_stop() {
     file="$(sed -n 's/^file=//p' "$STATE_FILE")"
     winfile="$(sed -n 's/^winfile=//p' "$STATE_FILE")"
     # Drop the countdown from the front of the clip, unless --trim said otherwise.
-    (( TRIM > 0 )) || TRIM="$(sed -n 's/^trim=//p' "$STATE_FILE")"
+    gt0 "$TRIM" || TRIM="$(sed -n 's/^trim=//p' "$STATE_FILE")"
     TRIM="${TRIM:-0}"
 
     # Work out the cut point *before* stopping anything: the clip should end
     # where the demo did, not where the recorder finally exited. --tail removes
     # a little more, for the seconds spent typing the stop command itself.
-    # The grace deliberately leans towards keeping a moment of the stop command
-    # rather than clipping the end of the demo: a stray keystroke on screen is a
-    # nuisance, a truncated final command is a lost recording. --tail trims it
-    # back for anyone who would rather have it tight.
-    local started; started="$(sed -n 's/^started=//p' "$STATE_FILE")"
-    if [[ -n "$started" ]]; then
-        ENDCUT="$(awk -v s="$started" -v n="$(date +%s.%N)" -v t="$TAIL" \
-            'BEGIN{ e = n - s - t + 0.6; if (e < 0.5) e = 0.5; printf "%.3f", e }')"
-    fi
+    # Wall clock alone cannot locate the cuts. ffmpeg writes an mp4 header the
+    # moment it opens the file, so on WSL "the file is non-empty" can be true
+    # seconds before the first frame is captured — the recording is shorter than
+    # the wall time it spans, and a front trim measured in wall seconds eats real
+    # content. So record the raw ingredients here and let render reconcile them
+    # against the clip's own duration.
+    local started t_stop; started="$(sed -n 's/^started=//p' "$STATE_FILE")"
+    t_stop="$(date +%s.%N)"
+    [[ -n "$started" ]] && ELAPSED="$(awk -v s="$started" -v n="$t_stop" \
+        'BEGIN{ printf "%.3f", n - s }')"
     # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
     # property of the backend rather than a constant.
     signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
@@ -622,6 +630,10 @@ cmd_stop() {
             fi
         done
     fi
+
+    # How long the recorder took to die. Everything in that window is on tape
+    # and none of it is wanted.
+    SHUTDOWN="$(awk -v a="$t_stop" -v b="$(date +%s.%N)" 'BEGIN{ printf "%.3f", b - a }')"
 
     # Only remove the session once the recorder is confirmed gone. Removing it
     # earlier stranded a live recording with no state to stop it from.
@@ -723,12 +735,37 @@ cmd_render() {
     # duplicate back in as a held frame. Probing for the last on-screen change
     # first, and limiting the input to that point, gives "content, then hold"
     # rather than "content, dead air, then hold".
+    # Reconcile the wall-clock measurements against what was actually recorded.
+    # The clip is often shorter than the wall time it spans, because capture
+    # starts after the file does; `lag` is that difference, and both cuts are
+    # corrected by it rather than trusting the clock.
+    if [[ -n "$SHUTDOWN" ]]; then
+        local dur lag
+        dur="$("$ff" -v error -i "$in_arg" -f null - -progress pipe:1 -nostats 2>/dev/null \
+               | awk -F= '/^out_time_ms=/{t=$2} END{ if (t) printf "%.3f", t/1000000 }')"
+        if [[ -n "$dur" ]]; then
+            # Content ends where the recorder was told to stop, not where it did.
+            ENDCUT="$(awk -v d="$dur" -v s="$SHUTDOWN" -v t="$TAIL" \
+                'BEGIN{ e = d - s - t + 0.6; if (e > d) e = d; if (e < 0.5) e = 0.5; printf "%.3f", e }')"
+            # Wall seconds that never made it into the clip; the countdown was
+            # partly or wholly among them, so trim by whatever is left of it.
+            if [[ -n "$ELAPSED" ]] && gt0 "$TRIM"; then
+                lag="$(awk -v e="$ELAPSED" -v d="$dur" -v s="$SHUTDOWN" \
+                    'BEGIN{ l = e - (d - s); if (l < 0) l = 0; printf "%.3f", l }')"
+                TRIM="$(awk -v t="$TRIM" -v l="$lag" \
+                    'BEGIN{ v = t - l; if (v < 0) v = 0; printf "%.3f", v }')"
+            fi
+            [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+                warn "debug: raw=${dur}s shutdown=${SHUTDOWN}s elapsed=${ELAPSED}s lag=${lag:-0}s -> trim=$TRIM end=$ENDCUT"
+        fi
+    fi
+
     # Where the clip should end, as an absolute offset from the start of the
     # file. ENDCUT is where the demo finished; the --hold probe finds the last
     # on-screen change. The earlier of the two wins, so neither the recorder's
     # shutdown nor trailing dead air survives.
     local end="$ENDCUT" limit=()
-    if (( HOLD > 0 )); then
+    if gt0 "$HOLD"; then
         filters+=("tpad=stop_mode=clone:stop_duration=$HOLD")
         if (( DECIMATE )); then
             local last
@@ -745,8 +782,11 @@ cmd_render() {
     # with the output-side -ss that --trim uses.
     if [[ -n "$end" ]]; then
         limit=(-t "$(awk -v d="$end" -v t="$TRIM" \
-            'BEGIN{ if (d <= t) d = t + 0.05; print d }')")
+            'BEGIN{ if (d <= t) d = t + 0.05; printf "%.3f", d }')")
     fi
+
+    [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+        warn "debug: ffmpeg -t ${limit[1]:-none} -ss ${TRIM} (filters: ${vf:-none})"
 
     local vf=""
     (( ${#filters[@]} )) && vf="$(IFS=,; echo "${filters[*]}")"
@@ -761,7 +801,7 @@ cmd_render() {
     # cut is frame-accurate rather than snapping to a keyframe. We re-encode
     # anyway, so the extra decode is the only cost.
     local seek=()
-    (( TRIM > 0 )) && seek=(-ss "$TRIM")
+    gt0 "$TRIM" && seek=(-ss "$TRIM")
 
     "$ff" -hide_banner -loglevel error -y \
         ${limit[@]+"${limit[@]}"} -i "$in_arg" \
