@@ -44,6 +44,8 @@ DECIMATE=1
 RENDER=0
 KEEP_RAW=0
 OUTPUT=""
+COUNTDOWN=3
+TRIM=0
 
 usage() {
     header "demorec"
@@ -62,6 +64,8 @@ usage() {
     echo "  --output ID      Capture one display (see 'demorec outputs')"
     echo "  --fps N          Capture framerate (default $FPS)"
     echo "  --no-cursor      Omit the pointer (the text cursor is unaffected)"
+    echo "  --countdown N    Cue before you start (default $COUNTDOWN, 0 to skip)."
+    echo "                   Erases itself, and render trims those seconds off."
     echo ""
     echo "stop options:"
     echo "  --render         Re-encode immediately and discard the raw capture"
@@ -70,6 +74,8 @@ usage() {
     echo "render options:"
     echo "  --crf N          Quality, lower is bigger/better (default $CRF)"
     echo "  --crop W:H:X:Y   Crop before encoding"
+    echo "  --trim N         Drop N seconds off the front (set automatically"
+    echo "                   from the countdown when stopping a recording)"
     echo "  --no-decimate    Keep duplicate frames (default drops them)"
     echo ""
     echo "Environment:"
@@ -310,6 +316,26 @@ cmd_start() {
         wsl)     start_wsl     "$base" ;;
         none)    die "No supported capture backend (need wlroots, GNOME/Wayland, or WSL interop)." ;;
     esac
+
+    run_countdown
+}
+
+# A cue for when to start performing, since capture can take seconds to become
+# live. Whatever is on screen is being recorded, so the counter overwrites
+# itself and erases on completion, and the seconds it occupies are noted as
+# `trim` so render drops them from the front of the clip.
+run_countdown() {
+    (( COUNTDOWN > 0 )) || return 0
+    [[ -t 1 ]] || return 0          # no point animating into a pipe or a log
+
+    local i
+    for (( i = COUNTDOWN; i > 0; i-- )); do
+        printf '\r  \033[1m%d\033[0m …' "$i"
+        sleep 1
+    done
+    printf '\r\033[K'               # leave the terminal as it was found
+
+    printf 'trim=%s\n' "$COUNTDOWN" >>"$STATE_FILE"
 }
 
 # NOTE: untested at runtime. Flags verified against the upstream manpage and the
@@ -517,6 +543,9 @@ cmd_stop() {
     pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
     file="$(sed -n 's/^file=//p' "$STATE_FILE")"
     winfile="$(sed -n 's/^winfile=//p' "$STATE_FILE")"
+    # Drop the countdown from the front of the clip, unless --trim said otherwise.
+    (( TRIM > 0 )) || TRIM="$(sed -n 's/^trim=//p' "$STATE_FILE")"
+    TRIM="${TRIM:-0}"
     # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
     # property of the backend rather than a constant.
     signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
@@ -626,8 +655,16 @@ cmd_render() {
     local filters=()
     [[ -n "$CROP" ]] && filters+=("crop=$CROP")
     # Terminals are static most of the time, so dropping duplicate frames is the
-    # single biggest win. -fps_mode vfr keeps real timing (frames are simply held
-    # longer) rather than speeding the video up the way setpts would.
+    # single biggest win. -fps_mode vfr keeps the retained frames at their real
+    # timestamps rather than speeding the video up the way setpts would.
+    #
+    # It does shorten the clip, though: trailing duplicates are dropped too, so
+    # the file ends at the last on-screen change rather than when you stopped
+    # recording. Measured on an 11.4s capture that was idle after the first few
+    # seconds, the result was 4.7s. That removes dead air, at the cost of the
+    # final frame not lingering. `tpad=stop_mode=clone:stop_duration=N` after
+    # mpdecimate restores the full duration and holds the last frame, if a demo
+    # ever needs its ending to sit still.
     (( DECIMATE )) && filters+=("mpdecimate")
 
     local vf=""
@@ -639,7 +676,14 @@ cmd_render() {
     info "Encoding (crf $CRF, veryslow) …"
     # No scaling: rescaling text is what makes screencasts look mushy.
     # yuv420p because 4:4:4 keeps text chroma sharper but browsers won't play it.
+    # -ss placed *after* -i is output seeking: it decodes and discards, so the
+    # cut is frame-accurate rather than snapping to a keyframe. We re-encode
+    # anyway, so the extra decode is the only cost.
+    local seek=()
+    (( TRIM > 0 )) && seek=(-ss "$TRIM")
+
     "$ff" -hide_banner -loglevel error -y -i "$in_arg" \
+        ${seek[@]+"${seek[@]}"} \
         ${vf:+-vf "$vf"} -fps_mode vfr \
         -c:v libx264 -preset veryslow -tune stillimage -crf "$CRF" \
         -pix_fmt yuv420p -g 120 -movflags +faststart -an \
@@ -673,6 +717,8 @@ while [[ $# -gt 0 ]]; do
         --no-decimate) DECIMATE=0; shift ;;
         --render)      RENDER=1; shift ;;
         --keep-raw)    KEEP_RAW=1; shift ;;
+        --countdown)   COUNTDOWN="$2"; shift 2 ;;
+        --trim)        TRIM="$2"; shift 2 ;;
         -*)            die "Unknown option: $1" ;;
         *)             args+=("$1"); shift ;;
     esac
