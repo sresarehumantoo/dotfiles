@@ -33,6 +33,8 @@ AREA=""
 CRF=22
 CROP=""
 DECIMATE=1
+RENDER=0
+KEEP_RAW=0
 
 usage() {
     header "demorec"
@@ -41,7 +43,7 @@ usage() {
     echo ""
     echo "Usage:"
     echo "  demorec start [options]      Begin recording (returns immediately)"
-    echo "  demorec stop                 End recording, print the file"
+    echo "  demorec stop [--render]      End recording, print the file"
     echo "  demorec status               Show whether a recording is running"
     echo "  demorec render IN [OUT]      Re-encode down to a shareable file"
     echo ""
@@ -49,6 +51,10 @@ usage() {
     echo "  --area X,Y,W,H   Capture a region instead of the whole screen"
     echo "  --fps N          Capture framerate (default $FPS)"
     echo "  --no-cursor      Omit the pointer (the text cursor is unaffected)"
+    echo ""
+    echo "stop options:"
+    echo "  --render         Re-encode immediately and discard the raw capture"
+    echo "  --keep-raw       With --render, keep the raw capture too"
     echo ""
     echo "render options:"
     echo "  --crf N          Quality, lower is bigger/better (default $CRF)"
@@ -252,7 +258,22 @@ cmd_stop() {
 
     if [[ -f "$file" ]]; then
         ok "Saved $file ($(du -h "$file" | cut -f1))"
-        info "Shrink it with: demorec render \"$file\""
+        if (( RENDER )); then
+            local small="${file%.*}-small.mp4"
+            # If ffmpeg fails, set -e aborts here and the raw is left untouched —
+            # the delete below is only ever reached on a real output file.
+            cmd_render "$file" "$small"
+            if (( KEEP_RAW )); then
+                info "Kept raw capture: $file"
+            elif [[ -s "$small" ]]; then
+                rm -f "$file"
+                info "Discarded raw capture (--keep-raw to retain it)"
+            else
+                warn "Render produced no output; keeping raw capture."
+            fi
+        else
+            info "Shrink it with: demorec render \"$file\""
+        fi
     else
         err "Recorder exited but $file does not exist. Log:"
         sed 's/^/      /' "$LOG_FILE" >&2 || true
@@ -328,6 +349,8 @@ while [[ $# -gt 0 ]]; do
         --crf)         CRF="$2"; shift 2 ;;
         --crop)        CROP="$2"; shift 2 ;;
         --no-decimate) DECIMATE=0; shift ;;
+        --render)      RENDER=1; shift ;;
+        --keep-raw)    KEEP_RAW=1; shift ;;
         -*)            die "Unknown option: $1" ;;
         *)             args+=("$1"); shift ;;
     esac

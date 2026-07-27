@@ -339,9 +339,26 @@ Use `record` when the content is text; use `demorec` when the point is how it lo
 ```bash
 demorec start --area 100,100,1200,800   # returns immediately
 demorec status
-demorec stop                            # prints the file
+demorec stop --render                   # -> demo-small.mp4, raw discarded
+demorec stop                            # keep the pristine capture instead
 demorec render demo.mp4                 # -> demo-small.mp4
 ```
+
+The raw capture is large — GNOME's encoder is pinned at fixed QP 26 with
+`complexity=low` and `deblocking=off`, which on a 1920x1200 screen is about
+11.6 Mbit/s (~1.4 MB/s). Measured on a real 9.7s clip:
+
+| | Size |
+|---|---|
+| raw capture | 13.5 MiB |
+| after `render` (crf 22) | 139 KiB |
+
+That is a 99% reduction at 0.9997 SSIM — terminal content is trivially
+compressible, and even crf 30 measures 0.9988, so the crf dial barely matters.
+Because the raw is disposable once encoded, `stop --render` does both steps and
+deletes it; `--keep-raw` retains it, and plain `stop` skips encoding entirely
+(which is what you want when judging the shader itself, since `render` is the
+size pass, not the fidelity pass). A failed render never deletes the raw.
 
 **Capture is platform-specific; rendering is not.**
 
