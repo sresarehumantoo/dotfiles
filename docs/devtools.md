@@ -470,10 +470,15 @@ fires on movement rather than blink.
 
 | Command | Needed for | Source |
 |---|---|---|
-| `ffmpeg.exe` | capture | supplied by you (see below) |
-| `ffmpeg` (Linux) | `render` only | `apt install ffmpeg` |
-| `powershell.exe` | `demorec outputs` only | built into Windows |
+| `ffmpeg.exe` | capture, and `render` if there is no Linux ffmpeg | supplied by you (see below) |
+| `ffmpeg` (Linux) | optional; `render` prefers it when present | `apt install ffmpeg` |
+| `powershell.exe`, `tasklist.exe`, `taskkill.exe` | `outputs` and `stop` | built into Windows |
 | `wslpath` | path translation | built into WSL |
+
+`ffmpeg.exe` is the only thing you have to provide. Rendering is a file-to-file
+transcode, so it falls back to the Windows binary (translating both paths with
+`wslpath`) when no Linux ffmpeg is installed; the native one is preferred when
+present because it takes Linux paths directly and skips the interop hop.
 
 Nothing needs installing on Windows: a standalone build works, and
 `DEMOREC_FFMPEG` points at it wherever you keep it — no Windows PATH change

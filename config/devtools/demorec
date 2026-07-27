@@ -452,21 +452,34 @@ wsl_ffmpeg_pids() {
         2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' || true
 }
 
+# tasklist is far cheaper than a PowerShell CIM query — the verify loop below
+# runs repeatedly, and spawning PowerShell each time made `stop` take seconds.
+wsl_pid_alive() {
+    local wpid="$1"
+    tasklist.exe /NH /FI "PID eq $wpid" 2>/dev/null | tr -d '\r' \
+        | grep -qE "[[:space:]]${wpid}[[:space:]]"
+}
+
 stop_wsl() {
     local pid="$1" file="$2" wpid waited=0
     local needle; needle="$(basename "$file")"
+    local pids; pids="$(wsl_ffmpeg_pids "$needle")"   # one CIM query, not one per poll
 
-    for wpid in $(wsl_ffmpeg_pids "$needle"); do
+    for wpid in $pids; do
         # /T kills the child tree; /F because a console app never sees WM_CLOSE.
         # The fragmented muxer is what makes a hard kill safe.
         taskkill.exe /PID "$wpid" /T /F >/dev/null 2>&1 || true
     done
     kill -TERM "$pid" 2>/dev/null || true
 
-    while [[ -n "$(wsl_ffmpeg_pids "$needle")" ]]; do
-        sleep 0.5
-        waited=$((waited + 1))
-        (( waited > 20 )) && return 1
+    [[ -n "$pids" ]] || return 0
+    for wpid in $pids; do
+        waited=0
+        while wsl_pid_alive "$wpid"; do
+            sleep 0.3
+            waited=$((waited + 1))
+            (( waited > 15 )) && return 1
+        done
     done
     return 0
 }
@@ -563,8 +576,22 @@ cmd_render() {
     local in="${1:-}" out="${2:-}"
     [[ -n "$in" ]] || die "Usage: demorec render IN [OUT]"
     [[ -f "$in" ]] || die "No such file: $in"
-    require_cmd ffmpeg
     [[ -n "$out" ]] || out="${in%.*}-small.mp4"
+
+    # Rendering is a file-to-file transcode, so the Windows ffmpeg does it just
+    # as well. Falling back to it means WSL needs no Linux ffmpeg at all — the
+    # capture binary is the only requirement. Prefer the native one when present
+    # since it takes Linux paths directly and avoids the interop hop.
+    local ff="ffmpeg" in_arg="$in" out_arg="$out"
+    if ! command -v ffmpeg &>/dev/null; then
+        if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]] && command -v "$FFMPEG_EXE" &>/dev/null; then
+            ff="$FFMPEG_EXE"
+            in_arg="$(wslpath -w "$in")"
+            out_arg="$(wslpath -w "$out")"
+        else
+            die "ffmpeg is not installed (apt install ffmpeg), and no ffmpeg.exe to fall back on."
+        fi
+    fi
 
     local filters=()
     [[ -n "$CROP" ]] && filters+=("crop=$CROP")
@@ -582,11 +609,11 @@ cmd_render() {
     info "Encoding (crf $CRF, veryslow) …"
     # No scaling: rescaling text is what makes screencasts look mushy.
     # yuv420p because 4:4:4 keeps text chroma sharper but browsers won't play it.
-    ffmpeg -hide_banner -loglevel error -y -i "$in" \
+    "$ff" -hide_banner -loglevel error -y -i "$in_arg" \
         ${vf:+-vf "$vf"} -fps_mode vfr \
         -c:v libx264 -preset veryslow -tune stillimage -crf "$CRF" \
         -pix_fmt yuv420p -g 120 -movflags +faststart -an \
-        "$out"
+        "$out_arg"
 
     after="$(stat -c%s "$out")"
     ok "$out"
