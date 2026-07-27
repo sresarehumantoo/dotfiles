@@ -440,6 +440,18 @@ Two behaviours that are easy to get wrong and are deliberate here:
   requested. If it is consistently slow, a Defender exclusion for the binary is
   the usual culprit; setting `DEMOREC_DIR` also skips the Windows profile
   lookup, which is otherwise cached after the first run.
+- **The clip ends where the demo did, not where the recorder exited.** Stopping
+  is not instant — on WSL it takes seconds — and all of it was being recorded,
+  along with the stop command being typed. `stop` therefore notes where in the
+  clip it was invoked *before* killing anything, and `render` cuts there.
+  `--tail N` drops N seconds more, for the typing itself. The cut is clamped so
+  a short recording cannot be trimmed away entirely.
+- **`stop` avoids PowerShell.** Locating the Windows process by command line
+  needs a CIM query, and PowerShell startup dominated the time `stop` took. The
+  PID is now identified at start instead, by diffing the running `ffmpeg.exe`
+  list either side of the launch — `tasklist` costs a fraction of a PowerShell
+  start. If that diff is ambiguous (another ffmpeg started at the same moment)
+  the PID is left unset and `stop` falls back to the CIM query.
 - **Signals do not cross the WSL interop boundary.** Killing the Linux-side
   process leaves `ffmpeg.exe` running as an orphaned Windows process, and
   `kill -0` on the now-dead shim looks exactly like a clean exit — so `stop`

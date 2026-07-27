@@ -47,6 +47,8 @@ OUTPUT=""
 COUNTDOWN=3
 TRIM=0
 HOLD=0
+TAIL=0
+ENDCUT=""
 
 usage() {
     header "demorec"
@@ -71,6 +73,9 @@ usage() {
     echo "stop options:"
     echo "  --render         Re-encode immediately and discard the raw capture"
     echo "  --keep-raw       With --render, keep the raw capture too"
+    echo "  --tail N         Also drop the last N seconds, for the time spent"
+    echo "                   typing the stop command (the recorder's own"
+    echo "                   shutdown is always excluded)"
     echo ""
     echo "render options:"
     echo "  --crf N          Quality, lower is bigger/better (default $CRF)"
@@ -320,6 +325,11 @@ cmd_start() {
         none)    die "No supported capture backend (need wlroots, GNOME/Wayland, or WSL interop)." ;;
     esac
 
+    # Anchor for the end cut. The video's t=0 is roughly now, so stop can work
+    # out where in the clip it was invoked and discard everything after that:
+    # the stop command being typed, and however long the recorder takes to die.
+    printf 'started=%s\n' "$(date +%s)" >>"$STATE_FILE"
+
     run_countdown
 }
 
@@ -453,6 +463,10 @@ start_wsl() {
         grab+=":offset_x=$ax:offset_y=$ay:video_size=${aw}x${ah}"
     fi
 
+    # Snapshot before launching so the new PID can be identified by difference.
+    # Doing it here keeps stop off the PowerShell path entirely.
+    local pids_before; pids_before="$(wsl_ffmpeg_pidlist)"
+
     # -nostdin rather than a FIFO for the graceful 'q' quit. A FIFO would have to
     # be held open by this shell, which exits as soon as start returns; ffmpeg
     # would then see EOF on stdin at an unpredictable moment. The fragmented
@@ -487,8 +501,16 @@ start_wsl() {
         fi
     done
 
-    printf 'backend=wsl\npid=%s\nfile=%s\nwinfile=%s\nsignal=TERM\n' \
-        "$pid" "$out" "$winout" >"$STATE_FILE"
+    # Exactly one new ffmpeg.exe since the snapshot is ours. If that is
+    # ambiguous (another ffmpeg started concurrently), leave it unset and let
+    # stop fall back to matching on the command line.
+    local pids_after winpid
+    pids_after="$(wsl_ffmpeg_pidlist)"
+    winpid="$(comm -13 <(printf '%s\n' "$pids_before") <(printf '%s\n' "$pids_after"))"
+    [[ "$(printf '%s\n' "$winpid" | grep -cE '^[0-9]+$')" == 1 ]] || winpid=""
+
+    printf 'backend=wsl\npid=%s\nfile=%s\nwinfile=%s\nsignal=TERM\nwinpid=%s\n' \
+        "$pid" "$out" "$winout" "$winpid" >"$STATE_FILE"
     ok "Recording — $out  (ready in $((SECONDS - t0))s)"
     info "Stop with: demorec stop"
 }
@@ -499,6 +521,13 @@ start_wsl() {
 # leaves ffmpeg.exe running as an orphaned Windows process, and `kill -0` on the
 # dead shim then looks like a clean exit. Ask Windows directly instead, matching
 # on the output filename so an unrelated ffmpeg is never touched.
+# Sorted list of running ffmpeg.exe PIDs. tasklist costs a fraction of a
+# PowerShell startup, which is what made stop feel slow.
+wsl_ffmpeg_pidlist() {
+    tasklist.exe /FI "IMAGENAME eq ffmpeg.exe" /NH /FO CSV 2>/dev/null | tr -d '\r' \
+        | awk -F'","' '{ gsub(/"/, "", $2); if ($2 ~ /^[0-9]+$/) print $2 }' | sort
+}
+
 wsl_ffmpeg_pids() {
     local needle="$1"
     powershell.exe -NoProfile -Command \
@@ -515,9 +544,13 @@ wsl_pid_alive() {
 }
 
 stop_wsl() {
-    local pid="$1" file="$2" wpid waited=0
-    local needle; needle="$(basename "$file")"
-    local pids; pids="$(wsl_ffmpeg_pids "$needle")"   # one CIM query, not one per poll
+    local pid="$1" file="$2" known="$3" wpid waited=0
+    local pids="$known"
+    if [[ -z "$pids" ]]; then
+        # Fallback only: start could not identify the process unambiguously.
+        # This spawns PowerShell, which is why start bothers to record the PID.
+        pids="$(wsl_ffmpeg_pids "$(basename "$file")")"
+    fi
 
     for wpid in $pids; do
         # /T kills the child tree; /F because a console app never sees WM_CLOSE.
@@ -549,13 +582,22 @@ cmd_stop() {
     # Drop the countdown from the front of the clip, unless --trim said otherwise.
     (( TRIM > 0 )) || TRIM="$(sed -n 's/^trim=//p' "$STATE_FILE")"
     TRIM="${TRIM:-0}"
+
+    # Work out the cut point *before* stopping anything: the clip should end
+    # where the demo did, not where the recorder finally exited. --tail removes
+    # a little more, for the seconds spent typing the stop command itself.
+    local started; started="$(sed -n 's/^started=//p' "$STATE_FILE")"
+    if [[ -n "$started" ]]; then
+        ENDCUT="$(awk -v s="$started" -v n="$(date +%s)" -v t="$TAIL" \
+            'BEGIN{ e = n - s - t; if (e < 0.5) e = 0.5; print e }')"
+    fi
     # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
     # property of the backend rather than a constant.
     signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
     signal="${signal:-TERM}"
 
     if [[ "$backend" == "wsl" ]]; then
-        if ! stop_wsl "$pid" "$file"; then
+        if ! stop_wsl "$pid" "$file" "$(sed -n 's/^winpid=//p' "$STATE_FILE")"; then
             err "ffmpeg.exe is still running and would not stop."
             err "The session has been kept, so 'demorec stop' can be retried."
             err "To clear it by hand:  taskkill.exe /IM ffmpeg.exe /F"
@@ -675,7 +717,11 @@ cmd_render() {
     # duplicate back in as a held frame. Probing for the last on-screen change
     # first, and limiting the input to that point, gives "content, then hold"
     # rather than "content, dead air, then hold".
-    local limit=()
+    # Where the clip should end, as an absolute offset from the start of the
+    # file. ENDCUT is where the demo finished; the --hold probe finds the last
+    # on-screen change. The earlier of the two wins, so neither the recorder's
+    # shutdown nor trailing dead air survives.
+    local end="$ENDCUT" limit=()
     if (( HOLD > 0 )); then
         filters+=("tpad=stop_mode=clone:stop_duration=$HOLD")
         if (( DECIMATE )); then
@@ -683,11 +729,17 @@ cmd_render() {
             last="$("$ff" -v error -i "$in_arg" -vf mpdecimate -fps_mode vfr \
                         -f null - -progress pipe:1 -nostats 2>/dev/null \
                     | awk -F= '/^out_time_ms=/{t=$2} END{ if (t) printf "%.3f", t/1000000 }')"
-            # -t is an input option and counts from the start of the file, so it
-            # composes with the output-side -ss used for --trim.
-            [[ -n "$last" ]] && limit=(-t "$(awk -v d="$last" -v t="$TRIM" \
-                'BEGIN{ if (d <= t) d = t + 0.05; print d }')")
+            if [[ -n "$last" ]]; then
+                end="$(awk -v a="$last" -v b="$end" \
+                    'BEGIN{ if (b == "" || a < b) print a; else print b }')"
+            fi
         fi
+    fi
+    # -t is an input option counting from the start of the file, so it composes
+    # with the output-side -ss that --trim uses.
+    if [[ -n "$end" ]]; then
+        limit=(-t "$(awk -v d="$end" -v t="$TRIM" \
+            'BEGIN{ if (d <= t) d = t + 0.05; print d }')")
     fi
 
     local vf=""
@@ -744,6 +796,7 @@ while [[ $# -gt 0 ]]; do
         --countdown)   COUNTDOWN="$2"; shift 2 ;;
         --trim)        TRIM="$2"; shift 2 ;;
         --hold)        HOLD="$2"; shift 2 ;;
+        --tail)        TAIL="$2"; shift 2 ;;
         -*)            die "Unknown option: $1" ;;
         *)             args+=("$1"); shift ;;
     esac
