@@ -329,6 +329,68 @@ $ winbuild --dry-run
 
 ---
 
+### `demorec`
+
+Records the screen to mp4 and re-encodes it small. Unlike `asciinema` (the
+`record` alias), it captures **real pixels**, so it picks up anything that never
+enters the escape stream — Ghostty `custom-shader` cursor trails above all.
+Use `record` when the content is text; use `demorec` when the point is how it looks.
+
+```bash
+demorec start --area 100,100,1200,800   # returns immediately
+demorec status
+demorec stop                            # prints the file
+demorec render demo.mp4                 # -> demo-small.mp4
+```
+
+**Capture is platform-specific; rendering is not.**
+
+| | Backend |
+|---|---|
+| GNOME/Wayland | `org.gnome.Shell.Screencast` over D-Bus |
+| WSL | `ffmpeg.exe` via interop, `ddagrab` source filter |
+
+ffmpeg cannot capture on Wayland itself — its `pipewiregrab` is an unmerged RFC,
+absent from every stable release. And nothing *inside* WSL can capture at all:
+WSLg is Weston with a RAIL shell, so there is no `wlr-screencopy`, no portal, and
+no desktop output to grab. The window is composited by DWM on the Windows side,
+which is the only place it can be seen. `render` is a plain file-to-file
+transcode, so Linux ffmpeg handles it on both platforms.
+
+Two behaviours that are easy to get wrong and are deliberate here:
+
+- **GNOME kills a screencast the instant the calling D-Bus connection drops**
+  (`Fatal error while recording: Sender has vanished`). A one-shot `gdbus call`
+  returns success and then records nothing, leaving a 48-byte file holding only
+  an `ftyp` box. `start` therefore leaves a small Python holder running for the
+  duration, and `stop` signals it.
+- **The WSL muxer is fragmented** (`+frag_keyframe+empty_moov`) so a hard kill
+  still yields a playable file instead of one with no `moov` atom. GNOME's own
+  pipeline does the same (`fragment-mode=first-moov-then-finalise`), so both
+  backends behave alike on an unclean stop.
+
+`render` drops duplicate frames (`mpdecimate`) at variable frame rate, which
+keeps real timing while collapsing the long static stretches a terminal spends
+most of its time in. It never rescales — resampling text is what makes
+screencasts look mushy.
+
+**A blinking cursor is the single biggest cost.** It changes pixels twice a
+second forever, so almost nothing dedupes. Measured on a 10s idle 1200x800 clip:
+
+| | Frames kept (of 300) | Rendered size |
+|---|---|---|
+| No blink | 1 | 4.6 KB |
+| 2 Hz blink | 40 | 10.9 KB |
+
+Setting `cursor-style-blink = false` in the Ghostty config while recording is
+worth more than any encoder flag. It does not affect the cursor trail, which
+fires on movement rather than blink.
+
+> The WSL backend is **untested** — written from the `ddagrab` docs and interop
+> behaviour, but never exercised on a real WSL box. Verify before relying on it.
+
+---
+
 ## Script Conventions
 
 All devtools scripts follow these rules (from CLAUDE.md):

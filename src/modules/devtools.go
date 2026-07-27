@@ -23,6 +23,7 @@ var devtoolsScripts = []string{
 	"tlog-clean",
 	"clipboard-vm",
 	"tmux-restore",
+	"demorec",
 }
 
 func (DevtoolsModule) Links() core.LinkSet {

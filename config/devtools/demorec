@@ -1,0 +1,343 @@
+#!/usr/bin/env bash
+# demorec — start/stop a terminal screen recording and render it small.
+#
+# Unlike asciinema (see the `record` alias), this captures real pixels, so it
+# picks up things that never enter the escape stream: Ghostty custom-shader
+# cursor trails, ligatures, image protocols. Use asciinema when the content is
+# text; use this when the point is how it *looks*.
+#
+# Capture is necessarily platform-specific, rendering is not:
+#
+#   GNOME/Wayland  org.gnome.Shell.Screencast over D-Bus. ffmpeg cannot do this
+#                  itself — its pipewiregrab is an unmerged RFC, so there is no
+#                  native Wayland capture in any stable release.
+#   WSL            ffmpeg.exe via interop using the ddagrab (Desktop Duplication)
+#                  source filter. Nothing inside WSL can capture: WSLg is Weston
+#                  with a RAIL shell, so there is no wlr-screencopy, no portal,
+#                  and no desktop output to grab. The Ghostty window is composited
+#                  by DWM on the Windows side, which is where it can be seen.
+#
+# `render` is shared — it is a file-to-file transcode, so Linux ffmpeg handles it
+# on both platforms.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+STATE_DIR="${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/demorec"
+STATE_FILE="$STATE_DIR/session"
+LOG_FILE="$STATE_DIR/last.log"
+OUT_DIR="${DEMOREC_DIR:-$HOME/Videos/demos}"
+
+FPS=30
+CURSOR=1
+AREA=""
+CRF=22
+CROP=""
+DECIMATE=1
+
+usage() {
+    header "demorec"
+    echo "Record the screen to mp4 and render it down to a small file."
+    echo "Captures real pixels, so GPU effects (Ghostty shaders) are included."
+    echo ""
+    echo "Usage:"
+    echo "  demorec start [options]      Begin recording (returns immediately)"
+    echo "  demorec stop                 End recording, print the file"
+    echo "  demorec status               Show whether a recording is running"
+    echo "  demorec render IN [OUT]      Re-encode down to a shareable file"
+    echo ""
+    echo "start options:"
+    echo "  --area X,Y,W,H   Capture a region instead of the whole screen"
+    echo "  --fps N          Capture framerate (default $FPS)"
+    echo "  --no-cursor      Omit the pointer (the text cursor is unaffected)"
+    echo ""
+    echo "render options:"
+    echo "  --crf N          Quality, lower is bigger/better (default $CRF)"
+    echo "  --crop W:H:X:Y   Crop before encoding"
+    echo "  --no-decimate    Keep duplicate frames (default drops them)"
+    echo ""
+    echo "Notes:"
+    echo "  A blinking cursor changes pixels ~2x/second, which defeats duplicate"
+    echo "  frame dropping and inflates the file. For the smallest result set"
+    echo "  cursor-style-blink = false in the Ghostty config while recording."
+    exit 0
+}
+
+# ── Backend detection ────────────────────────────────────────────
+detect_backend() {
+    if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+        echo "wsl"
+    elif gdbus introspect --session --dest org.gnome.Shell.Screencast \
+            --object-path /org/gnome/Shell/Screencast &>/dev/null; then
+        echo "gnome"
+    else
+        echo "none"
+    fi
+}
+
+# GNOME aborts a screencast as soon as the calling D-Bus connection drops
+# ("Sender has vanished"), so a one-shot `gdbus call` records nothing — it
+# leaves a 48-byte file holding only an ftyp box. This holder stays alive for
+# the duration and stops the recording on SIGTERM.
+read -r -d '' HOLDER_PY <<'PY' || true
+import os, signal, sys
+import gi
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
+
+state, template, fps, cursor, area = sys.argv[1:6]
+
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+proxy = Gio.DBusProxy.new_sync(
+    bus, Gio.DBusProxyFlags.NONE, None,
+    "org.gnome.Shell.Screencast", "/org/gnome/Shell/Screencast",
+    "org.gnome.Shell.Screencast", None)
+
+opts = {
+    "framerate": GLib.Variant("i", int(fps)),
+    "draw-cursor": GLib.Variant("b", cursor == "1"),
+}
+
+if area:
+    x, y, w, h = (int(v) for v in area.split(","))
+    ok, name = proxy.ScreencastArea("(iiiisa{sv})", x, y, w, h, template, opts)
+else:
+    ok, name = proxy.Screencast("(sa{sv})", template, opts)
+
+if not ok:
+    sys.stderr.write("GNOME refused the screencast request\n")
+    sys.exit(1)
+
+with open(state, "w") as fh:
+    fh.write("backend=gnome\npid=%d\nfile=%s\n" % (os.getpid(), name))
+
+loop = GLib.MainLoop()
+
+def stop(*_):
+    try:
+        proxy.StopScreencast("()")   # returns a bare bool, not a tuple
+    except Exception as exc:
+        sys.stderr.write("StopScreencast failed: %s\n" % exc)
+    loop.quit()
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+loop.run()
+PY
+
+# ── start ────────────────────────────────────────────────────────
+cmd_start() {
+    mkdir -p "$STATE_DIR" "$OUT_DIR"
+
+    if [[ -f "$STATE_FILE" ]]; then
+        local oldpid
+        oldpid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
+        if [[ -n "$oldpid" ]] && kill -0 "$oldpid" 2>/dev/null; then
+            die "Already recording (pid $oldpid). Run 'demorec stop' first."
+        fi
+        rm -f "$STATE_FILE"
+    fi
+
+    local stamp base
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    base="$OUT_DIR/demo-$stamp"
+    # Disambiguate rather than clobber: two starts in the same second collide.
+    local n=1
+    while [[ -e "$base.mp4" || -e "$base.webm" ]]; do
+        base="$OUT_DIR/demo-$stamp-$((n++))"
+    done
+
+    case "$(detect_backend)" in
+        gnome) start_gnome "$base" ;;
+        wsl)   start_wsl   "$base" ;;
+        none)  die "No supported capture backend (need GNOME/Wayland or WSL interop)." ;;
+    esac
+}
+
+start_gnome() {
+    local base="$1"
+    require_cmd python3
+
+    # nohup, not setsid: we want $! to be the holder itself so stop can signal it.
+    nohup python3 -c "$HOLDER_PY" \
+        "$STATE_FILE" "$base" "$FPS" "$CURSOR" "$AREA" \
+        >"$LOG_FILE" 2>&1 &
+    local pid=$!
+
+    # The holder writes the state file only once GNOME has accepted the request.
+    local waited=0
+    while [[ ! -f "$STATE_FILE" ]]; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            err "Recording failed to start:"
+            sed 's/^/      /' "$LOG_FILE" >&2 || true
+            exit 1
+        fi
+        sleep 0.2
+        waited=$((waited + 1))
+        (( waited > 50 )) && die "Timed out waiting for GNOME to start the recording."
+    done
+
+    ok "Recording — $(sed -n 's/^file=//p' "$STATE_FILE")"
+    info "Stop with: demorec stop"
+}
+
+# NOTE: untested. Written from the ddagrab docs and WSL interop behaviour, but
+# not exercised on a real WSL box — verify before trusting it.
+start_wsl() {
+    local base="$1"
+    require_cmd ffmpeg.exe
+    require_cmd wslpath
+
+    local out="$base.mp4"
+    local winout
+    winout="$(wslpath -w "$out")"
+
+    # ddagrab is a *source filter*, not a demuxer, so it is wired via
+    # -filter_complex rather than -f. It emits D3D11 frames, hence hwdownload
+    # before a software encoder will accept them.
+    local grab="ddagrab=output_idx=0:framerate=$FPS:draw_mouse=$CURSOR"
+    if [[ -n "$AREA" ]]; then
+        IFS=, read -r ax ay aw ah <<<"$AREA"
+        grab="ddagrab=output_idx=0:framerate=$FPS:draw_mouse=$CURSOR"
+        grab+=":offset_x=$ax:offset_y=$ay:video_size=${aw}x${ah}"
+    fi
+
+    # A FIFO on stdin lets stop() ask ffmpeg to quit gracefully. Even so the
+    # muxer is fragmented, so a hard kill still leaves a playable file rather
+    # than one with no moov atom.
+    local fifo="$STATE_DIR/ffmpeg.stdin"
+    rm -f "$fifo"; mkfifo "$fifo"
+
+    nohup ffmpeg.exe -hide_banner -loglevel error \
+        -filter_complex "$grab,hwdownload,format=bgra" \
+        -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \
+        -movflags +frag_keyframe+empty_moov -an \
+        -y "$winout" <"$fifo" >"$LOG_FILE" 2>&1 &
+    local pid=$!
+    # Hold the FIFO open so ffmpeg does not see EOF and exit immediately.
+    exec 9>"$fifo"
+
+    printf 'backend=wsl\npid=%s\nfile=%s\nfifo=%s\n' "$pid" "$out" "$fifo" >"$STATE_FILE"
+    ok "Recording — $out"
+    info "Stop with: demorec stop"
+}
+
+# ── stop ─────────────────────────────────────────────────────────
+cmd_stop() {
+    [[ -f "$STATE_FILE" ]] || die "No recording in progress."
+
+    local backend pid file fifo
+    backend="$(sed -n 's/^backend=//p' "$STATE_FILE")"
+    pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
+    file="$(sed -n 's/^file=//p' "$STATE_FILE")"
+    fifo="$(sed -n 's/^fifo=//p' "$STATE_FILE")"
+
+    if [[ "$backend" == "wsl" && -n "$fifo" && -p "$fifo" ]]; then
+        printf 'q' >"$fifo" 2>/dev/null || true
+    fi
+    kill -TERM "$pid" 2>/dev/null || true
+
+    local waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+        sleep 0.2
+        waited=$((waited + 1))
+        if (( waited > 50 )); then
+            warn "Recorder did not exit; killing."
+            kill -KILL "$pid" 2>/dev/null || true
+            break
+        fi
+    done
+
+    [[ -n "$fifo" ]] && rm -f "$fifo"
+    rm -f "$STATE_FILE"
+
+    if [[ -f "$file" ]]; then
+        ok "Saved $file ($(du -h "$file" | cut -f1))"
+        info "Shrink it with: demorec render \"$file\""
+    else
+        err "Recorder exited but $file does not exist. Log:"
+        sed 's/^/      /' "$LOG_FILE" >&2 || true
+        exit 1
+    fi
+}
+
+cmd_status() {
+    if [[ -f "$STATE_FILE" ]]; then
+        local pid; pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
+        if kill -0 "$pid" 2>/dev/null; then
+            ok "Recording (pid $pid) → $(sed -n 's/^file=//p' "$STATE_FILE")"
+            return 0
+        fi
+        warn "Stale state file (pid $pid is gone); clearing."
+        rm -f "$STATE_FILE"
+    fi
+    info "Not recording."
+}
+
+# ── render ───────────────────────────────────────────────────────
+cmd_render() {
+    local in="${1:-}" out="${2:-}"
+    [[ -n "$in" ]] || die "Usage: demorec render IN [OUT]"
+    [[ -f "$in" ]] || die "No such file: $in"
+    require_cmd ffmpeg
+    [[ -n "$out" ]] || out="${in%.*}-small.mp4"
+
+    local filters=()
+    [[ -n "$CROP" ]] && filters+=("crop=$CROP")
+    # Terminals are static most of the time, so dropping duplicate frames is the
+    # single biggest win. -fps_mode vfr keeps real timing (frames are simply held
+    # longer) rather than speeding the video up the way setpts would.
+    (( DECIMATE )) && filters+=("mpdecimate")
+
+    local vf=""
+    (( ${#filters[@]} )) && vf="$(IFS=,; echo "${filters[*]}")"
+
+    local before after
+    before="$(stat -c%s "$in")"
+
+    info "Encoding (crf $CRF, veryslow) …"
+    # No scaling: rescaling text is what makes screencasts look mushy.
+    # yuv420p because 4:4:4 keeps text chroma sharper but browsers won't play it.
+    ffmpeg -hide_banner -loglevel error -y -i "$in" \
+        ${vf:+-vf "$vf"} -fps_mode vfr \
+        -c:v libx264 -preset veryslow -tune stillimage -crf "$CRF" \
+        -pix_fmt yuv420p -g 120 -movflags +faststart -an \
+        "$out"
+
+    after="$(stat -c%s "$out")"
+    ok "$out"
+    awk -v b="$before" -v a="$after" '
+    function human(n) {
+        if (n >= 1048576) return sprintf("%.1f MiB", n/1048576)
+        if (n >= 1024)    return sprintf("%.0f KiB", n/1024)
+        return sprintf("%d B", n)
+    }
+    BEGIN{ printf "      %s -> %s (%.0f%% smaller)\n", human(b), human(a), (1-a/b)*100 }'
+}
+
+# ── Arg parsing ──────────────────────────────────────────────────
+[[ $# -gt 0 ]] || usage
+sub="$1"; shift || true
+
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)     usage ;;
+        --area)        AREA="$2"; shift 2 ;;
+        --fps)         FPS="$2"; shift 2 ;;
+        --no-cursor)   CURSOR=0; shift ;;
+        --crf)         CRF="$2"; shift 2 ;;
+        --crop)        CROP="$2"; shift 2 ;;
+        --no-decimate) DECIMATE=0; shift ;;
+        -*)            die "Unknown option: $1" ;;
+        *)             args+=("$1"); shift ;;
+    esac
+done
+
+case "$sub" in
+    start)          cmd_start ;;
+    stop)           cmd_stop ;;
+    status)         cmd_status ;;
+    render)         cmd_render "${args[@]+"${args[@]}"}" ;;
+    -h|--help|help) usage ;;
+    *)              die "Unknown command: $sub (try --help)" ;;
+esac
