@@ -39,6 +39,7 @@ CROP=""
 DECIMATE=1
 RENDER=0
 KEEP_RAW=0
+OUTPUT=""
 
 usage() {
     header "demorec"
@@ -49,10 +50,12 @@ usage() {
     echo "  demorec start [options]      Begin recording (returns immediately)"
     echo "  demorec stop [--render]      End recording, print the file"
     echo "  demorec status               Show whether a recording is running"
+    echo "  demorec outputs              List displays that --output can select"
     echo "  demorec render IN [OUT]      Re-encode down to a shareable file"
     echo ""
     echo "start options:"
     echo "  --area X,Y,W,H   Capture a region instead of the whole screen"
+    echo "  --output ID      Capture one display (see 'demorec outputs')"
     echo "  --fps N          Capture framerate (default $FPS)"
     echo "  --no-cursor      Omit the pointer (the text cursor is unaffected)"
     echo ""
@@ -147,6 +150,93 @@ signal.signal(signal.SIGINT, stop)
 loop.run()
 PY
 
+# ── Display enumeration ──────────────────────────────────────────
+# Each backend prints "ID<TAB>WxH+X+Y<TAB>note". The ID is what --output takes.
+
+read -r -d '' MONITORS_PY <<'PY' || true
+import gi
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio
+
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+proxy = Gio.DBusProxy.new_sync(
+    bus, Gio.DBusProxyFlags.NONE, None,
+    "org.gnome.Mutter.DisplayConfig", "/org/gnome/Mutter/DisplayConfig",
+    "org.gnome.Mutter.DisplayConfig", None)
+
+_serial, monitors, logical, _props = proxy.GetCurrentState("()")
+
+for x, y, scale, _transform, primary, mons, _lprops in logical:
+    for connector, *_ in mons:
+        w = h = 0
+        for mon_id, modes, _mprops in monitors:
+            if mon_id[0] != connector:
+                continue
+            for mode in modes:
+                if mode[6].get("is-current"):
+                    w, h = mode[1], mode[2]
+        # Logical pixels: ScreencastArea works in the same coordinate space.
+        print("%s\t%dx%d+%d+%d\t%s" % (
+            connector, w / scale, h / scale, x, y,
+            "primary" if primary else ""))
+PY
+
+outputs_gnome() { python3 -c "$MONITORS_PY"; }
+
+outputs_wlroots() {
+    # wf-recorder selects with -o NAME but cannot list; ask the compositor.
+    if command -v swaymsg &>/dev/null; then
+        swaymsg -t get_outputs \
+            | python3 -c 'import json,sys
+for o in json.load(sys.stdin):
+    r = o.get("rect", {})
+    print("%s\t%sx%s+%s+%s\t%s" % (o["name"], r.get("width"), r.get("height"),
+          r.get("x"), r.get("y"), "focused" if o.get("focused") else ""))'
+    elif command -v hyprctl &>/dev/null; then
+        hyprctl -j monitors \
+            | python3 -c 'import json,sys
+for o in json.load(sys.stdin):
+    print("%s\t%sx%s+%s+%s\t%s" % (o["name"], o["width"], o["height"],
+          o["x"], o["y"], "focused" if o.get("focused") else ""))'
+    elif command -v wlr-randr &>/dev/null; then
+        wlr-randr
+    else
+        die "Cannot list outputs: install swaymsg, hyprctl or wlr-randr."
+    fi
+}
+
+outputs_wsl() {
+    # ddagrab selects by DXGI output index. Windows enumerates screens in the
+    # same order in the common case, but it is not guaranteed — if the wrong
+    # screen is captured, try the other index rather than trusting this order.
+    require_cmd powershell.exe
+    # shellcheck disable=SC2016  # $_ and $i are PowerShell, not shell, variables
+    powershell.exe -NoProfile -Command '
+        Add-Type -AssemblyName System.Windows.Forms
+        $i = 0
+        [System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
+            "{0}`t{1}x{2}+{3}+{4}`t{5}{6}" -f $i, $_.Bounds.Width, $_.Bounds.Height,
+                $_.Bounds.X, $_.Bounds.Y, $_.DeviceName,
+                $(if ($_.Primary) { " primary" } else { "" })
+            $i++
+        }' 2>/dev/null | tr -d '\r'
+}
+
+cmd_outputs() {
+    local backend; backend="$(detect_backend)"
+    header "displays (backend: $backend)"
+    case "$backend" in
+        gnome)   outputs_gnome ;;
+        wlroots) outputs_wlroots ;;
+        wsl)     outputs_wsl ;;
+        none)    die "No supported capture backend." ;;
+    esac | while IFS=$'\t' read -r id geom note; do
+        printf '  %-14s %-18s %s\n' "$id" "$geom" "$note"
+    done
+    echo ""
+    info "Select one with: demorec start --output <id>"
+}
+
 # ── start ────────────────────────────────────────────────────────
 cmd_start() {
     mkdir -p "$STATE_DIR" "$OUT_DIR"
@@ -194,6 +284,10 @@ start_wlroots() {
     # the saving away. -B is the framerate hint that preserves VFR.
     args+=(-B "$FPS")
 
+    if [[ -n "$OUTPUT" ]]; then
+        args+=(-o "$OUTPUT")
+    fi
+
     if [[ -n "$AREA" ]]; then
         # demorec takes X,Y,W,H; wf-recorder wants "x,y WxH".
         IFS=, read -r ax ay aw ah <<<"$AREA"
@@ -224,6 +318,17 @@ start_wlroots() {
 start_gnome() {
     local base="$1"
     require_cmd python3
+
+    # Screencast has no display selector, so --output becomes the monitor's
+    # rect. Mutter reports logical pixels, the same space ScreencastArea uses.
+    if [[ -n "$OUTPUT" ]]; then
+        [[ -z "$AREA" ]] || die "--output and --area are mutually exclusive."
+        local geom
+        geom="$(outputs_gnome | awk -v id="$OUTPUT" -F'\t' '$1==id{print $2}')"
+        [[ -n "$geom" ]] || die "No such display: $OUTPUT (try 'demorec outputs')."
+        # WxH+X+Y -> X,Y,W,H
+        AREA="$(echo "$geom" | sed -E 's/^([0-9]+)x([0-9]+)\+([0-9]+)\+([0-9]+)$/\3,\4,\1,\2/')"
+    fi
 
     # nohup, not setsid: we want $! to be the holder itself so stop can signal it.
     nohup python3 -c "$HOLDER_PY" \
@@ -262,10 +367,14 @@ start_wsl() {
     # ddagrab is a *source filter*, not a demuxer, so it is wired via
     # -filter_complex rather than -f. It emits D3D11 frames, hence hwdownload
     # before a software encoder will accept them.
-    local grab="ddagrab=output_idx=0:framerate=$FPS:draw_mouse=$CURSOR"
+    # output_idx is the DXGI output index; see outputs_wsl on ordering caveats.
+    local idx="${OUTPUT:-0}"
+    [[ "$idx" =~ ^[0-9]+$ ]] \
+        || die "--output must be a numeric display index on WSL (see 'demorec outputs')."
+
+    local grab="ddagrab=output_idx=$idx:framerate=$FPS:draw_mouse=$CURSOR"
     if [[ -n "$AREA" ]]; then
         IFS=, read -r ax ay aw ah <<<"$AREA"
-        grab="ddagrab=output_idx=0:framerate=$FPS:draw_mouse=$CURSOR"
         grab+=":offset_x=$ax:offset_y=$ay:video_size=${aw}x${ah}"
     fi
 
@@ -410,6 +519,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -h|--help)     usage ;;
         --area)        AREA="$2"; shift 2 ;;
+        --output)      OUTPUT="$2"; shift 2 ;;
         --fps)         FPS="$2"; shift 2 ;;
         --no-cursor)   CURSOR=0; shift ;;
         --crf)         CRF="$2"; shift 2 ;;
@@ -426,6 +536,7 @@ case "$sub" in
     start)          cmd_start ;;
     stop)           cmd_stop ;;
     status)         cmd_status ;;
+    outputs)        cmd_outputs ;;
     render)         cmd_render "${args[@]+"${args[@]}"}" ;;
     -h|--help|help) usage ;;
     *)              die "Unknown command: $sub (try --help)" ;;

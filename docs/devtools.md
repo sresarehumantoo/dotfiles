@@ -337,12 +337,44 @@ enters the escape stream — Ghostty `custom-shader` cursor trails above all.
 Use `record` when the content is text; use `demorec` when the point is how it looks.
 
 ```bash
-demorec start --area 100,100,1200,800   # returns immediately
+demorec outputs                         # list displays
+demorec start --output eDP-1            # one display
+demorec start --area 100,100,1200,800   # or an arbitrary region
 demorec status
 demorec stop --render                   # -> demo-small.mp4, raw discarded
 demorec stop                            # keep the pristine capture instead
 demorec render demo.mp4                 # -> demo-small.mp4
 ```
+
+`--output` and `--area` are mutually exclusive. How the display is named and
+selected differs per backend, which is why `outputs` exists:
+
+| Backend | ID | Selection | Listed via |
+|---|---|---|---|
+| wlroots | connector (`DP-2`) | `wf-recorder -o` | `swaymsg`/`hyprctl`/`wlr-randr` |
+| GNOME | connector (`eDP-1`) | resolved to a rect, then `ScreencastArea` | Mutter `DisplayConfig` |
+| WSL | numeric index (`0`) | `ddagrab output_idx` | PowerShell `Screen::AllScreens` |
+
+GNOME's Screencast has no display selector at all, so `--output` there looks the
+monitor's rect up from Mutter (in logical pixels, the same space
+`ScreencastArea` uses) and captures that region. On WSL the index is a DXGI
+output index; Windows usually enumerates screens in the same order, but that is
+**not guaranteed** — if the wrong screen is captured, try the other index rather
+than trusting the listing's order.
+
+### Which terminal you use does not matter
+
+Capture is desktop-level, not application-level: `ddagrab` grabs the composited
+Windows desktop, `wf-recorder` and Screencast grab compositor output. So Windows
+Terminal, Ghostty under WSLg, or anything else are all just windows that appear
+in the frame — nothing in demorec is Ghostty-specific.
+
+What *does* differ is whether there is a cursor trail to capture in the first
+place. The trail is a Ghostty `custom-shader` (GLSL, fed cursor state by
+Ghostty). Windows Terminal has its own unrelated shader hook,
+`experimental.pixelShaderPath`, which is HLSL and is **not** given cursor
+position — so a cursor trail is not expressible in it. Recording Windows
+Terminal works fine; there is simply no trail in the result.
 
 The raw capture is large — GNOME's encoder is pinned at fixed QP 26 with
 `complexity=low` and `deblocking=off`, which on a 1920x1200 screen is about
