@@ -522,6 +522,24 @@ required. If the location is already on the Windows PATH, interop resolves plain
 self-contained `ffmpeg.exe`, and `ddagrab` is compiled in (verified against
 `ffmpeg-n7.1-latest-win64-gpl`):
 
+`wsl-ffmpeg` does this for you:
+
+```bash
+wsl-ffmpeg                       # asks where, defaulting to your Windows profile's bin/
+wsl-ffmpeg --dir /mnt/c/tools    # or say outright; Windows paths accepted too
+```
+
+It resolves the Windows profile itself (`$env:USERPROFILE` through PowerShell,
+then `wslpath`), so the account name never has to be typed, and it works in
+Linux-style `/mnt/...` paths throughout. It picks the latest **static** BtbN
+build, extracts just `ffmpeg.exe`, and then checks the binary runs and that
+`ddagrab` is compiled in — a build without it cannot capture, and finding that
+out now beats finding out mid-recording. It warns if the target is on the Linux
+filesystem, is a no-op if already installed (`--force` to replace), and prints
+the `DEMOREC_FFMPEG` line unless the location is already on the Windows PATH.
+
+By hand instead:
+
 ```bash
 curl -L -o ffmpeg.zip \
   https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n7.1-latest-win64-gpl-7.1.zip

@@ -1,0 +1,183 @@
+#!/usr/bin/env bash
+# wsl-ffmpeg — install a standalone Windows ffmpeg for demorec's WSL backend.
+#
+# Nothing inside WSL can capture the screen (WSLg is Weston with a RAIL shell:
+# no wlr-screencopy, no portal, no desktop output), so demorec records through
+# ffmpeg.exe on the Windows side using the ddagrab filter. That is the single
+# thing WSL needs from Windows, and it does not have to be installed system-wide
+# — a standalone build dropped anywhere will do.
+#
+# The BtbN static builds are one self-contained ffmpeg.exe with ddagrab compiled
+# in. This fetches one, puts it where you ask, and checks it actually works.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+RELEASE_API="https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/latest"
+DIR=""
+ASSUME_YES=false
+FORCE=false
+
+usage() {
+    header "wsl-ffmpeg"
+    echo "Install a standalone Windows ffmpeg.exe for demorec's WSL capture."
+    echo ""
+    echo "Usage:"
+    echo "  wsl-ffmpeg [--dir PATH] [--yes] [--force]"
+    echo ""
+    echo "Options:"
+    echo "  --dir PATH    Where to put ffmpeg.exe. Accepts a Linux path"
+    echo "                (/mnt/c/Users/you/bin) or a Windows one (C:\\Users\\...)."
+    echo "                Without it you are asked, with your Windows profile's"
+    echo "                bin/ offered as the default."
+    echo "  --yes         Take the default path and skip confirmation"
+    echo "  --force       Reinstall even if ffmpeg.exe is already there"
+    echo "  -h, --help    Show this help"
+    echo ""
+    echo "Notes:"
+    echo "  Keep it on the Windows filesystem, not under \$HOME. A Windows binary"
+    echo "  run from a wsl.localhost UNC path goes over the 9p bridge, and so"
+    echo "  does everything it writes."
+    echo ""
+    echo "  If the directory is already on the Windows PATH, demorec finds"
+    echo "  ffmpeg.exe by itself. Otherwise set DEMOREC_FFMPEG to the full path —"
+    echo "  this prints the line to add."
+    exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help) usage ;;
+        --dir)     DIR="${2:-}"; shift 2 ;;
+        --yes|-y)  ASSUME_YES=true; shift ;;
+        --force)   FORCE=true; shift ;;
+        *)         die "Unknown option: $1 (try --help)" ;;
+    esac
+done
+
+require_wsl
+require_cmd curl
+require_cmd unzip
+require_cmd wslpath
+
+# ── Where does it go? ────────────────────────────────────────────
+# WSL can work out the Windows user: PowerShell knows USERPROFILE and wslpath
+# turns it into a /mnt path, so the default never has to be guessed or typed.
+windows_home() {
+    local profile
+    # shellcheck disable=SC2016  # $env: is PowerShell, not shell
+    profile="$(powershell.exe -NoProfile -Command '$env:USERPROFILE' 2>/dev/null | tr -d '\r')"
+    [[ -n "$profile" ]] || return 1
+    wslpath -u "$profile" 2>/dev/null
+}
+
+# Accept either path style; everything downstream works in Linux form.
+normalise_dir() {
+    local d="$1"
+    [[ "$d" == *:\\* || "$d" == *:/* ]] && d="$(wslpath -u "$d" 2>/dev/null || echo "$d")"
+    printf '%s\n' "${d%/}"
+}
+
+if [[ -z "$DIR" ]]; then
+    default_dir=""
+    if home="$(windows_home)"; then
+        default_dir="$home/bin"
+    fi
+
+    if $ASSUME_YES; then
+        [[ -n "$default_dir" ]] || die "Could not resolve your Windows profile; pass --dir."
+        DIR="$default_dir"
+    else
+        header "Where should ffmpeg.exe go?"
+        if [[ -n "$default_dir" ]]; then
+            info "Your Windows profile is $home"
+            echo ""
+            echo "  Enter a path, or press enter for the default."
+            echo "  Default: $default_dir"
+        else
+            warn "Could not resolve your Windows profile — enter a path."
+            echo "  Something under /mnt/c, e.g. /mnt/c/Users/<you>/bin"
+        fi
+        echo ""
+        printf '  path> '
+        read -r answer
+        DIR="${answer:-$default_dir}"
+        [[ -n "$DIR" ]] || die "No path given."
+    fi
+fi
+
+DIR="$(normalise_dir "$DIR")"
+[[ "$DIR" = /* ]] || die "Path must be absolute: $DIR"
+
+case "$DIR" in
+    /mnt/*) ;;
+    *) warn "$DIR is not under /mnt — that is the Linux filesystem."
+       warn "A Windows binary run from there crosses the 9p bridge and will be slow."
+       $ASSUME_YES || confirm "Use it anyway?" || { info "Aborted."; exit 0; } ;;
+esac
+
+TARGET="$DIR/ffmpeg.exe"
+if [[ -f "$TARGET" ]] && ! $FORCE; then
+    ok "Already installed: $TARGET"
+    info "Reinstall with --force."
+    exit 0
+fi
+
+# ── Fetch ────────────────────────────────────────────────────────
+header "Fetching ffmpeg"
+
+# The static build (win64-gpl without -shared) is a single self-contained exe.
+info "Looking up the latest BtbN build..."
+asset_url="$(curl -fsSL "$RELEASE_API" \
+    | grep -o '"browser_download_url": *"[^"]*win64-gpl-[0-9.]*\.zip"' \
+    | grep -v shared | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')"
+[[ -n "$asset_url" ]] || die "Could not find a static win64-gpl asset in the latest release."
+info "$(basename "$asset_url")"
+
+$ASSUME_YES || confirm "Download it (~150 MB) to $DIR?" || { info "Aborted."; exit 0; }
+
+mkdir -p "$DIR" || die "Cannot create $DIR"
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+
+step "Downloading..."
+curl -fL --progress-bar "$asset_url" -o "$tmp/ffmpeg.zip" \
+    || die "Download failed."
+
+step "Extracting ffmpeg.exe..."
+# -j flattens: the archive nests everything under a versioned directory.
+unzip -j -o "$tmp/ffmpeg.zip" '*/bin/ffmpeg.exe' -d "$DIR" >/dev/null \
+    || die "Could not extract ffmpeg.exe from the archive."
+[[ -f "$TARGET" ]] || die "Extraction reported success but $TARGET is missing."
+
+# ── Verify ───────────────────────────────────────────────────────
+header "Checking it works"
+
+version="$("$TARGET" -hide_banner -version 2>/dev/null | head -1 || true)"
+[[ -n "$version" ]] || die "$TARGET did not run. Is interop enabled?"
+ok "$version"
+
+# ddagrab is the whole reason for installing this; a build without it is useless
+# here, and finding that out now beats finding out mid-recording.
+if "$TARGET" -hide_banner -filters 2>/dev/null | grep -q ddagrab; then
+    ok "ddagrab present — screen capture available"
+else
+    err "This build has no ddagrab filter, so demorec cannot capture with it."
+    err "Try a different build, or report it upstream."
+    exit 1
+fi
+
+# ── How to use it ────────────────────────────────────────────────
+header "Done"
+echo "  $TARGET"
+echo ""
+if command -v ffmpeg.exe &>/dev/null; then
+    ok "ffmpeg.exe is already on your Windows PATH — demorec will find it."
+else
+    info "Not on the Windows PATH, so point demorec at it:"
+    echo ""
+    echo "      export DEMOREC_FFMPEG=$TARGET"
+    echo ""
+    echo "  Add that to ~/.zshrc, or put $DIR on your Windows PATH instead."
+fi
+echo ""
+info "Then: demorec outputs && demorec start"
