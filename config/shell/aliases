@@ -85,37 +85,57 @@ fi
 # as the output and reads as "whoamiowen". `record` avoids emitting it, but casts
 # made before that, or on another machine, still carry it — so strip it here too
 # rather than leaving people to repair files by hand.
-_render_strip_titles() {
-  python3 - "$1" "$2" <<'PY'
+_render_prepare() {
+  python3 - "$1" "$2" "$3" <<'PY'
 import json, re, sys
 
 pat = re.compile("\x1bk.*?\x1b\\\\", re.S)      # ESC k … ESC backslash
-src, dst = sys.argv[1], sys.argv[2]
-with open(src) as fi, open(dst, "w") as fo:
-    for i, line in enumerate(fi):
-        if not line.strip():
-            continue
-        if i == 0:                              # header line, copied verbatim
-            fo.write(line)
-            continue
-        ev = json.loads(line)
+src, dst, cut_exit = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+
+lines = [l for l in open(src) if l.strip()]
+header, events = lines[0], [json.loads(l) for l in lines[1:]]
+
+if cut_exit:
+    # zsh and bash turn bracketed paste on when a prompt is ready for input, so
+    # the last one marks the final prompt — everything after it is the exit
+    # being typed. Keeping that event leaves the clip ending on a clean prompt.
+    idx = None
+    for i, ev in enumerate(events):
+        if "\x1b[?2004h" in ev[2]:
+            idx = i
+    if idx is not None:
+        events = events[:idx + 1]
+
+with open(dst, "w") as fo:
+    fo.write(header)
+    for ev in events:
         ev[2] = pat.sub("", ev[2])
         fo.write(json.dumps(ev) + "\n")
 PY
 }
 
 if command -v agg &>/dev/null; then
+  # --no-exit drops the trailing "exit" that ended the recording, so a demo does
+  # not finish by showing itself being shut down. It is ours, not agg's, so it is
+  # filtered out of the arguments before agg sees them.
   render() {
-    local arg tmp="" swapped=0 rc
-    local -a args=()
+    local arg tmp="" swapped=0 rc cut_exit=0
+    local -a args=() rest=()
+
     for arg in "$@"; do
-      # The input is the first argument that exists and carries the sequence;
-      # ESC is written  in the cast's JSON, so that is what to look for.
-      if (( ! swapped )) && [[ -f "$arg" ]] \
-         && grep -qi 'u001bk' "$arg" 2>/dev/null \
-         && command -v python3 &>/dev/null; then
+      case "$arg" in
+        --no-exit) cut_exit=1 ;;
+        *)         rest+=("$arg") ;;
+      esac
+    done
+
+    for arg in ${rest[@]+"${rest[@]}"}; do
+      # The input is the first argument that exists and needs work. ESC is
+      # written as a JSON escape in the cast, so that is what to grep for.
+      if (( ! swapped )) && [[ -f "$arg" ]] && command -v python3 &>/dev/null \
+         && { (( cut_exit )) || grep -qi 'u001bk' "$arg" 2>/dev/null; }; then
         tmp="$(mktemp)" || return 1
-        if _render_strip_titles "$arg" "$tmp"; then
+        if _render_prepare "$arg" "$tmp" "$cut_exit"; then
           args+=("$tmp"); swapped=1
           continue
         fi
@@ -123,7 +143,8 @@ if command -v agg &>/dev/null; then
       fi
       args+=("$arg")
     done
-    agg "${args[@]}"
+
+    agg ${args[@]+"${args[@]}"}
     rc=$?
     [[ -n "$tmp" ]] && rm -f "$tmp"
     return $rc
