@@ -402,7 +402,11 @@ Two behaviours that are easy to get wrong and are deliberate here:
 - **The WSL muxer is fragmented** (`+frag_keyframe+empty_moov`) so a hard kill
   still yields a playable file instead of one with no `moov` atom. GNOME's own
   pipeline does the same (`fragment-mode=first-moov-then-finalise`), so both
-  backends behave alike on an unclean stop.
+  backends behave alike on an unclean stop. ffmpeg is therefore run with
+  `-nostdin` and simply signalled, rather than being sent `q` down a FIFO: a
+  FIFO would have to be held open by a shell that exits the moment `start`
+  returns, so ffmpeg would hit EOF on stdin at an unpredictable point. The
+  fragmented muxer already makes the graceful path unnecessary.
 
 `render` drops duplicate frames (`mpdecimate`) at variable frame rate, which
 keeps real timing while collapsing the long static stretches a terminal spends

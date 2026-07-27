@@ -269,22 +269,28 @@ start_wsl() {
         grab+=":offset_x=$ax:offset_y=$ay:video_size=${aw}x${ah}"
     fi
 
-    # A FIFO on stdin lets stop() ask ffmpeg to quit gracefully. Even so the
-    # muxer is fragmented, so a hard kill still leaves a playable file rather
-    # than one with no moov atom.
-    local fifo="$STATE_DIR/ffmpeg.stdin"
-    rm -f "$fifo"; mkfifo "$fifo"
-
-    nohup ffmpeg.exe -hide_banner -loglevel error \
+    # -nostdin rather than a FIFO for the graceful 'q' quit. A FIFO would have to
+    # be held open by this shell, which exits as soon as start returns; ffmpeg
+    # would then see EOF on stdin at an unpredictable moment. The fragmented
+    # muxer already guarantees a playable file on a hard stop, so the FIFO bought
+    # nothing but a failure mode.
+    nohup ffmpeg.exe -hide_banner -loglevel error -nostdin \
         -filter_complex "$grab,hwdownload,format=bgra" \
         -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \
         -movflags +frag_keyframe+empty_moov -an \
-        -y "$winout" <"$fifo" >"$LOG_FILE" 2>&1 &
+        -y "$winout" >"$LOG_FILE" 2>&1 &
     local pid=$!
-    # Hold the FIFO open so ffmpeg does not see EOF and exit immediately.
-    exec 9>"$fifo"
 
-    printf 'backend=wsl\npid=%s\nfile=%s\nfifo=%s\nsignal=TERM\n' "$pid" "$out" "$fifo" >"$STATE_FILE"
+    # Same reasoning as the wlroots backend: ffmpeg.exe exits immediately if
+    # ddagrab is unavailable, so surface that now rather than at stop time.
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        err "ffmpeg.exe failed to start:"
+        sed 's/^/      /' "$LOG_FILE" >&2 || true
+        exit 1
+    fi
+
+    printf 'backend=wsl\npid=%s\nfile=%s\nsignal=TERM\n' "$pid" "$out" >"$STATE_FILE"
     ok "Recording — $out"
     info "Stop with: demorec stop"
 }
@@ -293,19 +299,14 @@ start_wsl() {
 cmd_stop() {
     [[ -f "$STATE_FILE" ]] || die "No recording in progress."
 
-    local backend pid file fifo signal
-    backend="$(sed -n 's/^backend=//p' "$STATE_FILE")"
+    local pid file signal
     pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
     file="$(sed -n 's/^file=//p' "$STATE_FILE")"
-    fifo="$(sed -n 's/^fifo=//p' "$STATE_FILE")"
     # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
     # property of the backend rather than a constant.
     signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
     signal="${signal:-TERM}"
 
-    if [[ "$backend" == "wsl" && -n "$fifo" && -p "$fifo" ]]; then
-        printf 'q' >"$fifo" 2>/dev/null || true
-    fi
     kill -"$signal" "$pid" 2>/dev/null || true
 
     local waited=0
@@ -319,7 +320,6 @@ cmd_stop() {
         fi
     done
 
-    [[ -n "$fifo" ]] && rm -f "$fifo"
     rm -f "$STATE_FILE"
 
     if [[ -f "$file" ]]; then
