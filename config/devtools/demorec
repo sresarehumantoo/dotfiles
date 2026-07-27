@@ -254,12 +254,23 @@ default_out_dir() {
         # Writing an ~11 Mbit/s capture to the Linux filesystem sends every
         # frame across the 9p bridge, which is slow enough to drop frames or
         # fail outright. Default to the Windows profile instead.
-        local winprofile linuxpath
+        #
+        # Cached: starting PowerShell costs a noticeable slice of a second and
+        # the answer never changes, so paying it on every start was pure delay.
+        local cache="$STATE_DIR/winprofile" linuxpath winprofile
+        if [[ -r "$cache" ]]; then
+            read -r linuxpath <"$cache" || true
+            if [[ -n "$linuxpath" && -d "$linuxpath" ]]; then
+                printf '%s/Videos/demos\n' "$linuxpath"
+                return
+            fi
+        fi
         # shellcheck disable=SC2016  # $env: is PowerShell, not shell
         winprofile="$(powershell.exe -NoProfile -Command '$env:USERPROFILE' 2>/dev/null | tr -d '\r')"
         if [[ -n "$winprofile" ]]; then
             linuxpath="$(wslpath -u "$winprofile" 2>/dev/null || true)"
             if [[ -n "$linuxpath" && -d "$linuxpath" ]]; then
+                printf '%s\n' "$linuxpath" >"$cache" 2>/dev/null || true
                 printf '%s/Videos/demos\n' "$linuxpath"
                 return
             fi
@@ -271,8 +282,9 @@ default_out_dir() {
 }
 
 cmd_start() {
+    mkdir -p "$STATE_DIR"                       # default_out_dir caches in here
     [[ -n "$OUT_DIR" ]] || OUT_DIR="$(default_out_dir)"
-    mkdir -p "$STATE_DIR" "$OUT_DIR"
+    mkdir -p "$OUT_DIR"
 
     if [[ -f "$STATE_FILE" ]]; then
         local oldpid
@@ -424,18 +436,31 @@ start_wsl() {
         -y "$winout" >"$LOG_FILE" 2>&1 &
     local pid=$!
 
-    # Same reasoning as the wlroots backend: ffmpeg.exe exits immediately if
-    # ddagrab is unavailable, so surface that now rather than at stop time.
-    sleep 1
-    if ! kill -0 "$pid" 2>/dev/null; then
-        err "$FFMPEG_EXE failed to start:"
-        sed 's/^/      /' "$LOG_FILE" >&2 || true
-        exit 1
-    fi
+    # Launching a Windows process, initialising D3D11 and acquiring the Desktop
+    # Duplication interface all take real time — several seconds is normal, and
+    # a freshly downloaded ffmpeg.exe may also be scanned by Defender on first
+    # run. Rather than sleeping a fixed interval and claiming success, wait
+    # until ffmpeg has actually written to the output, so "Recording" means it.
+    local t0=$SECONDS waited=0
+    while true; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            err "$FFMPEG_EXE failed to start:"
+            sed 's/^/      /' "$LOG_FILE" >&2 || true
+            exit 1
+        fi
+        [[ -s "$out" ]] && break
+        sleep 0.25
+        waited=$((waited + 1))
+        if (( waited > 120 )); then          # 30s
+            warn "ffmpeg.exe is running but has not written anything yet;"
+            warn "capture may still be starting. Check 'demorec status'."
+            break
+        fi
+    done
 
     printf 'backend=wsl\npid=%s\nfile=%s\nwinfile=%s\nsignal=TERM\n' \
         "$pid" "$out" "$winout" >"$STATE_FILE"
-    ok "Recording — $out"
+    ok "Recording — $out  (ready in $((SECONDS - t0))s)"
     info "Stop with: demorec stop"
 }
 

@@ -431,6 +431,15 @@ Two behaviours that are easy to get wrong and are deliberate here:
   returns success and then records nothing, leaving a 48-byte file holding only
   an `ftyp` box. `start` therefore leaves a small Python holder running for the
   duration, and `stop` signals it.
+- **WSL capture takes seconds to actually begin.** Launching a Windows process
+  through interop, initialising D3D11 and acquiring the Desktop Duplication
+  interface all cost real time, and a freshly downloaded `ffmpeg.exe` may also
+  be scanned by Defender on first run. `start` therefore waits until ffmpeg has
+  genuinely written to the output before reporting `Recording`, and prints how
+  long that took — so the message means capture is live rather than merely
+  requested. If it is consistently slow, a Defender exclusion for the binary is
+  the usual culprit; setting `DEMOREC_DIR` also skips the Windows profile
+  lookup, which is otherwise cached after the first run.
 - **Signals do not cross the WSL interop boundary.** Killing the Linux-side
   process leaves `ffmpeg.exe` running as an orphaned Windows process, and
   `kill -0` on the now-dead shim looks exactly like a clean exit — so `stop`
