@@ -79,8 +79,55 @@ fi
 # agg's default list already resolves to a real monospace face and still renders
 # Nerd Font glyphs through fallback, so no --font-family is the correct answer.
 # --font-size is omitted for a duller reason: agg's default is already 16.
+#
+# agg also cannot parse the screen/tmux title sequence (ESC k … ESC \) and draws
+# the title text into the frame, so a title of "whoami" ends up on the same line
+# as the output and reads as "whoamiowen". `record` avoids emitting it, but casts
+# made before that, or on another machine, still carry it — so strip it here too
+# rather than leaving people to repair files by hand.
+_render_strip_titles() {
+  python3 - "$1" "$2" <<'PY'
+import json, re, sys
+
+pat = re.compile("\x1bk.*?\x1b\\\\", re.S)      # ESC k … ESC backslash
+src, dst = sys.argv[1], sys.argv[2]
+with open(src) as fi, open(dst, "w") as fo:
+    for i, line in enumerate(fi):
+        if not line.strip():
+            continue
+        if i == 0:                              # header line, copied verbatim
+            fo.write(line)
+            continue
+        ev = json.loads(line)
+        ev[2] = pat.sub("", ev[2])
+        fo.write(json.dumps(ev) + "\n")
+PY
+}
+
 if command -v agg &>/dev/null; then
-  alias render="agg"
+  render() {
+    local arg tmp="" swapped=0 rc
+    local -a args=()
+    for arg in "$@"; do
+      # The input is the first argument that exists and carries the sequence;
+      # ESC is written  in the cast's JSON, so that is what to look for.
+      if (( ! swapped )) && [[ -f "$arg" ]] \
+         && grep -qi 'u001bk' "$arg" 2>/dev/null \
+         && command -v python3 &>/dev/null; then
+        tmp="$(mktemp)" || return 1
+        if _render_strip_titles "$arg" "$tmp"; then
+          args+=("$tmp"); swapped=1
+          continue
+        fi
+        rm -f "$tmp"; tmp=""
+      fi
+      args+=("$arg")
+    done
+    agg "${args[@]}"
+    rc=$?
+    [[ -n "$tmp" ]] && rm -f "$tmp"
+    return $rc
+  }
 fi
 
 # Navigation
