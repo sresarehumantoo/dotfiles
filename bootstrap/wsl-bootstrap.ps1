@@ -39,12 +39,24 @@
     Path to a script to run after dotfiles install (e.g. extra tools/config).
     Copied into the distro and executed as the last step.
 
+.PARAMETER CorpCert
+    Path to a corporate root CA certificate (PEM or DER / .crt / .cer / .pem).
+    Copied into the distro, installed into the system trust store, and activated
+    with update-ca-certificates BEFORE any network phase (Neovim, Ghostty,
+    dotfiles, hooks). Use this on a TLS-inspecting corporate network where apt
+    works but git/curl to the internet fail with certificate errors.
+
+    If this is omitted and a certificate failure is detected (apt succeeds but a
+    direct HTTPS fetch fails to verify), the bootstrap aborts and asks you to
+    re-run with -CorpCert, rather than letting every download fail downstream.
+
 .EXAMPLE
     .\wsl-bootstrap.ps1
     .\wsl-bootstrap.ps1 -Distro Debian -Username owen
     .\wsl-bootstrap.ps1 -SkipGhostty
     .\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty
     .\wsl-bootstrap.ps1 -PreHook .\setup-proxy.sh
+    .\wsl-bootstrap.ps1 -CorpCert .\corp-root-ca.crt
 #>
 
 [CmdletBinding()]
@@ -56,19 +68,22 @@ param(
     [switch]$SkipGhostty,
     [switch]$SkipDotfiles,
     [string]$PreHook,
-    [string]$PostHook
+    [string]$PostHook,
+    [string]$CorpCert
 )
 
 $ErrorActionPreference = "Stop"
 
 # ── Output helpers ───────────────────────────────────────────────
+# ASCII-only markers on purpose: this runs on a fresh distro before any
+# Nerd/patched fonts are installed, so Unicode glyphs would render as tofu.
 
 function Write-Header {
     param([string]$Text)
-    $label = [char]0x2500 + [char]0x2500 + " $Text " + [char]0x2500 + [char]0x2500
+    $label = "== $Text =="
     $pad = 60 - $label.Length
     if ($pad -lt 0) { $pad = 0 }
-    $trail = [string]::new([char]0x2500, $pad)
+    $trail = [string]::new('=', $pad)
     Write-Host ""
     Write-Host "$label$trail" -ForegroundColor Cyan
     Write-Host ""
@@ -76,27 +91,27 @@ function Write-Header {
 
 function Write-Step {
     param([string]$Text)
-    Write-Host "  $([char]0x2026) $Text" -ForegroundColor DarkGray
+    Write-Host "  [*] $Text" -ForegroundColor DarkGray
 }
 
 function Write-Ok {
     param([string]$Text)
-    Write-Host "  $([char]0x2713) $Text" -ForegroundColor Green
+    Write-Host "  [+] $Text" -ForegroundColor Green
 }
 
 function Write-Warn {
     param([string]$Text)
-    Write-Host "  $([char]0x26A0) $Text" -ForegroundColor Yellow
+    Write-Host "  [!] $Text" -ForegroundColor Yellow
 }
 
 function Write-Err {
     param([string]$Text)
-    Write-Host "  $([char]0x2717) $Text" -ForegroundColor Red
+    Write-Host "  [x] $Text" -ForegroundColor Red
 }
 
 function Write-Info {
     param([string]$Text)
-    Write-Host "  $([char]0x25B8) $Text" -ForegroundColor Blue
+    Write-Host "  [>] $Text" -ForegroundColor Blue
 }
 
 # ── WSL helpers ──────────────────────────────────────────────────
@@ -279,6 +294,61 @@ function Copy-HookScript {
     return $dest
 }
 
+# ── Corporate CA certificate ─────────────────────────────────────
+
+function Copy-CertToDistro {
+    param(
+        [string]$DistroName,
+        [string]$CertPath
+    )
+
+    if (-not (Test-Path $CertPath)) {
+        Write-Err "Corp cert not found: $CertPath"
+        exit 1
+    }
+
+    Write-Step "Copying corporate CA into distro..."
+
+    # Certs may be DER (binary) or PEM (text); base64 the bytes so nothing is
+    # mangled by newline translation on the way in.
+    $bytes = [System.IO.File]::ReadAllBytes($CertPath)
+    $b64 = [System.Convert]::ToBase64String($bytes)
+    $dest = "/tmp/corp-ca.input"
+    $b64 | wsl.exe -d $DistroName -u root -- bash -c "base64 -d > $dest"
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to copy corp cert into distro"
+    }
+
+    Write-Ok "Corp cert staged at $dest"
+    return $dest
+}
+
+function Install-CorpCert {
+    param(
+        [string]$DistroName,
+        [string]$CertPath
+    )
+
+    Write-Header "Corporate CA"
+    $dest = Copy-CertToDistro -DistroName $DistroName -CertPath $CertPath
+    Invoke-Phase `
+        -Name "Install corp CA" `
+        -DistroName $DistroName `
+        -User "root" `
+        -Command "/tmp/wsl-setup.sh install-cert '$dest'"
+}
+
+# Probe HTTPS from inside the distro. Returns the setup script's exit code:
+#   0 = HTTPS trusted, 2 = certificate verification failed, other = network error.
+function Test-CertHealth {
+    param([string]$DistroName)
+
+    Write-Header "TLS Check"
+    wsl.exe -d $DistroName -u root -- bash -c "/tmp/wsl-setup.sh check-tls"
+    return $LASTEXITCODE
+}
+
 # ── Copy repo into distro ────────────────────────────────────────
 
 function Copy-RepoToDistro {
@@ -377,6 +447,7 @@ function Main {
     Write-Info "Neovim:   $(if ($SkipNeovim) { 'skip' } else { 'build from source' })"
     Write-Info "Ghostty:  $(if ($SkipGhostty) { 'skip' } else { 'latest .deb' })"
     Write-Info "Dotfiles: $(if ($SkipDotfiles) { 'skip' } else { 'clone + install' })"
+    if ($CorpCert) { Write-Info "Corp CA:  $CorpCert" }
     if ($PreHook)  { Write-Info "Pre-hook: $PreHook" }
     if ($PostHook) { Write-Info "Post-hook: $PostHook" }
     Write-Host ""
@@ -408,6 +479,32 @@ function Main {
         Copy-SetupScript -DistroName $selectedDistro
         if ($PreHook)  { $preHookDest  = Copy-HookScript -DistroName $selectedDistro -HookPath $PreHook  -DestName "pre-hook.sh" }
         if ($PostHook) { $postHookDest = Copy-HookScript -DistroName $selectedDistro -HookPath $PostHook -DestName "post-hook.sh" }
+
+        # Install the corporate CA (if supplied) BEFORE any network phase, so
+        # hooks, Neovim, Ghostty and dotfiles all inherit the trust.
+        if ($CorpCert) {
+            Install-CorpCert -DistroName $selectedDistro -CertPath $CorpCert
+        }
+
+        # Detect the classic corporate-proxy failure: apt works (internal mirror
+        # / pre-trusted) while direct HTTPS fails to verify. Only worth checking
+        # when something later actually reaches the network.
+        $needsNetwork = (-not $SkipNeovim) -or (-not $SkipGhostty) -or (-not $SkipDotfiles) -or $PreHook -or $PostHook
+        if ($needsNetwork) {
+            $tls = Test-CertHealth -DistroName $selectedDistro
+            if ($tls -eq 2) {
+                Write-Err "HTTPS certificate verification failed inside the distro."
+                if ($CorpCert) {
+                    Write-Info "The supplied cert did not establish trust. Check that it is the"
+                    Write-Info "root CA your proxy presents (export the full chain, PEM or DER)."
+                } else {
+                    Write-Info "apt works but direct HTTPS does not - the signature of a"
+                    Write-Info "TLS-inspecting corporate proxy. Re-run with the corporate root CA:"
+                    Write-Info "  .\wsl-bootstrap.ps1 -CorpCert <path-to-corp-root-ca.crt>"
+                }
+                exit 1
+            }
+        }
     }
 
     # Step 4: Run pre-hook
@@ -470,7 +567,7 @@ function Main {
     }
 
     # Cleanup
-    wsl.exe -d $selectedDistro -u root -- rm -f /tmp/wsl-setup.sh /tmp/pre-hook.sh /tmp/post-hook.sh 2>$null
+    wsl.exe -d $selectedDistro -u root -- rm -f /tmp/wsl-setup.sh /tmp/pre-hook.sh /tmp/post-hook.sh /tmp/corp-ca.input 2>$null
 
     # Summary
     Write-Header "Done"

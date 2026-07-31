@@ -243,6 +243,8 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `tlog-clean` | Strip ANSI escapes and powerline glyphs from tmux log captures |
 | `clipboard-vm` | Diagnose and fix SPICE clipboard sharing in a QEMU/KVM guest (`--reset`) |
 | `tmux-restore` | Toggle tmux session auto-restore (continuum + resurrect) on/off |
+| `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
+| `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 
 `tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
 

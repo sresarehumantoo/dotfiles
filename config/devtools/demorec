@@ -1,0 +1,875 @@
+#!/usr/bin/env bash
+# demorec — start/stop a terminal screen recording and render it small.
+#
+# Unlike asciinema (see the `record` alias), this captures real pixels, so it
+# picks up things that never enter the escape stream: Ghostty custom-shader
+# cursor trails, ligatures, image protocols. Use asciinema when the content is
+# text; use this when the point is how it *looks*.
+#
+# Capture is necessarily platform-specific, rendering is not:
+#
+#   wlroots        wf-recorder, via the wlr-screencopy protocol. sway, Hyprland,
+#                  Wayfire and river implement it; this is by far the simplest
+#                  of the three backends.
+#   GNOME/Wayland  org.gnome.Shell.Screencast over D-Bus. Mutter is not wlroots
+#                  and does not implement wlr-screencopy, so wf-recorder cannot
+#                  work there. ffmpeg cannot do it either — its pipewiregrab is
+#                  an unmerged RFC, absent from every stable release.
+#   WSL            ffmpeg.exe via interop using the ddagrab (Desktop Duplication)
+#                  source filter. Nothing inside WSL can capture: WSLg is Weston
+#                  with a RAIL shell, so there is no wlr-screencopy, no portal,
+#                  and no desktop output to grab. The Ghostty window is composited
+#                  by DWM on the Windows side, which is where it can be seen.
+#
+# `render` is shared — it is a file-to-file transcode, so Linux ffmpeg handles it
+# on both platforms.
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+STATE_DIR="${XDG_RUNTIME_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}}/demorec"
+STATE_FILE="$STATE_DIR/session"
+LOG_FILE="$STATE_DIR/last.log"
+OUT_DIR="${DEMOREC_DIR:-}"   # resolved lazily; see default_out_dir
+# WSL capture binary. Defaults to whatever interop finds on the Windows PATH,
+# but can point at a standalone build (see docs/devtools.md) so nothing has to
+# be installed or added to PATH on the Windows side.
+FFMPEG_EXE="${DEMOREC_FFMPEG:-ffmpeg.exe}"
+
+FPS=30
+CURSOR=1
+AREA=""
+CRF=22
+CROP=""
+DECIMATE=1
+RENDER=0
+KEEP_RAW=0
+OUTPUT=""
+COUNTDOWN=3
+TRIM=0
+HOLD=0
+TAIL=0
+ENDCUT=""
+SHUTDOWN=""     # seconds the recorder took to die, measured in cmd_stop
+ELAPSED=""      # wall seconds from capture going live to stop being invoked
+
+usage() {
+    header "demorec"
+    echo "Record the screen to mp4 and render it down to a small file."
+    echo "Captures real pixels, so GPU effects (Ghostty shaders) are included."
+    echo ""
+    echo "Usage:"
+    echo "  demorec start [options]      Begin recording (returns immediately)"
+    echo "  demorec stop [--render]      End recording, print the file"
+    echo "  demorec status               Show whether a recording is running"
+    echo "  demorec outputs              List displays that --output can select"
+    echo "  demorec render IN [OUT]      Re-encode down to a shareable file"
+    echo ""
+    echo "start options:"
+    echo "  --area X,Y,W,H   Capture a region instead of the whole screen"
+    echo "  --output ID      Capture one display (see 'demorec outputs')"
+    echo "  --fps N          Capture framerate (default $FPS)"
+    echo "  --no-cursor      Omit the pointer (the text cursor is unaffected)"
+    echo "  --countdown N    Cue before you start (default $COUNTDOWN, 0 to skip)."
+    echo "                   Erases itself, and render trims those seconds off."
+    echo ""
+    echo "stop options:"
+    echo "  --render         Re-encode immediately and discard the raw capture"
+    echo "  --keep-raw       With --render, keep the raw capture too"
+    echo "  --tail N         Also drop the last N seconds, for the time spent"
+    echo "                   typing the stop command (the recorder's own"
+    echo "                   shutdown is always excluded)"
+    echo ""
+    echo "render options:"
+    echo "  --crf N          Quality, lower is bigger/better (default $CRF)"
+    echo "  --crop W:H:X:Y   Crop before encoding"
+    echo "  --trim N         Drop N seconds off the front (set automatically"
+    echo "                   from the countdown when stopping a recording)"
+    echo "  --hold N         Hold the final frame N seconds so the ending does"
+    echo "                   not flash past. Trailing dead air is still dropped."
+    echo "  --no-decimate    Keep duplicate frames (default drops them)"
+    echo ""
+    echo "Environment:"
+    echo "  DEMOREC_DIR      Where recordings are written (default ~/Videos/demos)"
+    echo "  DEMOREC_FFMPEG   WSL only: path to ffmpeg.exe (default: from PATH)"
+    echo ""
+    echo "Notes:"
+    echo "  A blinking cursor changes pixels ~2x/second, which defeats duplicate"
+    echo "  frame dropping and inflates the file. For the smallest result set"
+    echo "  cursor-style-blink = false in the Ghostty config while recording."
+    exit 0
+}
+
+# ── Backend detection ────────────────────────────────────────────
+# Compositors implementing wlr-screencopy, which is what wf-recorder needs.
+# Checked before GNOME: these are mutually exclusive sessions, and a wlroots
+# session must not fall through to the D-Bus path, which would fail confusingly.
+wlroots_session() {
+    [[ -n "${SWAYSOCK:-}" || -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]] && return 0
+    case "${XDG_CURRENT_DESKTOP,,}" in
+        *sway*|*hyprland*|*wayfire*|*river*) return 0 ;;
+    esac
+    return 1
+}
+
+detect_backend() {
+    if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+        echo "wsl"
+    elif wlroots_session; then
+        echo "wlroots"
+    elif gdbus introspect --session --dest org.gnome.Shell.Screencast \
+            --object-path /org/gnome/Shell/Screencast &>/dev/null; then
+        echo "gnome"
+    else
+        echo "none"
+    fi
+}
+
+# GNOME aborts a screencast as soon as the calling D-Bus connection drops
+# ("Sender has vanished"), so a one-shot `gdbus call` records nothing — it
+# leaves a 48-byte file holding only an ftyp box. This holder stays alive for
+# the duration and stops the recording on SIGTERM.
+read -r -d '' HOLDER_PY <<'PY' || true
+import os, signal, sys
+import gi
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio, GLib
+
+state, template, fps, cursor, area = sys.argv[1:6]
+
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+proxy = Gio.DBusProxy.new_sync(
+    bus, Gio.DBusProxyFlags.NONE, None,
+    "org.gnome.Shell.Screencast", "/org/gnome/Shell/Screencast",
+    "org.gnome.Shell.Screencast", None)
+
+opts = {
+    "framerate": GLib.Variant("i", int(fps)),
+    "draw-cursor": GLib.Variant("b", cursor == "1"),
+}
+
+if area:
+    x, y, w, h = (int(v) for v in area.split(","))
+    ok, name = proxy.ScreencastArea("(iiiisa{sv})", x, y, w, h, template, opts)
+else:
+    ok, name = proxy.Screencast("(sa{sv})", template, opts)
+
+if not ok:
+    sys.stderr.write("GNOME refused the screencast request\n")
+    sys.exit(1)
+
+with open(state, "w") as fh:
+    fh.write("backend=gnome\npid=%d\nfile=%s\nsignal=TERM\n" % (os.getpid(), name))
+
+loop = GLib.MainLoop()
+
+def stop(*_):
+    try:
+        proxy.StopScreencast("()")   # returns a bare bool, not a tuple
+    except Exception as exc:
+        sys.stderr.write("StopScreencast failed: %s\n" % exc)
+    loop.quit()
+
+signal.signal(signal.SIGTERM, stop)
+signal.signal(signal.SIGINT, stop)
+loop.run()
+PY
+
+# Numeric tests that tolerate fractions. TRIM in particular stops being a whole
+# number once it is corrected against the clip's real duration, and bash's (( ))
+# is integer-only — it errors outright on "0.400".
+gt0() { awk -v v="${1:-0}" 'BEGIN{ exit !(v > 0) }'; }
+
+# ── Display enumeration ──────────────────────────────────────────
+# Each backend prints "ID<TAB>WxH+X+Y<TAB>note". The ID is what --output takes.
+
+read -r -d '' MONITORS_PY <<'PY' || true
+import gi
+gi.require_version("Gio", "2.0")
+from gi.repository import Gio
+
+bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+proxy = Gio.DBusProxy.new_sync(
+    bus, Gio.DBusProxyFlags.NONE, None,
+    "org.gnome.Mutter.DisplayConfig", "/org/gnome/Mutter/DisplayConfig",
+    "org.gnome.Mutter.DisplayConfig", None)
+
+_serial, monitors, logical, _props = proxy.GetCurrentState("()")
+
+for x, y, scale, _transform, primary, mons, _lprops in logical:
+    for connector, *_ in mons:
+        w = h = 0
+        for mon_id, modes, _mprops in monitors:
+            if mon_id[0] != connector:
+                continue
+            for mode in modes:
+                if mode[6].get("is-current"):
+                    w, h = mode[1], mode[2]
+        # Logical pixels: ScreencastArea works in the same coordinate space.
+        print("%s\t%dx%d+%d+%d\t%s" % (
+            connector, w / scale, h / scale, x, y,
+            "primary" if primary else ""))
+PY
+
+outputs_gnome() { python3 -c "$MONITORS_PY"; }
+
+outputs_wlroots() {
+    # wf-recorder selects with -o NAME but cannot list; ask the compositor.
+    if command -v swaymsg &>/dev/null; then
+        swaymsg -t get_outputs \
+            | python3 -c 'import json,sys
+for o in json.load(sys.stdin):
+    r = o.get("rect", {})
+    print("%s\t%sx%s+%s+%s\t%s" % (o["name"], r.get("width"), r.get("height"),
+          r.get("x"), r.get("y"), "focused" if o.get("focused") else ""))'
+    elif command -v hyprctl &>/dev/null; then
+        hyprctl -j monitors \
+            | python3 -c 'import json,sys
+for o in json.load(sys.stdin):
+    print("%s\t%sx%s+%s+%s\t%s" % (o["name"], o["width"], o["height"],
+          o["x"], o["y"], "focused" if o.get("focused") else ""))'
+    elif command -v wlr-randr &>/dev/null; then
+        wlr-randr
+    else
+        die "Cannot list outputs: install swaymsg, hyprctl or wlr-randr."
+    fi
+}
+
+outputs_wsl() {
+    # ddagrab selects by DXGI output index. Windows enumerates screens in the
+    # same order in the common case, but it is not guaranteed — if the wrong
+    # screen is captured, try the other index rather than trusting this order.
+    require_cmd powershell.exe
+    # shellcheck disable=SC2016  # $_ and $i are PowerShell, not shell, variables
+    powershell.exe -NoProfile -Command '
+        Add-Type -AssemblyName System.Windows.Forms
+        $i = 0
+        [System.Windows.Forms.Screen]::AllScreens | ForEach-Object {
+            "{0}`t{1}x{2}+{3}+{4}`t{5}{6}" -f $i, $_.Bounds.Width, $_.Bounds.Height,
+                $_.Bounds.X, $_.Bounds.Y, $_.DeviceName,
+                $(if ($_.Primary) { " primary" } else { "" })
+            $i++
+        }' 2>/dev/null | tr -d '\r'
+}
+
+cmd_outputs() {
+    local backend; backend="$(detect_backend)"
+    header "displays (backend: $backend)"
+    case "$backend" in
+        gnome)   outputs_gnome ;;
+        wlroots) outputs_wlroots ;;
+        wsl)     outputs_wsl ;;
+        none)    die "No supported capture backend." ;;
+    esac | while IFS=$'\t' read -r id geom note; do
+        printf '  %-14s %-18s %s\n' "$id" "$geom" "$note"
+    done
+    echo ""
+    info "Select one with: demorec start --output <id>"
+}
+
+# ── start ────────────────────────────────────────────────────────
+# Where recordings land when DEMOREC_DIR is unset. Resolved here rather than at
+# the top of the script so the Windows round-trip only happens on a WSL start,
+# not on every render or status call.
+default_out_dir() {
+    if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]]; then
+        # Writing an ~11 Mbit/s capture to the Linux filesystem sends every
+        # frame across the 9p bridge, which is slow enough to drop frames or
+        # fail outright. Default to the Windows profile instead.
+        #
+        # Cached: starting PowerShell costs a noticeable slice of a second and
+        # the answer never changes, so paying it on every start was pure delay.
+        local cache="$STATE_DIR/winprofile" linuxpath winprofile
+        if [[ -r "$cache" ]]; then
+            read -r linuxpath <"$cache" || true
+            if [[ -n "$linuxpath" && -d "$linuxpath" ]]; then
+                printf '%s/Videos/demos\n' "$linuxpath"
+                return
+            fi
+        fi
+        # shellcheck disable=SC2016  # $env: is PowerShell, not shell
+        winprofile="$(powershell.exe -NoProfile -Command '$env:USERPROFILE' 2>/dev/null | tr -d '\r')"
+        if [[ -n "$winprofile" ]]; then
+            linuxpath="$(wslpath -u "$winprofile" 2>/dev/null || true)"
+            if [[ -n "$linuxpath" && -d "$linuxpath" ]]; then
+                printf '%s\n' "$linuxpath" >"$cache" 2>/dev/null || true
+                printf '%s/Videos/demos\n' "$linuxpath"
+                return
+            fi
+        fi
+        warn "Could not resolve the Windows profile; recording to the Linux"
+        warn "filesystem, which may be too slow. Set DEMOREC_DIR to a /mnt path."
+    fi
+    printf '%s/Videos/demos\n' "$HOME"
+}
+
+cmd_start() {
+    mkdir -p "$STATE_DIR"                       # default_out_dir caches in here
+    [[ -n "$OUT_DIR" ]] || OUT_DIR="$(default_out_dir)"
+    mkdir -p "$OUT_DIR"
+
+    if [[ -f "$STATE_FILE" ]]; then
+        local oldpid
+        oldpid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
+        if [[ -n "$oldpid" ]] && kill -0 "$oldpid" 2>/dev/null; then
+            die "Already recording (pid $oldpid). Run 'demorec stop' first."
+        fi
+        rm -f "$STATE_FILE"
+    fi
+
+    local stamp base
+    stamp="$(date +%Y%m%d-%H%M%S)"
+    base="$OUT_DIR/demo-$stamp"
+    # Disambiguate rather than clobber: two starts in the same second collide.
+    local n=1
+    while [[ -e "$base.mp4" || -e "$base.webm" ]]; do
+        base="$OUT_DIR/demo-$stamp-$((n++))"
+    done
+
+    case "$(detect_backend)" in
+        gnome)   start_gnome   "$base" ;;
+        wlroots) start_wlroots "$base" ;;
+        wsl)     start_wsl     "$base" ;;
+        none)    die "No supported capture backend (need wlroots, GNOME/Wayland, or WSL interop)." ;;
+    esac
+
+    # Anchor for the end cut. The video's t=0 is roughly now, so stop can work
+    # out where in the clip it was invoked and discard everything after that:
+    # the stop command being typed, and however long the recorder takes to die.
+    # Sub-second resolution matters — whole seconds alone could misplace the cut
+    # by nearly a second, and it only ever erred towards cutting real content.
+    printf 'started=%s\n' "$(date +%s.%N)" >>"$STATE_FILE"
+
+    run_countdown
+}
+
+# A cue for when to start performing, since capture can take seconds to become
+# live. Whatever is on screen is being recorded, so the counter overwrites
+# itself and erases on completion, and the seconds it occupies are noted as
+# `trim` so render drops them from the front of the clip.
+run_countdown() {
+    (( COUNTDOWN > 0 )) || return 0
+    [[ -t 1 ]] || return 0          # no point animating into a pipe or a log
+
+    local i
+    for (( i = COUNTDOWN; i > 0; i-- )); do
+        printf '\r  \033[1m%d\033[0m …' "$i"
+        sleep 1
+    done
+    printf '\r\033[K'               # leave the terminal as it was found
+
+    printf 'trim=%s\n' "$COUNTDOWN" >>"$STATE_FILE"
+}
+
+# NOTE: untested at runtime. Flags verified against the upstream manpage and the
+# binary's own parser, but never run in a real wlroots session.
+start_wlroots() {
+    local base="$1"
+    command -v wf-recorder &>/dev/null \
+        || die "wf-recorder is not installed (apt install wf-recorder)."
+
+    local out="$base.mp4"
+    local args=(-f "$out")
+
+    # Damage tracking is on by default (i.e. no -D): wf-recorder asks the
+    # compositor for a frame only when the screen actually changes, which is
+    # already variable-rate and much smaller than GNOME's fixed-QP stream.
+    # Do NOT pass -r: that forces a hard CFR by *duplicating* frames, throwing
+    # the saving away. -B is the framerate hint that preserves VFR.
+    args+=(-B "$FPS")
+
+    if [[ -n "$OUTPUT" ]]; then
+        args+=(-o "$OUTPUT")
+    fi
+
+    if [[ -n "$AREA" ]]; then
+        # demorec takes X,Y,W,H; wf-recorder wants "x,y WxH".
+        IFS=, read -r ax ay aw ah <<<"$AREA"
+        args+=(-g "$ax,$ay ${aw}x${ah}")
+    fi
+
+    (( CURSOR )) || warn "wf-recorder has no cursor option; the pointer will be included."
+
+    nohup wf-recorder "${args[@]}" >"$LOG_FILE" 2>&1 &
+    local pid=$!
+
+    # wf-recorder exits immediately if the compositor lacks wlr-screencopy, so
+    # a short grace period turns that into a real error rather than a dead
+    # session file the user only discovers at stop time.
+    sleep 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        err "wf-recorder failed to start:"
+        sed 's/^/      /' "$LOG_FILE" >&2 || true
+        exit 1
+    fi
+
+    # SIGINT, not SIGTERM: wf-recorder finalises the file on interrupt.
+    printf 'backend=wlroots\npid=%s\nfile=%s\nsignal=INT\n' "$pid" "$out" >"$STATE_FILE"
+    ok "Recording — $out"
+    info "Stop with: demorec stop"
+}
+
+start_gnome() {
+    local base="$1"
+    require_cmd python3
+
+    # Screencast has no display selector, so --output becomes the monitor's
+    # rect. Mutter reports logical pixels, the same space ScreencastArea uses.
+    if [[ -n "$OUTPUT" ]]; then
+        [[ -z "$AREA" ]] || die "--output and --area are mutually exclusive."
+        local geom
+        geom="$(outputs_gnome | awk -v id="$OUTPUT" -F'\t' '$1==id{print $2}')"
+        [[ -n "$geom" ]] || die "No such display: $OUTPUT (try 'demorec outputs')."
+        # WxH+X+Y -> X,Y,W,H
+        AREA="$(echo "$geom" | sed -E 's/^([0-9]+)x([0-9]+)\+([0-9]+)\+([0-9]+)$/\3,\4,\1,\2/')"
+    fi
+
+    # nohup, not setsid: we want $! to be the holder itself so stop can signal it.
+    nohup python3 -c "$HOLDER_PY" \
+        "$STATE_FILE" "$base" "$FPS" "$CURSOR" "$AREA" \
+        >"$LOG_FILE" 2>&1 &
+    local pid=$!
+
+    # The holder writes the state file only once GNOME has accepted the request.
+    local waited=0
+    while [[ ! -f "$STATE_FILE" ]]; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            err "Recording failed to start:"
+            sed 's/^/      /' "$LOG_FILE" >&2 || true
+            exit 1
+        fi
+        sleep 0.2
+        waited=$((waited + 1))
+        (( waited > 50 )) && die "Timed out waiting for GNOME to start the recording."
+    done
+
+    ok "Recording — $(sed -n 's/^file=//p' "$STATE_FILE")"
+    info "Stop with: demorec stop"
+}
+
+# NOTE: untested. Written from the ddagrab docs and WSL interop behaviour, but
+# not exercised on a real WSL box — verify before trusting it.
+start_wsl() {
+    local base="$1"
+    command -v "$FFMPEG_EXE" &>/dev/null || die \
+        "$FFMPEG_EXE not found. Install ffmpeg on Windows, or point DEMOREC_FFMPEG at a standalone build."
+    require_cmd wslpath
+
+    local out="$base.mp4"
+    local winout
+    winout="$(wslpath -w "$out")"
+
+    # ddagrab is a *source filter*, not a demuxer, so it is wired via
+    # -filter_complex rather than -f. It emits D3D11 frames, hence hwdownload
+    # before a software encoder will accept them.
+    # output_idx is the DXGI output index; see outputs_wsl on ordering caveats.
+    local idx="${OUTPUT:-0}"
+    [[ "$idx" =~ ^[0-9]+$ ]] \
+        || die "--output must be a numeric display index on WSL (see 'demorec outputs')."
+
+    local grab="ddagrab=output_idx=$idx:framerate=$FPS:draw_mouse=$CURSOR"
+    if [[ -n "$AREA" ]]; then
+        IFS=, read -r ax ay aw ah <<<"$AREA"
+        grab+=":offset_x=$ax:offset_y=$ay:video_size=${aw}x${ah}"
+    fi
+
+    # Snapshot before launching so the new PID can be identified by difference.
+    # Doing it here keeps stop off the PowerShell path entirely.
+    local pids_before; pids_before="$(wsl_ffmpeg_pidlist)"
+
+    # -nostdin rather than a FIFO for the graceful 'q' quit. A FIFO would have to
+    # be held open by this shell, which exits as soon as start returns; ffmpeg
+    # would then see EOF on stdin at an unpredictable moment. The fragmented
+    # muxer already guarantees a playable file on a hard stop, so the FIFO bought
+    # nothing but a failure mode.
+    nohup "$FFMPEG_EXE" -hide_banner -loglevel error -nostdin \
+        -filter_complex "$grab,hwdownload,format=bgra" \
+        -c:v libx264 -preset ultrafast -crf 18 -pix_fmt yuv420p \
+        -movflags +frag_keyframe+empty_moov -an \
+        -y "$winout" >"$LOG_FILE" 2>&1 &
+    local pid=$!
+
+    # Launching a Windows process, initialising D3D11 and acquiring the Desktop
+    # Duplication interface all take real time — several seconds is normal, and
+    # a freshly downloaded ffmpeg.exe may also be scanned by Defender on first
+    # run. Rather than sleeping a fixed interval and claiming success, wait
+    # until ffmpeg has actually written to the output, so "Recording" means it.
+    local t0=$SECONDS waited=0
+    while true; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            err "$FFMPEG_EXE failed to start:"
+            sed 's/^/      /' "$LOG_FILE" >&2 || true
+            exit 1
+        fi
+        [[ -s "$out" ]] && break
+        sleep 0.25
+        waited=$((waited + 1))
+        if (( waited > 120 )); then          # 30s
+            warn "ffmpeg.exe is running but has not written anything yet;"
+            warn "capture may still be starting. Check 'demorec status'."
+            break
+        fi
+    done
+
+    # Exactly one new ffmpeg.exe since the snapshot is ours. If that is
+    # ambiguous (another ffmpeg started concurrently), leave it unset and let
+    # stop fall back to matching on the command line.
+    local pids_after winpid
+    pids_after="$(wsl_ffmpeg_pidlist)"
+    winpid="$(comm -13 <(printf '%s\n' "$pids_before") <(printf '%s\n' "$pids_after"))"
+    [[ "$(printf '%s\n' "$winpid" | grep -cE '^[0-9]+$')" == 1 ]] || winpid=""
+
+    printf 'backend=wsl\npid=%s\nfile=%s\nwinfile=%s\nsignal=TERM\nwinpid=%s\n' \
+        "$pid" "$out" "$winout" "$winpid" >"$STATE_FILE"
+    ok "Recording — $out  (ready in $((SECONDS - t0))s)"
+    info "Stop with: demorec stop"
+}
+
+# ── stop ─────────────────────────────────────────────────────────
+
+# Signals do not cross the WSL interop boundary: killing the Linux-side process
+# leaves ffmpeg.exe running as an orphaned Windows process, and `kill -0` on the
+# dead shim then looks like a clean exit. Ask Windows directly instead, matching
+# on the output filename so an unrelated ffmpeg is never touched.
+# Sorted list of running ffmpeg.exe PIDs. tasklist costs a fraction of a
+# PowerShell startup, which is what made stop feel slow.
+wsl_ffmpeg_pidlist() {
+    tasklist.exe /FI "IMAGENAME eq ffmpeg.exe" /NH /FO CSV 2>/dev/null | tr -d '\r' \
+        | awk -F'","' '{ gsub(/"/, "", $2); if ($2 ~ /^[0-9]+$/) print $2 }' | sort
+}
+
+wsl_ffmpeg_pids() {
+    local needle="$1"
+    powershell.exe -NoProfile -Command \
+        "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | Where-Object { \$_.CommandLine -like '*${needle}*' } | ForEach-Object { \$_.ProcessId }" \
+        2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' || true
+}
+
+# tasklist is far cheaper than a PowerShell CIM query — the verify loop below
+# runs repeatedly, and spawning PowerShell each time made `stop` take seconds.
+wsl_pid_alive() {
+    local wpid="$1"
+    tasklist.exe /NH /FI "PID eq $wpid" 2>/dev/null | tr -d '\r' \
+        | grep -qE "[[:space:]]${wpid}[[:space:]]"
+}
+
+stop_wsl() {
+    local pid="$1" file="$2" known="$3" wpid waited=0
+    local pids="$known"
+    if [[ -z "$pids" ]]; then
+        # Fallback only: start could not identify the process unambiguously.
+        # This spawns PowerShell, which is why start bothers to record the PID.
+        pids="$(wsl_ffmpeg_pids "$(basename "$file")")"
+    fi
+
+    for wpid in $pids; do
+        # /T kills the child tree; /F because a console app never sees WM_CLOSE.
+        # The fragmented muxer is what makes a hard kill safe.
+        taskkill.exe /PID "$wpid" /T /F >/dev/null 2>&1 || true
+    done
+    kill -TERM "$pid" 2>/dev/null || true
+
+    [[ -n "$pids" ]] || return 0
+    for wpid in $pids; do
+        waited=0
+        while wsl_pid_alive "$wpid"; do
+            sleep 0.3
+            waited=$((waited + 1))
+            (( waited > 15 )) && return 1
+        done
+    done
+    return 0
+}
+
+cmd_stop() {
+    [[ -f "$STATE_FILE" ]] || die "No recording in progress."
+
+    local backend pid file winfile signal
+    backend="$(sed -n 's/^backend=//p' "$STATE_FILE")"
+    pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
+    file="$(sed -n 's/^file=//p' "$STATE_FILE")"
+    winfile="$(sed -n 's/^winfile=//p' "$STATE_FILE")"
+    # Drop the countdown from the front of the clip, unless --trim said otherwise.
+    gt0 "$TRIM" || TRIM="$(sed -n 's/^trim=//p' "$STATE_FILE")"
+    TRIM="${TRIM:-0}"
+
+    # Work out the cut point *before* stopping anything: the clip should end
+    # where the demo did, not where the recorder finally exited. --tail removes
+    # a little more, for the seconds spent typing the stop command itself.
+    # Wall clock alone cannot locate the cuts. ffmpeg writes an mp4 header the
+    # moment it opens the file, so on WSL "the file is non-empty" can be true
+    # seconds before the first frame is captured — the recording is shorter than
+    # the wall time it spans, and a front trim measured in wall seconds eats real
+    # content. So record the raw ingredients here and let render reconcile them
+    # against the clip's own duration.
+    local started t_stop; started="$(sed -n 's/^started=//p' "$STATE_FILE")"
+    t_stop="$(date +%s.%N)"
+    [[ -n "$started" ]] && ELAPSED="$(awk -v s="$started" -v n="$t_stop" \
+        'BEGIN{ printf "%.3f", n - s }')"
+    # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
+    # property of the backend rather than a constant.
+    signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
+    signal="${signal:-TERM}"
+
+    if [[ "$backend" == "wsl" ]]; then
+        if ! stop_wsl "$pid" "$file" "$(sed -n 's/^winpid=//p' "$STATE_FILE")"; then
+            err "ffmpeg.exe is still running and would not stop."
+            err "The session has been kept, so 'demorec stop' can be retried."
+            err "To clear it by hand:  taskkill.exe /IM ffmpeg.exe /F"
+            exit 1
+        fi
+    else
+        kill -"$signal" "$pid" 2>/dev/null || true
+        local waited=0
+        while kill -0 "$pid" 2>/dev/null; do
+            sleep 0.2
+            waited=$((waited + 1))
+            if (( waited > 50 )); then
+                warn "Recorder did not exit; killing."
+                kill -KILL "$pid" 2>/dev/null || true
+                break
+            fi
+        done
+    fi
+
+    # How long the recorder took to die. Everything in that window is on tape
+    # and none of it is wanted.
+    SHUTDOWN="$(awk -v a="$t_stop" -v b="$(date +%s.%N)" 'BEGIN{ printf "%.3f", b - a }')"
+
+    # Only remove the session once the recorder is confirmed gone. Removing it
+    # earlier stranded a live recording with no state to stop it from.
+    rm -f "$STATE_FILE"
+
+    if [[ -f "$file" ]]; then
+        local size; size="$(du -h "$file" | cut -f1)"
+        if (( RENDER )); then
+            # Deliberately no path here: with --render this file is about to be
+            # deleted, and printing it invited copying a path that no longer
+            # exists. Only paths that survive the command get printed.
+            info "Captured $size"
+            local small="${file%.*}-small.mp4"
+            # If ffmpeg fails, set -e aborts here and the raw is left untouched —
+            # the delete below is only ever reached on a real output file.
+            cmd_render "$file" "$small"
+            if (( KEEP_RAW )); then
+                info "Raw capture kept: $file"
+            elif [[ -s "$small" ]]; then
+                rm -f "$file"
+                info "Raw capture discarded (--keep-raw to retain it)"
+            else
+                warn "Render produced no output; raw capture kept: $file"
+            fi
+        else
+            ok "Saved $file ($size)"
+            info "Shrink it with: demorec render \"$file\""
+        fi
+    else
+        err "Recorder stopped but the capture is missing:"
+        err "  linux path:   $file"
+        [[ -n "$winfile" ]] && err "  windows path: $winfile"
+        local dir; dir="$(dirname "$file")"
+        if [[ -d "$dir" ]]; then
+            err "  directory exists; contents:"
+            find "$dir" -maxdepth 1 -printf '%10s  %p\n' 2>/dev/null \
+                | sed 's/^/      /' >&2 || true
+        else
+            err "  directory does not exist either: $dir"
+        fi
+        err "  log (empty means ffmpeg reported nothing):"
+        sed 's/^/      /' "$LOG_FILE" >&2 || true
+        exit 1
+    fi
+}
+
+cmd_status() {
+    if [[ -f "$STATE_FILE" ]]; then
+        local pid; pid="$(sed -n 's/^pid=//p' "$STATE_FILE")"
+        if kill -0 "$pid" 2>/dev/null; then
+            ok "Recording (pid $pid) → $(sed -n 's/^file=//p' "$STATE_FILE")"
+            return 0
+        fi
+        warn "Stale state file (pid $pid is gone); clearing."
+        rm -f "$STATE_FILE"
+    fi
+    info "Not recording."
+}
+
+# ── render ───────────────────────────────────────────────────────
+cmd_render() {
+    local in="${1:-}" out="${2:-}"
+    [[ -n "$in" ]] || die "Usage: demorec render IN [OUT]"
+    [[ -f "$in" ]] || die "No such file: $in"
+    [[ -n "$out" ]] || out="${in%.*}-small.mp4"
+
+    # Rendering is a file-to-file transcode, so the Windows ffmpeg does it just
+    # as well. Falling back to it means WSL needs no Linux ffmpeg at all — the
+    # capture binary is the only requirement. Prefer the native one when present
+    # since it takes Linux paths directly and avoids the interop hop.
+    local ff="ffmpeg" in_arg="$in" out_arg="$out"
+    if ! command -v ffmpeg &>/dev/null; then
+        if [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]] && command -v "$FFMPEG_EXE" &>/dev/null; then
+            ff="$FFMPEG_EXE"
+            in_arg="$(wslpath -w "$in")"
+            out_arg="$(wslpath -w "$out")"
+        else
+            die "ffmpeg is not installed (apt install ffmpeg), and no ffmpeg.exe to fall back on."
+        fi
+    fi
+
+    local filters=()
+    [[ -n "$CROP" ]] && filters+=("crop=$CROP")
+    # Terminals are static most of the time, so dropping duplicate frames is the
+    # single biggest win. -fps_mode vfr keeps the retained frames at their real
+    # timestamps rather than speeding the video up the way setpts would.
+    #
+    # It does shorten the clip, though: trailing duplicates are dropped too, so
+    # the file ends at the last on-screen change rather than when you stopped
+    # recording. Measured on an 11.4s capture that was idle after the first few
+    # seconds, the result was 4.7s. That removes dead air, at the cost of the
+    # final frame not lingering. `tpad=stop_mode=clone:stop_duration=N` after
+    # mpdecimate restores the full duration and holds the last frame, if a demo
+    # ever needs its ending to sit still.
+    (( DECIMATE )) && filters+=("mpdecimate")
+
+    # --hold keeps the final frame on screen instead of letting it flash past.
+    # tpad pads at *end of stream*, so on its own it would drag every trailing
+    # duplicate back in as a held frame. Probing for the last on-screen change
+    # first, and limiting the input to that point, gives "content, then hold"
+    # rather than "content, dead air, then hold".
+    # Reconcile the wall-clock measurements against what was actually recorded.
+    # The clip is often shorter than the wall time it spans, because capture
+    # starts after the file does; `lag` is that difference, and both cuts are
+    # corrected by it rather than trusting the clock.
+    if [[ -n "$SHUTDOWN" ]]; then
+        local dur lag keep
+        dur="$("$ff" -v error -i "$in_arg" -f null - -progress pipe:1 -nostats 2>/dev/null \
+               | awk -F= '/^out_time_ms=/{t=$2} END{ if (t) printf "%.3f", t/1000000 }')"
+
+        # Guard: a hard-killed fragmented mp4 does not always measure cleanly,
+        # and every cut here is derived from this number. Trimming on a bad
+        # measurement produced one-second clips out of real recordings, so an
+        # implausible duration means no automatic cutting at all. Losing the
+        # trim is a blemish; losing the recording is not recoverable.
+        if [[ -z "$dur" ]] || ! awk -v d="${dur:-0}" 'BEGIN{ exit !(d >= 2) }'; then
+            [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+                warn "debug: duration unmeasurable (${dur:-none}) — cutting nothing"
+            TRIM=0
+        else
+            ENDCUT="$(awk -v d="$dur" -v s="$SHUTDOWN" -v t="$TAIL" \
+                'BEGIN{ e = d - s - t + 0.6; if (e > d) e = d; if (e < 0.5) e = 0.5; printf "%.3f", e }')"
+            if [[ -n "$ELAPSED" ]] && gt0 "$TRIM"; then
+                lag="$(awk -v e="$ELAPSED" -v d="$dur" -v s="$SHUTDOWN" \
+                    'BEGIN{ l = e - (d - s); if (l < 0) l = 0; printf "%.3f", l }')"
+                TRIM="$(awk -v t="$TRIM" -v l="$lag" \
+                    'BEGIN{ v = t - l; if (v < 0) v = 0; printf "%.3f", v }')"
+            fi
+
+            # Second guard: whatever the arithmetic says, refuse to throw away
+            # most of the recording unless it was asked for explicitly.
+            keep="$(awk -v e="$ENDCUT" -v t="$TRIM" 'BEGIN{ printf "%.3f", e - t }')"
+            if ! gt0 "$TAIL" && awk -v k="$keep" -v d="$dur" 'BEGIN{ exit !(k < d * 0.5) }'; then
+                [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+                    warn "debug: cuts would keep only ${keep}s of ${dur}s — cutting nothing"
+                ENDCUT=""; TRIM=0
+            fi
+            [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+                warn "debug: raw=${dur}s shutdown=${SHUTDOWN}s elapsed=${ELAPSED}s lag=${lag:-0}s -> trim=$TRIM end=${ENDCUT:-none}"
+        fi
+    fi
+
+    # Where the clip should end, as an absolute offset from the start of the
+    # file. ENDCUT is where the demo finished; the --hold probe finds the last
+    # on-screen change. The earlier of the two wins, so neither the recorder's
+    # shutdown nor trailing dead air survives.
+    local end="$ENDCUT" limit=()
+    if gt0 "$HOLD"; then
+        filters+=("tpad=stop_mode=clone:stop_duration=$HOLD")
+        if (( DECIMATE )); then
+            local last
+            last="$("$ff" -v error -i "$in_arg" -vf mpdecimate -fps_mode vfr \
+                        -f null - -progress pipe:1 -nostats 2>/dev/null \
+                    | awk -F= '/^out_time_ms=/{t=$2} END{ if (t) printf "%.3f", t/1000000 }')"
+            if [[ -n "$last" ]]; then
+                end="$(awk -v a="$last" -v b="$end" \
+                    'BEGIN{ if (b == "" || a < b) print a; else print b }')"
+            fi
+        fi
+    fi
+    # -t is an input option counting from the start of the file, so it composes
+    # with the output-side -ss that --trim uses.
+    if [[ -n "$end" ]]; then
+        limit=(-t "$(awk -v d="$end" -v t="$TRIM" \
+            'BEGIN{ if (d <= t) d = t + 0.05; printf "%.3f", d }')")
+    fi
+
+    [[ -n "${DEMOREC_DEBUG:-}" ]] && \
+        warn "debug: ffmpeg -t ${limit[1]:-none} -ss ${TRIM} (filters: ${vf:-none})"
+
+    local vf=""
+    (( ${#filters[@]} )) && vf="$(IFS=,; echo "${filters[*]}")"
+
+    local before after
+    before="$(stat -c%s "$in")"
+
+    info "Encoding (crf $CRF, veryslow) …"
+    # No scaling: rescaling text is what makes screencasts look mushy.
+    # yuv420p because 4:4:4 keeps text chroma sharper but browsers won't play it.
+    # -ss placed *after* -i is output seeking: it decodes and discards, so the
+    # cut is frame-accurate rather than snapping to a keyframe. We re-encode
+    # anyway, so the extra decode is the only cost.
+    local seek=()
+    gt0 "$TRIM" && seek=(-ss "$TRIM")
+
+    "$ff" -hide_banner -loglevel error -y \
+        ${limit[@]+"${limit[@]}"} -i "$in_arg" \
+        ${seek[@]+"${seek[@]}"} \
+        ${vf:+-vf "$vf"} -fps_mode vfr \
+        -c:v libx264 -preset veryslow -tune stillimage -crf "$CRF" \
+        -pix_fmt yuv420p -g 120 -movflags +faststart -an \
+        "$out_arg"
+
+    after="$(stat -c%s "$out")"
+    ok "$out"
+    awk -v b="$before" -v a="$after" '
+    function human(n) {
+        if (n >= 1048576) return sprintf("%.1f MiB", n/1048576)
+        if (n >= 1024)    return sprintf("%.0f KiB", n/1024)
+        return sprintf("%d B", n)
+    }
+    BEGIN{ printf "      %s -> %s (%.0f%% smaller)\n", human(b), human(a), (1-a/b)*100 }'
+}
+
+# ── Arg parsing ──────────────────────────────────────────────────
+[[ $# -gt 0 ]] || usage
+sub="$1"; shift || true
+
+args=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -h|--help)     usage ;;
+        --area)        AREA="$2"; shift 2 ;;
+        --output)      OUTPUT="$2"; shift 2 ;;
+        --fps)         FPS="$2"; shift 2 ;;
+        --no-cursor)   CURSOR=0; shift ;;
+        --crf)         CRF="$2"; shift 2 ;;
+        --crop)        CROP="$2"; shift 2 ;;
+        --no-decimate) DECIMATE=0; shift ;;
+        --render)      RENDER=1; shift ;;
+        --keep-raw)    KEEP_RAW=1; shift ;;
+        --countdown)   COUNTDOWN="$2"; shift 2 ;;
+        --trim)        TRIM="$2"; shift 2 ;;
+        --hold)        HOLD="$2"; shift 2 ;;
+        --tail)        TAIL="$2"; shift 2 ;;
+        -*)            die "Unknown option: $1" ;;
+        *)             args+=("$1"); shift ;;
+    esac
+done
+
+case "$sub" in
+    start)          cmd_start ;;
+    stop)           cmd_stop ;;
+    status)         cmd_status ;;
+    outputs)        cmd_outputs ;;
+    render)         cmd_render "${args[@]+"${args[@]}"}" ;;
+    -h|--help|help) usage ;;
+    *)              die "Unknown command: $sub (try --help)" ;;
+esac
