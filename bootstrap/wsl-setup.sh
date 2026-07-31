@@ -7,29 +7,32 @@ export PERL_BADLANG=0
 export LC_ALL=C
 
 # ── Colors & symbols ─────────────────────────────────────────────
+# ASCII-only markers on purpose: this runs on a fresh distro before any
+# Nerd/patched fonts are installed, so Unicode glyphs would render as tofu.
 _BOLD='\033[1m'  _DIM='\033[2m'  _RESET='\033[0m'
 _BLUE='\033[34m' _GREEN='\033[32m' _YELLOW='\033[33m'
 _RED='\033[31m'  _CYAN='\033[36m'
 
-info()   { printf "${_BLUE}${_BOLD}  ▸${_RESET} %s\n" "$*"; }
-ok()     { printf "${_GREEN}${_BOLD}  ✓${_RESET} %s\n" "$*"; }
-warn()   { printf "${_YELLOW}${_BOLD}  ⚠${_RESET} %s\n" "$*" >&2; }
-err()    { printf "${_RED}${_BOLD}  ✗${_RESET} %s\n" "$*" >&2; }
+info()   { printf "${_BLUE}${_BOLD}  [>]${_RESET} %s\n" "$*"; }
+ok()     { printf "${_GREEN}${_BOLD}  [+]${_RESET} %s\n" "$*"; }
+warn()   { printf "${_YELLOW}${_BOLD}  [!]${_RESET} %s\n" "$*" >&2; }
+err()    { printf "${_RED}${_BOLD}  [x]${_RESET} %s\n" "$*" >&2; }
 die()    { err "$@"; exit 1; }
 header() {
-    local label="── $* ──"
+    local label="== $* =="
     local width=60
     local pad=$(( width - ${#label} ))
     (( pad < 0 )) && pad=0
     local trail=""
-    for (( i=0; i<pad; i++ )); do trail+="─"; done
+    for (( i=0; i<pad; i++ )); do trail+="="; done
     printf "\n${_BOLD}${_CYAN}%s%s${_RESET}\n\n" "$label" "$trail"
 }
-step() { printf "${_DIM}  …${_RESET} %s\n" "$*"; }
+step() { printf "${_DIM}  [*]${_RESET} %s\n" "$*"; }
 
 # ── Spinner for long-running commands ────────────────────────────
 _spin_pid=""
-_spin_frames=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+_spin_frames=('|' '/' '-' '\')
+_spin_count=${#_spin_frames[@]}
 trap 'spin_stop' EXIT
 
 spin_start() {
@@ -37,7 +40,7 @@ spin_start() {
     (
         local i=0
         while true; do
-            printf "\r${_CYAN}${_BOLD}  %s${_RESET} %s" "${_spin_frames[$((i % 10))]}" "$msg"
+            printf "\r${_CYAN}${_BOLD}  %s${_RESET} %s" "${_spin_frames[$((i % _spin_count))]}" "$msg"
             i=$((i + 1))
             sleep 0.1
         done
@@ -102,7 +105,7 @@ setup_root() {
         sudo vim nano curl wget git make \
         build-essential cmake ninja-build gettext \
         golang python3 python3-pip python3-venv pipx \
-        zsh htop rsync locales ca-certificates gnupg \
+        zsh htop rsync locales ca-certificates openssl gnupg \
         iputils-ping dnsutils traceroute net-tools \
         dbus-x11 gdebi-core unzip tar jq lsb-release \
         > /dev/null 2>&1
@@ -298,11 +301,86 @@ install_dotfiles() {
     ./bin/dfinstall install all
 }
 
+# ── Phase: Install corporate CA certificate ──────────────────────
+install_cert() {
+    local src="${1:?usage: install-cert <path>}"
+
+    header "Installing corporate CA certificate"
+    [[ -f "$src" ]] || die "certificate not found: ${src}"
+
+    # update-ca-certificates lives in the ca-certificates package; make sure
+    # it (and openssl, for DER conversion) is present even if run standalone.
+    if ! command -v update-ca-certificates >/dev/null 2>&1; then
+        spin_start "Installing ca-certificates..."
+        apt-get install -y ca-certificates openssl > /dev/null 2>&1
+        spin_stop
+    fi
+
+    local dest="/usr/local/share/ca-certificates/corp-ca.crt"
+
+    # The trust store wants PEM with a .crt extension. Accept a DER cert too and
+    # convert it; anything else is a bad file we should stop on, not silently
+    # trust.
+    if grep -q 'BEGIN CERTIFICATE' "$src" 2>/dev/null; then
+        cp "$src" "$dest"
+        step "Installed PEM certificate"
+    elif command -v openssl >/dev/null 2>&1 && openssl x509 -inform DER -in "$src" -out "$dest" 2>/dev/null; then
+        step "Converted DER certificate to PEM"
+    else
+        die "not a valid PEM or DER certificate: ${src}"
+    fi
+
+    chmod 0644 "$dest"
+
+    spin_start "Running update-ca-certificates..."
+    update-ca-certificates > /dev/null 2>&1
+    spin_stop
+    ok "Corporate CA trusted (${dest})"
+}
+
+# ── Phase: TLS connectivity check ────────────────────────────────
+# Detects the classic corporate-proxy failure: apt succeeds (internal mirror,
+# or a CA already baked into the base image) while a direct HTTPS fetch fails
+# to verify because a TLS-inspecting proxy re-signs certificates.
+#
+# Exit codes are consumed by the PowerShell wrapper:
+#   0  HTTPS verified
+#   2  certificate verification failed (needs the corporate root CA)
+#   1  some other network failure (offline, DNS, timeout)
+check_tls() {
+    header "Checking HTTPS connectivity"
+
+    local probe_url="https://raw.githubusercontent.com/sresarehumantoo/dotfiles/HEAD/README.md"
+    local errfile="/tmp/tls-check.err"
+
+    if curl -sSf --max-time 20 -o /dev/null "$probe_url" 2>"$errfile"; then
+        ok "HTTPS OK - certificate chain is trusted"
+        rm -f "$errfile"
+        return 0
+    fi
+
+    # curl exit 60 == "peer certificate cannot be authenticated". Match on the
+    # message too, since git/wget phrase the same failure differently.
+    if grep -qiE 'certificate|SSL certificate problem|self.signed|unable to get local issuer|exit status 60' "$errfile"; then
+        err "HTTPS certificate verification FAILED while apt works."
+        warn "This is the signature of a TLS-inspecting corporate proxy."
+        warn "Supply the corporate root CA and re-run:"
+        warn "  install-cert <path-to-corp-root-ca.crt>   (or -CorpCert on wsl-bootstrap.ps1)"
+        rm -f "$errfile"
+        return 2
+    fi
+
+    warn "HTTPS check failed, but not with a certificate error (offline / DNS / timeout?):"
+    warn "$(head -1 "$errfile" 2>/dev/null)"
+    rm -f "$errfile"
+    return 1
+}
+
 # ── Full standalone setup ────────────────────────────────────────
 setup() {
     local username="" branch="develop"
     local do_neovim=true do_ghostty=true do_dotfiles=true
-    local pre_hook="" post_hook=""
+    local pre_hook="" post_hook="" corp_cert=""
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -313,6 +391,7 @@ setup() {
             --skip-dotfiles) do_dotfiles=false; shift ;;
             --pre-hook)      pre_hook="$2"; shift 2 ;;
             --post-hook)     post_hook="$2"; shift 2 ;;
+            --corp-cert)     corp_cert="$2"; shift 2 ;;
             *) die "Unknown option: $1" ;;
         esac
     done
@@ -335,6 +414,22 @@ setup() {
     else
         info "Not running as root - skipping system setup"
         info "Run as root first for full setup: sudo $0 setup --username $username"
+    fi
+
+    # Install the corporate CA (if supplied) and verify HTTPS BEFORE any
+    # network phase, so hooks and builds all inherit the trust.
+    if [[ "$(id -u)" -eq 0 ]]; then
+        [[ -n "$corp_cert" ]] && install_cert "$corp_cert"
+
+        local needs_net=false
+        [[ "$do_neovim" == true || "$do_ghostty" == true || "$do_dotfiles" == true ]] && needs_net=true
+        [[ -n "$pre_hook" || -n "$post_hook" ]] && needs_net=true
+        if [[ "$needs_net" == true ]]; then
+            check_tls || {
+                local rc=$?
+                (( rc == 2 )) && die "Aborting: install the corporate root CA first (--corp-cert <path>)."
+            }
+        fi
     fi
 
     # Run pre-hook (e.g. proxy setup, custom repos)
@@ -372,6 +467,8 @@ Usage: wsl-setup.sh <command> [options]
 Commands:
   setup               Full interactive setup (standalone mode)
   setup-root <user>   System packages, user creation, locale, wsl.conf
+  install-cert <path> Install a corporate root CA into the system trust store
+  check-tls           Probe HTTPS; exit 2 if a corp CA is needed, 1 on other failure
   build-neovim        Build and install Neovim from source
   install-ghostty     Install latest Ghostty .deb for this distro
   install-dotfiles    Clone, build, and run dfinstall install all
@@ -384,11 +481,13 @@ Setup options:
   --skip-dotfiles     Skip dotfiles clone and install
   --pre-hook <path>   Script to run after root setup (e.g. proxy/repo config)
   --post-hook <path>  Script to run after dotfiles install (e.g. extra tools)
+  --corp-cert <path>  Corporate root CA (PEM or DER); trusted before network phases
 
 Examples:
   sudo ./wsl-setup.sh setup --username owen
   sudo ./wsl-setup.sh setup --skip-dotfiles --skip-ghostty
   sudo ./wsl-setup.sh setup --username owen --pre-hook ./setup-proxy.sh
+  sudo ./wsl-setup.sh setup --username owen --corp-cert ./corp-root-ca.crt
   ./wsl-setup.sh install-dotfiles main
 HELP
 }
@@ -397,6 +496,8 @@ HELP
 case "${1:-}" in
     setup)            shift; setup "$@" ;;
     setup-root)       shift; setup_root "$@" ;;
+    install-cert)     shift; install_cert "$@" ;;
+    check-tls)        check_tls ;;
     build-neovim)     build_neovim ;;
     install-ghostty)  install_ghostty ;;
     install-dotfiles) shift; install_dotfiles "$@" ;;
