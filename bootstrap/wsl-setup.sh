@@ -31,7 +31,7 @@ step() { printf "${_DIM}  [*]${_RESET} %s\n" "$*"; }
 
 # ── Spinner for long-running commands ────────────────────────────
 _spin_pid=""
-_spin_frames=('|' '/' '-' '\')
+_spin_frames=('|' '/' '-' "\\")
 _spin_count=${#_spin_frames[@]}
 trap 'spin_stop' EXIT
 
