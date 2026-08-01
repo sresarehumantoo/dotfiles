@@ -447,6 +447,26 @@ func XDGConfigHome() string {
 	return filepath.Join(home, ".config")
 }
 
+// XDGDataHome returns XDG_DATA_HOME or ~/.local/share. Empty when the home
+// directory can't be resolved — see HomeTarget.
+//
+// Distinct from XDGConfigHome, and not interchangeable: fontconfig's default
+// config carries <dir prefix="xdg">fonts</dir>, which resolves against
+// XDG_DATA_HOME. The fonts module used to hardcode ~/.local/share/fonts, so a
+// machine with XDG_DATA_HOME set elsewhere installed fonts into a directory
+// fontconfig never scanned — they were simply not found.
+func XDGDataHome() string {
+	if xdg := os.Getenv("XDG_DATA_HOME"); xdg != "" {
+		return xdg
+	}
+	home, err := HomeDir()
+	if err != nil {
+		warnNoHome(err)
+		return ""
+	}
+	return filepath.Join(home, ".local", "share")
+}
+
 // warnNoHome reports an unresolvable home directory once per run, so a broken
 // environment is loud rather than silently producing relative paths.
 var noHomeOnce sync.Once
