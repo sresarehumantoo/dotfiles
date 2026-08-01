@@ -137,16 +137,36 @@ Tries the latest `.deb` release from GitHub first (auto-detects architecture via
 
 **File:** `modules/fonts.go`
 
-Installs two fonts to `~/.local/share/fonts/`:
+Installs the terminal fonts into `$XDG_DATA_HOME/fonts` (not a hardcoded
+`~/.local/share/fonts` — fontconfig's default config resolves its font directory
+against `XDG_DATA_HOME`, so a machine that sets it elsewhere would otherwise get
+fonts in a directory nothing scans).
 
-| Font | Source |
-|------|--------|
-| HackNerdFont-Regular.ttf | Bundled in `config/fonts/` |
-| MesloLGS NF Regular.ttf | Bundled in `config/fonts/` |
+| Font | Source | Where |
+|------|--------|-------|
+| IosevkaTerm Nerd Font (Regular/Bold/Italic/BoldItalic) | Downloaded from the pinned Nerd Fonts release | `$XDG_DATA_HOME/fonts/IosevkaTerm/` |
+| MesloLGS NF Regular.ttf | Bundled in `config/fonts/`, symlinked | `$XDG_DATA_HOME/fonts/` |
 
-If a bundled font is missing, falls back to downloading the Hack Nerd Font zip from GitHub. Runs `fc-cache -f` after installation.
+IosevkaTerm is downloaded rather than vendored (~28 MB per version is too much
+to carry in `.git`), sha256-verified against the release's `SHA-256.txt` before
+a byte is extracted, and only the four canonical faces are written — never the
+Mono build (clamps icons to one cell) or Propo (not monospace). MesloLGS is the
+vendored offline floor, so a box that never reaches the network still renders a
+working prompt. Runs `fc-cache -f` when the font set changed.
 
-**Status:** Checks existence and SHA-256 hash of both font files.
+**Pinned version:** `nerdFontsTag` in `modules/fonts.go`. The installed tag is
+recorded in a `.nerd-fonts-tag` stamp beside the faces, so bumping the constant
+actually causes a re-download — detection is a filesystem check of the directory
+the module owns, deliberately *not* an `fc-list` family query, which is
+version-blind and also true of a copy hand-installed anywhere else.
+
+**Migration:** removes the faces the pre-IosevkaTerm module installed
+(`HackNerdFont*.ttf`), and the `MesloLGS NF Regular.ttf.bak` that linking
+displaces — a `.bak` in a font directory is still a live font, since fontconfig
+identifies files by content rather than extension.
+
+**Status:** counts the vendored links; reports a missing or stale download, and
+any legacy artifacts still to clean, in the INFO column.
 
 ---
 

@@ -175,7 +175,7 @@ Modules run in this order — dependencies first:
 | 3 | **extras** | CLI utilities (fzf, ripgrep, bat, jq, fd), Python tooling, Docker, Terraform |
 | 4 | **toolkit** | External registry of security/CTF/dev tools (`--toolkit`) |
 | 5 | **delta** | [delta](https://github.com/dandavison/delta) git diff viewer |
-| 6 | **fonts** | Hack Nerd Font and MesloLGS NF (bundled or downloaded) |
+| 6 | **fonts** | IosevkaTerm Nerd Font (downloaded, pinned) + MesloLGS NF offline floor (bundled) |
 | 7 | **omz** | Oh My Zsh + zsh-autosuggestions + powerlevel10k (`--extended` for more) |
 | 8 | **shell** | zshrc, bashrc, aliases, p10k config, modular `zsh.d` files |
 | 9 | **devtools** | Utility scripts into `~/.local/bin/` (sysinfo, docker-cleanup, …) |

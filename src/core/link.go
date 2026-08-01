@@ -207,3 +207,13 @@ func XDGTarget(parts ...string) string {
 	}
 	return filepath.Join(append([]string{base}, parts...)...)
 }
+
+// XDGDataTarget returns a path under $XDG_DATA_HOME. Empty when the data home
+// can't be resolved, for the same reason as HomeTarget.
+func XDGDataTarget(parts ...string) string {
+	base := XDGDataHome()
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(append([]string{base}, parts...)...)
+}

@@ -46,7 +46,7 @@ if [[ "$TERM" != "linux" && "$TERM" != "dumb" ]]; then
     source "$ZSH/oh-my-zsh.sh"
     [[ ! -f ~/.p10k.zsh ]] || source ~/.p10k.zsh
   else
-    print -P "%F{yellow}⚠ Oh My Zsh not installed at $ZSH%f"
+    print -P "%F{yellow} Oh My Zsh not installed at $ZSH%f"
     print -P "%F{yellow}  run: dfinstall install omz%f"
   fi
 else
