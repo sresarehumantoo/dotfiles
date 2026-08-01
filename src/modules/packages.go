@@ -340,6 +340,12 @@ func (PackagesModule) Install(ctx context.Context) error {
 		{"curl", []string{"curl"}},
 		{"wget", []string{"wget"}},
 		{"htop", []string{"htop"}},
+		// fc-list/fc-cache. The fonts module degrades without them, but a box
+		// with no fontconfig also can't register the fonts it installs, so the
+		// terminal silently falls back. Pulled in transitively by Ghostty's deb
+		// (gtk4 -> pango -> fontconfig) on the usual path; named here so the
+		// headless, container and --skip-ghostty paths get it too.
+		{"fc-list", []string{"fontconfig"}},
 		{"rsync", []string{"rsync"}},
 		// nvim is intentionally omitted — apt's neovim is too old (Debian
 		// stable ships 0.7–0.10, telescope.nvim requires >= 0.11). The nvim

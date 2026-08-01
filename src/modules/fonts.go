@@ -58,6 +58,51 @@ var iosevkaTerm = downloadedFont{
 // downloadedFonts is the full set of families fetched on install.
 var downloadedFonts = []downloadedFont{iosevkaTerm}
 
+// tagStamp records which nerdFontsTag produced the faces sitting beside it. It
+// is what makes a tag bump actionable: without it the only thing observable
+// about an installed family is its name, which is version-independent, so
+// changing nerdFontsTag would silently no-op on every machine that already had
+// the font (the documented "bump the tag" workflow did exactly nothing).
+const tagStamp = ".nerd-fonts-tag"
+
+// fontInstalled reports whether *this module's own copy* of a family is present,
+// and which tag it came from.
+//
+// Deliberately a filesystem check on the directory the module owns, not a
+// fontconfig query. `fc-list` answers "does some font by this name exist
+// anywhere", which is a different question and answers it wrongly for our
+// purposes three ways: a hand-installed copy elsewhere suppressed the download
+// forever, an outdated copy looked current, and Uninstall reported success while
+// leaving the family resolvable. It also made every machine without fontconfig
+// re-download ~28 MB on each run, since a missing fc-list reads as "absent".
+func fontInstalled(f downloadedFont) (present bool, tag string) {
+	dir := core.XDGDataTarget("fonts", f.dir)
+	if dir == "" {
+		return false, ""
+	}
+	for _, face := range f.faces {
+		st, err := os.Stat(filepath.Join(dir, face))
+		if err != nil || st.Size() == 0 {
+			return false, ""
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(dir, tagStamp))
+	if err != nil {
+		// Faces present but unstamped: installed by a build that predates the
+		// stamp. Treat as an unknown version so it gets refreshed.
+		return true, ""
+	}
+	return true, strings.TrimSpace(string(b))
+}
+
+// tagOrUnknown renders an empty tag readably.
+func tagOrUnknown(tag string) string {
+	if tag == "" {
+		return "unknown version"
+	}
+	return tag
+}
+
 // Links is the single source of truth for the *vendored* fonts — the offline
 // floor. fontconfig follows symlinked font files, so these need no copy.
 // MesloLGS NF Regular supplies every glyph the configs print (✓ ✗ ✘ ⚠ ⚙),
@@ -75,9 +120,20 @@ func (FontsModule) Links() core.LinkSet {
 func (m FontsModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would link vendored fonts (MesloLGS offline floor)")
+		for _, name := range m.legacyArtifacts() {
+			core.Info("would remove legacy font artifact: %s", name)
+		}
 		for _, f := range downloadedFonts {
-			core.Info("would download %s (%s) to %s", f.family, nerdFontsTag,
-				core.XDGDataTarget("fonts", f.dir))
+			present, tag := fontInstalled(f)
+			switch {
+			case present && tag == nerdFontsTag:
+				core.Info("%s (%s) already installed — would leave it alone", f.family, nerdFontsTag)
+			case present:
+				core.Info("would update %s from %s to %s", f.family, tagOrUnknown(tag), nerdFontsTag)
+			default:
+				core.Info("would download %s (%s) to %s", f.family, nerdFontsTag,
+					core.XDGDataTarget("fonts", f.dir))
+			}
 		}
 		return nil
 	}
@@ -91,11 +147,29 @@ func (m FontsModule) Install(ctx context.Context) error {
 		return err
 	}
 
+	// Retire what the pre-IosevkaTerm module left behind. Must run after Apply,
+	// which is what creates the displaced .bak this cleans up.
+	if m.cleanLegacyArtifacts() {
+		changed = true
+	}
+
 	// Downloaded families — the terminal's primary font.
 	for _, f := range downloadedFonts {
-		if fontFamilyInstalled(ctx, f.family) {
-			core.Ok("font already installed: %s", f.family)
+		present, tag := fontInstalled(f)
+		switch {
+		case present && tag == nerdFontsTag:
+			core.Ok("font already installed: %s (%s)", f.family, nerdFontsTag)
 			continue
+		case present:
+			core.Info("updating %s: %s -> %s", f.family, tagOrUnknown(tag), nerdFontsTag)
+		case fontFamilyInstalled(ctx, f.family):
+			// Present to fontconfig but absent from the directory this module
+			// owns — a hand-installed copy. Install a managed one anyway, or the
+			// pin is unenforceable and Uninstall can't work; say so, because the
+			// unmanaged copy stays behind and is the user's to remove.
+			core.Warn("%s is installed outside %s and unmanaged — installing a "+
+				"managed copy; remove the other to avoid duplicates",
+				f.family, core.XDGDataTarget("fonts", f.dir))
 		}
 		if err := installDownloadedFont(ctx, f); err != nil {
 			core.Warn("could not install %s: %v — MesloLGS floor remains in place", f.family, err)
@@ -139,18 +213,102 @@ func (m FontsModule) Status() core.ModuleStatus {
 	// what Links() exports (tests/linkset_test.go asserts this). Downloaded
 	// families aren't links — they're reported in the INFO column instead.
 	s := m.Links().Status("fonts")
-	// context.Background(): Status carries no context to inherit — this probe is
-	// the sanctioned exception (see CLAUDE.md subprocess convention).
-	var missing []string
+	notes := fontNotes()
+	if legacy := m.legacyArtifacts(); len(legacy) > 0 {
+		notes = append(notes, fmt.Sprintf("%d legacy artifact(s) to clean", len(legacy)))
+	}
+	s.Extra = strings.Join(notes, "; ")
+	return s
+}
+
+// fontNotes describes anything wrong with the downloaded families, as short
+// phrases. Shared by Status and the doctor check so the two can't disagree —
+// no subprocess, so it is safe from Status(), which carries no context.
+func fontNotes() []string {
+	var notes []string
 	for _, f := range downloadedFonts {
-		if !fontFamilyInstalled(context.Background(), f.family) {
-			missing = append(missing, f.family)
+		present, tag := fontInstalled(f)
+		switch {
+		case !present:
+			notes = append(notes, "not downloaded: "+f.family)
+		case tag != nerdFontsTag:
+			notes = append(notes, fmt.Sprintf("%s is %s, want %s",
+				f.family, tagOrUnknown(tag), nerdFontsTag))
 		}
 	}
-	if len(missing) > 0 {
-		s.Extra = "not downloaded: " + strings.Join(missing, ", ")
+	return notes
+}
+
+// legacyGlob matches every face the pre-IosevkaTerm module could have put in the
+// fonts directory: it copied HackNerdFont-Regular.ttf, and on its download path
+// ran `unzip -qo Hack.zip -d <fontdir>`, which dumped the whole archive flat —
+// including the Mono and Propo builds this module explicitly refuses to install.
+const legacyGlob = "HackNerdFont*.ttf"
+
+// legacyArtifacts lists files in the fonts directory that the old module left
+// behind and this one should retire. Deliberately narrow: only faces matching
+// legacyGlob, plus a .bak that LinkFile displaced and that is byte-identical to
+// the vendored font which replaced it. Generic leftovers from the unzip
+// (README.md, LICENSE.md) are NOT listed — those names are too common to claim.
+//
+// The .bak matters because a font directory has no inert file extensions:
+// fontconfig identifies files by content, so "MesloLGS NF Regular.ttf.bak" is
+// still a live, registered copy of MesloLGS NF. Left alone, every upgraded
+// machine carries a permanent duplicate of the family.
+func (m FontsModule) legacyArtifacts() []string {
+	dir := core.XDGDataTarget("fonts")
+	if dir == "" {
+		return nil
 	}
-	return s
+	var found []string
+	matches, err := filepath.Glob(filepath.Join(dir, legacyGlob))
+	if err == nil {
+		found = append(found, matches...)
+	}
+	for _, l := range m.Links() {
+		if l.Dst == "" {
+			continue
+		}
+		bak := l.Dst + ".bak"
+		if _, err := os.Lstat(bak); err != nil {
+			continue
+		}
+		// Only ours to delete if it is a duplicate of what displaced it.
+		if core.FilesMatch(l.Src, bak) {
+			found = append(found, bak)
+		}
+	}
+	return found
+}
+
+// cleanLegacyArtifacts removes them, reporting whether the font set changed (and
+// so whether the fontconfig cache needs rebuilding).
+func (m FontsModule) cleanLegacyArtifacts() bool {
+	var changed bool
+	for _, p := range m.legacyArtifacts() {
+		if err := core.CheckTarget(p); err != nil {
+			continue
+		}
+		if err := os.Remove(p); err != nil {
+			core.Warn("could not remove legacy font artifact %s: %v", p, err)
+			continue
+		}
+		core.Ok("removed legacy font artifact: %s", filepath.Base(p))
+		changed = true
+	}
+	// A .bak that differs from the vendored font is the user's; say so rather
+	// than deleting it, because fontconfig will keep loading it.
+	for _, l := range m.Links() {
+		if l.Dst == "" {
+			continue
+		}
+		bak := l.Dst + ".bak"
+		if _, err := os.Lstat(bak); err == nil && !core.FilesMatch(l.Src, bak) {
+			core.Warn("%s differs from the vendored font and was left in place — "+
+				"fontconfig still loads it as a duplicate; remove it yourself if unwanted", bak)
+		}
+	}
+	return changed
 }
 
 // installDownloadedFont downloads, verifies and extracts one family into its own
@@ -190,20 +348,35 @@ func installDownloadedFont(ctx context.Context, f downloadedFont) error {
 		return fmt.Errorf("sha256 mismatch for %s: want %s, got %s", f.archive, want, got)
 	}
 
-	// 3. Extract only the wanted faces into a fresh subdir. Rebuild it from
-	//    scratch so a prior partial extract can't leave stray weights behind.
+	// 3. Extract into a staging directory *beside* the destination, then swap.
+	//    Two reasons it is a sibling rather than under /tmp: the rename stays on
+	//    one filesystem, and a working install is never destroyed by a failed
+	//    extract. Rebuilding destDir in place meant a corrupt-but-sha-valid
+	//    archive deleted good fonts before discovering it could not replace them.
+	stage := destDir + ".new"
+	if err := core.RemoveManagedDir(stage); err != nil {
+		return err
+	}
+	if err := core.EnsureDir(stage); err != nil {
+		return err
+	}
+	defer func() { _ = core.RemoveManagedDir(stage) }()
+
+	if err := extractFaces(archivePath, stage, f.faces); err != nil {
+		return err
+	}
+	// Stamp the tag alongside the faces, so a later nerdFontsTag bump is
+	// detectable. Written before the swap so destDir is never stamp-less.
+	stampPath := filepath.Join(stage, tagStamp)
+	if err := os.WriteFile(stampPath, []byte(nerdFontsTag+"\n"), 0644); err != nil {
+		return err
+	}
+
+	// 4. Swap: only now is the old copy removed.
 	if err := core.RemoveManagedDir(destDir); err != nil {
 		return err
 	}
-	if err := core.EnsureDir(destDir); err != nil {
-		return err
-	}
-	if err := extractFaces(archivePath, destDir, f.faces); err != nil {
-		// Don't leave a half-populated dir that Status would count as present.
-		_ = core.RemoveManagedDir(destDir)
-		return err
-	}
-	return nil
+	return os.Rename(stage, destDir)
 }
 
 // fetchExpectedSHA returns the expected sha256 for an asset from the release's

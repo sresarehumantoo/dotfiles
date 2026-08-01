@@ -510,7 +510,6 @@ directly. They inherit the caller's context (so they remain cancellable) but get
 
 | Site | Command |
 |------|---------|
-| `modules/fonts.go` | `curl` (Nerd Font download), `unzip`, `fc-cache` |
 | `modules/extras.go` | `tldr --update` |
 | `modules/wsl.go` | `git config --global` (×2) |
 | `modules/tmux.go` | `tmux start-server` |
@@ -518,9 +517,11 @@ directly. They inherit the caller's context (so they remain cancellable) but get
 
 `chsh` is deliberate: it prompts for the user's password, so it needs
 `os.Stdin`/`os.Stdout`/`os.Stderr` wired straight to the terminal, which is
-exactly what `runCmd`'s capture-and-replay routing takes away. The rest are candidates for a
-wrapper — the `curl` in `fonts.go` most of all, since it is the one that talks
-to the network and so is the one that can actually hang.
+exactly what `runCmd`'s capture-and-replay routing takes away. The rest are
+candidates for a wrapper. `fonts.go` no longer appears here: its `curl`,
+`fc-list` and `fc-cache` calls all go through `runCmd`/`runProbe`, and `unzip`
+is gone entirely (the archive is decompressed in-process via `ulikunitz/xz` +
+`archive/tar`).
 
 Not every direct call site is unbounded, though: `core/virt.go`'s
 `systemd-detect-virt` probe and the sudo probes in `core/env.go` derive their own
