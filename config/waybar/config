@@ -1,0 +1,121 @@
+// waybar — managed by dfinstall (modules/sway.go), linked to ~/.config/waybar/config
+//
+// jsonc: // comments are allowed, trailing commas are not.
+// Reload after editing:  pkill -SIGUSR2 waybar
+{
+    "layer": "top",
+    "position": "top",
+    "height": 30,
+    "spacing": 6,
+
+    "modules-left":   ["sway/workspaces", "sway/mode"],
+    "modules-center": ["sway/window"],
+    "modules-right":  ["idle_inhibitor", "pulseaudio", "backlight", "network", "cpu", "memory", "temperature", "battery", "tray", "clock"],
+
+    "sway/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": false,
+        "format": "{name}"
+    },
+
+    "sway/mode": {
+        "format": "<span style=\"italic\">{}</span>"
+    },
+
+    "sway/window": {
+        "max-length": 60,
+        "tooltip": false
+    },
+
+    "idle_inhibitor": {
+        "format": "{icon}",
+        "format-icons": { "activated": "", "deactivated": "" },
+        "tooltip-format-activated": "Idle inhibited — screen will not blank",
+        "tooltip-format-deactivated": "Idle normal"
+    },
+
+    "pulseaudio": {
+        // Reads from PipeWire via its pulse shim (pipewire-pulse is installed).
+        "format": "{icon} {volume}%",
+        "format-muted": " muted",
+        "format-bluetooth": "{icon} {volume}%",
+        "format-icons": { "headphone": "", "default": ["", "", ""] },
+        "on-click": "pavucontrol",
+        "scroll-step": 5
+    },
+
+    "backlight": {
+        "format": "{icon} {percent}%",
+        "format-icons": ["", "", "", "", "", "", "", "", ""],
+        "on-scroll-up": "brightnessctl set 5%+",
+        "on-scroll-down": "brightnessctl set 5%-"
+    },
+
+    "network": {
+        "format-wifi": "  {essid} ({signalStrength}%)",
+        "format-ethernet": "  {ipaddr}",
+        "format-linked": "  no IP",
+        "format-disconnected": "  offline",
+        "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
+        "on-click": "nm-connection-editor"
+    },
+
+    "cpu": {
+        "format": "  {usage}%",
+        "interval": 5,
+        "tooltip": false
+    },
+
+    "memory": {
+        "format": "  {percentage}%",
+        "interval": 5,
+        "tooltip-format": "{used:0.1f}G / {total:0.1f}G"
+    },
+
+    "temperature": {
+        // Intel Alder Lake-P (i915) — coretemp exposes package temp here.
+        // If this path is wrong on a given boot, waybar hides the module rather
+        // than failing; check with: cat /sys/class/hwmon/hwmon*/name
+        "hwmon-path-abs": "/sys/class/hwmon",
+        "input-filename": "temp1_input",
+        "critical-threshold": 85,
+        "format": " {temperatureC}°C",
+        "format-critical": " {temperatureC}°C"
+    },
+
+    "battery": {
+        // Pin to the laptop cell explicitly. This box exposes two type=Battery
+        // supplies: CMB0 (the laptop, scope=System) and hidpp_battery_2 (a
+        // Logitech mouse on a Powerplay mat, scope=Device, perma ~80%). Without
+        // "bat" waybar auto-detects and can pick the mouse. ADP0 is the AC
+        // adapter, so charging/plugged states resolve correctly too.
+        "bat": "CMB0",
+        "adapter": "ADP0",
+        "states": { "warning": 25, "critical": 10 },
+        "format": "{icon} {capacity}%",
+        "format-charging": " {capacity}%",
+        "format-plugged": " {capacity}%",
+        "format-icons": ["", "", "", "", ""],
+        "tooltip-format": "{timeTo} ({power:0.1f}W)"
+    },
+
+    "tray": {
+        // Holds nm-applet --indicator and blueman-applet, both launched from
+        // the sway config's autostart block.
+        "icon-size": 18,
+        "spacing": 8
+    },
+
+    "clock": {
+        "format": " {:%a %d %b  %H:%M}",
+        "tooltip-format": "<tt><small>{calendar}</small></tt>",
+        "calendar": {
+            "mode": "month",
+            "on-scroll": 1,
+            "format": {
+                "today": "<span color='#f38ba8'><b>{}</b></span>"
+            }
+        },
+        "actions": { "on-click-right": "mode" }
+    }
+}

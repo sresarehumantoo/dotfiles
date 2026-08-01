@@ -24,6 +24,7 @@ func RegisterAllModules() {
 	core.RegisterModule(&TmuxModule{})
 	core.RegisterModule(&KonsoleModule{})
 	core.RegisterModule(&GhosttyModule{})
+	core.RegisterModule(&SwayModule{})
 	core.RegisterModule(&HtopModule{})
 	core.RegisterModule(&WslModule{})
 	core.RegisterModule(&VMGuestModule{})
