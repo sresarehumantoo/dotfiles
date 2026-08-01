@@ -327,11 +327,14 @@ func installDownloadedFont(ctx context.Context, f downloadedFont) error {
 	}
 	defer os.RemoveAll(tmp)
 
-	// 1. Download the archive.
+	// 1. Download the archive. runNetCmd, not runCmd: this is a transfer, so it
+	//    gets the 10-minute network deadline rather than the 45-minute install
+	//    one — a stalled mirror should not hold the run for three quarters of an
+	//    hour behind a spinner.
 	archivePath := filepath.Join(tmp, f.archive)
 	archiveURL := fmt.Sprintf(
 		"https://github.com/ryanoasis/nerd-fonts/releases/download/%s/%s", nerdFontsTag, f.archive)
-	if err := runCmd(ctx, "curl", "-fsSL", archiveURL, "-o", archivePath); err != nil {
+	if err := runNetCmd(ctx, "curl", curlArgs(archiveURL, "-o", archivePath)...); err != nil {
 		return fmt.Errorf("download %s: %w", f.archive, err)
 	}
 
@@ -379,12 +382,37 @@ func installDownloadedFont(ctx context.Context, f downloadedFont) error {
 	return os.Rename(stage, destDir)
 }
 
+// curlArgs builds the flags every fetch here uses, followed by url and extra.
+//
+//   - -f    an HTTP error is a non-zero exit, not a saved error page. Without
+//     it a 404 body would be sha-checked and reported as a mismatch.
+//   - -sS   quiet progress, but keep the failure reason on stderr — which is
+//     what probeErr/runCmd surface. -s alone would silence it.
+//   - -L    the release asset is a redirect to a CDN.
+//   - retries and a connect timeout so a flaky link recovers and a blackholed
+//     host fails in seconds rather than sitting there.
+//
+// Deliberately no --max-time: curl applies it per transfer, so it would fight
+// the retries, and the context deadline (NetworkTimeout) is already the real
+// ceiling for the whole operation.
+func curlArgs(url string, extra ...string) []string {
+	args := []string{
+		"-fsSL",
+		"--connect-timeout", "15",
+		"--retry", "3",
+		"--retry-delay", "2",
+		"--retry-connrefused",
+		url,
+	}
+	return append(args, extra...)
+}
+
 // fetchExpectedSHA returns the expected sha256 for an asset from the release's
 // SHA-256.txt (lines are "<hex>  <filename>").
 func fetchExpectedSHA(ctx context.Context, asset string) (string, error) {
 	url := fmt.Sprintf(
 		"https://github.com/ryanoasis/nerd-fonts/releases/download/%s/SHA-256.txt", nerdFontsTag)
-	out, err := runNetProbe(ctx, "curl", "-fsSL", url)
+	out, err := runNetProbe(ctx, "curl", curlArgs(url)...)
 	if err != nil {
 		return "", fmt.Errorf("fetch SHA-256.txt: %w", err)
 	}
