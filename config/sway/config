@@ -25,7 +25,11 @@ set $menu    fuzzel
 set $lock    swaylock -f -c 1e1e2e
 
 ### Appearance -------------------------------------------------------------
-font pango:Hack 10
+# Matches config/waybar/style.css and config/ghostty/config — the fonts module
+# installs this family, so keep the three in step. NOT "Hack": that family was
+# never installed here (only "Hack Nerd Font" ever was, which is a different
+# family name), so `pango:Hack` silently fell through to the generic monospace.
+font pango:IosevkaTerm Nerd Font 10
 
 # Titlebars stay ON — this is a deliberate mouse-friendliness choice, not an
 # oversight. Set `default_border pixel 2` + `titlebar` off if you change your mind.

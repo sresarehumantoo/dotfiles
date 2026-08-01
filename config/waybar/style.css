@@ -18,8 +18,11 @@
 @define-color mauve    #cba6f7;
 
 * {
-    /* Hack matches `font pango:Hack 10` in the sway config. */
-    font-family: "Hack", "Symbols Nerd Font", monospace;
+    /* Matches `font pango:IosevkaTerm Nerd Font 10` in the sway config. One
+       family covers both text and the Nerd icons the modules print, so no
+       separate symbols fallback is needed — "Symbols Nerd Font" was never
+       installed here either, and neither was plain "Hack". */
+    font-family: "IosevkaTerm Nerd Font", monospace;
     font-size: 13px;
     border: none;
     border-radius: 0;
