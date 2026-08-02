@@ -162,3 +162,89 @@ func TestPickAsset_EmptyArchTokensMatchesAny(t *testing.T) {
 		t.Errorf("expected the sole .deb, got %v (ok=%v)", got, ok)
 	}
 }
+
+// The delta release listing, in the order the GitHub API returns it. Two things
+// about it broke the delta installer:
+//
+//  1. the version is embedded in every filename, so the old hand-built URL
+//     .../releases/latest/download/git-delta_<arch>.deb could never resolve; and
+//  2. the musl build is listed FIRST and also ends in _<arch>.deb, so a filter
+//     of {Suffix: ".deb", ArchTokens: ...} alone selects the wrong artifact.
+const deltaReleaseFixture = `{"assets":[
+  {"name":"git-delta-musl_0.19.2_amd64.deb","browser_download_url":"https://x/delta-musl-amd64"},
+  {"name":"git-delta_0.19.2_amd64.deb","browser_download_url":"https://x/delta-amd64"},
+  {"name":"git-delta_0.19.2_arm64.deb","browser_download_url":"https://x/delta-arm64"},
+  {"name":"git-delta_0.19.2_armhf.deb","browser_download_url":"https://x/delta-armhf"},
+  {"name":"git-delta_0.19.2_i386.deb","browser_download_url":"https://x/delta-i386"}
+]}`
+
+func deltaAssets(t *testing.T) []ghAsset {
+	t.Helper()
+	var r struct {
+		Assets []ghAsset `json:"assets"`
+	}
+	if err := json.Unmarshal([]byte(deltaReleaseFixture), &r); err != nil {
+		t.Fatalf("fixture: %v", err)
+	}
+	return r.Assets
+}
+
+// deltaFilter mirrors the filter installDeltaDeb uses.
+func deltaFilter(goarch string) assetFilter {
+	return assetFilter{
+		Contains:     "git-delta_",
+		ArchTokens:   archTokensFor(goarch),
+		Suffix:       ".deb",
+		SkipSidecars: true,
+		LinuxOnly:    true,
+	}
+}
+
+func TestPickAsset_DeltaRelease(t *testing.T) {
+	assets := deltaAssets(t)
+
+	t.Run("amd64 picks the glibc build, not musl", func(t *testing.T) {
+		got, ok := pickAsset(assets, deltaFilter("amd64"))
+		if !ok {
+			t.Fatal("expected a match")
+		}
+		if got.URL != "https://x/delta-amd64" {
+			t.Errorf("picked %q (%s), want https://x/delta-amd64", got.Name, got.URL)
+		}
+	})
+
+	t.Run("arm64", func(t *testing.T) {
+		got, ok := pickAsset(assets, deltaFilter("arm64"))
+		if !ok {
+			t.Fatal("expected a match")
+		}
+		if got.URL != "https://x/delta-arm64" {
+			t.Errorf("picked %q (%s), want https://x/delta-arm64", got.Name, got.URL)
+		}
+	})
+
+	// Why Contains is load-bearing. Drop it and the musl build wins on ordering
+	// alone. If this ever stops holding, the Contains clause in installDeltaDeb
+	// has become dead weight and the comment there is wrong.
+	t.Run("without Contains the musl build wins", func(t *testing.T) {
+		f := deltaFilter("amd64")
+		f.Contains = ""
+		got, ok := pickAsset(assets, f)
+		if !ok {
+			t.Fatal("expected a match")
+		}
+		if got.URL != "https://x/delta-musl-amd64" {
+			t.Fatalf("premise changed: expected musl to win without Contains, got %q", got.Name)
+		}
+	})
+
+	// The regression itself: no asset is named the way the old URL template
+	// assumed, which is why every run 404'd and fell back to the distro package.
+	t.Run("no version-less asset name exists", func(t *testing.T) {
+		for _, a := range assets {
+			if a.Name == "git-delta_amd64.deb" || a.Name == "git-delta_arm64.deb" {
+				t.Fatalf("fixture no longer reflects the bug: found %q", a.Name)
+			}
+		}
+	})
+}

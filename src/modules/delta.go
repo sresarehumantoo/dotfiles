@@ -2,12 +2,10 @@ package modules
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -53,23 +51,40 @@ func installDeltaDeb(ctx context.Context) error {
 	}
 	defer os.RemoveAll(tmp)
 
-	// Prefer dpkg for accurate arch detection, fall back to GOARCH
-	arch := runtime.GOARCH
-	if out, err := runProbe(ctx, "dpkg", "--print-architecture"); err == nil {
-		if a := strings.TrimSpace(string(out)); a != "" {
-			arch = a
-		}
+	// Resolve the asset from the release listing rather than constructing a URL.
+	//
+	// The old code built
+	//   /releases/latest/download/git-delta_<arch>.deb
+	// but delta embeds the version in the filename (git-delta_0.19.2_amd64.deb),
+	// so that URL 404'd on EVERY run since the module was written. curl -f made
+	// it exit 22, the fallback below swallowed it, and delta silently came from
+	// the distro package instead — with `dfinstall status` still reporting
+	// "installed", which is why it went unnoticed.
+	//
+	// Contains "git-delta_" is load-bearing: the same release also ships
+	// git-delta-musl_<ver>_<arch>.deb, which satisfies both the .deb suffix and
+	// the arch token and is listed FIRST, and pickAsset returns the first match.
+	// "git-delta-musl_" does not contain "git-delta_", so this excludes it
+	// without needing a new exclusion mechanism.
+	assets, err := latestAssets(ctx, "dandavison/delta")
+	if err != nil {
+		return deltaPkgFallback(ctx)
+	}
+	asset, ok := pickAsset(assets, assetFilter{
+		Contains:     "git-delta_",
+		ArchTokens:   currentArchTokens(),
+		Suffix:       ".deb",
+		SkipSidecars: true,
+		LinuxOnly:    true,
+	})
+	if !ok {
+		core.Warn("no delta .deb published for %s", runtime.GOARCH)
+		return deltaPkgFallback(ctx)
 	}
 
-	url := fmt.Sprintf("https://github.com/dandavison/delta/releases/latest/download/git-delta_%s.deb", arch)
 	debPath := filepath.Join(tmp, "git-delta.deb")
-
-	if err := runCmd(ctx, "curl", "-fsSL", url, "-o", debPath); err != nil {
-		// Fallback to package manager
-		if err := installPkg(ctx, "git-delta"); err != nil {
-			core.Warn("Could not install delta automatically. Install from https://github.com/dandavison/delta/releases")
-		}
-		return nil
+	if err := runCmd(ctx, "curl", "-fsSL", asset.URL, "-o", debPath); err != nil {
+		return deltaPkgFallback(ctx)
 	}
 
 	if err := runCmd(ctx, "sudo", "dpkg", "-i", debPath); err != nil {
@@ -83,6 +98,17 @@ func installDeltaDeb(ctx context.Context) error {
 
 	if _, err := exec.LookPath("delta"); err == nil {
 		core.Ok("delta installed")
+	}
+	return nil
+}
+
+// deltaPkgFallback installs delta from the distro package manager. Used when the
+// GitHub release cannot be reached or carries no asset for this architecture.
+// Returns nil either way — a missing delta degrades git diffs, it does not
+// justify failing the whole install run.
+func deltaPkgFallback(ctx context.Context) error {
+	if err := installPkg(ctx, "git-delta"); err != nil {
+		core.Warn("Could not install delta automatically. Install from https://github.com/dandavison/delta/releases")
 	}
 	return nil
 }
