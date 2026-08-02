@@ -73,10 +73,13 @@
     },
 
     "temperature": {
-        // Intel Alder Lake-P (i915) — coretemp exposes package temp here.
-        // If this path is wrong on a given boot, waybar hides the module rather
-        // than failing; check with: cat /sys/class/hwmon/hwmon*/name
-        "hwmon-path-abs": "/sys/class/hwmon",
+        // Intel Alder Lake-P — CPU package temp via coretemp. Point at the
+        // coretemp DEVICE dir, which is stable across boots; NOT /sys/class/hwmon,
+        // whose hwmonN numbering shifts — that made waybar resolve a nonexistent
+        // hwmonN/temp1_input and silently disable the module (found 2026-08-01).
+        // waybar globs <hwmon-path-abs>/hwmon*/temp1_input; coretemp.0 has exactly
+        // one hwmon child and its temp1_input is "Package id 0".
+        "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon",
         "input-filename": "temp1_input",
         "critical-threshold": 85,
         "format": " {temperatureC}°C",
