@@ -1,0 +1,39 @@
+#!/bin/sh
+# sway-powermenu — session actions for the waybar power button.
+#
+# Linked to ~/.local/bin/sway-powermenu by modules/sway.go; invoked from
+# config/waybar/config ("custom/power".on-click).
+#
+# fuzzel rather than wlogout: fuzzel is already this box's $menu (see
+# config/sway/config), so there is nothing extra to install and the picker
+# looks like every other launcher here. wlogout is not installed.
+#
+# ⚠ The menu labels start with literal Nerd Font glyphs (Material Design
+# private-use plane). Keep any editor UTF-8 clean — see the same warning in
+# config/waybar/config, where an earlier edit stripped every icon.
+set -eu
+
+# Keep in step with `set $lock` in config/sway/config — same flags, same
+# colour. There is no way to read a sway variable from outside sway, so this
+# is a deliberate duplicate rather than an oversight.
+LOCK='swaylock -f -c 1e1e2e'
+
+choice=$(
+    printf '%s\n' \
+        '󰌾  Lock' \
+        '󰍃  Logout' \
+        '󰤄  Suspend' \
+        '󰜉  Reboot' \
+        '󰐥  Shutdown' |
+        fuzzel --dmenu --lines 5 --prompt 'session  ' --width 14
+) || exit 0
+
+# Match on the trailing word: the leading glyph is presentation only.
+case "$choice" in
+*Lock)     exec $LOCK ;;
+*Logout)   exec swaymsg exit ;;
+*Suspend)  exec systemctl suspend ;;
+*Reboot)   exec systemctl reboot ;;
+*Shutdown) exec systemctl poweroff ;;
+*)         exit 0 ;;
+esac

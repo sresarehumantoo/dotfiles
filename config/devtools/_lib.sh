@@ -15,7 +15,7 @@ _CYAN='\033[36m'
 
 info()   { printf "${_BLUE}${_BOLD}  ▸${_RESET} %s\n" "$*"; }
 ok()     { printf "${_GREEN}${_BOLD}  ✓${_RESET} %s\n" "$*"; }
-warn()   { printf "${_YELLOW}${_BOLD}  ⚠${_RESET} %s\n" "$*" >&2; }
+warn()   { printf "${_YELLOW}${_BOLD}  ${_RESET} %s\n" "$*" >&2; }
 err()    { printf "${_RED}${_BOLD}  ✗${_RESET} %s\n" "$*" >&2; }
 die()    { err "$@"; exit 1; }
 header() {

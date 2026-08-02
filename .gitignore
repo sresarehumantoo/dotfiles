@@ -25,6 +25,13 @@ CLAUDE.md
 .env
 .env.*
 
+# Host-specific config. Output identifiers embed panel serial numbers, so the
+# real file is machine identity, not shareable config. Versioned in the
+# internal companion repo; the tracked .example documents its shape.
+# (Internal git config lives in ~/.gitconfig.local, outside this repo — see
+# the note at the foot of config/git/gitconfig.)
+config/sway/outputs.conf
+
 # Editor configs
 .vscode/
 .idea/
@@ -35,6 +42,11 @@ CLAUDE.md
 
 # Neovim plugin lock (auto-updated by lazy.nvim)
 config/nvim/lazy-lock.json
+
+# Python bytecode (config/sway/sway-quickpanel is a .py-less script, but
+# `python3 -m py_compile` on it drops a __pycache__ beside it)
+__pycache__/
+*.pyc
 
 # Go
 *.exe

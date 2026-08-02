@@ -1,0 +1,233 @@
+// waybar — managed by dfinstall (modules/sway.go), linked to ~/.config/waybar/config
+//
+// jsonc: // comments are allowed, trailing commas are not.
+// Reload after editing:  pkill -SIGUSR2 waybar
+//
+// Layout is "floating islands": the bar window itself is transparent and
+// inset from the screen edge (margin-*), and each of the three module boxes
+// paints its own rounded pill in style.css. Anything that changes the pill
+// geometry lives in the CSS, not here — the only geometry this file owns is
+// the exclusive zone (height + margins) sway reserves at the top of the
+// screen. Keep `height` >= pill height + margin-top or the pills get clipped.
+//
+// ⚠ The icons below are literal Nerd Font glyphs in the Material Design
+// private-use plane (U+F0000+). They are invisible in most diffs and easy to
+// destroy: an earlier edit silently stripped every one of them and the bar ran
+// icon-less until someone noticed. If you edit this file with a tool that is
+// not UTF-8 clean, re-check with:
+//     python3 -c "print([hex(ord(c)) for c in open('config').read() if ord(c)>0xF0000])"
+// A healthy file has 30+ hits. Glyph names are Nerd Fonts' own (md-volume_high
+// etc.) and can be resolved from the font's post table if they need rebuilding.
+{
+    "layer": "top",
+    "position": "top",
+    "height": 40,
+    "margin-top": 6,
+    "margin-left": 10,
+    "margin-right": 10,
+    // 0: gaps between modules come from CSS padding so the pill backgrounds
+    // stay flush. A non-zero value here punches transparent slots through them.
+    "spacing": 0,
+
+    "modules-left":   ["sway/workspaces", "sway/mode"],
+    "modules-center": ["sway/window"],
+    // No "tray" — see the tray block below for why.
+    "modules-right":  ["idle_inhibitor", "pulseaudio", "backlight", "network", "group/system", "battery", "clock", "custom/power"],
+
+    "sway/workspaces": {
+        "disable-scroll": true,
+        "all-outputs": false,
+        "format": "{icon}",
+        // Icons, but the digit is still legible: $mod+N is how these actually
+        // get used, so a row of anonymous dots would be a regression. The
+        // Unicode circled digits (U+2460..) were tried first and render as
+        // cramped ovals in IosevkaTerm at bar size — these Material ones match
+        // the rest of the bar's icon set instead.
+        "format-icons": {
+            "1": "󰲡",
+            "2": "󰲣",
+            "3": "󰲥",
+            "4": "󰲧",
+            "5": "󰲩",
+            "6": "󰲫",
+            "7": "󰲭",
+            "8": "󰲯",
+            "9": "󰲱",
+            "default": "󰧞",
+            "urgent": "󰀨"
+        }
+    },
+
+    "sway/mode": {
+        "format": "<span style=\"italic\">{}</span>"
+    },
+
+    "sway/window": {
+        "max-length": 60,
+        "tooltip": false
+    },
+
+    "idle_inhibitor": {
+        "format": "{icon}",
+        "format-icons": {
+            "activated": "󰅶",
+            "deactivated": "󰾪"
+        },
+        "tooltip-format-activated": "Idle inhibited — screen will not blank",
+        "tooltip-format-deactivated": "Idle normal"
+    },
+
+    // ⚠ There were `group/volume` / `group/brightness` drawers here wrapping
+    // waybar's pulseaudio/slider and backlight/slider. They were removed as
+    // unusable for daily driving; the cause is upstream and not
+    // configurable — see the WHY THIS EXISTS block in config/sway/sway-quickpanel.
+    // Dragging now lives in that floating panel, which left-click opens.
+    // Do not re-add in-bar sliders without re-reading that note first.
+    "pulseaudio": {
+        // Reads from PipeWire via its pulse shim (pipewire-pulse is installed).
+        "format": "{icon}  {volume}%",
+        "format-muted": "󰖁  muted",
+        "format-bluetooth": "{icon}  {volume}%",
+        "format-icons": {
+            "headphone": "󰋋",
+            "default": ["󰕿", "󰖀", "󰕾"]
+        },
+        "on-click": "$HOME/.local/bin/sway-quickpanel",
+        // NOTE: inert unless pavucontrol is installed. Left-click is already
+        // the quick panel, so a full mixer belongs on right.
+        "on-click-right": "pavucontrol",
+        "scroll-step": 5
+    },
+
+    "backlight": {
+        // Polling is only a fallback — waybar also watches udev, so the
+        // readout updates promptly when the keys or the quick panel change it.
+        "interval": 10,
+        "format": "{icon}  {percent}%",
+        "on-click": "$HOME/.local/bin/sway-quickpanel",
+        // md-brightness_1..7 — the ramp is 7 wide, not 9.
+        "format-icons": [
+            "󰃚", "󰃛", "󰃜",
+            "󰃝", "󰃞", "󰃟",
+            "󰃠"
+        ],
+        "on-scroll-up": "brightnessctl set 5%+",
+        "on-scroll-down": "brightnessctl set 5%-"
+    },
+
+    "network": {
+        "format-wifi": "󰖩  {essid} ({signalStrength}%)",
+        "format-ethernet": "󰈀  {ipaddr}",
+        "format-linked": "󰈁  no IP",
+        "format-disconnected": "󰖪  offline",
+        "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
+        "on-click": "nm-connection-editor"
+    },
+
+    // Collapsible cpu/memory/temperature. The first entry in "modules" is the
+    // permanently visible handle; the rest slide out on hover. Requires waybar
+    // >= 0.9.6 (this box has 0.12.0).
+    "group/system": {
+        "orientation": "horizontal",
+        "drawer": {
+            "transition-duration": 350,
+            "children-class": "system-child",
+            // Right-side group, so it has to grow leftwards into the bar
+            // rather than pushing the clock off the screen edge.
+            "transition-left-to-right": false
+        },
+        "modules": ["custom/system", "cpu", "memory", "temperature"]
+    },
+
+    "custom/system": {
+        "format": "󰘚",
+        "tooltip-format": "System — hover to expand cpu / memory / temperature"
+    },
+
+    "cpu": {
+        "format": "󰻠  {usage}%",
+        "interval": 5,
+        "tooltip": false
+    },
+
+    "memory": {
+        "format": "󰍛  {percentage}%",
+        "interval": 5,
+        "tooltip-format": "{used:0.1f}G / {total:0.1f}G"
+    },
+
+    "temperature": {
+        // Intel Alder Lake-P — CPU package temp via coretemp. Point at the
+        // coretemp DEVICE dir, which is stable across boots; NOT /sys/class/hwmon,
+        // whose hwmonN numbering shifts — that makes waybar resolve a nonexistent
+        // hwmonN/temp1_input and silently disable the module.
+        // waybar globs <hwmon-path-abs>/hwmon*/temp1_input; coretemp.0 has exactly
+        // one hwmon child and its temp1_input is "Package id 0".
+        "hwmon-path-abs": "/sys/devices/platform/coretemp.0/hwmon",
+        "input-filename": "temp1_input",
+        "critical-threshold": 85,
+        "format": "󰔏  {temperatureC}°C",
+        "format-critical": "󰸁  {temperatureC}°C"
+    },
+
+    "battery": {
+        // Pin to the laptop cell explicitly. This box exposes two type=Battery
+        // supplies: CMB0 (the laptop, scope=System) and hidpp_battery_2 (a
+        // Logitech mouse on a Powerplay mat, scope=Device, perma ~80%). Without
+        // "bat" waybar auto-detects and can pick the mouse. ADP0 is the AC
+        // adapter, so charging/plugged states resolve correctly too.
+        "bat": "CMB0",
+        "adapter": "ADP0",
+        "states": { "warning": 25, "critical": 10 },
+        "format": "{icon}  {capacity}%",
+        "format-charging": "󰂄  {capacity}%",
+        "format-plugged": "󰚥  {capacity}%",
+        "format-icons": [
+            "󰁺", "󰁼", "󰁾",
+            "󰂀", "󰁹"
+        ],
+        "tooltip-format": "{timeTo} ({power:0.1f}W)"
+    },
+
+    // ⚠ Deliberately NOT in modules-right. The only thing that ever registered
+    // here was nm-applet's signal-bars icon, which duplicated the network
+    // module's own essid + strength readout. waybar's tray cannot filter
+    // individual items (ignore-list belongs to wlr/taskbar, not tray), and
+    // nm-applet publishes its StatusNotifier item as Active regardless of
+    // --indicator or `org.gnome.nm-applet show-applet` — both tested — so
+    // dropping the whole module was the only way.
+    //
+    // Consequence: no app can show a tray icon here. If something that needs
+    // one turns up (Slack, Syncthing, Discord…), put "tray" back in
+    // modules-right; nm-applet's duplicate icon comes back with it.
+    // blueman-applet never registered an item, so nothing is lost there — it
+    // still runs and still handles pairing.
+    "tray": {
+        "icon-size": 18,
+        "spacing": 8
+    },
+
+    "clock": {
+        "format": "󰅐  {:%a %d %b  %H:%M}",
+        "tooltip-format": "<tt><small>{calendar}</small></tt>",
+        "calendar": {
+            "mode": "month",
+            "on-scroll": 1,
+            "format": {
+                "today": "<span color='#f38ba8'><b>{}</b></span>"
+            }
+        },
+        "actions": { "on-click-right": "mode" }
+    },
+
+    "custom/power": {
+        "format": "󰐥",
+        "tooltip-format": "Session — lock / logout / suspend / reboot / shutdown",
+        // ⚠ Absolute via $HOME, not a bare name. GDM starts sway without a
+        // login shell, so the session PATH does NOT include ~/.local/bin and a
+        // bare command name silently does nothing — confirm on any machine by
+        // reading sway's own /proc/<pid>/environ. waybar runs on-click through
+        // /bin/sh -c, so $HOME expands. Same applies to sway-quickpanel above.
+        "on-click": "$HOME/.local/bin/sway-powermenu"
+    }
+}

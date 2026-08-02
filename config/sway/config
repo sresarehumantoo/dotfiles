@@ -1,0 +1,326 @@
+# sway config — managed by dfinstall (modules/sway.go), linked to ~/.config/sway/config
+#
+# ############################################################################
+# #  RULE 1: $mod IS Mod4 (Super). THERE ARE NO Alt (Mod1) BINDINGS HERE.    #
+# #                                                                          #
+# #  tmux owns the entire Alt keyspace on this box: prefix M-a, plus         #
+# #  no-prefix binds on M-1..M-9, M-n, M-Enter, M--, M-q, M-m, M-s, M-c.    #
+# #  sway grabs keys BEFORE the terminal sees them, so any Alt binding here  #
+# #  silently steals a tmux binding. Do not add one. Ever.                   #
+# ############################################################################
+#
+# Validate before logging in — a broken config leaves you at a black screen:
+#   sway --validate -c config/sway/config
+# Off a graphical session that needs a backend hint:
+#   env WLR_BACKENDS=headless sway --validate -c config/sway/config
+
+set $mod Mod4
+set $left  h
+set $down  j
+set $up    k
+set $right l
+
+set $term    ghostty
+set $menu    fuzzel
+set $lock    swaylock -f -c 1e1e2e
+
+### Appearance -------------------------------------------------------------
+# Matches config/waybar/style.css and config/ghostty/config — the fonts module
+# installs this family, so keep the three in step. NOT "Hack": that family was
+# never installed here (only "Hack Nerd Font" ever was, which is a different
+# family name), so `pango:Hack` silently fell through to the generic monospace.
+font pango:IosevkaTerm Nerd Font 10
+
+# Titlebars off. With a multi-monitor layout the focused border is the thing
+# you actually read to find focus, and the title is already in waybar's centre
+# pill. Revert with `normal 2`.
+#
+# NOTE: tabbed ($mod+w) and stacking ($mod+s) layouts still draw titlebars
+# regardless of this setting — that is why the client.* titlebar background
+# and text colours below still matter.
+default_border          pixel 2
+default_floating_border pixel 2
+
+# smart_gaps OFF, deliberately. It was `on`, which suppresses all gaps when a
+# workspace holds a single window — that would silently cancel the outer gap
+# below and let a lone window sit flush to the screen edge.
+gaps inner 8
+gaps outer 4
+smart_gaps off
+
+### Colours ----------------------------------------------------------------
+# Catppuccin Mocha, the same palette as config/waybar/style.css — keep the two
+# in step. Before this the config set no client.* directives at all, so sway
+# fell back to its stock #4c7899/#285577 blue-grey, which is what made the
+# borders clash with the bar.
+#
+# Dark titlebars with the accent carried by the border and the title text,
+# mirroring the bar's "accent text on dark" treatment rather than filling the
+# titlebar with colour.
+#
+#                       border   background text     indicator child_border
+client.focused          #89b4fa  #181825    #89b4fa  #f5e0dc   #89b4fa
+client.focused_inactive #45475a  #181825    #a6adc8  #45475a   #45475a
+client.unfocused        #313244  #181825    #6c7086  #313244   #313244
+client.urgent           #f38ba8  #181825    #f38ba8  #f38ba8   #f38ba8
+client.placeholder      #313244  #181825    #6c7086  #313244   #313244
+client.background       #1e1e2e
+
+# $HOME rather than a literal path: sway expands it here, and `sway --validate`
+# genuinely checks the file exists, so a broken path fails loudly at validate
+# time rather than silently leaving you on the default grey.
+output * bg $HOME/.config/background fill
+
+### Outputs ----------------------------------------------------------------
+# ⚠ Output geometry is HOST-SPECIFIC and deliberately NOT in this file.
+#
+# A sway output is matched by IDENTIFIER ("make model serial"), which embeds
+# each panel's serial number — so an output block is per-machine data, not
+# shareable config. Keep it in ~/.config/sway/outputs.conf.
+# See config/sway/outputs.conf.example for the shape and the full reasoning.
+#
+# A missing include is silently tolerated by sway (verified: `--validate`
+# exits 0 and says nothing), so a machine without an outputs.conf just gets
+# sway's default auto-placement rather than an error.
+#
+# Why identifiers and not connector names — the one durable lesson worth
+# keeping here: a DisplayLink/evdi output's connector is assigned in attach
+# order, so it enumerates as DVI-I-1 one session and DVI-I-2 the next, and
+# `output DVI-I-1 ...` silently stops applying. Identifiers survive replugs.
+# Get them with:  swaymsg -t get_outputs | grep -E 'make|model|serial'
+include $HOME/.config/sway/outputs.conf
+
+### Input ------------------------------------------------------------------
+# "Don't reject the mouse": click-to-focus, not follow-mouse.
+focus_follows_mouse no
+mouse_warping      output
+
+input type:touchpad {
+    tap enabled
+    natural_scroll enabled
+    dwt enabled
+    middle_emulation enabled
+    scroll_factor 0.6
+}
+
+input type:keyboard {
+    xkb_layout us
+    repeat_delay 250
+    repeat_rate 40
+}
+
+# $mod + drag to move, $mod + right-drag to resize.
+floating_modifier $mod normal
+
+### Launchers --------------------------------------------------------------
+bindsym $mod+Return exec $term
+bindsym $mod+d      exec $menu
+# ⚠ The ONLY Alt binding in this file, and a deliberate exception to RULE 1
+# above (PowerToys Run muscle memory). Mod1+space is safe because tmux binds
+# Alt only on  a n 1-9 Enter - q m s c  and the mouse, so space is free;
+# Super+space was unavailable (it is `focus mode_toggle` below).
+# Do NOT add further Alt bindings; every other Alt key risks a silent steal.
+# Before adding one, check both sides:
+#   grep -E 'bind.*M-' config/tmux/tmux.conf
+#   tmux list-keys -T root | grep 'M-'
+bindsym Mod1+space  exec $menu
+bindsym $mod+e      exec nautilus
+bindsym $mod+Shift+q kill
+
+### Focus / movement -------------------------------------------------------
+bindsym $mod+$left  focus left
+bindsym $mod+$down  focus down
+bindsym $mod+$up    focus up
+bindsym $mod+$right focus right
+bindsym $mod+Left   focus left
+bindsym $mod+Down   focus down
+bindsym $mod+Up     focus up
+bindsym $mod+Right  focus right
+
+bindsym $mod+Shift+$left  move left
+bindsym $mod+Shift+$down  move down
+bindsym $mod+Shift+$up    move up
+bindsym $mod+Shift+$right move right
+
+# Across monitors. Adding Ctrl re-scopes the same direction keys from
+# "within this workspace" to "across outputs":
+#   $mod+Ctrl+h/l        move my focus to the next screen
+#   $mod+Ctrl+Shift+h/l  take the focused window with me
+# Left/right only — the three screens are arranged purely horizontally
+# (laptop | 1440p | 1080p), so up/down would be dead keys.
+# Ctrl is safe here: constraint 1 forbids Alt, and $mod+Ctrl was unused.
+bindsym $mod+Ctrl+$left        focus output left
+bindsym $mod+Ctrl+$right       focus output right
+bindsym $mod+Ctrl+Left         focus output left
+bindsym $mod+Ctrl+Right        focus output right
+
+# `move container to output` carries focus along with the window, so this
+# leaves you on the screen you just threw it to.
+bindsym $mod+Ctrl+Shift+$left  move container to output left
+bindsym $mod+Ctrl+Shift+$right move container to output right
+bindsym $mod+Ctrl+Shift+Left   move container to output left
+bindsym $mod+Ctrl+Shift+Right  move container to output right
+
+# Relocate the WHOLE workspace, not just one window — the useful one after a
+# re-dock, when everything came up on the wrong screen. `<` and `>` sit on the
+# comma/period keys and read as left/right; both were unbound.
+bindsym $mod+Ctrl+comma        move workspace to output left
+bindsym $mod+Ctrl+period       move workspace to output right
+
+### Workspaces -------------------------------------------------------------
+# Super+1..9 — safe, since tmux's window switching is Alt+1..9.
+bindsym $mod+1 workspace number 1
+bindsym $mod+2 workspace number 2
+bindsym $mod+3 workspace number 3
+bindsym $mod+4 workspace number 4
+bindsym $mod+5 workspace number 5
+bindsym $mod+6 workspace number 6
+bindsym $mod+7 workspace number 7
+bindsym $mod+8 workspace number 8
+bindsym $mod+9 workspace number 9
+
+bindsym $mod+Shift+1 move container to workspace number 1
+bindsym $mod+Shift+2 move container to workspace number 2
+bindsym $mod+Shift+3 move container to workspace number 3
+bindsym $mod+Shift+4 move container to workspace number 4
+bindsym $mod+Shift+5 move container to workspace number 5
+bindsym $mod+Shift+6 move container to workspace number 6
+bindsym $mod+Shift+7 move container to workspace number 7
+bindsym $mod+Shift+8 move container to workspace number 8
+bindsym $mod+Shift+9 move container to workspace number 9
+
+### Layout ----------------------------------------------------------------
+bindsym $mod+b           splith
+bindsym $mod+v           splitv
+bindsym $mod+s           layout stacking
+bindsym $mod+w           layout tabbed
+bindsym $mod+t           layout toggle split
+bindsym $mod+f           fullscreen
+bindsym $mod+Shift+space floating toggle
+bindsym $mod+space       focus mode_toggle
+bindsym $mod+a           focus parent
+
+# Scratchpad
+bindsym $mod+Shift+minus move scratchpad
+bindsym $mod+minus       scratchpad show
+
+mode "resize" {
+    bindsym $left  resize shrink width  10px
+    bindsym $down  resize grow   height 10px
+    bindsym $up    resize shrink height 10px
+    bindsym $right resize grow   width  10px
+    bindsym Return mode "default"
+    bindsym Escape mode "default"
+}
+bindsym $mod+r mode "resize"
+
+### Session ---------------------------------------------------------------
+bindsym $mod+Shift+c reload
+bindsym $mod+Shift+e exec swaynag -t warning \
+    -m 'Exit sway?' -B 'Yes' 'swaymsg exit'
+bindsym $mod+Shift+x exec $lock
+
+### Media / laptop keys ---------------------------------------------------
+bindsym --locked XF86AudioRaiseVolume  exec wpctl set-volume  @DEFAULT_AUDIO_SINK@ 5%+
+bindsym --locked XF86AudioLowerVolume  exec wpctl set-volume  @DEFAULT_AUDIO_SINK@ 5%-
+bindsym --locked XF86AudioMute         exec wpctl set-mute    @DEFAULT_AUDIO_SINK@ toggle
+bindsym --locked XF86AudioMicMute      exec wpctl set-mute    @DEFAULT_AUDIO_SOURCE@ toggle
+bindsym --locked XF86MonBrightnessUp   exec brightnessctl set 5%+
+bindsym --locked XF86MonBrightnessDown exec brightnessctl set 5%-
+bindsym --locked XF86AudioPlay         exec playerctl play-pause
+bindsym --locked XF86AudioNext         exec playerctl next
+bindsym --locked XF86AudioPrev         exec playerctl previous
+
+### Screenshots -----------------------------------------------------------
+bindsym Print       exec grim -g "$(slurp)" - | wl-copy
+bindsym Shift+Print exec grim - | wl-copy
+
+### Window rules ----------------------------------------------------------
+# Float dialogs rather than tiling them — mouse-friendliness again.
+for_window [window_role="dialog"]        floating enable
+for_window [window_role="pop-up"]        floating enable
+for_window [window_type="dialog"]        floating enable
+for_window [app_id="pavucontrol"]        floating enable
+# Volume + brightness quick panel, opened by left-clicking those readouts in
+# waybar. It replaces waybar's own in-bar sliders, which were unusable — see
+# the WHY THIS EXISTS block in config/sway/sway-quickpanel.
+for_window [app_id="sway-quickpanel"]    floating enable
+for_window [app_id="sway-quickpanel"]    border pixel 2
+for_window [app_id="sway-quickpanel"]    sticky enable
+for_window [app_id="blueman-manager"]    floating enable
+for_window [app_id="nm-connection-editor"] floating enable
+
+### Idle / lock -----------------------------------------------------------
+exec swayidle -w \
+    timeout 600  "$lock" \
+    timeout 900  'swaymsg "output * power off"' \
+        resume   'swaymsg "output * power on"' \
+    before-sleep "$lock"
+
+# Lid close → lock (not suspend; logind still handles suspend policy).
+bindswitch --reload --locked lid:on exec $lock
+
+### Autostart ------------------------------------------------------------
+# Reload-SAFE autostart. Do NOT go back to the pattern of a separate
+# `exec_always pkill -x <app>` line followed by `exec_always <app>`: sway forks
+# exec lines ASYNCHRONOUSLY, so the pkill races the launch and kills the
+# just-started instance. That pattern drops waybar on EVERY `swaymsg reload`
+# and intermittently on fresh login. Merging into one `pkill -x waybar; waybar`
+# does NOT fix it either — killing waybar and relaunching within one command
+# loses the bar at any delay (0/0.5/1s all tested) on a DisplayLink
+# primary-GPU-scanout setup. The rule that works: reload the RUNNING instance
+# in place, and only spawn one if none is running. Never kill-and-respawn.
+# (`||` and `>` below are handled by sh -c, not sway's parser.)
+exec_always pkill -SIGUSR2 -x waybar || waybar     # waybar reloads its config on SIGUSR2
+# swaync, not mako: mako 1.10 has no fade/animation/opacity option of any kind,
+# so notifications could only blink out instantly. swaync animates them
+# (transition-time in config/swaync/config.json).
+# Same reload-else-launch shape as the waybar line above — if swaync-client
+# cannot reach a running daemon the reload fails and the `else` starts one.
+# ⚠ Written as if/then/else, NOT `A && B || swaync`: with that precedence a
+# successful --reload-config followed by a FAILED --reload-css (an invalid
+# stylesheet) falls through to `||` and spawns a SECOND daemon alongside the
+# running one. The daemon must be started only when the reload could not
+# reach one at all.
+# ⚠ mako is still INSTALLED as a fallback and its config is still managed. To
+# go back, swap this line for:  exec_always makoctl reload || mako
+exec_always sh -c 'if swaync-client --reload-config; then swaync-client --reload-css; else swaync; fi'
+
+# Dynamic-tiling approximation over sway IPC — the mitigation for sway being
+# manual-tiling. Comment this out to judge plain sway.
+# Plain `exec` (NOT exec_always): start one autotiling at login and leave it.
+# It has no config to reload, so re-running it on every `swaymsg reload` only
+# leaked duplicates. Two dead-ends that look tempting: `exec_always pkill -x
+# autotiling; autotiling` never matches (autotiling runs as comm `python3`, so
+# `pgrep -x autotiling` reports it absent while it runs), and a `pgrep -f
+# /usr/bin/autotiling || autotiling` guard SELF-MATCHES the sh running it (that
+# cmdline contains the path), so it would never launch on a fresh login.
+exec autotiling
+
+# Polkit agent — REQUIRED. Without it GUI privilege prompts silently fail.
+# On Debian the path is /usr/libexec/, NOT /usr/lib/mate-polkit/. Confirm on
+# another distro with:  dpkg -L mate-polkit | grep authentication-agent
+# No lxpolkit fallback — a fallback to an uninstalled binary just masks a failure.
+exec /usr/libexec/polkit-mate-authentication-agent-1
+
+# Tray applets.
+#
+# Keep this exec even though waybar no longer shows a tray (see the "tray"
+# block in config/waybar/config). nm-applet's real job here is being
+# NetworkManager's secret agent — the thing that prompts for a wifi password
+# when you join a new network — which it does over D-Bus with or without a
+# visible icon. Removing the line would silently stop those prompts.
+# Note that neither dropping --indicator nor
+# `gsettings set org.gnome.nm-applet show-applet false` suppresses its
+# StatusNotifier item; both still register it as Active.
+exec nm-applet --indicator
+exec blueman-applet
+
+# Hand the session env to the portals / systemd user units.
+exec systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
+exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway
+
+# swaybar is replaced by waybar; keep this empty block out of the config
+# rather than defining an unused `bar {}`.
+
+include /etc/sway/config.d/*

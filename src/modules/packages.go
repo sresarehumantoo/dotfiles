@@ -3,6 +3,7 @@ package modules
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -231,7 +232,8 @@ func ContainsSudoInvocation(name string, args []string) bool {
 func runProbe(ctx context.Context, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, core.ProbeTimeout)
 	defer cancel()
-	return exec.CommandContext(ctx, name, args...).Output()
+	out, err := exec.CommandContext(ctx, name, args...).Output()
+	return out, probeErr(name, args, err)
 }
 
 // runNetProbe is runProbe for commands that talk to the network (GitHub API
@@ -239,13 +241,49 @@ func runProbe(ctx context.Context, name string, args ...string) ([]byte, error) 
 func runNetProbe(ctx context.Context, name string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, core.NetworkTimeout)
 	defer cancel()
-	return exec.CommandContext(ctx, name, args...).Output()
+	out, err := exec.CommandContext(ctx, name, args...).Output()
+	return out, probeErr(name, args, err)
 }
 
+// probeErr attaches what the command printed on stderr to a failed probe's
+// error. Cmd.Output() already captures stderr into ExitError.Stderr, but
+// ExitError.Error() renders only "exit status N" — so a failed release fetch
+// surfaced as a bare `exit status 22` with no hint of the cause, and curl's 22
+// covers every HTTP status >= 400 alike. Probes discard stdout on error and
+// nothing else replays their output, so this is the only place the reason can
+// reach the user.
+func probeErr(name string, args []string, err error) error {
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) {
+		return err
+	}
+	msg := strings.TrimSpace(string(ee.Stderr))
+	if msg == "" {
+		return err
+	}
+	lines := tailLines(msg, 3)
+	return fmt.Errorf("%s %s: %w: %s",
+		name, strings.Join(args, " "), err, strings.Join(lines, "; "))
+}
+
+// runCmd runs an install-class command: package installs and compiles, which
+// legitimately run long.
 func runCmd(ctx context.Context, name string, args ...string) error {
-	// Backstop against a genuinely hung command. Generous enough that a real
-	// cargo build or SDK download never trips it.
-	ctx, cancel := context.WithTimeout(ctx, core.InstallTimeout)
+	return runCmdTimeout(ctx, core.InstallTimeout, name, args...)
+}
+
+// runNetCmd runs a command whose work is a network transfer, with the
+// network deadline rather than the install one. A download that has stalled is
+// hung long before 45 minutes have passed, and until this existed the only
+// wrapper with runCmd's output routing was runCmd — so a blackholed mirror sat
+// behind the spinner for the full install timeout.
+func runNetCmd(ctx context.Context, name string, args ...string) error {
+	return runCmdTimeout(ctx, core.NetworkTimeout, name, args...)
+}
+
+func runCmdTimeout(ctx context.Context, timeout time.Duration, name string, args ...string) error {
+	// Backstop against a genuinely hung command.
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, name, args...)
@@ -340,6 +378,12 @@ func (PackagesModule) Install(ctx context.Context) error {
 		{"curl", []string{"curl"}},
 		{"wget", []string{"wget"}},
 		{"htop", []string{"htop"}},
+		// fc-list/fc-cache. The fonts module degrades without them, but a box
+		// with no fontconfig also can't register the fonts it installs, so the
+		// terminal silently falls back. Pulled in transitively by Ghostty's deb
+		// (gtk4 -> pango -> fontconfig) on the usual path; named here so the
+		// headless, container and --skip-ghostty paths get it too.
+		{"fc-list", []string{"fontconfig"}},
 		{"rsync", []string{"rsync"}},
 		// nvim is intentionally omitted — apt's neovim is too old (Debian
 		// stable ships 0.7–0.10, telescope.nvim requires >= 0.11). The nvim

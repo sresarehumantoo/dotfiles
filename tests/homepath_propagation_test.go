@@ -25,6 +25,32 @@ func TestSubPath_PropagatesEmptyBase(t *testing.T) {
 	}
 }
 
+// fontconfig's default config carries <dir prefix="xdg">fonts</dir>, which
+// resolves against XDG_DATA_HOME — not XDG_CONFIG_HOME, and not a hardcoded
+// ~/.local/share. Verified out-of-band with a font installed nowhere else:
+// under ~/.local/share/fonts with XDG_DATA_HOME pointed elsewhere it was NOT
+// found; under $XDG_DATA_HOME/fonts it was. So a hardcoded path installs fonts
+// into a directory fontconfig never scans.
+func TestXDGDataHome_HonoursEnvAndIsNotConfigHome(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	t.Setenv("XDG_CONFIG_HOME", "/home/u/.cfg")
+	t.Setenv("XDG_DATA_HOME", "/home/u/.data")
+
+	if got, want := core.XDGDataTarget("fonts"), "/home/u/.data/fonts"; got != want {
+		t.Errorf("XDGDataTarget = %q, want %q — XDG_DATA_HOME must be honoured", got, want)
+	}
+	// The bug this guards against is reusing the config-home helper for data.
+	if core.XDGDataHome() == core.XDGConfigHome() {
+		t.Error("XDGDataHome must not resolve to XDG_CONFIG_HOME")
+	}
+
+	// Unset falls back to ~/.local/share, per the XDG basedir spec.
+	t.Setenv("XDG_DATA_HOME", "")
+	if got, want := core.XDGDataTarget("fonts"), "/home/u/.local/share/fonts"; got != want {
+		t.Errorf("XDGDataTarget with XDG_DATA_HOME unset = %q, want %q", got, want)
+	}
+}
+
 // CheckTarget is the refusal LinkFile applies, exported so callers that act on
 // a path directly can make it too.
 func TestCheckTarget_RefusesEmptyAndRelative(t *testing.T) {
@@ -50,6 +76,10 @@ func TestPathHelpers_EmptyWithoutHome(t *testing.T) {
 	}
 	if got := core.XDGTarget("dfinstall", "plugins.zsh"); got != "" {
 		t.Errorf("XDGTarget = %q, want \"\"", got)
+	}
+	t.Setenv("XDG_DATA_HOME", "")
+	if got := core.XDGDataTarget("fonts"); got != "" {
+		t.Errorf("XDGDataTarget = %q, want \"\"", got)
 	}
 	if got := core.SubPath(core.HomeTarget(".oh-my-zsh"), "custom", "plugins"); got != "" {
 		t.Errorf("SubPath over an unresolved home = %q, want \"\"", got)

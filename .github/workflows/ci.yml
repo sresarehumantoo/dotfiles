@@ -34,6 +34,12 @@ jobs:
       - name: go vet
         run: make lint
 
+      # This repo is public and must stay decoupled from any single network.
+      # Site-coupled content was previously committed here and stayed published
+      # for months unnoticed, so this gate exists to stop the next one.
+      - name: Decoupling check (no site-specific content in tracked files)
+        run: make check-decoupling
+
       - name: Build dfinstall + MCP binaries
         run: |
           make build
@@ -69,3 +75,10 @@ jobs:
           SHELLCHECK_OPTS: -x --source-path=SCRIPTDIR
         with:
           scandir: bootstrap
+
+      - name: ShellCheck (scripts)
+        uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          SHELLCHECK_OPTS: -x --source-path=SCRIPTDIR
+        with:
+          scandir: scripts

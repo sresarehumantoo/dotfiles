@@ -14,7 +14,7 @@ LOCAL_BIN  := $(HOME)/.local/bin
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci \
+.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci check-decoupling \
         install uninstall install-bin install-mcp uninstall-mcp clean
 
 help: ## Show this help
@@ -48,7 +48,10 @@ fmt-check: ## Check formatting without modifying (same as CI)
 	  echo "Not gofmt -s formatted (run 'make fmt'):"; echo "$$unformatted"; exit 1; \
 	fi
 
-ci: fmt-check lint build-all test test-race ## Run every check CI runs (fmt/vet/build/test/race)
+check-decoupling: ## Fail if site-specific content leaked into tracked files
+	./scripts/check-decoupling.sh
+
+ci: fmt-check lint check-decoupling build-all test test-race ## Run every check CI runs (fmt/vet/decoupling/build/test/race)
 
 install: build ## Build, then apply all dotfile modules (dfinstall install all)
 	./$(BUILD_DIR)/$(BINARY) install all

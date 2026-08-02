@@ -1,4 +1,82 @@
-font-family = "Hack Nerd Font"
+# Primary. IosevkaTerm covers *every* non-emoji codepoint this repo's own configs
+# actually print — verified by extracting them from config/ and testing the cmap
+# (.claude/research/fonts/scripts/required.py), not assumed. Hack covered 34 of
+# 50: it lacks ✓ ✗ ✘ ⚙, which devtools/_lib.sh and p10k.zsh print on every run.
+# IosevkaTerm also ships real Bold/Italic faces, so nothing is synthesized. Cells are 17% narrower than Hack (0.500 vs
+# 0.602 em) but lines are 7.4% taller (1.250 vs 1.164 em) — so a given window
+# gains columns and loses rows, rather than simply shrinking.
+# Hack is also unmaintained: last release 2018-03-06, and its sole maintainer
+# died in June 2025. Its open issues #458 (Braille) and #369 (checkmarks) are
+# precisely the gaps that prompted this change; they will never be fixed.
+# Revert: swap the family below back to "Hack Nerd Font".
+#
+# NON-Mono variant on purpose (not "…Mono", not the banned Propo). Text stays
+# monospace either way — every ASCII advance is 0.500 em in both — but the Mono
+# patcher clamps each icon's ink to that 0.500 em cell, so square logos land far
+# below cap height and `adjust-icon-height` can't rescue them (a width-filling
+# glyph can't grow taller without growing wider past the cell — measured, and it
+# was a visible no-op at 50% and 75%). The plain "Nerd Font" build lets icon ink
+# overflow its 1-cell advance exactly as Hack did, so square icons reach Hack
+# parity while the advance — and thus column count — stays 1 cell. Measured ink
+# heights @14px: debian  0.992 em (was 0.620 on Mono),  home 0.888 (was 0.444),
+#  folder 0.777 (was 0.388). Real Regular/Bold/Italic/BoldItalic, no synthesis.
+font-family = "IosevkaTerm Nerd Font"
+
+# Vendored offline floor. IosevkaTerm is downloaded on install, so on a fresh or
+# offline box it may be absent — MesloLGS NF is the one face carried in the repo
+# (config/fonts/, installed as a symlink by the fonts module). It supplies every
+# glyph the configs print (✓ ✗ ✘ ⚠ ⚙), powerline separators and the Nerd
+# sentinels from a single face, so the prompt still renders without the network.
+# Without this entry the chain would fall straight to DejaVu below, which has no
+# Nerd or powerline glyphs at all.
+font-family = "MesloLGS NF"
+
+# Last-resort fallback only. This used to cover the single gap ⚠ U+26A0, but
+# that glyph is gone from the tree: DejaVu's ⚠ has a 0.602 em advance, so
+# Ghostty squeezed it into IosevkaTerm's 0.500 em cell (0.83x) on top of an
+# already-small 0.518 em glyph — 6.0 px at font-size 14, 58% of cap height.
+# _lib.sh and zshrc now use  U+F12A instead, which IosevkaTerm has natively.
+# Kept anyway as a genuinely-monospaced net, so any future gap degrades on-grid
+# rather than falling to proportional DejaVu *Sans* via implicit fontconfig.
+font-family = "DejaVu Sans Mono"
+
+# No `adjust-icon-height`: with the non-Mono family above, icons already overflow
+# the cell at Hack parity, so the setting is unnecessary here (and on the Mono
+# family it was a no-op for square icons — they were width-bound). If icons ever
+# read small again, this is the lever — but only tall-narrow glyphs respond to
+# it; square logos need the non-Mono family, not a percentage. Ghostty 1.2.0+.
+# adjust-icon-height = 75%
+
+# ── ON TRIAL 2026-08-01 — two independent switches, revert either alone ────────
+#
+# (A) LIGATURES — currently ON, because the `-calt` line below is commented out.
+#     Read from the binary, not guessed: this font has `calt` and `dlig` but NO
+#     `liga` at all, so `-liga` would silently do nothing — and Ghostty
+#     force-enables `liga` in its shaper regardless. `calt` is the only lever.
+#     Measured by rendering all 55 common operator sequences with calt on vs off:
+#     36 ligate. The ones you will actually notice:
+#         !=  ->  ≠  →        >=  <=  ->  ≥  ≤
+#         ->  =>  ->  →  ⇒     -->  <=>  ->  ⟶  ⟺
+#         |>  <|  ->  ▷  ◁     <!--  //  */  ::  ...  also change
+#     These do NOT ligate: ++ -- ** /= ~= |= && __ += -= /\ \/ ^= #{ #(
+#     TO TURN LIGATURES BACK OFF: uncomment the `font-feature = -calt` line.
+#     Caveat for Monaspace only, if ever swapped in: it inverts this — ligatures
+#     ride `liga` while *texture healing* rides `calt`, so `-calt` breaks healing.
+# font-feature = -calt
+#
+# (B) ss04 — MENLO LETTERFORMS, currently ON. Purely cosmetic: measured 1,112
+#     glyph substitutions, ZERO of which change an advance width, so the cell and
+#     column count are untouched. It mostly restyles digits and punctuation —
+#     # * % { } _ 1 2 4 6 8 9 f t D — and leaves almost every lowercase letter
+#     alone. Menlo is what MesloLGS derives from, i.e. the font used before Hack.
+#     Iosevka's other emulations, read from its own name table:
+#       ss01 Andale  ss02 Anonymous Pro  ss03 Consolas  ss05 Fira Mono
+#       ss07 Monaco  ss09 Source Code Pro  ss12 Ubuntu Mono  ss14 JetBrains Mono
+#       ss15 IBM Plex Mono  ss17 Recursive  ss20 Curly
+#     TO TURN OFF: comment out the next line.
+font-feature = ss04
+# ───────────────────────────────────────────────────────────────────────────────
+
 font-size = 14
 window-padding-x = 0
 window-width = 100

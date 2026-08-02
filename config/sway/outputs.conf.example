@@ -1,0 +1,40 @@
+# Host-specific sway output layout.
+#
+# Copy to ~/.config/sway/outputs.conf and fill in your own identifiers. This
+# file is NOT symlinked by dfinstall and NOT tracked in this repo — output
+# identifiers embed panel serial numbers, so they are per-machine data.
+# `include $HOME/.config/sway/outputs.conf` in config/sway/config picks it up;
+# sway tolerates the file being absent, so a fresh machine needs no stub.
+#
+# Discover your identifiers with:
+#     swaymsg -t get_outputs | grep -E 'make|model|serial|Output'
+#
+# ── Why identifiers, not connector names ──────────────────────────────────
+# Match externals by IDENTIFIER ("make model serial"), not by connector name.
+# A DisplayLink/evdi output's connector is handed out in attach order, so it
+# enumerates as DVI-I-1 one session and DVI-I-2 the next; `output DVI-I-1 ...`
+# then silently stops applying. Identifiers are stable across replugs.
+# Built-in laptop panels are the exception — eDP-1 is stable, so name it
+# directly.
+#
+# ── Vertical alignment ────────────────────────────────────────────────────
+# Centre-align panels of differing heights rather than top-aligning them, so
+# their vertical midpoints share a y coordinate and the pointer crosses
+# between screens at mid-height without snagging on a dead corner. For panels
+# of height H whose midpoints should meet at y=M, set position y = M - H/2.
+#
+# ── Modes ─────────────────────────────────────────────────────────────────
+# Omit `resolution` unless you actually need a non-preferred mode. Setting a
+# resolution the panel does not advertise is silently ignored and sway falls
+# back to the preferred mode, which looks like the directive "did nothing".
+
+# Example: laptop | 27" 1440p | 27" 1080p, left to right, midpoints at y=720.
+
+# Built-in panel, 1920x1200. Stable connector name, so no identifier needed.
+output eDP-1                              position 0 120
+
+# Centre monitor, 2560x1440.
+output "MAKE MODEL SERIAL"                position 1920 0
+
+# Right monitor, 1920x1080.
+output "MAKE MODEL SERIAL"                position 4480 180

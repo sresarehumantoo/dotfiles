@@ -175,7 +175,7 @@ Modules run in this order — dependencies first:
 | 3 | **extras** | CLI utilities (fzf, ripgrep, bat, jq, fd), Python tooling, Docker, Terraform |
 | 4 | **toolkit** | External registry of security/CTF/dev tools (`--toolkit`) |
 | 5 | **delta** | [delta](https://github.com/dandavison/delta) git diff viewer |
-| 6 | **fonts** | Hack Nerd Font and MesloLGS NF (bundled or downloaded) |
+| 6 | **fonts** | IosevkaTerm Nerd Font (downloaded, pinned) + MesloLGS NF offline floor (bundled) |
 | 7 | **omz** | Oh My Zsh + zsh-autosuggestions + powerlevel10k (`--extended` for more) |
 | 8 | **shell** | zshrc, bashrc, aliases, p10k config, modular `zsh.d` files |
 | 9 | **devtools** | Utility scripts into `~/.local/bin/` (sysinfo, docker-cleanup, …) |
@@ -185,10 +185,11 @@ Modules run in this order — dependencies first:
 | 13 | **tmux** | Tmux config (Alt+A prefix, vi mode, custom theme) |
 | 14 | **konsole** | Konsole profile and colour scheme |
 | 15 | **ghostty** | Ghostty terminal config |
-| 16 | **htop** | htop config |
-| 17 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 18 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 19 | **defaultshell** | Sets zsh as the default login shell |
+| 16 | **sway** | Sway + waybar + swaync desktop — see [docs](docs/sway.md). No-ops without `sway` |
+| 17 | **htop** | htop config |
+| 18 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 19 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 20 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
 > **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's just **windev**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
@@ -320,6 +321,7 @@ make clean          # rm -rf bin/
 | [Building from Source](docs/building.md) | Requirements, dependencies, cross-compilation |
 | [Devtools Scripts](docs/devtools.md) | Utility scripts and shared helpers |
 | [Keybindings](docs/keybindings.md) | Custom bindings across tmux, nvim, zsh, and the menus |
+| [Sway Desktop](docs/sway.md) | The `sway` module — waybar, swaync, outputs, and the Alt reservation |
 | [Windows Cross-Development](docs/windev.md) | The opt-in `windev` module — toolchains, nvim, `winbuild` |
 | [Contributing](docs/contributing.md) | Adding modules, conventions, testing |
 

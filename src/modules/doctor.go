@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -41,7 +42,7 @@ func RunDoctorChecks() []DoctorResult {
 		{"oh-my-zsh", checkDir(homeDir(".oh-my-zsh"))},
 		{"zsh-autosuggestions", checkDir(homeDir(".oh-my-zsh", "custom", "plugins", "zsh-autosuggestions"))},
 		{"powerlevel10k", checkDir(homeDir(".oh-my-zsh", "custom", "themes", "powerlevel10k"))},
-		{"fonts", checkFontMatch("HackNerdFont-Regular.ttf")},
+		{"fonts", checkFonts()},
 		{"nvim config", checkLink(
 			core.ConfigPath("nvim", "init.lua"),
 			core.XDGTarget("nvim", "init.lua"),
@@ -233,22 +234,28 @@ func checkFileMatch(src, dst string) func() string {
 	}
 }
 
-// checkFontMatch checks a font is installed and matches the bundled source if available.
-func checkFontMatch(name string) func() string {
+// checkFonts derives entirely from the fonts module — its Links() for the
+// vendored floor, and fontNotes() for the downloaded families — rather than
+// restating any path or filename of its own.
+//
+// It used to name a file directly (checkFontMatch("HackNerdFont-Regular.ttf"),
+// under a hardcoded ~/.local/share/fonts), and the Hack -> IosevkaTerm migration
+// walked straight past it. The result was inverted: a correctly migrated machine
+// reported "fonts — not found" and was told to run `install all`, which could
+// never fix it, while a machine still littered with stale Hack files passed. A
+// check that restates what a module does will eventually disagree with it, so
+// this one asks the module.
+func checkFonts() func() string {
 	return func() string {
-		fontDir := core.HomeTarget(".local", "share", "fonts")
-		dst := filepath.Join(fontDir, name)
-		if _, err := os.Stat(dst); os.IsNotExist(err) {
-			return "not found"
-		}
-		// If bundled source exists, verify content matches
-		src := core.ConfigPath("fonts", name)
-		if _, err := os.Stat(src); err == nil {
-			if !core.FilesMatch(src, dst) {
-				return "outdated"
+		m := FontsModule{}
+		var problems []string
+		for _, l := range m.Links() {
+			if core.CheckLink(l.Src, l.Dst) != "ok" {
+				problems = append(problems, filepath.Base(l.Dst)+" not linked")
 			}
 		}
-		return ""
+		problems = append(problems, fontNotes()...)
+		return strings.Join(problems, ", ")
 	}
 }
 
