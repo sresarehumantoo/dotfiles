@@ -163,6 +163,18 @@ alias vim='nvim'
 alias python="python3"
 alias docker-compose="docker compose"
 
+# Suspend, falling back to hibernate if the battery runs low while asleep.
+# No sudo/doas: logind authorises this for an active local session through
+# polkit, so elevating is both unnecessary and wrong (it would target the root
+# session). Confirm on a given machine with:
+#   busctl call org.freedesktop.login1 /org/freedesktop/login1 \
+#          org.freedesktop.login1.Manager CanSuspendThenHibernate
+# Guarded on systemd, since this file is also sourced under WSL and macOS.
+# Needs hibernation actually configured (swap at least as large as RAM, plus
+# resume= on the kernel cmdline); without it systemd falls back to plain
+# suspend rather than failing.
+command -v systemctl &>/dev/null && alias zzz="systemctl suspend-then-hibernate"
+
 # Quick config editing
 alias zshrc="$EDITOR ~/.zshrc"
 alias vimrc="$EDITOR ~/.config/nvim/init.lua"
