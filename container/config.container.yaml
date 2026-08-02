@@ -1,0 +1,29 @@
+# dfinstall configuration for the container-as-OS image.
+# Copied to <dotfiles>/.config.yaml during `docker build` so that
+# `dfinstall install all` reads it before deciding what to run.
+
+# Nothing to back up in a fresh image.
+skip_backup: true
+
+# Modules that are meaningless or actively wasteful inside a CLI container.
+#
+#   fonts    — THE font is rendered by the Windows terminal, not in here. The
+#              module would download ~28 MB of IosevkaTerm into a container that
+#              has no renderer. Install the font on WINDOWS instead; see
+#              container/README.md.
+#   ghostty  — terminal emulator runs on the Windows side. (The module already
+#              no-ops without ghostty on PATH; listing it is explicit + faster.)
+#   sway     — Wayland compositor. No GUI in scope.
+#   konsole  — KDE terminal profile. Same reason as ghostty.
+#   wsl      — writes /etc/wsl.conf and WSL sysctls. This is the thing we are
+#              replacing; the module has nothing to configure here.
+#   vmguest  — installs hypervisor guest tools (qemu-guest-agent, hyperv-daemons).
+#              DetectVirt() reports "docker" so it would skip anyway, but the
+#              probe costs a subprocess on every status call.
+skip_modules:
+  - fonts
+  - ghostty
+  - sway
+  - konsole
+  - wsl
+  - vmguest
