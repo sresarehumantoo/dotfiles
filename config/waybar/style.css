@@ -2,81 +2,144 @@
  *
  * Catppuccin Mocha, matching the swaylock colour in config/sway/config (1e1e2e).
  * Reload after editing:  pkill -SIGUSR2 waybar
+ *
+ * Layout: "floating islands". window#waybar is fully transparent; the three
+ * .modules-* boxes each paint their own rounded pill. The bar's inset from the
+ * screen edge is set in `config` (margin-top/left/right), NOT here — GTK
+ * margins on window#waybar do not move a layer-shell surface.
+ *
+ * This is GTK3 CSS, not web CSS. Notably: no `gap`, no CSS variables (use
+ * @define-color), no `transform`, and only a handful of properties animate.
  */
 
 @define-color base     #1e1e2e;
 @define-color mantle   #181825;
+@define-color crust    #11111b;
 @define-color surface0 #313244;
 @define-color surface1 #45475a;
 @define-color text     #cdd6f4;
 @define-color subtext  #a6adc8;
+@define-color overlay  #6c7086;
 @define-color blue     #89b4fa;
+@define-color sapphire #74c7ec;
 @define-color green    #a6e3a1;
 @define-color yellow   #f9e2af;
 @define-color peach    #fab387;
 @define-color red      #f38ba8;
 @define-color mauve    #cba6f7;
 
+/* The pill fill. Slightly translucent so the wallpaper reads through and the
+   bar looks like it is floating over the desktop rather than pasted on it. */
+@define-color pill        rgba(24, 24, 37, 0.88);
+@define-color pill-border rgba(69, 71, 90, 0.55);
+@define-color pill-hover  rgba(49, 50, 68, 0.85);
+
 * {
     /* Matches `font pango:IosevkaTerm Nerd Font 10` in the sway config. One
        family covers both text and the Nerd icons the modules print, so no
        separate symbols fallback is needed — "Symbols Nerd Font" was never
-       installed here either, and neither was plain "Hack". */
+       installed here either. Changing this family means changing it in the
+       other three places too (see the dotfiles font-family note). */
     font-family: "IosevkaTerm Nerd Font", monospace;
     font-size: 13px;
+    /* Do NOT set an intermediate font-weight here. Only Regular (80) and Bold
+       (200) of this family are installed, so `font-weight: 500` makes
+       fontconfig fall through to the `monospace` alias, which has no Nerd
+       Font private-use glyphs — every module icon renders blank or as tofu.
+       Use `bold` per-module if you need emphasis. */
     border: none;
     border-radius: 0;
     min-height: 0;
+    /* GTK draws a text shadow on some themes' labels; it muddies small glyphs. */
+    text-shadow: none;
 }
 
 window#waybar {
-    background-color: @base;
+    background-color: transparent;
     color: @text;
-    border-bottom: 2px solid @surface0;
+}
+
+/* Pills ----------------------------------------------------------------- */
+
+.modules-left,
+.modules-center,
+.modules-right {
+    background-color: @pill;
+    border: 1px solid @pill-border;
+    border-radius: 16px;
+    padding: 0 4px;
+    /* Vertical inset inside the 40px exclusive zone, so the pill is ~30px
+       tall and visibly detached from the screen edge. */
+    margin: 3px 0;
+    box-shadow: 0 2px 6px rgba(17, 17, 27, 0.55);
+}
+
+/* An empty title should not leave a stub pill floating in the middle of the
+   screen. window#waybar gains .empty when sway/window has nothing to show. */
+window#waybar.empty .modules-center {
+    background-color: transparent;
+    border-color: transparent;
+    box-shadow: none;
 }
 
 /* Workspaces ------------------------------------------------------------ */
 
+#workspaces {
+    padding: 0;
+}
+
 #workspaces button {
-    padding: 0 10px;
+    /* Circled digits sit small on their em box; nudge them up to icon size. */
+    font-size: 15px;
+    padding: 0 8px;
+    margin: 4px 2px;
     background-color: transparent;
-    color: @subtext;
-    border-bottom: 2px solid transparent;
+    color: @overlay;
+    border-radius: 12px;
+    /* Only color/background animate usefully in GTK; keep it cheap. */
+    transition: background-color 150ms ease, color 150ms ease;
 }
 
 #workspaces button:hover {
     /* Override GTK's default button:hover box-shadow, which draws a halo. */
-    background-color: @surface0;
+    background-color: @pill-hover;
+    color: @text;
     box-shadow: none;
     text-shadow: none;
 }
 
+#workspaces button.visible {
+    color: @subtext;
+}
+
 #workspaces button.focused {
-    color: @blue;
-    border-bottom: 2px solid @blue;
+    color: @crust;
+    background-color: @blue;
 }
 
 #workspaces button.urgent {
-    color: @base;
+    color: @crust;
     background-color: @red;
 }
 
 #mode {
-    color: @base;
+    color: @crust;
     background-color: @peach;
+    border-radius: 12px;
     padding: 0 10px;
+    margin: 4px 2px;
+    font-weight: bold;
 }
 
 #window {
     color: @subtext;
-}
-
-window#waybar.empty #window {
-    background: transparent;
+    padding: 0 12px;
+    font-style: italic;
 }
 
 /* Right-hand modules ---------------------------------------------------- */
 
+/* One uniform chip; the accent lives in the text colour, not the background. */
 #idle_inhibitor,
 #pulseaudio,
 #backlight,
@@ -86,9 +149,25 @@ window#waybar.empty #window {
 #temperature,
 #battery,
 #tray,
-#clock {
-    padding: 0 10px;
+#clock,
+#custom-system,
+#custom-power {
+    padding: 0 9px;
+    margin: 4px 1px;
+    border-radius: 12px;
+    background-color: transparent;
     color: @text;
+    transition: background-color 150ms ease;
+}
+
+#idle_inhibitor:hover,
+#pulseaudio:hover,
+#backlight:hover,
+#network:hover,
+#clock:hover,
+#custom-system:hover,
+#custom-power:hover {
+    background-color: @pill-hover;
 }
 
 #clock          { color: @blue; font-weight: bold; }
@@ -96,8 +175,10 @@ window#waybar.empty #window {
 #memory         { color: @mauve; }
 #backlight      { color: @yellow; }
 #temperature    { color: @peach; }
-#network        { color: @blue; }
+#network        { color: @sapphire; }
 #pulseaudio     { color: @green; }
+#custom-system  { color: @subtext; }
+#idle_inhibitor { color: @subtext; }
 
 #network.disconnected,
 #pulseaudio.muted {
@@ -105,7 +186,7 @@ window#waybar.empty #window {
 }
 
 #temperature.critical {
-    color: @base;
+    color: @crust;
     background-color: @red;
 }
 
@@ -124,8 +205,54 @@ window#waybar.empty #window {
 }
 
 @keyframes blink {
-    to { color: @base; background-color: @red; }
+    to { color: @crust; background-color: @red; }
 }
 
-#tray > .passive       { -gtk-icon-effect: dim; }
+/* Collapsible cpu/memory/temperature group ------------------------------ */
+
+/* The drawer children are laid out even while hidden, so give them no extra
+   margin of their own — the shared chip rule above already spaces them. */
+#system {
+    padding: 0;
+}
+
+.system-child {
+    /* Slightly recessed so the expanded drawer reads as one unit rather than
+       three loose modules that appeared out of nowhere. */
+    background-color: rgba(49, 50, 68, 0.45);
+}
+
+.system-child:first-child {
+    border-radius: 12px 0 0 12px;
+}
+
+.system-child:last-child {
+    border-radius: 0 12px 12px 0;
+}
+
+/* Volume / brightness sliders lived here ------------------------------- */
+
+/* Removed along with the group/volume + group/brightness drawers.
+   waybar's ASlider writes back to the handle you are dragging and cannot be
+   made precise enough to daily-drive; dragging moved to sway-quickpanel.
+   Rationale in config/sway/sway-quickpanel. One lesson from that work is
+   worth keeping even though the rules are gone: never put a box-shadow on a
+   widget that redraws continuously — re-rasterising it every frame was the
+   single biggest source of the slider lagging the cursor. */
+
+/* Session button -------------------------------------------------------- */
+
+#custom-power {
+    color: @red;
+    padding: 0 11px 0 9px;
+}
+
+#custom-power:hover {
+    color: @crust;
+    background-color: @red;
+}
+
+/* Tray ------------------------------------------------------------------ */
+
+#tray > .passive        { -gtk-icon-effect: dim; }
 #tray > .needs-attention { -gtk-icon-effect: highlight; }
