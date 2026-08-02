@@ -1,0 +1,18 @@
+# Let the `video` group write laptop backlight brightness, so brightnessctl and
+# config/sway/sway-quickpanel can change it without root.
+#
+# NOT installed automatically -- it writes outside $HOME and needs root:
+#     sudo install -m 0644 config/sway/90-backlight.rules /etc/udev/rules.d/
+#     sudo udevadm control --reload && sudo udevadm trigger -s backlight
+# and the user must be in `video` (`id -nG | grep -q video`), which takes a
+# re-login to take effect.
+#
+# Why it is needed: brightnessctl 0.5 has NO logind support and writes sysfs
+# directly, and Debian's brightnessctl package ships no such rule (and pulls
+# none in under --no-install-recommends). Without this, the XF86MonBrightness*
+# keys bound in config/sway/config silently no-op -- brightnessctl exits
+# non-zero on EACCES and sway reports nothing.
+#
+# Also covers leds, which is what a keyboard backlight is exposed as.
+ACTION=="add", SUBSYSTEM=="backlight", RUN+="/usr/bin/chgrp video /sys/class/backlight/%k/brightness", RUN+="/usr/bin/chmod g+w /sys/class/backlight/%k/brightness"
+ACTION=="add", SUBSYSTEM=="leds", RUN+="/usr/bin/chgrp video /sys/class/leds/%k/brightness", RUN+="/usr/bin/chmod g+w /sys/class/leds/%k/brightness"

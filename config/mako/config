@@ -1,0 +1,60 @@
+# mako — managed by dfinstall (modules/sway.go), linked to ~/.config/mako/config
+#
+# Reload after editing:  makoctl reload
+# (sway's autostart runs `exec_always makoctl reload || mako`, so a sway reload
+# picks changes up too — see the autostart block in config/sway/config.)
+
+### Timeouts ---------------------------------------------------------------
+# ⚠ THE line this file exists for. mako's built-in default-timeout is 0, which
+# means "never expire" — so with no mako config present at all, every
+# notification stays on screen until it is clicked. That is easy to miss: an
+# nm-applet "Connection Established" toast will simply sit on a monitor from
+# login onward. Do not set this back to 0 globally.
+default-timeout=5000
+
+# 0 = respect the timeout an application asks for, rather than overriding it.
+ignore-timeout=0
+
+### Appearance -------------------------------------------------------------
+# Catppuccin Mocha, matching config/waybar/style.css and the client.* colours
+# in config/sway/config — keep the three in step. The alpha on the background
+# mirrors the bar's translucent pills.
+font=IosevkaTerm Nerd Font 10
+background-color=#181825f2
+text-color=#cdd6f4
+border-color=#89b4fa
+progress-color=over #313244
+
+width=380
+height=160
+outer-margin=8
+margin=6
+padding=12
+border-size=2
+border-radius=12
+
+# Papirus is not installed here; Adwaita and hicolor are. A missing theme in
+# this list is silently skipped, so the hicolor fallback is deliberate.
+icon-path=/usr/share/icons/Adwaita:/usr/share/icons/hicolor
+max-icon-size=48
+
+anchor=top-right
+layer=overlay
+markup=1
+actions=1
+
+### Per-urgency ------------------------------------------------------------
+[urgency=low]
+border-color=#45475a
+text-color=#a6adc8
+default-timeout=3000
+
+[urgency=normal]
+border-color=#89b4fa
+
+# Critical notifications deliberately do NOT auto-dismiss — that is the one
+# case where 0 is correct. Low battery and the like should wait to be read.
+[urgency=critical]
+border-color=#f38ba8
+text-color=#f38ba8
+default-timeout=0

@@ -1,0 +1,58 @@
+{
+  "$schema": "/etc/xdg/swaync/configSchema.json",
+
+  "positionX": "right",
+  "positionY": "top",
+  "layer": "overlay",
+  "control-center-layer": "top",
+  "layer-shell": true,
+
+  "//": "layer-shell-cover-screen is upstream's default and is what makes the",
+  "//1": "open/close animation play correctly. If it ever eats clicks on the",
+  "//2": "desktop, this is the first thing to set to false.",
+  "layer-shell-cover-screen": true,
+
+  "//3": "THE reason swaync is here instead of mako: mako 1.10 has no fade,",
+  "//4": "animation, transition or opacity option at all, so notifications can",
+  "//5": "only blink out instantly. transition-time is swaync's notification",
+  "//6": "animation duration in ms; 0 disables it.",
+  "transition-time": 250,
+
+  "//7": "Timeouts carried over from the mako config this replaces, which were",
+  "//8": "verified by test: normal expires, critical must not. Upstream default",
+  "//9": "for `timeout` is 10s, which felt long.",
+  "timeout": 5,
+  "timeout-low": 3,
+  "timeout-critical": 0,
+
+  "notification-window-width": 400,
+  "notification-icon-size": 48,
+  "notification-body-image-height": 100,
+  "notification-body-image-width": 200,
+  "image-visibility": "when-available",
+  "relative-timestamps": true,
+  "fit-to-screen": true,
+  "keyboard-shortcuts": true,
+  "hide-on-clear": true,
+  "hide-on-action": true,
+  "cssPriority": "user",
+
+  "control-center-width": 460,
+  "control-center-height": 600,
+  "control-center-margin-top": 8,
+  "control-center-margin-bottom": 8,
+  "control-center-margin-right": 8,
+  "control-center-margin-left": 0,
+
+  "widgets": ["title", "dnd", "notifications"],
+  "widget-config": {
+    "title": {
+      "text": "Notifications",
+      "clear-all-button": true,
+      "button-text": "Clear all"
+    },
+    "dnd": {
+      "text": "Do not disturb"
+    }
+  }
+}
