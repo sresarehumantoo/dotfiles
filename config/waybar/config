@@ -32,7 +32,14 @@
     "modules-left":   ["sway/workspaces", "sway/mode"],
     "modules-center": ["sway/window"],
     // No "tray" — see the tray block below for why.
-    "modules-right":  ["idle_inhibitor", "pulseaudio", "backlight", "network", "group/system", "battery", "custom/notification", "clock", "custom/power"],
+    //
+    // Right-hand order follows the GNOME/macOS status-area model rather than a
+    // dashboard: TRANSIENT indicators first (privacy, media, idle, VPN — each
+    // hides itself entirely when it has nothing to say), then the persistent
+    // status cluster (volume, network, battery), then notifications, clock and
+    // session. Nothing here is a readout you are meant to monitor; the numbers
+    // live in tooltips and the sliders live in the swaync panel behind them.
+    "modules-right":  ["privacy", "mpris", "idle_inhibitor", "network#vpn", "group/system", "pulseaudio", "network", "battery", "custom/notification", "clock", "custom/power"],
 
     "sway/workspaces": {
         "disable-scroll": true,
@@ -67,6 +74,38 @@
         "tooltip": false
     },
 
+    // Lights up only while something is actually using the mic, the camera or
+    // capturing the screen — PipeWire-sourced, no dependencies, and invisible
+    // the rest of the time. Worth having on a laptop that leaves the house.
+    // ⚠ This module takes no `format` or `tooltip-format`: it renders its own
+    // icon row, so it is configured through `modules` and sizes instead.
+    "privacy": {
+        "icon-spacing": 6,
+        "icon-size": 14,
+        "transition-duration": 250,
+        "modules": [
+            { "type": "screenshare", "tooltip": true, "tooltip-icon-size": 20 },
+            { "type": "audio-in",    "tooltip": true, "tooltip-icon-size": 20 }
+        ]
+    },
+
+    // Native MPRIS (libplayerctl) — replaces the custom/spotify script pattern.
+    // `playerctld` follows whichever player is active rather than pinning one.
+    // Kept short and hidden when nothing is playing, so it cannot push the
+    // status cluster around: a media title is the one field here with no
+    // natural width limit.
+    "mpris": {
+        "player": "playerctld",
+        "format": "{status_icon}  {dynamic}",
+        "dynamic-order": ["title", "artist"],
+        "dynamic-len": 28,
+        "ellipsis": "…",
+        // An empty format hides the module entirely.
+        "format-stopped": "",
+        "status-icons": { "playing": "󰎇", "paused": "󰏤" },
+        "tooltip": true
+    },
+
     "idle_inhibitor": {
         "format": "{icon}",
         "format-icons": {
@@ -81,47 +120,123 @@
     // waybar's pulseaudio/slider and backlight/slider. They were removed as
     // unusable for daily driving; the cause is upstream and not
     // configurable — see the WHY THIS EXISTS block in config/sway/sway-quickpanel.
-    // Dragging now lives in that floating panel, which left-click opens.
+    // Dragging now lives in the swaync panel (left click) and in
+    // sway-quickpanel (middle click). Note that swaync's sliders are NOT
+    // affected by the waybar bug — it drives a plain GtkScale and does not
+    // write back to the widget you are holding.
     // Do not re-add in-bar sliders without re-reading that note first.
     "pulseaudio": {
         // Reads from PipeWire via its pulse shim (pipewire-pulse is installed).
-        "format": "{icon}  {volume}%",
-        "format-muted": "󰖁  muted",
-        "format-bluetooth": "{icon}  {volume}%",
+        //
+        // Icon only. The percentage is gone from the bar on purpose: a volume
+        // number is only meaningful in the moment you are changing it, and in
+        // that moment swayosd puts it centre-screen where you are already
+        // looking. At rest the useful signal is muted-or-not, which the glyph
+        // carries. Same reasoning GNOME and macOS apply to their status areas.
+        "format": "{icon}",
+        "format-muted": "󰖁",
+        "format-bluetooth": "{icon}",
+        // Keys are port/device names, not indices. Any key suffixed `-muted`
+        // is chosen when muted, and a key's value may itself be an array,
+        // which is then percentage-indexed.
         "format-icons": {
             "headphone": "󰋋",
+            "headset": "󰋎",
             "default": ["󰕿", "󰖀", "󰕾"]
         },
-        "on-click": "$HOME/.local/bin/sway-quickpanel",
-        // NOTE: inert unless pavucontrol is installed. Left-click is already
-        // the quick panel, so a full mixer belongs on right.
+        // ⚠ Plain text only — pulseaudio is one of the modules that renders
+        // Pango tags literally rather than interpreting them.
+        "tooltip-format": "{desc} — {volume}%",
+        // Left click opens the full panel (sliders + quick actions), matching
+        // the "click the status icon, get the quick settings" model. Middle
+        // click keeps sway-quickpanel, which is faster but narrower. Right
+        // click is the full mixer — inert until pavucontrol is installed.
+        "on-click": "swaync-client -t -sw",
+        "on-click-middle": "$HOME/.local/bin/sway-quickpanel",
         "on-click-right": "pavucontrol",
         "scroll-step": 5
     },
 
-    "backlight": {
-        // Polling is only a fallback — waybar also watches udev, so the
-        // readout updates promptly when the keys or the quick panel change it.
-        "interval": 10,
-        "format": "{icon}  {percent}%",
-        "on-click": "$HOME/.local/bin/sway-quickpanel",
-        // md-brightness_1..7 — the ramp is 7 wide, not 9.
-        "format-icons": [
-            "󰃚", "󰃛", "󰃜",
-            "󰃝", "󰃞", "󰃟",
-            "󰃠"
-        ],
-        "on-scroll-up": "brightnessctl set 5%+",
-        "on-scroll-down": "brightnessctl set 5%-"
+    // ⚠ THERE IS DELIBERATELY NO `backlight` MODULE. Brightness was removed
+    // from the bar entirely rather than reduced to an icon: unlike volume it
+    // has no meaningful at-rest state to report — nobody needs to be told the
+    // screen is currently on — and a permanent readout of a value you change
+    // by feel is pure noise. It now lives in exactly the two places it is
+    // useful: swayosd shows the level on screen while the keys are held, and
+    // the swaync panel carries a slider for setting it deliberately.
+    // Re-adding it means re-adding "backlight" to modules-right above.
+
+
+    // ⚠ `interface` IS THE BUG FIX, not a preference. Without it waybar picks
+    // whichever interface owns the lowest-metric default route in table main —
+    // and a full-tunnel VPN wins that outright. This bar spent its life showing
+    // an HTB `tun0` (10.10.14.x / dead:beef::) behind an ETHERNET icon, because
+    // getNetworkState() classifies purely on "did nl80211 give me an ESSID":
+    // no ESSID means `format-ethernet`, whatever the interface actually is.
+    // Upstream #2671 and #784 are the same complaint, both still open.
+    //
+    // Two things this costs, both accepted knowingly:
+    //   1. With `interface` set, waybar stops subscribing to route events AND
+    //      skips the link-down cleanup path, relying only on carrier changes.
+    //      That is upstream #2416/#4364 — the module can hold a stale state
+    //      after `nmcli radio wifi off`. Restarting waybar clears it.
+    //   2. A wildcard takes the FIRST match in netlink dump order with no
+    //      carrier or IP check (#2167). Safe here because this box has exactly
+    //      one `wl` interface; a machine with two would need the exact name,
+    //      which is per-host data and belongs in a local override, not here.
+    "network": {
+        // ⚠ Not optional. Everything nl80211-derived — essid, signalStrength,
+        // the icon ramp — is refreshed ONLY by this timer, and the default is
+        // 60s. That is why the readout used to look frozen.
+        "interval": 5,
+        "interface": "wl*",
+        // Icon-only at rest, GNOME/macOS style: which network you are on is a
+        // hover away, and the glyph already carries signal strength.
+        "format-wifi": "{icon}",
+        "format-ethernet": "{icon}",
+        "format-linked": "{icon}",
+        "format-disconnected": "{icon}",
+        // ⚠ Object form, keyed by state — NOT a flat array. format-icons is
+        // indexed by signal strength, and signal strength is 0 in every
+        // non-wifi state, so a flat array silently renders icons[0] (the
+        // one-bar glyph) for ethernet and disconnected alike.
+        // The nested wifi array is still percentage-indexed: 4 icons → the
+        // buckets are [0-24] [25-49] [50-74] [75-100].
+        "format-icons": {
+            "wifi": ["󰤟", "󰤢", "󰤥", "󰤨"],
+            "ethernet": "󰈀",
+            "linked": "󰈁",
+            "disconnected": "󰤮",
+            "default": "󰤫"
+        },
+        // Pango markup DOES work in this module's tooltip (it is one of the few
+        // — pulseaudio, backlight and battery all render tags literally).
+        "tooltip-format-wifi": "<b>{essid}</b>\n{ipaddr}/{cidr} on {ifname}\n{signaldBm} dBm  ·  {frequency} GHz",
+        "tooltip-format-ethernet": "<b>{ifname}</b>\n{ipaddr}/{cidr}",
+        "tooltip-format-disconnected": "Offline",
+        "on-click": "nm-connection-editor"
     },
 
-    "network": {
-        "format-wifi": "󰖩  {essid} ({signalStrength}%)",
-        "format-ethernet": "󰈀  {ipaddr}",
-        "format-linked": "󰈁  no IP",
-        "format-disconnected": "󰖪  offline",
-        "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
-        "on-click": "nm-connection-editor"
+    // The VPN light. Separate instance rather than folded into the module
+    // above, because one network module can only ever track one interface.
+    //
+    // ⚠ The instance id must NOT be a state word. `network#wifi`,
+    // `#ethernet`, `#linked`, `#disconnected` and `#disabled` all collide:
+    // the id becomes a CSS class, state is ALSO a CSS class, and update()
+    // removes the state class by name — so `network#wifi` would strip its own
+    // id the first time it disconnected and the CSS would stop matching.
+    //
+    // A tun has no ESSID, so it resolves to the *ethernet* state — that is why
+    // the shield is set on format-ethernet and not on format-wifi. An empty
+    // format hides the module outright, so this occupies zero space until an
+    // HTB box is actually spawned.
+    "network#vpn": {
+        "interface": "tun0",
+        "format-ethernet": "󰦝",
+        "format-linked": "󰦝",
+        "format-wifi": "",
+        "format-disconnected": "",
+        "tooltip-format": "VPN up — {ifname} {ipaddr}"
     },
 
     // Collapsible cpu/memory/temperature. The first entry in "modules" is the

@@ -15,14 +15,28 @@
  *
  *   REJECTED:  var(--x)  (GTK4 4.16+ only — a whole token/variables.css file
  *                         of these is the usual giveaway that a theme is GTK4)
+ *              transform: scale()/translate()   ← no hover-pop, no lift
  *              filter: drop-shadow(...)
  *              text-transform: uppercase
- *   ACCEPTED:  @define-color, alpha(), shade(), linear-gradient(),
- *              letter-spacing, min-width/min-height, @keyframes, transitions
+ *   ACCEPTED:  @define-color, alpha(), shade(), mix(), linear-gradient(),
+ *              letter-spacing, min-width/min-height, @keyframes, transitions,
+ *              box-shadow (incl. inset), padding/margin, border-radius
  *
- * A rejected property does not fail loudly — GTK logs it and drops that one
- * declaration, so the panel renders subtly wrong with no visible error. Parse
- * this file after editing rather than trusting that it looked fine.
+ * ⚠ ONE BAD PROPERTY DISCARDS THE ENTIRE FILE. Not that declaration — the
+ * whole stylesheet, including rules ABOVE the offending line. Measured twice:
+ * a differential GtkCssProvider test (a rule before the bad property lost its
+ * effect too), and live, by appending a `transform:` to this file — swaync
+ * answered `CSS reload success: false` and rendered in raw Adwaita: wrong
+ * font, white sliders, no rounding, no colour.
+ *
+ * The failure is therefore LOUD, not subtle — if this panel ever looks like a
+ * stock GTK dialog, suspect a typo here before anything else. It also means
+ * every edit must be parsed before it ships:
+ *
+ *     python3 -c "import gi; gi.require_version('Gtk','3.0'); \
+ *       from gi.repository import Gtk, Gio; p=Gtk.CssProvider(); \
+ *       p.connect('parsing-error', lambda *a: print('ERR', a[2].message)); \
+ *       p.load_from_file(Gio.File.new_for_path('style.css'))"
  */
 
 @define-color base     #1e1e2e;

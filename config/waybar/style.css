@@ -143,6 +143,13 @@ window#waybar.empty .modules-center {
     text-shadow: none;
 }
 
+/* An unfocused-but-occupied workspace should read as "there is something
+   there" without competing with the focused one. Opacity rather than a
+   second colour keeps the single-accent discipline intact. */
+#workspaces button.persistent {
+    opacity: 0.55;
+}
+
 #workspaces button.visible {
     color: @subtext;
 }
@@ -194,6 +201,8 @@ window#waybar.empty .modules-center {
 #clock,
 #custom-system,
 #custom-notification,
+#privacy,
+#mpris,
 #custom-power {
     padding: 0 9px;
     margin: 4px 1px;
@@ -214,19 +223,108 @@ window#waybar.empty .modules-center {
     background-color: @pill-hover;
 }
 
-#clock          { color: @blue; font-weight: bold; }
-#cpu            { color: @green; }
-#memory         { color: @mauve; }
-#backlight      { color: @yellow; }
-#temperature    { color: @peach; }
-#network        { color: @sapphire; }
-#pulseaudio     { color: @green; }
-#custom-system  { color: @subtext; }
-#idle_inhibitor { color: @subtext; }
+/* ── Single-accent discipline ──────────────────────────────────────────────
+   Everything in the status cluster is plain @text. Colour is not decoration
+   here; it is reserved to MEAN something, so that a yellow or red module is
+   genuinely the only coloured thing in the bar and cannot be missed.
 
+   The accent (@blue) is spent in exactly three places and nowhere else:
+     · the focused workspace
+     · the clock
+     · the hover underline
+   The previous scheme gave every module its own hue (green cpu, mauve
+   memory, sapphire network, yellow backlight); it looked lively, but a red
+   battery warning had to compete with five other colours and lost. */
+
+#clock { color: @blue; font-weight: bold; }
+
+#cpu,
+#memory,
+#temperature,
+#network,
+#pulseaudio,
+#mpris,
+#custom-system,
+#idle_inhibitor {
+    color: @text;
+}
+
+/* Off / inactive states recede rather than recolour. */
 #network.disconnected,
-#pulseaudio.muted {
-    color: @surface1;
+#pulseaudio.muted,
+#idle_inhibitor {
+    color: @overlay;
+}
+
+/* ── Anti-reflow ───────────────────────────────────────────────────────────
+   A variable-width module re-lays-out every module beside it each time its
+   text changes width — 9% → 10% shifts the whole cluster, and the bar
+   visibly twitches. Pinning a floor stops it. These are minimums, not fixed
+   widths, so an unexpectedly long value still fits. */
+#battery              { min-width: 42px; }
+#custom-notification  { min-width: 26px; }
+#network              { min-width: 20px; }
+#pulseaudio           { min-width: 20px; }
+
+/* ── Hover ─────────────────────────────────────────────────────────────────
+   An inset shadow drawn along the bottom edge, INSIDE the widget's own box,
+   so it costs no layout and cannot nudge its neighbours.
+   ⚠ This is the idiomatic GTK3 hover for a reason: `transform` does not
+   exist in GTK3, so the usual `scale()`/`translateY()` hover-lift is simply
+   unavailable — and worse, a stray `transform:` invalidates the ENTIRE
+   stylesheet (see the swaync stylesheet header for the measurement). */
+#idle_inhibitor,
+#pulseaudio,
+#network,
+#battery,
+#clock,
+#custom-system,
+#custom-notification,
+#mpris {
+    box-shadow: inset 0 -2px transparent;
+    transition: background-color 150ms ease, box-shadow 200ms ease-in-out;
+}
+
+#idle_inhibitor:hover,
+#pulseaudio:hover,
+#network:hover,
+#battery:hover,
+#clock:hover,
+#custom-system:hover,
+#custom-notification:hover,
+#mpris:hover {
+    box-shadow: inset 0 -2px @blue;
+}
+
+/* ── Transient indicators ──────────────────────────────────────────────────
+   privacy renders its own icon row and takes no format string, so it is
+   styled purely here. Red is correct and deliberate: something is listening
+   to you or watching your screen. */
+#privacy {
+    padding: 0 6px;
+    color: @red;
+}
+
+#privacy-item.screenshare,
+#privacy-item.audio-in {
+    color: @red;
+}
+
+/* The VPN shield. Green because "up" is the reassuring state, and the module
+   is absent entirely when no tunnel exists — so this only ever renders as
+   good news. */
+#network.vpn {
+    color: @green;
+    min-width: 20px;
+}
+
+#mpris {
+    color: @subtext;
+    font-style: italic;
+}
+
+#mpris.paused {
+    color: @overlay;
 }
 
 #temperature.critical {
@@ -278,7 +376,9 @@ window#waybar.empty .modules-center {
     color: @peach;
 }
 
-#battery                { color: @green; }
+/* Neutral at rest; charging is the one "good news" colour worth spending,
+   because it answers a question you actually ask ("is it taking?"). */
+#battery                { color: @text; }
 #battery.charging       { color: @green; }
 #battery.warning:not(.charging)  { color: @yellow; }
 
@@ -334,6 +434,25 @@ window#waybar.empty .modules-center {
 #custom-power:hover {
     color: @crust;
     background-color: @red;
+}
+
+/* Tooltips --------------------------------------------------------------- */
+
+/* Now load-bearing, not cosmetic. Stripping the percentages out of the bar
+   moved every exact value in here, so an unstyled tooltip — GTK's default
+   pale-grey box in the system font — would be the most-read and worst-looking
+   surface in the whole setup. Matches the pill: same fill, same hairline,
+   same radius family. */
+tooltip {
+    background-color: @pill;
+    border: 1px solid @pill-border;
+    border-radius: 12px;
+    padding: 2px;
+}
+
+tooltip label {
+    color: @text;
+    padding: 6px 8px;
 }
 
 /* Tray ------------------------------------------------------------------ */
