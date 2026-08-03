@@ -220,6 +220,22 @@ bindsym $mod+Shift+e exec swaynag -t warning \
     -m 'Exit sway?' -B 'Yes' 'swaymsg exit'
 bindsym $mod+Shift+x exec $lock
 
+### Notifications ---------------------------------------------------------
+# The keyboard route to swaync's control centre; the bell in waybar is the
+# pointer one (see "custom/notification" in config/waybar/config). Before these
+# two existed the panel had no opener at all, so a notification that timed out
+# was simply unrecoverable — the history was being kept and never shown.
+#
+# -sw ("skip wait") makes the client start swaync if it is not running rather
+# than blocking; without it this key does nothing at all on the rare occasion
+# the daemon has died, with no feedback.
+bindsym $mod+n       exec swaync-client -t -sw
+# Push the newest popup off screen without opening the panel — it stays in the
+# control centre, so this is "not now", not "delete". swaync has no hide-all,
+# only hide-latest, so repeated presses peel them off one at a time. Do NOT
+# reach for -C here: that is close-all, which drops them from the history too.
+bindsym $mod+Shift+n exec swaync-client --hide-latest -sw
+
 ### Media / laptop keys ---------------------------------------------------
 bindsym --locked XF86AudioRaiseVolume  exec wpctl set-volume  @DEFAULT_AUDIO_SINK@ 5%+
 bindsym --locked XF86AudioLowerVolume  exec wpctl set-volume  @DEFAULT_AUDIO_SINK@ 5%-

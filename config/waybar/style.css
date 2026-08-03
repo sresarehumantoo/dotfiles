@@ -34,6 +34,18 @@
 @define-color pill-border rgba(69, 71, 90, 0.55);
 @define-color pill-hover  rgba(49, 50, 68, 0.85);
 
+/* The lit top edge of each pill. A single hairline lighter than the fill is
+   what makes a flat rounded rectangle read as a raised piece of glass rather
+   than a painted shape — it stands in for a specular highlight. Keep it very
+   low alpha; at anything above ~0.10 it stops looking like light and starts
+   looking like a second border. */
+@define-color pill-edge   rgba(205, 214, 244, 0.07);
+
+/* GTK3 has alpha()/shade() as first-class colour functions (verified against
+   the real CSS engine — unlike `filter` and `text-transform`, which it
+   rejects outright). Prefer them over hand-mixed rgba() literals so a palette
+   change propagates instead of needing every constant recomputed. */
+
 * {
     /* Matches `font pango:IosevkaTerm Nerd Font 10` in the sway config. One
        family covers both text and the Nerd icons the modules print, so no
@@ -65,13 +77,26 @@ window#waybar {
 .modules-center,
 .modules-right {
     background-color: @pill;
+    /* A shallow top-to-bottom lift over the flat fill. The stops are only ~4%
+       apart on purpose: enough to give the pill a direction of light, not
+       enough to read as a gradient in its own right. */
+    background-image: linear-gradient(to bottom,
+                                      alpha(@surface0, 0.35),
+                                      alpha(@crust, 0.20));
     border: 1px solid @pill-border;
+    border-top-color: @pill-edge;
     border-radius: 16px;
     padding: 0 4px;
     /* Vertical inset inside the 40px exclusive zone, so the pill is ~30px
        tall and visibly detached from the screen edge. */
     margin: 3px 0;
-    box-shadow: 0 2px 6px rgba(17, 17, 27, 0.55);
+    /* Two shadows: a tight contact shadow that seats the pill, and a wide soft
+       one that gives it height over the wallpaper. A single shadow has to
+       choose between the two and ends up looking like a smudge. These are
+       static widgets, so re-rasterising them is a one-off — see the slider
+       note near the bottom of this file for when that is NOT true. */
+    box-shadow: 0 1px 2px rgba(17, 17, 27, 0.50),
+                0 6px 16px rgba(17, 17, 27, 0.38);
 }
 
 /* An empty title should not leave a stub pill floating in the middle of the
@@ -96,8 +121,18 @@ window#waybar.empty .modules-center {
     background-color: transparent;
     color: @overlay;
     border-radius: 12px;
-    /* Only color/background animate usefully in GTK; keep it cheap. */
-    transition: background-color 150ms ease, color 150ms ease;
+    /* The focused workspace grows into a wider pill rather than just changing
+       colour, so the eye can find it by shape at a glance. `padding` is the
+       property doing the work — it is a length, so GTK3 interpolates it. The
+       easing is a standard ease-out quart: fast to ~80% of the distance, then
+       a long settle, which reads as physical rather than linear.
+       ⚠ Keep every animated property listed explicitly. `transition: all`
+       parses fine but drags background-image and box-shadow into the
+       animation, and re-rasterising a gradient every frame is exactly the cost
+       the slider note at the bottom of this file warns about. */
+    transition: background-color 150ms ease,
+                color 150ms ease,
+                padding 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 #workspaces button:hover {
@@ -115,11 +150,18 @@ window#waybar.empty .modules-center {
 #workspaces button.focused {
     color: @crust;
     background-color: @blue;
+    background-image: linear-gradient(to bottom, @sapphire, @blue);
+    /* The growth half of the transition above. 8px → 14px is deliberately
+       modest: the row must not visibly reflow the modules to its right every
+       time focus moves. */
+    padding: 0 14px;
 }
 
 #workspaces button.urgent {
     color: @crust;
     background-color: @red;
+    background-image: linear-gradient(to bottom, @peach, @red);
+    padding: 0 14px;
 }
 
 #mode {
@@ -151,6 +193,7 @@ window#waybar.empty .modules-center {
 #tray,
 #clock,
 #custom-system,
+#custom-notification,
 #custom-power {
     padding: 0 9px;
     margin: 4px 1px;
@@ -166,6 +209,7 @@ window#waybar.empty .modules-center {
 #network:hover,
 #clock:hover,
 #custom-system:hover,
+#custom-notification:hover,
 #custom-power:hover {
     background-color: @pill-hover;
 }
@@ -192,6 +236,46 @@ window#waybar.empty .modules-center {
 
 #idle_inhibitor.activated {
     color: @yellow;
+}
+
+/* Notification bell ----------------------------------------------------- */
+
+/* The class comes straight from swaync's `-swb` JSON, so these names are its
+   vocabulary, not ours: {dnd-,inhibited-,dnd-inhibited-,}{none,notification}.
+   Idle is deliberately the quietest thing in the bar — an indicator that is
+   always lit teaches you to stop seeing it, which defeats the point. */
+#custom-notification {
+    color: @subtext;
+    /* Room for the count that appears beside the glyph; without it the chip
+       visibly jumps wider on the first notification. */
+    padding: 0 10px;
+}
+
+/* Unread. Accent colour plus bold does the work — no blink. A permanently
+   animating widget in the bar is both distracting and a continuous
+   re-rasterisation cost (see the slider note below); battery-critical is the
+   one exception, because that one genuinely is an emergency. */
+#custom-notification.notification {
+    color: @yellow;
+    font-weight: bold;
+}
+
+/* DND, with and without a backlog. Muted rather than hidden: the whole reason
+   to show a DND state is so a quiet evening does not get mistaken for a broken
+   notification daemon. */
+#custom-notification.dnd-none,
+#custom-notification.dnd-notification,
+#custom-notification.dnd-inhibited-none,
+#custom-notification.dnd-inhibited-notification {
+    color: @overlay;
+    font-weight: normal;
+}
+
+/* An app has taken an inhibitor. Distinct from DND — this one is not something
+   owen chose, so it reads as a state to notice rather than a state to ignore. */
+#custom-notification.inhibited-none,
+#custom-notification.inhibited-notification {
+    color: @peach;
 }
 
 #battery                { color: @green; }

@@ -32,7 +32,7 @@
     "modules-left":   ["sway/workspaces", "sway/mode"],
     "modules-center": ["sway/window"],
     // No "tray" — see the tray block below for why.
-    "modules-right":  ["idle_inhibitor", "pulseaudio", "backlight", "network", "group/system", "battery", "clock", "custom/power"],
+    "modules-right":  ["idle_inhibitor", "pulseaudio", "backlight", "network", "group/system", "battery", "custom/notification", "clock", "custom/power"],
 
     "sway/workspaces": {
         "disable-scroll": true,
@@ -187,6 +187,56 @@
             "󰂀", "󰁹"
         ],
         "tooltip-format": "{timeTo} ({power:0.1f}W)"
+    },
+
+    // The bell. Before this existed there was no way to reach swaync's control
+    // centre at all — no bar affordance and no keybind — so notifications that
+    // timed out were simply gone. $mod+n in config/sway/config is the keyboard
+    // route; this is the pointer one.
+    //
+    // `swaync-client -swb` is a long-running subscription that prints one JSON
+    // line per notification add/close. waybar keeps the process alive and
+    // re-renders on each line, so there is no polling interval to tune.
+    "custom/notification": {
+        "return-type": "json",
+        // ⚠ The sed is load-bearing, and it is the one fragile part of this
+        // module. swaync reports the count in `text` as a plain number, so with
+        // no filter the bar reads "󰂚 0" whenever there is nothing to see —
+        // which is most of the time. The first expression blanks a zero; the
+        // second re-pads a surviving count so `{icon}{}` spaces correctly
+        // without leaving a trailing gap in the blank case.
+        //
+        // `sed -u` is required: without it sed block-buffers and the bar stops
+        // updating until 4KB of notifications have accrued. If swaync ever
+        // changes its JSON spacing this silently stops matching — the failure
+        // mode is a visible "0", not a broken bar, so it is safe but check
+        // here first. Drop the pipe entirely and use "format": "{icon}" to
+        // fall back to an icon-only indicator.
+        "exec": "swaync-client -swb | sed -u -e 's/\"text\": \"0\"/\"text\": \"\"/' -e 's/\"text\": \"\\([0-9]\\+\\)\"/\"text\": \"  \\1\"/'",
+        "exec-if": "which swaync-client",
+        "format": "{icon}{}",
+        // Keyed on the `alt` field swaync sets; these are its eight states, and
+        // an unlisted one renders as an empty label rather than falling back.
+        // Glyphs resolved from the installed font's post table (md-bell etc.),
+        // not guessed — see the icon warning at the top of this file.
+        "format-icons": {
+            "none": "󰂚",
+            "notification": "󱅫",
+            "dnd-none": "󰂛",
+            "dnd-notification": "󰂛",
+            "inhibited-none": "󰂠",
+            "inhibited-notification": "󰂠",
+            "dnd-inhibited-none": "󱏧",
+            "dnd-inhibited-notification": "󱏧"
+        },
+        // swaync's own tooltip text ("3 Notifications"); empty when idle.
+        "tooltip": true,
+        "escape": true,
+        // -sw makes the client start swaync if it isn't running instead of
+        // failing silently, which matters because the sway autostart line only
+        // runs at login/reload.
+        "on-click": "swaync-client -t -sw",
+        "on-click-right": "swaync-client -d -sw"
     },
 
     // ⚠ Deliberately NOT in modules-right. The only thing that ever registered

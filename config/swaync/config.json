@@ -44,7 +44,19 @@
   "control-center-margin-right": 8,
   "control-center-margin-left": 0,
 
-  "widgets": ["title", "dnd", "notifications"],
+  "//10": "Order is the on-screen order, top to bottom. `notifications` is",
+  "//11": "placed last deliberately — it is the only widget that grows, so",
+  "//12": "anything below it would be pushed off a full backlog.",
+  "widgets": [
+    "title",
+    "dnd",
+    "buttons-grid",
+    "volume",
+    "backlight",
+    "mpris",
+    "inhibitors",
+    "notifications"
+  ],
   "widget-config": {
     "title": {
       "text": "Notifications",
@@ -53,6 +65,79 @@
     },
     "dnd": {
       "text": "Do not disturb"
+    },
+
+    "//13": "Every command here was checked against what is actually installed",
+    "//14": "on this box — pavucontrol, wlogout, swappy and hyprpicker are NOT,",
+    "//15": "so no button calls them. swaync runs these through `sh -c`, which",
+    "//16": "is why $(slurp), the pipe and $HOME all work.",
+    "//17": "The `swaync-client -cp` prefix closes the panel first: the control",
+    "//18": "centre is a layer-shell surface holding keyboard focus, so slurp's",
+    "//19": "region select and swaylock both come up underneath it otherwise.",
+    "buttons-grid": {
+      "actions": [
+        {
+          "label": "󰩭",
+          "command": "swaync-client -cp; sleep 0.2; grim -g \"$(slurp)\" - | wl-copy"
+        },
+        {
+          "label": "󰹑",
+          "command": "swaync-client -cp; sleep 0.2; grim - | wl-copy"
+        },
+        {
+          "label": "󰌾",
+          "command": "swaync-client -cp; swaylock -f -c 1e1e2e"
+        },
+        {
+          "label": "󰖩",
+          "command": "swaync-client -cp; nm-connection-editor"
+        },
+        {
+          "label": "󰂯",
+          "command": "swaync-client -cp; blueman-manager"
+        },
+        {
+          "label": "󰐥",
+          "command": "swaync-client -cp; $HOME/.local/bin/sway-powermenu"
+        }
+      ]
+    },
+
+    "//20": "These two sliders do NOT hit the bug that killed waybar's in-bar",
+    "//21": "sliders. That was waybar's ASlider calling set_value() on the very",
+    "//22": "widget under the pointer with no drag interlock (see the WHY THIS",
+    "//23": "EXISTS block in config/sway/sway-quickpanel). swaync drives a plain",
+    "//24": "GtkScale and does not write back mid-drag, so dragging is precise.",
+    "//25": "sway-quickpanel therefore still exists but is no longer the only",
+    "//26": "way to drag these — it stays because it is one keystroke away and",
+    "//27": "does not require opening a full panel.",
+    "volume": {
+      "label": "󰕾",
+      "//": "Per-app sliders are off: on this box the list is usually one",
+      "//1": "entry, and an empty section reads as a rendering fault.",
+      "show-per-app": false
+    },
+    "backlight": {
+      "label": "󰃠",
+      "//": "The sysfs device name, confirmed present at /sys/class/backlight.",
+      "//1": "A wrong name here does not error — swaync logs 'Could not find",
+      "//2": "device' once and the slider is simply dead.",
+      "device": "intel_backlight"
+    },
+
+    "mpris": {
+      "image-size": 60,
+      "blur-image": false
+    },
+
+    "//28": "Shows apps that have suppressed notifications, with a way to clear",
+    "//29": "them. Nothing on this box registers one today, and swaync hides",
+    "//30": "the widget entirely when the list is empty — so it costs nothing",
+    "//31": "until the day something goes quiet and the reason is not obvious.",
+    "inhibitors": {
+      "text": "Inhibitors",
+      "button-text": "Clear all",
+      "clear-all-button": true
     }
   }
 }
