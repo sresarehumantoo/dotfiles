@@ -5,9 +5,49 @@ the compositor config, a [waybar](https://github.com/Alexays/Waybar) status bar,
 [swaync](https://github.com/ErikReider/SwayNotificationCenter) notifications, and
 two helper scripts.
 
-The whole module **no-ops when `sway` is not on `PATH`** — including `Status()`,
-which reports nothing rather than "missing". Installing on a WSL box or a
-headless server is therefore safe and silent.
+**During `install all`, the whole module no-ops when `sway` is not on `PATH`** —
+including `Status()`, which reports nothing rather than "missing". Installing on
+a WSL box or a headless server is therefore safe and silent: it will never
+apt-get a compositor onto a machine that did not ask for one.
+
+**Naming the module explicitly is the opt-in.** `dfinstall install sway` treats
+the request as "set this desktop up" and will install any missing packages from
+the list below before linking, so it bootstraps a bare machine. The two paths
+are distinguished by `core.InstallingAll`, which `BeginInstall` sets from the
+session options — so the CLI and the MCP server cannot answer it differently.
+
+## Package requirements
+
+The configs name binaries directly — in keybinds, in waybar `exec`/`on-click`,
+in swaync's button grid — and **a missing one does not announce itself**. It
+produces a key that does nothing, a bar module that silently hides, or a panel
+button that no-ops. So the dependency set is declared as data in
+`src/modules/sway.go` (`swayPackages`) rather than living in someone's memory.
+
+| Group | Packages | What breaks without it |
+|---|---|---|
+| Compositor / session | `sway` `swaybg` `swayidle` `swaylock` `swaynag` `xwayland` | wallpaper, idle-lock chain, `$lock`, the exit prompt, X11 clients |
+| Launcher / backlight | `fuzzel` `brightnessctl` | `$mod+d`; brightness keys when swayosd is absent |
+| Bar / notifications | `waybar` `sway-notification-center` `mako-notifier` | the bar; the panel and bell; the documented fallback daemon |
+| Status-area features | `swayosd` `pavucontrol` `playerctl` `pipewire-pulse` `wireplumber` | the on-screen volume/brightness overlay, the mixer on right-click, the mpris module and media keys |
+| Screenshots | `grim` `slurp` `wl-clipboard` | `Print` / `Shift+Print` and the panel's two capture buttons |
+| Applets | `network-manager-gnome` `blueman` | clicking the network module; Bluetooth pairing |
+
+Two deliberate omissions: **no terminal** (`set $term ghostty`, which has its own
+module and is not an apt package on Debian), and **no fonts** (the `fonts` module
+owns `IosevkaTerm`, which every stylesheet here names).
+
+Presence is checked by probing for each package's **binary on `PATH`**, not by
+asking dpkg. A package query is per-distro and says nothing about a compositor
+built from source or installed to `/opt` — which is this machine's own case
+(`/opt/sway-next/bin`). What the configs require is that the command is
+callable, so that is what gets tested. `dfinstall status` reports any gap in its
+INFO column:
+
+```
+MODULE            LINKED  MISSING  INFO
+sway                   9        0  1 package(s) missing: pavucontrol
+```
 
 ## What gets linked
 
@@ -40,6 +80,17 @@ sudo install -m 0644 config/sway/90-backlight.rules /etc/udev/rules.d/
 sudo udevadm control --reload && sudo udevadm trigger -s backlight
 sudo usermod -aG video "$USER"     # then log out and back in
 ```
+
+> **Largely superseded by `swayosd`.** Its package ships
+> `/usr/lib/udev/rules.d/99-swayosd.rules`, which does exactly what the rule
+> above does (`chgrp video` + `chmod g+w` on `backlight/*/brightness`). If
+> swayosd is installed you can skip this step — you still need to be in the
+> `video` group. The vendored copy stays for machines without swayosd, and
+> because a package-managed rule can vanish on removal.
+>
+> Note swayosd's shipped polkit rule grants only the **`wheel`** group, which
+> Debian does not use by default. That affects `swayosd-libinput-backend`
+> (the caps-lock overlay) only; volume and brightness work without it.
 
 **2. Output layout.** See below.
 
@@ -76,6 +127,25 @@ swaymsg -t get_outputs | grep -E 'make|model|serial|Output'
 `$mod` is **Mod4 (Super)**. See [Keybindings](keybindings.md) for the full table
 and the reasoning behind the Alt reservation.
 
+Notifications and media:
+
+| Key | Action |
+|---|---|
+| `$mod+n` | Toggle the swaync control centre |
+| `$mod+Shift+n` | Push the newest popup off screen (`--hide-latest`; it stays in history) |
+| `XF86Audio{Raise,Lower}Volume` | Volume ±, with the swayosd overlay |
+| `XF86AudioMute` / `XF86AudioMicMute` | Mute sink / source |
+| `XF86MonBrightness{Up,Down}` | Brightness ±, with the swayosd overlay |
+
+> Each media key is written as `swayosd-client … || <fallback>`, so a machine
+> without swayosd falls back to `wpctl`/`brightnessctl` rather than going
+> silent. Test the fallback by renaming `swayosd-client`, not by trusting the
+> `||`. Do not drop the `sh -c` wrapper: sway tokenizes the bindsym before the
+> shell sees it, so a bare `||` is parsed by sway, not `/bin/sh`.
+>
+> `$mod+Shift+n` is deliberately **not** `swaync-client -C` (close-all) — that
+> drops the notifications from history rather than dismissing the popup.
+
 > [!WARNING]
 > This config binds exactly **one** Alt key (`Mod1+space`, launcher). Sway grabs
 > keys at the compositor, *before* the terminal sees them, so any further Alt
@@ -102,6 +172,33 @@ reload could not reach it*:
 ```
 exec_always pkill -SIGUSR2 -x waybar || waybar
 ```
+
+## The bar shows almost no numbers, on purpose
+
+The status area follows the GNOME/macOS model rather than a dashboard: **at rest
+each module is a single glyph; the exact value lives in its tooltip; the
+adjustable things live in the panel behind them.** Before "fixing" this by
+re-adding percentages, note what each removal bought:
+
+- **Brightness has no module at all.** It has no meaningful at-rest state —
+  nobody needs telling the screen is on — and the value only matters while you
+  are changing it, which is when swayosd puts it centre-screen. Set it
+  deliberately from the swaync panel's slider.
+- **Volume is icon-only.** Same reasoning; the glyph still carries muted-or-not,
+  which is the part you read at a glance.
+- **Network is icon-only.** The glyph is a signal-strength ramp; SSID, address
+  and dBm are one hover away.
+- **Battery keeps its percentage**, and the clock keeps the date. These are read
+  at rest rather than adjusted, so a number earns its place.
+
+Colour is reserved to *mean* something: the accent marks the focused workspace,
+the clock and the hover underline, and yellow/red are left free for warning and
+critical states. An earlier scheme gave every module its own hue, and a red
+battery warning had to compete with five other colours.
+
+Modules that hide themselves entirely when idle: `privacy` (mic/camera/
+screenshare), `mpris`, and `network#vpn`. An indicator that is always lit is one
+you stop seeing.
 
 ## The waybar icons are fragile
 

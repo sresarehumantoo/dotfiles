@@ -87,6 +87,16 @@ var ToolkitMode bool
 // Like ExtendedMode/ToolkitMode, it gates persisting the windev opt-in to config.
 var WindevMode bool
 
+// InstallingAll reports whether the current install session is `install all`
+// rather than a single named module. Owned and reset by BeginInstall/Finish —
+// do not set it directly; that is what keeps the CLI and the MCP server from
+// answering it differently.
+//
+// It lets a module distinguish "the user asked for me by name" from "the user
+// asked for everything", which matters when a module's side effects are too
+// heavy to apply unasked (installing a compositor, say).
+var InstallingAll bool
+
 // CfgFileExists is true when the config file was present at load time.
 // Used to distinguish "first run" from "user explicitly set skip_backup: false".
 var CfgFileExists bool
