@@ -1,0 +1,176 @@
+#!/bin/sh
+# sway-brightness — brightness with a floor, presented on a 0-100 user scale.
+#
+# Linked to ~/.local/bin/sway-brightness by modules/sway.go. Bound to the
+# XF86MonBrightness{Up,Down} keys in config/sway/config.
+#
+# WHY THIS EXISTS
+# Two problems, one script:
+#
+#   1. THE SCREEN MUST NEVER GO FULLY BLACK. A dark panel is indistinguishable
+#      from a laptop that is off, and the only way back is a key you cannot see
+#      to find. Every desktop OS floors this; none of the pieces we have does.
+#      swayosd 0.1.0 (Debian trixie) has no minimum at all and will happily
+#      drive the backlight to 0. Upstream added `min_brightness` in 0.3.x —
+#      defaulting to 5 — but Debian stable is four releases behind, so the
+#      floor has to live here.
+#
+#   2. "ALL THE WAY DOWN" SHOULD READ AS ZERO. This is how Android and GNOME
+#      behave: the user-facing scale is mapped onto the hardware's usable
+#      range, so the slider bottoms out at 0 while the panel is still lit.
+#      Android maps its slider onto [screenBrightnessSettingMinimum, max];
+#      gsd-backlight clamps to the lowest non-zero step. The lie is in the UI
+#      layer, never in the driver.
+#
+# So: user 0..100 maps onto real FLOOR..100.
+#
+#     real = FLOOR + user * (100 - FLOOR) / 100
+#     user = (real - FLOOR) * 100 / (100 - FLOOR)
+#
+# Usage:  sway-brightness up|down|get
+set -eu
+
+# Real hardware percent at user-scale zero. 5 rather than 1: measured on this
+# panel, 1% is not reliably distinguishable from off in a lit room, which
+# defeats the entire point. Shared with BRIGHTNESS_MIN in sway-quickpanel —
+# change both together or the slider and the keys will disagree about where
+# the bottom is.
+FLOOR=5
+STEP=5
+
+# Nerd-Font-independent: this is a Freedesktop icon name, resolved by the OSD's
+# GTK icon theme, not a glyph from our terminal font.
+ICON=display-brightness-symbolic
+
+usable=$((100 - FLOOR))
+
+# Current real percent. brightnessctl -m prints:
+#   <device>,<class>,<current>,<percent>%,<max>
+# Parsing its percent field rather than computing from raw avoids assuming a
+# linear raw->percent mapping, which is not guaranteed across backends.
+real_now() {
+    brightnessctl -m 2>/dev/null | head -1 | cut -d, -f4 | tr -d '%'
+}
+
+# Round-half-up integer division, so repeated up/down steps land back where
+# they started instead of drifting down through truncation.
+divround() { echo $((($1 + $2 / 2) / $2)); }
+
+real_to_user() {
+    r=$1
+    if [ "$r" -le "$FLOOR" ]; then
+        echo 0
+        return
+    fi
+    divround $(( (r - FLOOR) * 100 )) "$usable"
+}
+
+user_to_real() {
+    u=$1
+    scaled=$(divround $(( u * usable )) 100)
+    echo $(( FLOOR + scaled ))
+}
+
+show_osd() {
+    user=$1
+    command -v swayosd-client >/dev/null 2>&1 || return 0
+
+    # Preferred: draw the bar at the USER fraction while the real value stays
+    # floored — the honest bar for the value the user thinks they are setting.
+    # Only exists in swayosd >= 0.3, so it is probed rather than assumed; when
+    # Debian catches up this starts working with no change here.
+    if swayosd-client --help-all 2>&1 | grep -q -- '--custom-progress'; then
+        swayosd-client --custom-progress "$(echo "$user" | awk '{printf "%.2f", $1/100}')" \
+                       --custom-progress-text "${user}%" \
+                       --custom-icon "$ICON" >/dev/null 2>&1 || true
+        return 0
+    fi
+
+    # Fallback for swayosd 0.1.0: a numeric OSD. Deliberately NOT
+    # `--brightness <real>`, which would both re-set the backlight (fighting
+    # the value we just wrote) and display the REAL percent — showing 5% at
+    # the bottom of the scale, which is the confusion this script exists to
+    # remove.
+    swayosd-client --custom-message "${user}%" --custom-icon "$ICON" >/dev/null 2>&1 || true
+}
+
+command -v brightnessctl >/dev/null 2>&1 || {
+    echo "sway-brightness: brightnessctl not found" >&2
+    exit 1
+}
+
+# ⚠ THE USER VALUE IS REMEMBERED, NOT RE-DERIVED. This is the whole reason the
+# state file exists, and it fixes a real bug rather than being an optimisation.
+#
+# The two scales are integer maths and are NOT mutual inverses. Deriving the
+# user value from the hardware every press creates fixed points where a step
+# cannot make progress:
+#
+#     user 90 -> real 91  (5 + round(90*95/100))
+#     real 91 -> user 91  (round((91-5)*100/95))
+#
+# so pressing "down" at real 91 snapped 91 -> 90, wrote real 91, and read back
+# 91 again. Brightness stuck at 91% forever and would not go below it — no
+# error, no clue. Remembering what the user last asked for makes each press
+# move exactly one step regardless of how the real value rounds.
+#
+# The recorded real is the integrity check: if the hardware no longer matches
+# what we last wrote, something else changed it (the quickpanel, a lid event,
+# another tool) and the remembered user value is stale, so it is re-derived.
+STATE="${XDG_RUNTIME_DIR:-/tmp}/sway-brightness.state"
+
+now=$(real_now)
+[ -n "$now" ] || { echo "sway-brightness: could not read brightness" >&2; exit 1; }
+
+user=""
+if [ -r "$STATE" ]; then
+    # shellcheck disable=SC2034  # both fields are used below
+    read -r s_user s_real < "$STATE" 2>/dev/null || true
+    case "${s_user:-}${s_real:-}" in
+        *[!0-9]* | "") : ;;                       # ignore a corrupt file
+        *) [ "$s_real" = "$now" ] && user=$s_user ;;
+    esac
+fi
+[ -n "$user" ] || user=$(real_to_user "$now")
+
+# ⚠ Step to the next/previous multiple of STEP rather than adding to the
+# current value. The user<->real mapping is integer maths on two different
+# scales, so it does not always round-trip exactly — measured: user 50% maps to
+# real 53%, which reads back as 51%. Adding 5 to that would walk the scale onto
+# 56, 61, 66 … and the bottom of the range would stop landing exactly on 0.
+# Snapping to the grid makes every press idempotent in aggregate: the sequence
+# is always 0, 5, 10 … 100 regardless of accumulated rounding.
+case "${1:-}" in
+    up)
+        user=$(( user / STEP * STEP + STEP ))
+        [ "$user" -gt 100 ] && user=100
+        ;;
+    down)
+        user=$(( (user + STEP - 1) / STEP * STEP - STEP ))
+        [ "$user" -lt 0 ] && user=0
+        ;;
+    get)  echo "$user"; exit 0 ;;
+    *)    echo "usage: sway-brightness up|down|get" >&2; exit 2 ;;
+esac
+
+target=$(user_to_real "$user")
+
+# Belt and braces: guarantee the press actually moved the hardware. Even with
+# the remembered user value, a coarse device or a future change to the rounding
+# could map two adjacent user steps onto the same real percent, which would
+# feel like a dead key. Never push below the floor.
+case "$1" in
+    down) [ "$target" -ge "$now" ] && target=$((now - 1)) ;;
+    up)   [ "$target" -le "$now" ] && target=$((now + 1)) ;;
+esac
+[ "$target" -lt "$FLOOR" ] && target=$FLOOR
+[ "$target" -gt 100 ] && target=100
+
+brightnessctl set "${target}%" >/dev/null 2>&1 || true
+
+# Record what the hardware actually settled on, not what we asked for — those
+# differ whenever the device's step granularity is coarser than one percent,
+# and storing the request would fail the integrity check on the next press.
+printf '%s %s\n' "$user" "$(real_now)" > "$STATE" 2>/dev/null || true
+
+show_osd "$user"

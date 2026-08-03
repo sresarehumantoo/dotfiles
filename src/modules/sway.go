@@ -40,12 +40,16 @@ func (SwayModule) Links() core.LinkSet {
 		// Volume + brightness panel behind the waybar volume/brightness
 		// readouts. Same reason for living in ~/.local/bin.
 		{Src: core.ConfigPath("sway", "sway-quickpanel"), Dst: core.HomeTarget(".local", "bin", "sway-quickpanel")},
+		// Brightness with a floor and a 0-100 user scale, behind the
+		// XF86MonBrightness keys. Not swayosd-client directly: 0.1.0 has no
+		// minimum and will take the panel to black.
+		{Src: core.ConfigPath("sway", "sway-brightness"), Dst: core.HomeTarget(".local", "bin", "sway-brightness")},
 	}
 }
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel"}
+var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness"}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //

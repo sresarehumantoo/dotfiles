@@ -256,6 +256,42 @@ window#waybar.empty .modules-center {
     color: @overlay;
 }
 
+/* ── Optical centring of overflowing icons ────────────────────────────────
+   Several Nerd Font icons are NOT centred in the cell they occupy, so the
+   glyph sits visibly off-centre inside its module — worst on the wifi ramp.
+   This is a font property, not a layout bug, and it is a direct consequence
+   of using the non-Mono IosevkaTerm build (chosen so icons are not clamped to
+   one cell — see the font notes in CLAUDE.md).
+
+   Measured from the installed font's own tables (advance vs ink bounding box,
+   in em):
+
+       glyph                 advance   ink     left bearing   overflow right
+       md-wifi_strength_*     0.500    0.970       0.000           0.470
+       md-bell / bell_badge   0.500    0.750       0.000           0.250
+       md-shield_lock         0.500    0.750       0.000           0.250
+       md-memory (handle)     0.500    0.750       0.000           0.250
+       md-battery_*           0.500    0.500       0.000           0.000  ✓
+       md-volume_*            0.500    0.376       0.062           0.000  ✓
+
+   Every one starts at the left edge of its cell (left bearing 0) and spills
+   over the RIGHT edge. Pango positions the 0.500em ADVANCE, not the ink, so
+   the visible mass ends up overflow/2 to the right of where the layout thinks
+   the centre is. Battery and volume are symmetric, which is exactly why those
+   two look right and wifi looks wrong.
+
+   The correction is padding, the only lever GTK3 gives us here: extra padding
+   on the right pulls the content box left by half the overflow. Values are
+   overflow/2 × 13px font-size, rounded to the pixel — wifi 0.235em ≈ 3px, the
+   0.250em group ≈ 1.5px → 2px.
+
+   ⚠ Adjust these if the font, its build (Mono vs non-Mono), or the font-size
+   changes — they are derived from all three. Re-measure with fontTools rather
+   than nudging by eye. */
+#network        { padding-left: 6px;  padding-right: 12px; }
+#custom-notification,
+#custom-system  { padding-left: 7px;  padding-right: 11px; }
+
 /* ── Anti-reflow ───────────────────────────────────────────────────────────
    A variable-width module re-lays-out every module beside it each time its
    text changes width — 9% → 10% shifts the whole cluster, and the bar
@@ -313,9 +349,14 @@ window#waybar.empty .modules-center {
 /* The VPN shield. Green because "up" is the reassuring state, and the module
    is absent entirely when no tunnel exists — so this only ever renders as
    good news. */
+/* The shield overflows 0.250em, not the wifi ramp's 0.470em, so it needs a
+   smaller correction than the `#network` rule above gives it. id+class beats
+   the bare id, so this wins for the VPN instance only. */
 #network.vpn {
     color: @green;
     min-width: 20px;
+    padding-left: 7px;
+    padding-right: 11px;
 }
 
 #mpris {

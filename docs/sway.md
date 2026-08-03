@@ -3,7 +3,7 @@
 The `sway` module links a complete [sway](https://swaywm.org/) Wayland desktop:
 the compositor config, a [waybar](https://github.com/Alexays/Waybar) status bar,
 [swaync](https://github.com/ErikReider/SwayNotificationCenter) notifications, and
-two helper scripts.
+three helper scripts.
 
 **During `install all`, the whole module no-ops when `sway` is not on `PATH`** —
 including `Status()`, which reports nothing rather than "missing". Installing on
@@ -63,8 +63,9 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/swayosd/style.css` | `~/.config/swayosd/style.css` |
 | `config/sway/sway-powermenu` | `~/.local/bin/sway-powermenu` |
 | `config/sway/sway-quickpanel` | `~/.local/bin/sway-quickpanel` |
+| `config/sway/sway-brightness` | `~/.local/bin/sway-brightness` |
 
-The two scripts are `chmod 0755` at the **source** before linking, because a
+The three scripts are `chmod 0755` at the **source** before linking, because a
 symlink inherits its target's mode.
 
 ## Manual steps the module deliberately does not do
@@ -136,11 +137,12 @@ Notifications and media:
 | `$mod+Shift+n` | Push the newest popup off screen (`--hide-latest`; it stays in history) |
 | `XF86Audio{Raise,Lower}Volume` | Volume ±, with the swayosd overlay |
 | `XF86AudioMute` / `XF86AudioMicMute` | Mute sink / source |
-| `XF86MonBrightness{Up,Down}` | Brightness ±, with the swayosd overlay |
+| `XF86MonBrightness{Up,Down}` | Brightness ±, floored — see *Brightness has a floor* |
 
-> Each media key is written as `swayosd-client … || <fallback>`, so a machine
-> without swayosd falls back to `wpctl`/`brightnessctl` rather than going
-> silent. Test the fallback by renaming `swayosd-client`, not by trusting the
+> The **volume** keys are written as `swayosd-client … || <fallback>`, so a
+> machine without swayosd falls back to `wpctl` rather than going silent. The
+> **brightness** keys go through `sway-brightness` instead, which owns the
+> floor and degrades to `brightnessctl` by itself. Test the fallback by renaming `swayosd-client`, not by trusting the
 > `||`. Do not drop the `sh -c` wrapper: sway tokenizes the bindsym before the
 > shell sees it, so a bare `||` is parsed by sway, not `/bin/sh`.
 >
@@ -200,6 +202,72 @@ battery warning had to compete with five other colours.
 Modules that hide themselves entirely when idle: `privacy` (mic/camera/
 screenshare), `mpris`, and `network#vpn`. An indicator that is always lit is one
 you stop seeing.
+
+## Brightness has a floor, and lies about it
+
+**The screen can never be driven fully black**, and "all the way down" reads as
+`0%` anyway — the same contract Android and GNOME offer. A dark panel is
+indistinguishable from a laptop that is off, and the only way back is a key you
+cannot see to find.
+
+The hardware range is `5%..100%`; the user-facing range is `0..100` mapped onto
+it:
+
+```
+real = 5 + user × 95 / 100          user = (real − 5) × 100 / 95
+```
+
+so user `0` is a real `5%` — dim but visibly lit. Both paths implement it:
+
+| Path | Floor | Shows |
+|---|---|---|
+| `XF86MonBrightness{Up,Down}` → `sway-brightness` | yes | swayosd OSD, user scale |
+| `sway-quickpanel` slider | yes (`BRIGHTNESS_MIN`) | user scale |
+| swaync panel slider | **removed** — see below | — |
+
+> The formula is duplicated in `config/sway/sway-brightness` and
+> `sway-quickpanel`'s `brightness_to_user()`. **Change one and you must change
+> the other**, or the keys and the slider will disagree about where the bottom
+> is.
+
+Two implementation notes worth keeping:
+
+- **The user value is remembered in a state file, never re-derived per press.**
+  This is not an optimisation; deriving it caused a real bug where **brightness
+  could not be taken below 91% at all**. The two scales are integer maths and
+  are not mutual inverses, so they have fixed points:
+
+  ```
+  user 90 -> real 91      (5 + round(90 × 95 / 100))
+  real 91 -> user 91      (round((91 − 5) × 100 / 95))
+  ```
+
+  Pressing "down" at real 91 snapped 91→90, wrote real 91, and read back 91 —
+  forever, with no error. `$XDG_RUNTIME_DIR/sway-brightness.state` holds
+  `<user> <real>`; the recorded real is an integrity check, so if anything else
+  moves the backlight (the quickpanel, a lid event) the stale user value is
+  discarded and re-derived. A corrupt file is ignored.
+
+  Steps also snap to the 5% grid, and a final guard forces the value to move at
+  least one percent per press, so a coarse device can never produce a dead key.
+- **swayosd is not asked to set the brightness.** Debian trixie ships swayosd
+  **0.1.0**, which has no minimum and will happily drive the backlight to zero.
+  Upstream added `min_brightness` in **0.3.x** (defaulting to 5) along with
+  `--custom-progress`, which can draw a bar at an arbitrary fraction — that
+  combination would let the OSD show a proper *bar* at the user value. Debian
+  stable has neither and there is no backport, so `sway-brightness` sets the
+  value itself and asks swayosd only to display it. **It probes for
+  `--custom-progress` at runtime**, so if swayosd is ever upgraded the numeric
+  OSD becomes a bar with no change here.
+
+### Why swaync's backlight widget was removed
+
+swaync's slider writes raw sysfs with no minimum and exposes no `min` option, so
+dragging it to the bottom blanks the screen — defeating the floor entirely.
+Fixing it properly means forking swaync (Vala) and carrying a build, which is
+not worth it for a slider that already exists, floored, one middle-click away on
+the volume module. The config block is kept in `config/swaync/config.json` as a
+comment with the exact JSON to restore it.
 
 ## Two GTK dialects, one desktop
 

@@ -52,7 +52,6 @@
     "dnd",
     "buttons-grid",
     "volume",
-    "backlight",
     "mpris",
     "inhibitors",
     "notifications"
@@ -117,13 +116,19 @@
       "//1": "entry, and an empty section reads as a rendering fault.",
       "show-per-app": false
     },
-    "backlight": {
-      "label": "󰃠",
-      "//": "The sysfs device name, confirmed present at /sys/class/backlight.",
-      "//1": "A wrong name here does not error — swaync logs 'Could not find",
-      "//2": "device' once and the slider is simply dead.",
-      "device": "intel_backlight"
-    },
+    "//32": "⚠ THE `backlight` WIDGET IS DELIBERATELY ABSENT, and this block is",
+    "//33": "kept as the record of why. swaync's backlight slider writes the raw",
+    "//34": "sysfs value with NO minimum and exposes no `min` option, so dragging",
+    "//35": "it to the bottom takes the panel fully black — the exact thing the",
+    "//36": "floor exists to prevent, and hard to undo when you cannot see the",
+    "//37": "screen. Every other brightness path here is floored: the keys go",
+    "//38": "through sway-brightness, and sway-quickpanel's slider stops at",
+    "//39": "BRIGHTNESS_MIN and reports it as 0%.",
+    "//40": "Patchable? Only by forking swaync (Vala) and carrying a build —",
+    "//41": "not worth it for one slider that already exists, floored, one",
+    "//42": "middle-click away on the volume module. Re-add `backlight` to the",
+    "//43": "widgets list above with this config to bring it back:",
+    "//44": "   \"backlight\": { \"label\": \"󰃠\", \"device\": \"intel_backlight\" }",
 
     "mpris": {
       "image-size": 60,
