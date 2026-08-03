@@ -60,6 +60,7 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/swaync/config.json` | `~/.config/swaync/config.json` |
 | `config/swaync/style.css` | `~/.config/swaync/style.css` |
 | `config/mako/config` | `~/.config/mako/config` |
+| `config/swayosd/style.css` | `~/.config/swayosd/style.css` |
 | `config/sway/sway-powermenu` | `~/.local/bin/sway-powermenu` |
 | `config/sway/sway-quickpanel` | `~/.local/bin/sway-quickpanel` |
 
@@ -200,6 +201,31 @@ Modules that hide themselves entirely when idle: `privacy` (mic/camera/
 screenshare), `mpris`, and `network#vpn`. An indicator that is always lit is one
 you stop seeing.
 
+## Two GTK dialects, one desktop
+
+This is the sharpest edge in the module. The stylesheets it links are **not all
+the same language**:
+
+| File | Toolkit | Checked with |
+|---|---|---|
+| `config/waybar/style.css` | GTK **3** | `Gtk 3.0` provider |
+| `config/swaync/style.css` | GTK **3** | `Gtk 3.0` provider |
+| `config/swayosd/style.css` | GTK **4** | `Gtk 4.0` provider |
+
+Confirmed by linkage, not by assumption — `swayosd-server` pulls `libgtk-4.so.1`
+while `waybar` and `swaync` pull `libgtk-3.so.0`. It matters because:
+
+- GTK4 supports `var()` and custom properties; **GTK3 does not** (this is why
+  most attractive swaync themes on GitHub cannot simply be copied in — a
+  `tokens/variables.css` full of `var()` is the giveaway that a theme is GTK4).
+- GTK3 rejects `transform`, `filter` and `text-transform` outright.
+- **On an unknown property GTK3 discards the whole stylesheet** — including
+  rules above the offending line — and the app falls back to raw Adwaita. GTK4
+  drops only that declaration.
+
+So validating a GTK3 file with a GTK4 parser (or the reverse) gives a confidently
+wrong answer. Parse each against its own toolkit; see *Validating a change*.
+
 ## The waybar icons are fragile
 
 `config/waybar/config` contains literal Nerd Font glyphs in the Material Design
@@ -232,7 +258,35 @@ Reload a running session without logging out:
 swaymsg reload                    # sway + anything on exec_always
 pkill -SIGUSR2 waybar             # waybar only
 swaync-client --reload-config && swaync-client --reload-css
+pkill -x swayosd-server           # restarted by exec_always on the next reload
 ```
+
+**Parse a stylesheet before you ship it** — and against the right toolkit (see
+*Two GTK dialects* above). A GTK3 file with one bad property renders as raw
+Adwaita rather than erring, so "it still looked styled" is not evidence:
+
+```bash
+# GTK3 — waybar, swaync.  Swap 3.0 for 4.0 to check config/swayosd/style.css.
+python3 - config/waybar/style.css <<'PY'
+import sys, gi
+gi.require_version("Gtk", "3.0")
+from gi.repository import Gtk, Gio
+p = Gtk.CssProvider()
+p.connect("parsing-error", lambda _p, _s, e: print("ERROR:", e.message))
+try:
+    p.load_from_file(Gio.File.new_for_path(sys.argv[1]))
+    print("parsed clean")
+except Exception as exc:
+    print("REJECTED —", exc)
+PY
+```
+
+Under sway you can also verify the result rather than trusting it: `grim -c -g
+"<x>,<y> <w>x<h>" out.png` captures a region with the cursor drawn, which is how
+the tooltips and the swayosd overlay were checked. Note `grim -g` takes **global**
+coordinates while `swaymsg seat seat0 cursor set` takes **output-relative** ones —
+on a multi-head layout those differ by the output's origin, which is an easy hour
+to lose.
 
 ## Notifications: swaync, with mako as fallback
 

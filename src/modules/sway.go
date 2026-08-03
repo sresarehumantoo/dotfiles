@@ -25,6 +25,11 @@ func (SwayModule) Links() core.LinkSet {
 		{Src: core.ConfigPath("swaync", "config.json"), Dst: core.XDGTarget("swaync", "config.json")},
 		{Src: core.ConfigPath("swaync", "style.css"), Dst: core.XDGTarget("swaync", "style.css")},
 		{Src: core.ConfigPath("mako", "config"), Dst: core.XDGTarget("mako", "config")},
+		// swayosd's overlay. Linked because its upstream default colours come
+		// from the system GTK theme, which renders a light pill on this dark
+		// desktop. ⚠ That file is GTK4 CSS, unlike every other stylesheet this
+		// module links — see its header before editing.
+		{Src: core.ConfigPath("swayosd", "style.css"), Dst: core.XDGTarget("swayosd", "style.css")},
 		// Portal routing is per-desktop and keyed on XDG_CURRENT_DESKTOP, so
 		// this file only takes effect under sway and leaves GNOME's portals
 		// alone. Managed here so `diff`/`status` see it like any other link.

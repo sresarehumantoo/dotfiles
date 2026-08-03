@@ -1,0 +1,93 @@
+/* swayosd — managed by dfinstall (modules/sway.go), linked to
+ * ~/.config/swayosd/style.css
+ *
+ * The on-screen overlay for volume / brightness / caps-lock, shown while the
+ * XF86 media keys are held (see config/sway/config). It exists so the status
+ * bar does not have to carry those numbers: the value appears centre-screen at
+ * the moment you change it, and nowhere else.
+ *
+ * Reload after editing:  pkill -x swayosd-server   (sway's exec_always restarts
+ * it on the next `swaymsg reload`)
+ *
+ * ⚠ THIS FILE IS GTK **4** CSS. Everything else styled in this repo — waybar
+ * and swaync — is GTK 3, and the two dialects are not interchangeable:
+ *
+ *     swayosd-server  -> libgtk-4.so.1        (GTK4)
+ *     waybar, swaync  -> libgtk-3.so.0        (GTK3)
+ *
+ * Consequences, all verified rather than assumed:
+ *   · GTK4 DOES support `var()` and custom properties (4.16+); GTK3 does not.
+ *   · GTK4 tolerates an unknown property and drops just that declaration.
+ *     GTK3 discards the ENTIRE stylesheet, including rules above the bad line
+ *     (measured — see the header of config/swaync/style.css).
+ *   · So the GTK3 parser is NOT a valid checker for this file, and vice versa.
+ *     Validate this one against Gtk 4.0.
+ *
+ * Kept to the common subset anyway — plain @define-color, no var() — so the
+ * palette reads identically to the bar and the panel and can be copied between
+ * them without translation.
+ */
+
+@define-color crust    #11111b;
+@define-color text     #cdd6f4;
+@define-color subtext  #a6adc8;
+@define-color surface1 #45475a;
+@define-color blue     #89b4fa;
+@define-color sapphire #74c7ec;
+
+/* Why this file exists at all: upstream's default is
+ *     background: alpha(@theme_bg_color, 0.8);
+ * which resolves against the SYSTEM GTK theme. That theme is light here, so
+ * the overlay rendered as a pale grey pill with a dark icon over a Catppuccin
+ * Mocha desktop — the single most jarring surface in the session. Naming the
+ * colours explicitly decouples the overlay from the GTK theme entirely. */
+window#osd {
+    padding: 12px 20px;
+    border-radius: 999px;
+    /* Matches the bar pill's fill and hairline so the overlay reads as part of
+       the same system rather than a stray dialog. */
+    background-color: rgba(24, 24, 37, 0.94);
+    border: 1px solid rgba(69, 71, 90, 0.55);
+    box-shadow: 0 2px 6px rgba(17, 17, 27, 0.55),
+                0 10px 30px rgba(17, 17, 27, 0.45);
+}
+
+window#osd #container {
+    margin: 16px;
+}
+
+window#osd image,
+window#osd label {
+    color: @text;
+}
+
+/* Muted rather than hidden — this is how a muted sink or a disabled control
+   reports itself. */
+window#osd progressbar:disabled,
+window#osd image:disabled {
+    opacity: 0.5;
+}
+
+window#osd progressbar {
+    min-height: 8px;
+    border-radius: 999px;
+    background: transparent;
+    border: none;
+}
+
+window#osd trough {
+    min-height: inherit;
+    border-radius: inherit;
+    border: none;
+    background-color: @surface1;
+}
+
+/* The filled portion carries the accent, matching the volume slider in the
+   swaync panel — the same value, adjusted two different ways, should not look
+   like two unrelated controls. */
+window#osd progress {
+    min-height: inherit;
+    border-radius: inherit;
+    border: none;
+    background-image: linear-gradient(to right, @sapphire, @blue);
+}
