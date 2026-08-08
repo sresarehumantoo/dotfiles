@@ -28,21 +28,20 @@
 @define-color red      #f38ba8;
 @define-color mauve    #cba6f7;
 
-/* The pill fill.
-   ⚠ THIS ALPHA IS NOW HALF OF A TWO-PART SETTING, and it was 0.88 before
-   SwayFX. Under SwayFX the compositor blurs whatever is behind this surface
-   (config/sway/sway-fx, `layer_effects "waybar"`), and the blur is only
-   visible through the part of the pill this alpha leaves transparent — so
-   raising it back towards opaque silently removes the glass while leaving the
-   blur running and costing GPU.
-   The other half is `blur_brightness` in sway-fx, which had to be lifted to
-   1.25 because the wallpaper under the bar measures 5% luminance. The two are
-   coupled: on a brighter wallpaper, drop BOTH (alpha towards 0.45, brightness
-   towards 1.0) rather than either alone.
-   ⚠ Under plain sway there is no blur at all, so this reads simply as a more
-   transparent bar. That is the fallback session and it is acceptable, but it
-   is why this cannot go much lower. */
-@define-color pill        rgba(24, 24, 37, 0.62);
+/* The pill fill. Was 0.88 before SwayFX; 0.78 keeps enough transparency for
+   the compositor's blur (config/sway/sway-fx, `layer_effects "waybar"`) to
+   actually show through, which is what makes the pill read as glass rather
+   than as paint.
+   ⚠ Do NOT chase more glass by dropping this further on the current wallpaper.
+   The strip under the bar measures 5% luminance, so there is almost nothing
+   behind the pill to reveal — lowering the alpha just makes the bar fainter,
+   and the obvious counter-move (raising blur_brightness) is barred: above 1.0
+   it exposes the blur region's rectangular boundary as a grey block. The
+   measurements are in sway-fx. Glass here is gated by the wallpaper, not by
+   this number.
+   ⚠ Under plain sway there is no blur, so this simply reads as a more
+   transparent bar. That is the fallback session and it is acceptable. */
+@define-color pill        rgba(24, 24, 37, 0.78);
 @define-color pill-border rgba(69, 71, 90, 0.55);
 @define-color pill-hover  rgba(49, 50, 68, 0.85);
 
