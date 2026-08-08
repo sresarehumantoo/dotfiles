@@ -133,8 +133,21 @@ fx animation_duration_ms 250
 # blurs those empty gaps too — producing a faint full-width band where the
 # design calls for three separate floating islands.
 fx layer_effects '"waybar"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
-fx layer_effects '"swaync-control-center"' '"blur enable; blur_ignore_transparent enable; corner_radius 12; shadows enable"'
-fx layer_effects '"swaync-notification-window"' '"blur enable; blur_ignore_transparent enable; corner_radius 12; shadows enable"'
+# ⚠ BLUR IS OFF FOR BOTH swaync SURFACES, DELIBERATELY — DO NOT "RESTORE" IT.
+# The blur writes OUTSIDE the panel's opaque region: with the control centre
+# open, text roughly 100px to its LEFT is visibly smeared, on a surface that is
+# much wider than the panel it draws (swaync's window/.background are already
+# `background: transparent`, so this is spill, not a stray background).
+# `blur_ignore_transparent` is on and does not confine it, and blur STRENGTH is
+# global — it cannot be softened for this namespace without softening waybar too.
+#
+# And it buys nothing: `@panel` in config/swaync/style.css is rgba(...,0.94), so
+# only 6% of the backdrop shows through the panel at all. Blur behind a 94%
+# opaque surface is imperceptible, while the spill beside it is not. If the panel
+# is ever made genuinely translucent, re-measure the spill before turning this
+# back on.
+fx layer_effects '"swaync-control-center"' '"blur disable; corner_radius 12; shadows enable"'
+fx layer_effects '"swaync-notification-window"' '"blur disable; corner_radius 12; shadows enable"'
 fx layer_effects '"launcher"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
 fx layer_effects '"swayosd"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
 fx layer_effects '"sway-calendar"' '"blur enable; blur_ignore_transparent enable; corner_radius 14; shadows enable"'

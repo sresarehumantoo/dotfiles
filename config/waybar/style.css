@@ -349,7 +349,13 @@ window#waybar.empty .modules-center {
    memory, sapphire network, yellow backlight); it looked lively, but a red
    battery warning had to compete with five other colours and lost. */
 
-#clock { color: @blue; font-weight: bold; }
+/* ⚠ NEUTRAL, NOT @blue. The accent came off the focused workspace and the
+   hover cue (see @glass-tint), and leaving it on the clock would have made the
+   one remaining blue thing look like a leftover rather than a decision. Weight
+   and the centre position already make the clock findable; it does not need a
+   hue to do it. @blue is now unused by any resting state — it survives only as
+   a palette entry. */
+#clock { color: @text; font-weight: bold; }
 
 #cpu,
 #memory,
@@ -401,16 +407,34 @@ window#waybar.empty .modules-center {
    ⚠ Adjust these if the font, its build (Mono vs non-Mono), or the font-size
    changes — they are derived from all three. Re-measure with fontTools rather
    than nudging by eye. */
-#network        { padding-left: 6px;  padding-right: 12px; }
-#custom-notification,
+/* ⚠ THESE ARE NOT ARBITRARY, AND THEY ARE ALSO NOT ENOUGH ON THEIR OWN.
+   The values below are the optical corrections derived from the font's own
+   metrics (see the table above). They centre each glyph in its own chip — but
+   centring every glyph individually does NOT produce even spacing BETWEEN
+   chips, because the gap you actually see is ink-to-ink, and each glyph's side
+   bearing differs. Measured across the status cluster, the gaps were
+       22 · 27 · 25 · 31 px
+   which is a 9px spread on nominally identical padding, and reads as a wobble.
+   The extra nudges after each correction close that; re-measure with the
+   ink-span script rather than adjusting by eye, and re-derive both halves if
+   the font or font-size changes. */
+#network        { padding-left: 8px;  padding-right: 11px; }
 #custom-system  { padding-left: 7px;  padding-right: 11px; }
+#custom-notification { padding-left: 2px; padding-right: 11px; }
+#idle_inhibitor { padding-left: 9px;  padding-right: 13px; }
+#pulseaudio     { padding-left: 12px; padding-right: 9px;  }
+#battery        { padding-left: 9px;  padding-right: 4px;  }
 
 /* ── Anti-reflow ───────────────────────────────────────────────────────────
    A variable-width module re-lays-out every module beside it each time its
    text changes width — 9% → 10% shifts the whole cluster, and the bar
    visibly twitches. Pinning a floor stops it. These are minimums, not fixed
    widths, so an unexpectedly long value still fits. */
-#battery              { min-width: 42px; }
+/* ⚠ Wide enough for THREE digits. At 42px "100%" grew the chip and shoved the
+   whole cluster left every time the laptop finished charging — the anti-reflow
+   floor has to cover the widest value the module can ever print, not the
+   common one. */
+#battery              { min-width: 52px; }
 #custom-notification  { min-width: 26px; }
 #network              { min-width: 20px; }
 #pulseaudio           { min-width: 20px; }
