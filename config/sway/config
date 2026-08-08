@@ -160,6 +160,16 @@ bindsym $mod+d      exec $menu
 #   tmux list-keys -T root | grep 'M-'
 bindsym Mod1+space  exec $menu
 bindsym $mod+e      exec nautilus
+# Close the focused window. $mod+Shift+q is the i3/sway default and stays bound
+# for muscle memory; $mod+q is the same command, one key shorter.
+#
+# ⚠ Focused, not hovered — and on this box those differ, because
+# `focus_follows_mouse no` above is deliberate. A keyboard binding cannot target
+# the hovered window: sway exposes no pointer coordinates over IPC, so there is
+# nothing for a helper to query. Mouse bindings are the exception (they act on
+# the container under the pointer), so hover-close, if ever wanted, is
+# `bindsym --whole-window $mod+button2 kill` beside `floating_modifier`.
+bindsym $mod+q       kill
 bindsym $mod+Shift+q kill
 
 ### Focus / movement -------------------------------------------------------
