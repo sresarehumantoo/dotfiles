@@ -589,6 +589,89 @@ unanswered). Keep them opaque — a half-transparent unblurred tooltip reads as
 broken in a way a solid one does not. This desktop has already been bitten once
 by tooltips-are-their-own-surface, in `custom/notification`.
 
+### Turning the effects on: `config/sway/sway-fx`, not the config
+
+**The FX directives are applied over IPC from an `exec_always`, and putting them
+in `config/sway/config` is a mistake that looks correct.** That config is shared
+by all three GDM sessions, and plain sway does not skip an unknown command —
+measured against `/opt/sway-next`:
+
+```
+[ERROR] Error on line 1 'blur enable': Unknown/invalid command 'blur'
+[ERROR] Error(s) loading config!            # exit 1
+```
+
+That is a swaynag *"There are errors in your config file"* on every login to the
+fallback session — the recovery path, which is the last place to put a banner.
+An `include` of a glob matching nothing **is** silent (exit 0, no output), so a
+conditional include would work, but nothing populates the directory per-session
+without a wrapper and the bare **Sway** entry has none.
+
+`sway-fx` keys on **`sway_original_version`** in `swaymsg -t get_version` — a
+field plain sway does not emit — and exits 0 having sent nothing. ⚠ Do **not**
+key on `variant`, which is the string `"sway"` on both. The config validates
+exit 0 on SwayFX *and* on plain sway 1.11; keep it that way.
+
+`exec_always`, not `exec`: `swaymsg reload` resets runtime effects to whatever
+the config says, i.e. none, so re-running on reload is exactly what makes reload
+the right way to re-apply after editing. Every value also applies live —
+`swaymsg blur_passes 3` — which is how these were chosen.
+
+> [!IMPORTANT]
+> **The blur settings are a function of the wallpaper, not of taste.** Glass
+> renders what is behind it. The strip under the bar on the wallpaper in place
+> 2026-08-08 measures **13/255 mean luminance — 5%**, effectively black, and at
+> `blur_brightness 1.0` the pills were nearly invisible. 1.25 lifts them to a
+> readable frosted grey.
+>
+> That is **compensation for a dark backdrop, not the intended look.** Proven by
+> temporarily swapping in a colourful wallpaper: at 1.0 the same settings make
+> each pill tint to the colour behind it, which is the whole point of the
+> effect. **If the wallpaper changes, re-judge `blur_brightness`/`blur_saturation`
+> first and expect to drop them.**
+>
+> The waybar pill alpha is the coupled half — it went 0.88 → 0.62, because blur
+> is only visible through whatever the alpha leaves transparent. Raising it back
+> towards opaque removes the glass *while still paying the GPU cost for it*.
+> Change both together or neither.
+
+Two settings deliberately **not** taken: `blur_xray` (it blurs only the
+wallpaper, so a bar over a maximised terminal would blur something it is not in
+front of — off matches macOS and GNOME) and `default_dim_inactive` (this desktop
+hides the focused border, so dimming would become the only focus cue *and* would
+dim the terminal you are reading the moment a dialog takes focus).
+
+⚠ **`blur_ignore_transparent` matters most on waybar**: the bar window is fully
+transparent between the three pills, and without it the compositor blurs those
+gaps too — a faint full-width band where the design calls for three islands.
+
+### Layer namespaces — read them live, do not guess
+
+Under SwayFX, `swaymsg -t get_outputs` gains a `layer_shell_surfaces` array that
+plain sway does not have. A surface only appears while it is mapped, so open the
+thing first:
+
+```bash
+swaymsg -t get_outputs | jq -r '.[].layer_shell_surfaces[]?.namespace'
+```
+
+`waybar` · `swaync-control-center` · `swaync-notification-window` · `launcher`
+(fuzzel) · `swayosd` · `sway-calendar` · `wallpaper` (swaybg — **never blur
+this**, it is what everything else samples).
+
+This method resolved **swayosd**, which `strings` on the binary could not find,
+and corrected the calendar:
+
+> [!WARNING]
+> **prgname does NOT set a layer-shell namespace.** `config/sway/sway-calendar`
+> asserted it did — *"sway derives a layer surface's namespace from prgname
+> too… what any future `layer_effects`-style rule would match"* — and the first
+> rule that actually needed it proved otherwise: the panel reported as the
+> generic `gtk-layer-shell`. GtkLayerShell supplies its own default and never
+> consults prgname. Fixed at source with `GtkLayerShell.set_namespace()`; that
+> call and the rule in `sway-fx` must stay in step, or the calendar silently
+> becomes the one panel with no blur.
+
 ### The go/no-go: DisplayLink
 
 `/opt/sway-next` exists **because** trixie's wlroots 0.18 cannot drive the
