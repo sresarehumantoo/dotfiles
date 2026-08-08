@@ -66,12 +66,17 @@ func (SwayModule) Links() core.LinkSet {
 		// XF86MonBrightness keys. Not swayosd-client directly: 0.1.0 has no
 		// minimum and will take the panel to black.
 		{Src: core.ConfigPath("sway", "sway-brightness"), Dst: core.HomeTarget(".local", "bin", "sway-brightness")},
+		// SwayFX effects, applied over IPC from an exec_always. NOT config
+		// directives: the sway config is shared by all three GDM sessions and
+		// plain sway fails the whole config load on an unknown command, so
+		// putting `blur enable` in it would nag on every fallback login.
+		{Src: core.ConfigPath("sway", "sway-fx"), Dst: core.HomeTarget(".local", "bin", "sway-fx")},
 	}
 }
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar"}
+var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx"}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //

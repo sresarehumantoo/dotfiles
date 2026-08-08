@@ -351,6 +351,23 @@ bindswitch --reload --locked lid:on exec $lock
 # in place, and only spawn one if none is running. Never kill-and-respawn.
 # (`||` and `>` below are handled by sh -c, not sway's parser.)
 exec_always pkill -SIGUSR2 -x waybar || waybar     # waybar reloads its config on SIGUSR2
+
+# SwayFX visual effects — blur, rounded corners, shadows, animations.
+#
+# ⚠ THE EFFECTS ARE NOT DIRECTIVES IN THIS FILE, AND MUST NOT BECOME ONE. This
+# config is shared by all three GDM sessions, and plain sway does not ignore an
+# unknown command — it fails the whole config load ("Error(s) loading config!",
+# exit 1) and greets you with a swaynag. The fallback session is the recovery
+# path; it must stay clean. The script applies everything over IPC and no-ops
+# silently when the compositor is not SwayFX. Full reasoning in its header.
+#
+# ⚠ Absolute via $HOME — GDM starts sway without a login shell, so ~/.local/bin
+# is not on the session PATH. Third time this repo has hit that.
+#
+# exec_always, deliberately: `swaymsg reload` resets runtime-applied effects
+# back to what this file says (i.e. none), so re-running here is what makes a
+# reload the correct way to re-apply after editing the script.
+exec_always $HOME/.local/bin/sway-fx
 # swaync, not mako: mako 1.10 has no fade/animation/opacity option of any kind,
 # so notifications could only blink out instantly. swaync animates them
 # (transition-time in config/swaync/config.json).

@@ -613,10 +613,17 @@ def main():
     except locale.Error:
         pass
 
-    # Still set, even though no `for_window` rule keys off it any more: sway
-    # derives a layer surface's namespace from prgname too, so this is what shows
-    # up in debug output and what any future `layer_effects`-style rule would
-    # match. Harmless and cheap to keep correct.
+    # ⚠ prgname does NOT set the layer-shell namespace. This comment used to
+    # claim it did ("sway derives a layer surface's namespace from prgname too"),
+    # and that was measured false the first time a `layer_effects` rule actually
+    # needed it: under SwayFX, `swaymsg -t get_outputs` reported this panel as
+    # `gtk-layer-shell`, not `sway-calendar`. GtkLayerShell supplies its own
+    # default namespace and never consults prgname.
+    #
+    # prgname is still worth setting — it is the app_id / WM_CLASS and shows up
+    # in process listings — but the namespace is set explicitly below, next to
+    # the rest of the layer-shell setup, so config/sway/sway-fx can target this
+    # panel alone instead of every GtkLayerShell client on the box.
     GLib.set_prgname(APP_ID)
 
     provider = Gtk.CssProvider()
@@ -631,6 +638,13 @@ def main():
     # xdg_toplevel into a zwlr_layer_surface_v1, and the surface role cannot be
     # changed once the surface is committed.
     GtkLayerShell.init_for_window(win)
+
+    # ⚠ The layer-shell namespace, and the ONLY thing that sets it — see the
+    # prgname note in main(). Without this the panel reports as the generic
+    # `gtk-layer-shell`, which any other GtkLayerShell client would share, so a
+    # `layer_effects "gtk-layer-shell"` rule could not tell them apart.
+    # Must stay in step with config/sway/sway-fx.
+    GtkLayerShell.set_namespace(win, APP_ID)
     # OVERLAY, not TOP: TOP is the same layer waybar occupies, so stacking against
     # the bar would be arbitrary. OVERLAY is unambiguously above it.
     GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
