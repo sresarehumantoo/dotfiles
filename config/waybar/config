@@ -23,6 +23,20 @@
     "position": "top",
     "height": 40,
     "margin-top": 6,
+    // ⚠ MATCHES margin-top, AND IT IS NOT COSMETIC — it is what stops a window
+    // sitting against the bar. waybar's exclusive zone is
+    // height + margin-top + margin-bottom, so this is the only lever that
+    // moves where windows START; the pill's own CSS margin cannot, because it
+    // is inside a surface whose size sway has already reserved.
+    //
+    // Measured before: 9px of air above the pill (6 here + the pill's 3px CSS
+    // margin) against 3px below it, so the row sat visibly high in its own bar
+    // and a single window — which under `smart_gaps on` is flush to the
+    // exclusive zone — butted straight up against it. 6 here makes it 9 and 9.
+    //
+    // ⚠ Changing this MOVES EVERY WINDOW DOWN. Keep it in step with margin-top
+    // rather than tuning it alone, or the bar drifts off-centre in its own zone.
+    "margin-bottom": 6,
     "margin-left": 10,
     "margin-right": 10,
     // 0: gaps between modules come from CSS padding so the pill backgrounds
