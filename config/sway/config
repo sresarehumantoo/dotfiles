@@ -76,12 +76,33 @@ default_floating_border pixel 2
 # zero, and `gaps inner 8` / `outer 4` below mean it would never trigger.
 hide_edge_borders --i3 smart
 
-# smart_gaps OFF, deliberately. It was `on`, which suppresses all gaps when a
-# workspace holds a single window — that would silently cancel the outer gap
-# below and let a lone window sit flush to the screen edge.
+# ⚠ smart_gaps IS NOW ON, AND THIS COMMENT USED TO ARGUE THE OPPOSITE. It read
+# "smart_gaps OFF, deliberately… that would silently cancel the outer gap and
+# let a lone window sit flush to the screen edge" — which is an accurate
+# description of what `on` does, and is now the wanted behaviour rather than the
+# objection to it. A single window takes the whole usable area; the gaps come
+# back the moment the workspace splits.
+#
+# Measured live rather than assumed:
+#   1 window   ->  0,166  1920x1154   (flush; usable area is the output minus
+#                                      the bar's 46px exclusive zone)
+#   2 windows  ->  12,178 944x1130  and  964,178 944x1130
+#                                     (outer 4 + inner 8 both restored)
+#
+# ⚠ THREE SETTINGS NOW AGREE THAT "ALONE = FULL BLEED", and they should be
+# changed together or not at all:
+#   · smart_gaps on          here          — drops the gaps
+#   · hide_edge_borders --i3 smart  above  — drops the border
+#   · smart_corner_radius enable    in config/sway/sway-fx — squares the corners
+# That last one matters under SwayFX: rounded corners on a window that is flush
+# to the screen edge would cut visible notches out of the display corners.
+#
+# `inverse_outer` is the other value worth knowing and is NOT what is wanted: it
+# applies outer gaps ONLY when a workspace has exactly one child, i.e. the
+# reverse of this.
 gaps inner 8
 gaps outer 4
-smart_gaps off
+smart_gaps on
 
 ### Colours ----------------------------------------------------------------
 # Catppuccin Mocha, the same palette as config/waybar/style.css — keep the two
