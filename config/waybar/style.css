@@ -131,9 +131,20 @@ window#waybar {
     border-top-color: @pill-edge;
     border-radius: 16px;
     padding: 0 4px;
-    /* Vertical inset inside the 40px exclusive zone, so the pill is ~30px
-       tall and visibly detached from the screen edge. */
+    /* Vertical inset inside the 40px exclusive zone, so the pill is visibly
+       detached from the screen edge. */
     margin: 3px 0;
+    /* ⚠ WITHOUT THIS THE PILLS ARE DIFFERENT HEIGHTS, and it is not subtle:
+       measured 34 / 34 / 28px for left / centre / right.
+       `.modules-left` and `.modules-center` are direct children of the bar, so
+       GTK stretches them to the full 40px exclusive zone minus their margin.
+       `#status` and `#indicators` are GROUPS nested inside `.modules-right`,
+       and a group hugs its children instead — so the right-hand pill came out
+       6px shorter than the other two and sat visibly smaller in the bar.
+       Pinning the content height makes all four identical regardless of what
+       is inside them or how deeply they are nested. 32 + 1px border top and
+       bottom = the 34px the stretched pills already were. */
+    min-height: 26px;
     /* Two shadows: a tight contact shadow that seats the pill, and a wide soft
        one that gives it height over the wallpaper. A single shadow has to
        choose between the two and ends up looking like a smudge. These are
@@ -159,6 +170,9 @@ window#waybar.empty .modules-center {
    pills apart. Keep this transparent — giving it a background reinstates the
    single-pill layout the groups exist to replace. */
 .modules-right {
+    /* Carries the vertical inset for the two pills inside it — see the note on
+       `#indicators, #status` below. */
+    margin: 3px 0;
     background-color: transparent;
     background-image: none;
     border: none;
@@ -170,6 +184,18 @@ window#waybar.empty .modules-center {
    the pills rather than `spacing` in the jsonc, because waybar's `spacing`
    punches transparent slots through EVERY module gap including the ones inside
    a pill — which is why that value is 0 (see the note on it in `config`). */
+/* ⚠ THE VERTICAL INSET BELONGS TO `.modules-right`, NOT TO THESE GROUPS.
+   The pill rule gives every pill `margin: 3px 0`. For the two direct children
+   of the bar that is the only inset they get; for these two it was a SECOND
+   one, applied inside a container that had already been positioned — so the
+   right-hand pill sat 3px lower and 6px shorter than the other two. Zero it
+   here and let the container carry it, so all three pills share one origin. */
+#indicators,
+#status {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
 #indicators { margin-right: 6px; }
 
 /* ⚠ Collapse the transient pill completely when it has nothing to show.
