@@ -101,7 +101,35 @@ hide_edge_borders --i3 smart
 # applies outer gaps ONLY when a workspace has exactly one child, i.e. the
 # reverse of this.
 gaps inner 8
-gaps outer 4
+# ⚠ PER-EDGE, AND THE TOP IS NEGATIVE ON PURPOSE. Outer gaps are IN ADDITION to
+# inner, so the visible gap at an edge is inner + that edge's outer.
+#
+# The target is that every visible gap is the same 10px, including the one
+# between a window and the bar — and that spawning a second window does not
+# move anything. Before this:
+#
+#         left/right/bottom   12   (inner 8 + outer 4)
+#         window vs bar pill  22   (bar's own margin-bottom and the pill's
+#                                   CSS margin sit inside the exclusive zone,
+#                                   and the outer gap stacked on top of them)
+#         one window          10   (smart_gaps, flush to the zone)
+#
+# so the gap above a window JUMPED FROM 10 TO 22 the moment a second window
+# spawned, which is the "feels off when spawned" — and windows sat at x=12
+# while the bar's pills start at x=10, 2px out of line with them.
+#
+# outer 2 makes the three screen-edge gaps 10, which is exactly the bar's own
+# margin-left/right, so windows now line up with the pills above them.
+# top -8 cancels the inner gap at the top entirely, because the air there is
+# ALREADY provided by the bar's margin-bottom (see config/waybar/config) — the
+# outer gap was double-counting it. Windows now start at y=52 whether there is
+# one of them or nine.
+#
+# ⚠ These four are a set with waybar's `margin-bottom` and `margin-left/right`.
+# Change one and re-measure the others; the alignment is the point, not the
+# individual numbers.
+gaps outer 2
+gaps top -8
 smart_gaps on
 
 ### Colours ----------------------------------------------------------------
