@@ -687,8 +687,34 @@ Luminance of the strip just outside the pill, minus bare wallpaper:
 | 1.1 | +16.3 |
 | 1.25 | **+45.0** (a grey block on every pill) |
 
-Isolated by elimination, not by guessing: the halo survives `shadows disable`
-and `corner_radius 0`, and disappears only under `blur disable`.
+Isolated by elimination: the halo survives `shadows disable` and
+`corner_radius 0`, and disappears only under `blur disable`.
+
+> [!IMPORTANT]
+> **That diagnosis was incomplete, and the follow-up matters more.** Brightness
+> above 1.0 makes the blur region *lit*, but it does not create it — and on a
+> **detailed** wallpaper the region is visible at 1.0 anyway, as blurred
+> rectangles beside each pill, because blur shows as loss of detail whether or
+> not it is brightened. The original conclusion ("invisible at 1.0") was true
+> only of the near-black wallpaper it was measured on.
+>
+> **What creates the region is the pills' own drop shadows.** The compositor
+> blurs every pixel that is not fully transparent, and a soft `0 6px 16px`
+> shadow is ~16 px of barely-transparent pixels ringing the pill. Measured
+> spill into the gap between the workspace and clock pills:
+>
+> | pill `box-shadow` | spill |
+> |---|---|
+> | `0 1px 2px` + `0 6px 16px` | 18 / 28 px |
+> | `0 1px 3px` + `0 2px 6px` | 2 / 7 px |
+> | **`0 1px 2px` only** | **2 / 0 px** |
+> | none at all | 2 / 0 px |
+>
+> The tight shadow costs nothing over having none, so the pill still reads as
+> seated. ⚠ **Never put a soft or wide shadow on a surface the compositor
+> blurs.** Reducing `blur_passes`/`blur_radius` does *not* fix it — even at
+> 1/1 the spill was still 13-21 px, because the region is set by the shadow's
+> extent, not the blur's strength.
 
 This was briefly set to 1.25 to compensate for a near-black wallpaper. **That
 trade is not available** — it buys pill definition with a visible rectangle.

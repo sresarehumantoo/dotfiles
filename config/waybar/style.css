@@ -145,13 +145,24 @@ window#waybar {
        is inside them or how deeply they are nested. 32 + 1px border top and
        bottom = the 34px the stretched pills already were. */
     min-height: 26px;
-    /* Two shadows: a tight contact shadow that seats the pill, and a wide soft
-       one that gives it height over the wallpaper. A single shadow has to
-       choose between the two and ends up looking like a smudge. These are
-       static widgets, so re-rasterising them is a one-off — see the slider
-       note near the bottom of this file for when that is NOT true. */
-    box-shadow: 0 1px 2px rgba(17, 17, 27, 0.50),
-                0 6px 16px rgba(17, 17, 27, 0.38);
+    /* ⚠ ONE TIGHT CONTACT SHADOW ONLY — THE WIDE ONE LEAKS BLUR. There used to
+       be a second `0 6px 16px` shadow here for height over the wallpaper, and
+       under SwayFX it is the direct cause of the blurred rectangles that appear
+       BESIDE each pill: the compositor's blur region covers every pixel that is
+       not fully transparent, a soft shadow is ~16px of barely-transparent
+       pixels around the pill, and the blur therefore extends into the bar's
+       empty space with a hard rectangular edge.
+       Measured spill into the gap between the workspace and clock pills:
+           0 1px 2px + 0 6px 16px   ->  18 / 28 px
+           0 1px 3px + 0 2px 6px    ->   2 /  7 px
+           0 1px 2px only           ->   2 /  0 px   <- this
+           no shadow at all         ->   2 /  0 px
+       i.e. the tight shadow costs nothing over having none, so the pill still
+       reads as seated. ⚠ Do not reintroduce a soft/wide shadow on any surface
+       the compositor blurs — including `#indicators` further down, which was
+       given the same treatment for the same reason. It is invisible on a dark
+       wallpaper (nothing behind it to smear) and obvious on a detailed one. */
+    box-shadow: 0 1px 2px rgba(17, 17, 27, 0.50);
 }
 
 /* ⚠ INERT AS LONG AS THE CENTRE MODULE IS THE CLOCK. `.empty` is set by
@@ -224,8 +235,7 @@ window#waybar.empty .modules-center {
        like border, has intrinsic width and paints when the group is empty. */
     border: none;
     box-shadow: inset 0 0 0 1px @pill-border,
-                0 1px 2px rgba(17, 17, 27, 0.50),
-                0 6px 16px rgba(17, 17, 27, 0.38);
+                0 1px 2px rgba(17, 17, 27, 0.50);
 }
 
 /* Workspaces ------------------------------------------------------------ */
@@ -283,7 +293,7 @@ window#waybar.empty .modules-center {
 #custom-ws7.empty,
 #custom-ws8.empty,
 #custom-ws9.empty {
-    opacity: 0.55;
+    opacity: 0.62;
 }
 
 #custom-ws1.occupied,
