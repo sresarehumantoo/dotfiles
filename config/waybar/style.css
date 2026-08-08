@@ -28,20 +28,28 @@
 @define-color red      #f38ba8;
 @define-color mauve    #cba6f7;
 
-/* The pill fill. ⚠ THIS NUMBER IS TUNED TO THE WALLPAPER AND IS NOT PORTABLE.
-   Blur only shows through whatever this alpha leaves transparent, so the right
-   value depends entirely on what is behind the bar.
-     · 0.88  the original, from before SwayFX (no blur at all)
-     · 0.78  a dark near-black wallpaper — had to stay high just to keep the
-             bar readable, which meant almost no glass
-     · 0.50  the current wallpaper (~57 luminance under the bar), where the
-             pills genuinely tint to what is behind them
-   Measured at 0.50: the focused numeral still reads 11.2:1, well over Apple's
-   4.5:1 floor for text over the material, so legibility is not what caps this.
+/* The pill fill — a DARK TINT the inner chips sit inside, not a light wash.
+   ⚠ TUNED TO THE WALLPAPER AND NOT PORTABLE. Blur only shows through what this
+   leaves transparent, so the right value depends on what is behind the bar:
+     · 0.88  base #1e1e2e — the original, from before SwayFX (no blur at all)
+     · 0.78  base #1e1e2e — a near-black wallpaper; had to stay high just to
+             keep the bar readable, which meant almost no glass
+     · 0.50  base #1e1e2e — first bright wallpaper; glass appeared, but the
+             backdrop read as CONTENT rather than tint and the digits fought it
+     · 0.72  base #11111b — current. Deeper pigment, so the wallpaper reads as
+             a tint on dark glass instead of as the pill's subject.
+   ⚠ DARKENING IS NEARLY FREE, WHICH IS NOT OBVIOUS. Going 0.50 -> 0.82 moves
+   pill luminance 48.7 -> 21.6 but colour retention only 0.56 -> 0.51, because
+   `blur_saturation` in sway-fx preserves hue independently of luminance. So a
+   darker tint buys a lot of legibility (empty-digit ink +34 -> +55 over its own
+   backdrop) at almost no cost to the tint itself. 0.72 is the point where the
+   chips are crisp and the wallpaper still clearly colours the glass; 0.82 is
+   available if a busier wallpaper needs it.
+   Legibility is not the cap either way — the focused numeral measures +193.
    ⚠ Change the wallpaper and re-judge this together with `.empty`'s opacity
-   below and `blur_brightness` in config/sway/sway-fx — see
-   ~/Pictures/wallpapers/README.md for the measurement that picks a wallpaper. */
-@define-color pill        rgba(24, 24, 37, 0.50);
+   below and `blur_saturation` in config/sway/sway-fx. See
+   ~/Pictures/wallpapers/README.md for the criterion that picks a wallpaper. */
+@define-color pill        rgba(11, 11, 17, 0.72);
 @define-color pill-border rgba(69, 71, 90, 0.55);
 @define-color pill-hover  rgba(205, 214, 244, 0.07);   /* a veil on the glass, not a grey fill */
 
@@ -279,11 +287,12 @@ window#waybar.empty .modules-center {
 
 /* Empty-but-persistent is most of the row at any moment, so it recedes — the
    row should read as a quiet ruler, not nine competing chips.
-   ⚠ COUPLED TO THE WALLPAPER, like the pill alpha above. 0.38 was set against
-   a near-black backdrop; on the current one it left these digits washed out
-   (ink only +27 luminance over their own backdrop). 0.55 measures +36 and is
-   still visibly dimmer than an occupied workspace, which is the distinction
-   this opacity exists to draw — 0.70 is legible but flattens it. */
+   ⚠ COUPLED TO THE PILL TINT ABOVE, and it moves the opposite way. It went
+   0.38 -> 0.55 -> 0.62 while chasing legibility against an increasingly bright
+   pill, and came back to 0.50 once the pill itself went dark: a deeper
+   container does the work, so the digits can recede again. Measured at 0.72/
+   0.50: empty ink +39 over its own backdrop, and still +60 below an occupied
+   workspace, which is the distinction this opacity exists to draw. */
 #custom-ws1.empty,
 #custom-ws2.empty,
 #custom-ws3.empty,
@@ -293,7 +302,7 @@ window#waybar.empty .modules-center {
 #custom-ws7.empty,
 #custom-ws8.empty,
 #custom-ws9.empty {
-    opacity: 0.62;
+    opacity: 0.50;
 }
 
 #custom-ws1.occupied,
