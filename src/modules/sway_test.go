@@ -48,6 +48,7 @@ func TestSwayPackagesAreReferencedByConfig(t *testing.T) {
 		"config/swaync/config.json",
 		"config/sway/sway-powermenu",
 		"config/sway/sway-quickpanel",
+		"config/sway/sway-calendar",
 		"docs/sway.md",
 	} {
 		b, err := os.ReadFile(filepath.Join(repo, rel))
@@ -100,7 +101,64 @@ func TestMissingSwayPackagesResolvesViaPATH(t *testing.T) {
 	if !missingSet["waybar"] {
 		t.Errorf("waybar is absent from the sandboxed PATH but was not reported missing")
 	}
-	if len(missing) != len(swayPackages)-1 {
-		t.Errorf("expected %d missing, got %d (%v)", len(swayPackages)-1, len(missing), missing)
+
+	// Packages in swayPkgGlobs are decided on DISK, not PATH, so an emptied PATH
+	// says nothing about them and they must be excluded from this count.
+	want := -1 // swayosd, provided above
+	for _, pkg := range swayPackages {
+		globs, fileProbed := swayPkgGlobs[pkg]
+		if !fileProbed {
+			want++
+			continue
+		}
+		if !pkgFilePresent(globs) {
+			want++
+		}
+	}
+	if len(missing) != want {
+		t.Errorf("expected %d missing, got %d (%v)", want, len(missing), missing)
+	}
+}
+
+// A typelib has no binary, so it cannot be probed on PATH. Without a file-based
+// check every gir1.2-* package would be reported missing forever, and `install
+// sway` would reinstall it on every run.
+func TestPkgFilePresentDecidesOnDisk(t *testing.T) {
+	dir := t.TempDir()
+	nested := filepath.Join(dir, "x86_64-linux-gnu", "girepository-1.0")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	globs := []string{
+		filepath.Join(dir, "*", "girepository-1.0", "Marker-0.1.typelib"),
+		filepath.Join(dir, "girepository-1.0", "Marker-0.1.typelib"),
+	}
+	if pkgFilePresent(globs) {
+		t.Fatal("reported present before the typelib exists")
+	}
+
+	// The multiarch glob must match through the wildcard directory component.
+	marker := filepath.Join(nested, "Marker-0.1.typelib")
+	if err := os.WriteFile(marker, []byte("x"), 0o644); err != nil {
+		t.Fatalf("writing marker: %v", err)
+	}
+	if !pkgFilePresent(globs) {
+		t.Error("typelib exists under the multiarch path but was not found")
+	}
+
+	// PATH must be irrelevant to this decision.
+	t.Setenv("PATH", "")
+	if !pkgFilePresent(globs) {
+		t.Error("an emptied PATH changed a file-based probe")
+	}
+
+	// Every package declared as file-probed must really be present on this box,
+	// or the glob is wrong — this is the check that would have caught a typo in
+	// the multiarch pattern.
+	for pkg, g := range swayPkgGlobs {
+		if !pkgFilePresent(g) {
+			t.Logf("note: %s not found via %v (fine on a non-sway box)", pkg, g)
+		}
 	}
 }

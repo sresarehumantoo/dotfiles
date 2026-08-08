@@ -258,11 +258,44 @@ button {
 
 /* Control centre --------------------------------------------------------- */
 
+/* ⚠ ALL FOUR CORNERS ARE SQUARE ON PURPOSE. This is the fix for the corner
+   artifact that used to be the open item at the end of docs/sway.md — read that
+   section before rounding any of them back.
+
+   Why: @panel is 94% opaque, so it DIMS the focused window's border wherever it
+   covers it — the right border (#f5e0dc, `indicator` in client.focused) from
+   (245,224,220) down to (36,35,47). ANY rounded corner carves the panel away and
+   leaves that border undimmed in the cut-out, so a short straight bright segment
+   appears welded to a rounded corner. That mismatch is the artifact; the radius
+   is what creates it. `fit-to-screen: true` makes the panel 1130px tall (it
+   fills the output — `control-center-height` is inert), so its bottom edge at
+   y=1190 sits just past the window's bottom border at y=1186-1187 and the bottom
+   corners clipped it exactly like the top ones did.
+
+   Measured bright pixels in each corner box:
+
+     corner        radius 18px      squared
+     top-right     11 (cream)       0
+     bottom-right   3               0
+     bottom-left   30               18*
+
+   * the bottom-left residue is not a cut-out — it is the border bleeding through
+     the panel's own 1px edge at x=1443, a 1px-wide effect that no radius change
+     can reach.
+
+   ⚠ DO NOT try to fix this with the margins instead — measured, they all make it
+   WORSE, because they move the border out from under the panel that was hiding
+   it. `control-center-margin-bottom: 20` takes the bottom-right from 3 to 60.
+   Same result at the top with margin-top/right; see docs/sway.md.
+
+   Inner elements (buttons, notifications, the Clear-all pill) keep their own
+   radius, so the panel still reads as soft — only its outer edge is square, and
+   at full height against the screen corner it reads as a docked sidebar. */
 .control-center {
     background: @panel;
     border: 1px solid @surface0;
     border-top-color: @glass-edge;
-    border-radius: 18px;
+    border-radius: 0;
     padding: 12px 10px;
     box-shadow: 0 2px 6px rgba(17, 17, 27, 0.55),
                 0 12px 36px rgba(17, 17, 27, 0.60);
@@ -451,6 +484,43 @@ scrollbar slider:hover {
     background-image: none;
     border-color: @glass-edge;
     color: @blue;
+}
+
+/* Widget: system stats (LOCAL DELTA) -------------------------------------
+
+   Not an upstream widget — see the note in config/swaync/config.json. It
+   carries the cpu/memory/temperature readouts that used to live in waybar's
+   `group/system` hover drawer, which is why the tile styling below matches the
+   slider tiles exactly: in the panel these are one family of rows, not a
+   transplant from the bar.
+
+   The readouts are deliberately dimmer than the label. They are glanceable
+   information, not controls, and should not compete with the sliders directly
+   above them for attention. */
+.widget-system-stats {
+    background-color: @tile;
+    border: 1px solid @hairline;
+    border-radius: 14px;
+    color: @text;
+    padding: 10px 14px;
+    margin: 0 2px 8px 2px;
+}
+
+.widget-system-stats label {
+    color: @text;
+}
+
+.widget-system-stats .system-stats-cpu,
+.widget-system-stats .system-stats-memory,
+.widget-system-stats .system-stats-temperature {
+    color: @subtext;
+    font-size: 0.92em;
+}
+
+/* Matches waybar's own critical-temperature treatment, so a hot machine reads
+   the same whichever surface you happen to be looking at. */
+.widget-system-stats .system-stats-temperature.critical {
+    color: @red;
 }
 
 /* Widgets: volume + brightness sliders ----------------------------------- */

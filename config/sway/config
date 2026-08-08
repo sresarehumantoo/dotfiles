@@ -31,15 +31,50 @@ set $lock    swaylock -f -c 1e1e2e
 # family name), so `pango:Hack` silently fell through to the generic monospace.
 font pango:IosevkaTerm Nerd Font 10
 
-# Titlebars off. With a multi-monitor layout the focused border is the thing
-# you actually read to find focus, and the title is already in waybar's centre
-# pill. Revert with `normal 2`.
+# Titlebars off. Revert with `normal 2`.
+#
+# ⚠ THE WINDOW TITLE IS NOT DISPLAYED ANYWHERE ON THIS DESKTOP, and this comment
+# has now been wrong twice by claiming otherwise. It used to read "the title is
+# already in waybar's centre pill" — true when `modules-center` was
+# `["sway/window"]`, but the centre pill now holds the CLOCK
+# (config/waybar/config), so there is no title anywhere: not in a titlebar, not
+# in the bar. That is deliberate, not an oversight. To get it back, put
+# "sway/window" into modules-center and move the clock to modules-right.
 #
 # NOTE: tabbed ($mod+w) and stacking ($mod+s) layouts still draw titlebars
 # regardless of this setting — that is why the client.* titlebar background
 # and text colours below still matter.
 default_border          pixel 2
 default_floating_border pixel 2
+
+# ⚠ THE FOCUSED BORDER IS HIDDEN WHEN A WORKSPACE HOLDS ONE WINDOW, and that is
+# a deliberate trade — read this before removing the line.
+#
+# What it fixes: with a single window the 2px client.focused border (#89b4fa,
+# plus the #f5e0dc indicator on the split edge) drew a bright blue frame around
+# the whole screen — 2876 border pixels along the top edge alone. Against the
+# swaync control centre, whose outer edge is deliberately square and quiet
+# (config/swaync/style.css), that frame was the loudest thing on screen and read
+# as an outline bolted onto the panel. Measured 2876 -> 0 with this line.
+#
+# Why `smart` and not `default_border none`: borders still appear the moment a
+# workspace holds 2+ windows, which is the case where they earn their keep by
+# showing which pane has focus. Nothing is lost while tiling.
+#
+# ⚠ WHAT IT COSTS, and this comment used to sit above `default_border` claiming
+# the opposite: on a MULTI-MONITOR layout with one window per output there is now
+# no border anywhere, so the focused border can no longer tell you which SCREEN
+# has focus. That cue is gone by choice — owen's call, chosen over both dimming
+# client.focused and dropping borders entirely. If it turns out to matter, the
+# non-destructive alternative is to keep this line off and instead recolour
+# client.focused's border+indicator to a dark surface tone (#313244), which
+# quiets the frame without hiding anything.
+#
+# ⚠ `--i3` MATTERS. Without it sway uses its own semantics for `smart`; the i3
+# flag is the "hide when only one window is visible" behaviour intended here.
+# `smart_no_gaps` is NOT the right value: it additionally requires gaps to be
+# zero, and `gaps inner 8` / `outer 4` below mean it would never trigger.
+hide_edge_borders --i3 smart
 
 # smart_gaps OFF, deliberately. It was `on`, which suppresses all gaps when a
 # workspace holds a single window — that would silently cancel the outer gap
@@ -279,6 +314,18 @@ for_window [app_id="pavucontrol"]        floating enable
 for_window [app_id="sway-quickpanel"]    floating enable
 for_window [app_id="sway-quickpanel"]    border pixel 2
 for_window [app_id="sway-quickpanel"]    sticky enable
+# ⚠ sway-calendar DELIBERATELY HAS NO for_window RULES, and adding them is a
+# no-op rather than an error. It is a zwlr_layer_shell_v1 surface (like waybar
+# and swaync), not an xdg_toplevel, so it never appears in the window tree and no
+# `[app_id="sway-calendar"]` criteria can ever match it — floating/border/sticky
+# are all meaningless for it, and it gets no client.focused border at all.
+#
+# It began as a plain toplevel with those three rules, exactly like the
+# quickpanel above. The reason it moved: a Wayland client cannot position its own
+# toplevel, so sway placed it mid-screen and a `swaymsg move absolute position`
+# dragged it under the clock a frame later — VISIBLY. A layer surface takes its
+# position from the initial configure, so there is nothing to move. Full write-up
+# in docs/sway.md and the script's docstring.
 for_window [app_id="blueman-manager"]    floating enable
 for_window [app_id="nm-connection-editor"] floating enable
 
@@ -307,16 +354,33 @@ exec_always pkill -SIGUSR2 -x waybar || waybar     # waybar reloads its config o
 # swaync, not mako: mako 1.10 has no fade/animation/opacity option of any kind,
 # so notifications could only blink out instantly. swaync animates them
 # (transition-time in config/swaync/config.json).
-# Same reload-else-launch shape as the waybar line above — if swaync-client
-# cannot reach a running daemon the reload fails and the `else` starts one.
-# ⚠ Written as if/then/else, NOT `A && B || swaync`: with that precedence a
+# ⚠ THE CONDITION IS `pgrep`, NOT THE RELOAD'S EXIT CODE. This line used to read
+#     if swaync-client --reload-config; then ... else swaync; fi
+# on the assumption that the reload FAILS when no daemon is running, so the
+# `else` would launch one. It does not fail — it BLOCKS, printing
+#     Could not connect to CC service. Will wait for connection...
+# and waits forever for a daemon that nothing is left to start. So on any
+# session where swaync was not already up, this line hung at login and swaync
+# never started at all: no control centre, and the waybar bell silently doing
+# nothing (its `-sw` gives up rather than launching — see config/waybar/config).
+# Observed live: the hung `swaync-client --reload-config` was still sitting
+# there 24 minutes into the session, sway's exec_always never having returned.
+#
+# Waiting is the documented default; `-sw`/`--skip-wait` is opt-out. So decide
+# on whether the process exists, exactly as the swayosd line below does, and
+# never on what the client returns.
+#
+# ⚠ `-sw` MUST FOLLOW THE ACTION FLAG, not precede it. swaync-client takes one
+# option: `swaync-client -sw --reload-config` prints its usage and exits **0**,
+# which looks like success and reloads nothing. `--reload-config -sw` is right.
+#
+# ⚠ Still if/then/else, NOT `A && B || swaync`: with that precedence a
 # successful --reload-config followed by a FAILED --reload-css (an invalid
 # stylesheet) falls through to `||` and spawns a SECOND daemon alongside the
-# running one. The daemon must be started only when the reload could not
-# reach one at all.
+# running one.
 # ⚠ mako is still INSTALLED as a fallback and its config is still managed. To
 # go back, swap this line for:  exec_always makoctl reload || mako
-exec_always sh -c 'if swaync-client --reload-config; then swaync-client --reload-css; else swaync; fi'
+exec_always sh -c 'command -v swaync >/dev/null 2>&1 || exit 0; if pgrep -x swaync >/dev/null 2>&1; then swaync-client --reload-config -sw && swaync-client --reload-css -sw; else swaync & fi'
 
 # swayosd — the on-screen volume/brightness/caps-lock overlay the media keys
 # above drive. Optional: absent binary means the keys fall back to wpctl and
@@ -328,6 +392,25 @@ exec_always sh -c 'if swaync-client --reload-config; then swaync-client --reload
 # would flash the overlay away mid-use for no benefit. Start-if-absent is
 # enough because the server is stateless.
 exec_always sh -c 'command -v swayosd-server >/dev/null 2>&1 && ! pgrep -x swayosd-server >/dev/null && swayosd-server &'
+
+# sway-calendar as a RESIDENT SERVER, started hidden. Clicking the clock in
+# waybar signals it (SIGUSR1) to toggle, which costs ~65ms instead of the ~366ms
+# a fresh Python+GTK process needs — measured, and 260ms of that is fixed
+# interpreter and GTK init before any of the script's own code runs, so
+# spawn-per-click cannot be made to feel responsive.
+#
+# ⚠ `--anchor` MUST MATCH WHERE THE CLOCK IS in config/waybar/config, because the
+# SERVER owns the geometry now — the click path only delivers a signal and cannot
+# pass an anchor. Clock in modules-center -> `--anchor center`.
+#
+# ⚠ NO pgrep GUARD, deliberately, and do not add one. `pgrep -f sway-calendar`
+# would match the `sh -c` running this very line — the same self-match trap the
+# autotiling comment above records — so it could never fire. The script guards
+# itself instead: `--server` checks its own pidfile and declines to start a second
+# resident instance, which is what makes this safe under `exec_always` re-running
+# on every `swaymsg reload`. Absolute path for the same GDM/PATH reason as the
+# brightness keys.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-calendar" ] && "$HOME/.local/bin/sway-calendar" --server --anchor center &'
 
 # Dynamic-tiling approximation over sway IPC — the mitigation for sway being
 # manual-tiling. Comment this out to judge plain sway.

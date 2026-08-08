@@ -1,0 +1,699 @@
+#!/usr/bin/env python3
+"""sway-calendar — click-to-open, flippable month calendar for sway.
+
+Linked to ~/.local/bin/sway-calendar by modules/sway.go. Opened by LEFT-CLICKING
+the clock in waybar (config/waybar/config), which is why it must live on PATH
+without a directory component being guessed — see the $HOME note on the waybar
+side.
+
+WHY THIS EXISTS — waybar's clock already renders a calendar, but only inside its
+TOOLTIP, and a GTK tooltip is hover-only. waybar has no "show the tooltip on
+click" option and no way to keep it open, so a calendar you can actually browse
+cannot be built from the clock module:
+
+  * it vanishes the moment the pointer leaves the clock, so reaching for the
+    month arrows dismisses the thing you are reaching into;
+  * `actions.on-scroll-up: shift_up` does flip months, but only while hovering,
+    so you are scrolling blind on a surface that disappears if you drift off it;
+  * a tooltip cannot take keyboard focus at all, so no key ever reaches it.
+
+So this is a real window with its own surface. GNOME's shell calendar is the
+model — month arrows, today picked out, adjacent months shown dimmed rather than
+as blanks.
+
+POSITION — it drops from under the bar, aligned to the clock, which is the one
+thing the tooltip genuinely got right.
+
+⚠ THIS IS A LAYER-SHELL SURFACE, NOT A FLOATING TOPLEVEL, and that is the whole
+reason it does not visibly jump. The first version was a plain xdg_toplevel like
+sway-quickpanel, and a Wayland client cannot position its own toplevel: sway
+placed it in the middle of the screen, then a `swaymsg move absolute position`
+dragged it under the bar a frame or two later. That reposition is VISIBLE — the
+window appears mid-screen and slides. There is no fix at that level, only a
+smaller race, because the move can by definition only happen after the surface
+exists.
+
+zwlr_layer_shell_v1 solves it properly: the position is expressed as anchors and
+margins that the compositor applies in the INITIAL configure, so the first frame
+is already in the right place. It is what waybar and swaync themselves use. It
+also drops a pile of incidental machinery — no `for_window` rules, no app_id
+criteria, no IPC round-trip, no retry loop, no output arithmetic (the compositor
+resolves margins against the usable area, so waybar's exclusive zone is honoured
+for free).
+
+`--anchor left|center|right` picks the horizontal edge and must match where the
+clock sits in waybar's module lists (centre today).
+
+TOGGLE — clicking the clock again closes it. That needs an explicit
+single-instance check, because waybar's own surface takes no keyboard focus, so
+clicking it does NOT deliver focus-out to this window: without the pidfile below,
+a second click just spawned a second calendar on top of the first.
+
+Navigation:
+    click the arrows        previous / next month
+    scroll wheel            previous / next month
+    Shift + scroll          previous / next YEAR
+    PageUp / PageDown       previous / next month
+    Shift+PageUp / PageDown previous / next year
+    arrow keys              move the selected day (crosses month boundaries)
+    t, or click the title   back to today
+    Escape                  close
+
+⚠ FIRST WEEKDAY IS A CONSTANT, not derived from the locale, and that is not
+laziness — glibc carries the answer in `_NL_TIME_FIRST_WEEKDAY`, but Python's
+`locale` module does not expose it. `locale.nl_langinfo()` validates its
+argument against Python's own table, so the glibc item numbers
+(`(LC_TIME << 16) | 17`) do not reach glibc; they land on unrelated entries and
+return abbreviated MONTH names. Verified here: item 0x20011 returned 'Apr'.
+Do not re-derive this. Override with SWAY_CALENDAR_FIRST_WEEKDAY=monday|sunday.
+Everything else (day and month names) IS locale-aware, via setlocale below.
+"""
+import calendar
+import datetime as dt
+import locale
+import os
+import signal
+import sys
+
+
+# ── The resident-server fast path ──────────────────────────────────────────────
+# Everything down to `import gi` deliberately runs BEFORE GTK is imported, and the
+# ordering is the entire optimisation. Measured cost of a cold start, from exec to
+# first pixel:
+#
+#     python interpreter up    35 ms
+#     gi imports             +221 ms   <- the wall
+#     CSS + window build      +62 ms
+#     first draw              366 ms total
+#
+# ~260ms of that is fixed Python+GTK init that runs before any of this file's own
+# code, so a spawn-per-click design cannot be made to feel instant — it is
+# reliably over the ~300ms where a click starts feeling sluggish. So the window is
+# built ONCE by a resident server (started from config/sway/config, like
+# swayosd-server) and a click merely signals it: SIGUSR1 toggles visibility.
+#
+# ⚠ THE CLIENT PATH MUST NOT IMPORT gi. That is why this block sits above the
+# import rather than inside main(): a module-level `import gi` runs on every
+# invocation regardless of arguments, so a client that imported it would pay the
+# same 260ms and the server would buy nothing. Delivering a signal costs ~35ms,
+# i.e. Python startup alone.
+PIDFILE = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or "/tmp/%d" % os.getuid(),
+    "sway-calendar.pid")
+
+
+def server_pid():
+    """PID of the live server, or None. A stale pidfile reads as None."""
+    try:
+        with open(PIDFILE) as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+    if pid == os.getpid():
+        return None
+    try:
+        os.kill(pid, 0)  # probe only
+    except OSError:
+        return None      # stale: crash, or a reboot that left the file behind
+    return pid
+
+
+def signal_server(sig):
+    """Send `sig` to the resident server. True if it was delivered."""
+    pid = server_pid()
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, sig)
+        return True
+    except OSError:
+        return False
+
+
+def client_fast_path(argv):
+    """Exit code if this invocation needs no GTK at all, else None.
+
+    ⚠ THIS MUST BE CALLED AT MODULE LEVEL, BELOW, AND NOT FROM main(). Defining
+    the helpers above `import gi` achieves nothing on its own — module-level
+    imports run at exec time, before main() is ever entered, so a client that
+    reached this logic from inside main() would already have paid the full 260ms
+    GTK import. That was the first version of this optimisation and it measured
+    ~280ms per click, i.e. no better than spawning a fresh calendar.
+    """
+    if any(a in ("-h", "--help") for a in argv):
+        print(__doc__.strip())
+        return 0
+    if "--server" in argv:
+        # Decline to become a second resident server. Cheap here, and it means a
+        # `swaymsg reload` costs a Python startup rather than a whole GTK init.
+        return 0 if server_pid() is not None else None
+    if signal_server(signal.SIGUSR1):
+        return 0  # the click path, in ~35ms
+    return None   # no server running — fall through and become one
+
+
+if __name__ == "__main__":
+    _rc = client_fast_path(sys.argv[1:])
+    if _rc is not None:
+        sys.exit(_rc)
+
+
+import gi  # noqa: E402  — see the fast-path note above
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+# ⚠ Gdk MUST be pinned too, not just Gtk. Without this line Gdk is resolved
+# before Gtk, finds no version requirement, and loads the newest on the system —
+# GTK **4** — after which `require_version("Gtk", "3.0")` fails with
+# `RepositoryError: Requiring namespace 'Gdk' version '3.0', but '4.0' is already
+# loaded`. It is not hypothetical and it is not caught by py_compile: this file
+# had exactly that bug until the first run. sway-quickpanel pins both for the
+# same reason.
+gi.require_version("Gdk", "3.0")
+from gi.repository import GLib, Gdk, Gtk, GtkLayerShell  # noqa: E402
+
+APP_ID = "sway-calendar"
+
+# md-chevron_left / md-chevron_right. Written as escapes, not raw bytes: every
+# Nerd Font icon is in Plane 15, and config/waybar/config records how easily a
+# non-UTF-8-clean tool strips those characters invisibly. Escapes survive that.
+CHEVRON_LEFT = "\U000f0141"
+CHEVRON_RIGHT = "\U000f0142"
+
+WEEKS = 6  # fixed row count, so flipping months never resizes the window
+
+# ⚠ GAP IS MEASURED FROM THE USABLE AREA, NOT THE SCREEN EDGE, and that is what
+# makes it a small number. A layer surface anchored to TOP without its own
+# exclusive zone has its margins resolved by the compositor against the area left
+# over AFTER other surfaces' exclusive zones — so waybar's 46px (height 40 +
+# margin-top 6) is already subtracted and there is no bar arithmetic to do here.
+# GAP 6 therefore lands the top edge on y52, exactly where swaync's control
+# centre sits (its own `control-center-margin-top` is 5, against the same usable
+# area), so the two panels line up when both are open. Mirrors
+# config/waybar/config and config/swaync/config.json — keep the three in step.
+GAP = 6
+EDGE_MARGIN = 10  # waybar's own margin-left/right, for the left/right anchors
+
+# How long to ignore focus events after mapping. See the connect() in __init__ —
+# a layer surface emits a spurious focus-in/focus-out pair immediately after map,
+# which would otherwise dismiss the calendar before it is ever drawn.
+FOCUS_ARM_MS = 500
+
+# ⚠ THIS PANEL IS THE ONE PLACE ON THIS DESKTOP THAT IS NOT IosevkaTerm, and
+# that is deliberate. Everything else here (bar, swaync, terminal) is monospace
+# because it shows aligned columns of data; a calendar is UI chrome, and set in a
+# terminal face it reads as a printout — cramped weekday headings, typewriter
+# digits, a month name that looks like log output. Cantarell is the desktop's
+# actual UI font (`gsettings get org.gnome.desktop.interface font-name` ->
+# 'Cantarell 11') and is what GNOME's own shell calendar uses, which is the thing
+# this is modelled on.
+#
+# Alignment does not suffer: Cantarell carries `tnum` (verified in its GSUB), so
+# the digits are tabular and the columns line up despite the face being
+# proportional. Each cell is also a fixed-width button with centred text, so
+# glyph advance is not load-bearing anyway.
+#
+# ⚠ GTK3 CSS FONT-FEATURE SYNTAX IS NOT THE WEB'S. Measured against the real
+# parser:
+#     font-feature-settings: "tnum" 1;      REJECTED — "Junk at end of value"
+#     font-feature-settings: "tnum";        OK
+#     font-variant-numeric: tabular-nums;   REJECTED — not a valid property
+# And remember one bad property discards the WHOLE stylesheet, so verify with
+# Gtk.CssProvider().load_from_data() — which RAISES GError, it does not merely
+# emit parsing-error — before shipping any change here.
+#
+# ⚠ button.nav KEEPS THE NERD FONT. The chevrons are md-chevron_left/right in
+# Plane 15 and Cantarell does not have them (verified against its cmap); without
+# an explicit family the arrows would fall through to whatever fontconfig picks.
+CSS = b"""
+/* !! THE WINDOW IS TRANSPARENT AND THE PANEL CARRIES THE BACKGROUND. The surface
+   spans the whole usable area so that clicks landing outside the panel reach us
+   and can dismiss it (see _on_button_press) -- a window background would paint
+   the entire screen instead. The visible box is box.calendar; that is the one
+   that must be opaque.
+   Two syntax notes, both of which discard the WHOLE stylesheet if broken:
+   GTK3 CSS comments are C-style, so a `#` line here is a parse error; and this
+   literal is a Python BYTES string, so it must stay pure ASCII -- a stray warning
+   glyph here fails at import with "bytes can only contain ASCII literal
+   characters". Keep prose outside the literal. */
+window { background-color: transparent; }
+box.calendar {
+    background-color: #1e1e2e;
+    padding: 10px 12px 12px 12px;
+}
+
+/* Header ------------------------------------------------------------------ */
+box.header { margin-bottom: 6px; }
+button.nav {
+    background-color: transparent; background-image: none; border: none;
+    box-shadow: none; color: #a6adc8; padding: 2px 8px;
+    border-radius: 8px; min-width: 28px;
+    font-family: "IosevkaTerm Nerd Font", monospace; font-size: 16px;
+}
+button.nav:hover { background-color: #313244; color: #cdd6f4; }
+button.title {
+    background-color: transparent; background-image: none; border: none;
+    box-shadow: none; color: #cdd6f4; font-weight: bold;
+    font-family: Cantarell, sans-serif; font-size: 15px;
+    border-radius: 8px; padding: 3px 12px;
+}
+button.title:hover { background-color: #313244; }
+
+/* Grid -------------------------------------------------------------------- */
+label.weekday {
+    color: #6c7086; font-size: 11px; font-weight: bold;
+    font-family: Cantarell, sans-serif;
+    letter-spacing: 0.06em;
+    padding-bottom: 6px;
+}
+button.day {
+    background-color: transparent; background-image: none; border: none;
+    box-shadow: none; color: #cdd6f4;
+    font-family: Cantarell, sans-serif; font-size: 14px;
+    font-feature-settings: "tnum";
+    min-width: 34px; min-height: 32px; padding: 0;
+    border-radius: 16px;
+}
+button.day:hover { background-color: #313244; }
+/* Days belonging to the neighbouring month: present, but clearly not this
+   month. GNOME shows these rather than leaving holes, which keeps the grid a
+   stable 6x7 and makes the month boundary readable. */
+button.day.dim { color: #45475a; }
+/* Today is the accent; the selection is an outline, so both can show at once
+   without one hiding the other. */
+button.day.today { background-color: #89b4fa; color: #11111b; font-weight: bold; }
+button.day.today:hover { background-color: #a6c8ff; }
+button.day.selected { box-shadow: inset 0 0 0 2px #f5e0dc; }
+
+/* Footer ------------------------------------------------------------------ */
+label.footer {
+    color: #a6adc8; font-size: 12px;
+    font-family: Cantarell, sans-serif;
+    font-feature-settings: "tnum";
+    padding-top: 10px;
+}
+"""
+
+
+def first_weekday():
+    """calendar.MONDAY or calendar.SUNDAY. See the docstring's warning."""
+    env = os.environ.get("SWAY_CALENDAR_FIRST_WEEKDAY", "").strip().lower()
+    if env in ("monday", "mon", "1"):
+        return calendar.MONDAY
+    if env in ("sunday", "sun", "0", "7"):
+        return calendar.SUNDAY
+    return calendar.SUNDAY  # en_US, the locale this desktop runs
+
+
+def add_months(d, n):
+    """Shift a date by n months, clamping the day to the target month's length.
+
+    Naive arithmetic on the day number is what produces 31 February. Jan 31
+    plus one month is Feb 28/29 here, and that is also what makes arrow-key
+    navigation across a month boundary land somewhere sane.
+    """
+    total = (d.year * 12 + (d.month - 1)) + n
+    year, month = divmod(total, 12)
+    month += 1
+    return d.replace(year=year, month=month,
+                     day=min(d.day, calendar.monthrange(year, month)[1]))
+
+
+def month_weeks(year, month, firstweekday):
+    """A fixed WEEKS x 7 matrix of dates covering `month`, plus its edges.
+
+    `monthdatescalendar` returns only as many whole weeks as the month spans
+    (4 to 6), so the window would change height as you flip. Pad to WEEKS.
+    """
+    weeks = calendar.Calendar(firstweekday).monthdatescalendar(year, month)
+    while len(weeks) < WEEKS:
+        nxt = weeks[-1][-1] + dt.timedelta(days=1)
+        weeks.append([nxt + dt.timedelta(days=i) for i in range(7)])
+    return weeks[:WEEKS]
+
+
+class Calendar(Gtk.Window):
+    def __init__(self, anchor="center"):
+        super().__init__(title="Calendar")
+        self.set_resizable(False)
+        self.anchor = anchor
+        self._focus_armed = False
+
+        self.today = dt.date.today()
+        self.selected = self.today
+        self.shown = self.today.replace(day=1)
+        self.firstweekday = first_weekday()
+
+        # ⚠ THE SURFACE COVERS THE WHOLE USABLE AREA; THIS BOX IS THE VISIBLE
+        # PANEL. That is what makes click-outside-to-dismiss possible at all — a
+        # surface sized to the panel receives only clicks that land ON the panel,
+        # so a click anywhere else goes to whatever is underneath and we never hear
+        # about it. Covering the area means every click arrives here and
+        # _on_button_press can decide (see it for the inside/outside test).
+        #
+        # Consequence, and it is the intended one: while the calendar is open it is
+        # modal — the dismissing click does not pass through to the window beneath.
+        # GNOME's shell popovers behave the same way.
+        #
+        # The offsets therefore live on this widget, not on the layer surface: the
+        # surface is anchored to all four edges with zero margins, and GAP /
+        # EDGE_MARGIN inset the panel within it. Since the surface's top edge is
+        # the usable area's top (waybar's exclusive zone already subtracted), a
+        # GAP of 6 still lands the panel on y52.
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        root.get_style_context().add_class("calendar")
+        root.set_valign(Gtk.Align.START)
+        root.set_margin_top(GAP)
+        if anchor == "left":
+            root.set_halign(Gtk.Align.START)
+            root.set_margin_start(EDGE_MARGIN)
+        elif anchor == "right":
+            root.set_halign(Gtk.Align.END)
+            root.set_margin_end(EDGE_MARGIN)
+        else:
+            root.set_halign(Gtk.Align.CENTER)
+        self.panel = root
+        self.add(root)
+
+        # Header: ‹  <Month Year>  ›
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        header.get_style_context().add_class("header")
+        prev = Gtk.Button(label=CHEVRON_LEFT)
+        nxt = Gtk.Button(label=CHEVRON_RIGHT)
+        self.title = Gtk.Button()
+        for w, cls in ((prev, "nav"), (self.title, "title"), (nxt, "nav")):
+            w.get_style_context().add_class(cls)
+            w.set_can_focus(False)  # keep the window's key handler in charge
+        prev.connect("clicked", lambda _b: self.flip_month(-1))
+        nxt.connect("clicked", lambda _b: self.flip_month(1))
+        self.title.connect("clicked", lambda _b: self.go_today())
+        header.pack_start(prev, False, False, 0)
+        header.pack_start(self.title, True, True, 0)
+        header.pack_start(nxt, False, False, 0)
+        root.pack_start(header, False, False, 0)
+
+        self.grid = Gtk.Grid(column_homogeneous=True, row_homogeneous=False)
+        root.pack_start(self.grid, False, False, 0)
+
+        # Weekday headings, ordered from firstweekday. calendar.day_abbr is
+        # locale-aware once setlocale has run (it formats a real date).
+        for col in range(7):
+            wd = (self.firstweekday + col) % 7
+            lab = Gtk.Label(label=calendar.day_abbr[wd][:2])
+            lab.get_style_context().add_class("weekday")
+            self.grid.attach(lab, col, 0, 1, 1)
+
+        # Day buttons are created once and relabelled on every redraw; rebuilding
+        # 42 widgets per flip would show as a visible hitch.
+        self.cells = []
+        for row in range(WEEKS):
+            for col in range(7):
+                b = Gtk.Button()
+                b.get_style_context().add_class("day")
+                b.set_can_focus(False)
+                b.connect("clicked", self._on_day_clicked)
+                self.grid.attach(b, col, row + 1, 1, 1)
+                self.cells.append(b)
+
+        self.footer = Gtk.Label(xalign=0.5)
+        self.footer.get_style_context().add_class("footer")
+        root.pack_start(self.footer, False, False, 0)
+
+        self.add_events(Gdk.EventMask.SCROLL_MASK | Gdk.EventMask.SMOOTH_SCROLL_MASK
+                        | Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.connect("scroll-event", self._on_scroll)
+        self.connect("button-press-event", self._on_button_press)
+        self.connect("key-press-event", self._on_key)
+        # ⚠ CLOSE-ON-FOCUS-LOSS MUST BE ARMED ON A TIMER, and the obvious guards
+        # do not work. As an xdg_toplevel a bare focus-out handler was correct
+        # (sway-quickpanel still uses one). On a layer surface it is not: traced
+        # with signal logging, the surface emits
+        #     map-event -> focus-in -> focus-out
+        # within milliseconds of mapping, unprompted. So an unguarded handler
+        # quits before the first frame — the script exits 0 instantly with no
+        # window, no output and no error — and gating on "have we ever had focus"
+        # does not help either, because that spurious focus-in already set it.
+        # Hence a short arming delay: ignore focus events during the startup
+        # churn, then behave normally. After the user has clicked the calendar
+        # once, clicking away dismisses it as expected.
+        GLib.timeout_add(FOCUS_ARM_MS, self._arm_focus_close)
+        self.connect("focus-out-event", self._on_focus_out)
+        self.connect("destroy", Gtk.main_quit)
+
+        self.redraw()
+
+
+    # -- click outside ----------------------------------------------------
+    def _on_button_press(self, _w, event):
+        """Dismiss on a click that lands outside the panel box.
+
+        Tested against the panel's ALLOCATION rather than by asking "did a child
+        widget handle this?", because the panel's own padding is not a child: the
+        Box has no event window of its own, so a click on the 12px border inside
+        the panel arrives here exactly like a click on the wallpaper. Only the
+        geometry distinguishes them, and dismissing on a click just inside your own
+        border would feel broken.
+        """
+        alloc = self.panel.get_allocation()
+        inside = (alloc.x <= event.x < alloc.x + alloc.width
+                  and alloc.y <= event.y < alloc.y + alloc.height)
+        if not inside:
+            self.hide()
+            return True
+        return False  # let the day/nav buttons see it
+
+    # -- visibility -------------------------------------------------------
+    def toggle_visible(self):
+        """Called from the SIGUSR1 handler when the clock is clicked."""
+        if self.get_visible():
+            self.hide()
+            return
+        # Re-open on the CURRENT month, and re-derive today: a resident server can
+        # easily be running from before midnight, in which case the cached
+        # self.today would highlight yesterday.
+        self.go_today()
+        # Re-arm the focus guard for this showing — see _arm_focus_close. Without
+        # this the second and later opens would inherit an already-armed flag and
+        # die on the same spurious post-map focus-out the first open dodged.
+        self._focus_armed = False
+        GLib.timeout_add(FOCUS_ARM_MS, self._arm_focus_close)
+        self.show_all()
+
+    # -- focus ------------------------------------------------------------
+    def _arm_focus_close(self):
+        self._focus_armed = True
+        return False  # one-shot
+
+    def _on_focus_out(self, *_a):
+        # Ignored during the startup churn described on the connect() above.
+        # Until armed, closing is Escape or a second click on the clock (which the
+        # pidfile toggle handles).
+        if self._focus_armed:
+            self.hide()  # hide, not quit — see the Escape branch in _on_key
+        return False
+
+    # -- state changes ----------------------------------------------------
+    def flip_month(self, n):
+        self.shown = add_months(self.shown, n)
+        self.redraw()
+
+    def flip_year(self, n):
+        self.flip_month(12 * n)
+
+    def go_today(self):
+        self.today = dt.date.today()  # the window may have been open past midnight
+        self.selected = self.today
+        self.shown = self.today.replace(day=1)
+        self.redraw()
+
+    def select(self, d):
+        self.selected = d
+        # Follow the selection out of the displayed month, like GNOME does.
+        if (d.year, d.month) != (self.shown.year, self.shown.month):
+            self.shown = d.replace(day=1)
+        self.redraw()
+
+    # -- rendering --------------------------------------------------------
+    def redraw(self):
+        self.title.set_label(dt.date(self.shown.year, self.shown.month, 1)
+                             .strftime("%B %Y"))
+        weeks = month_weeks(self.shown.year, self.shown.month, self.firstweekday)
+        flat = [d for week in weeks for d in week]
+        for button, day in zip(self.cells, flat):
+            button.set_label(str(day.day))
+            button.day = day
+            ctx = button.get_style_context()
+            for cls in ("dim", "today", "selected"):
+                ctx.remove_class(cls)
+            if day.month != self.shown.month:
+                ctx.add_class("dim")
+            if day == self.today:
+                ctx.add_class("today")
+            if day == self.selected:
+                ctx.add_class("selected")
+        self.footer.set_label(self.selected.strftime("%A, %d %B %Y"))
+
+    # -- input ------------------------------------------------------------
+    def _on_day_clicked(self, button):
+        self.select(button.day)
+
+    def _on_scroll(self, _w, event):
+        shift = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
+        direction = event.direction
+        if direction == Gdk.ScrollDirection.SMOOTH:
+            # Touchpads deliver SMOOTH with deltas; a tiny dy is noise, not a flip.
+            _, _, dy = event.get_scroll_deltas()
+            if abs(dy) < 0.1:
+                return True
+            step = 1 if dy > 0 else -1
+        elif direction == Gdk.ScrollDirection.DOWN:
+            step = 1
+        elif direction == Gdk.ScrollDirection.UP:
+            step = -1
+        else:
+            return False
+        self.flip_year(step) if shift else self.flip_month(step)
+        return True
+
+    def _on_key(self, _w, event):
+        key = event.keyval
+        shift = bool(event.state & Gdk.ModifierType.SHIFT_MASK)
+        if key == Gdk.KEY_Escape:
+            # HIDE, not quit — this process is the resident server, and quitting
+            # would throw away the pre-built window that makes the next click
+            # instant. The pidfile stays, so the next click still finds us.
+            self.hide()
+        elif key in (Gdk.KEY_Page_Down, Gdk.KEY_KP_Page_Down):
+            self.flip_year(1) if shift else self.flip_month(1)
+        elif key in (Gdk.KEY_Page_Up, Gdk.KEY_KP_Page_Up):
+            self.flip_year(-1) if shift else self.flip_month(-1)
+        elif key in (Gdk.KEY_t, Gdk.KEY_T, Gdk.KEY_Home):
+            self.go_today()
+        elif key == Gdk.KEY_Left:
+            self.select(self.selected - dt.timedelta(days=1))
+        elif key == Gdk.KEY_Right:
+            self.select(self.selected + dt.timedelta(days=1))
+        elif key == Gdk.KEY_Up:
+            self.select(self.selected - dt.timedelta(days=7))
+        elif key == Gdk.KEY_Down:
+            self.select(self.selected + dt.timedelta(days=7))
+        else:
+            return False
+        return True
+
+
+def main():
+    # --help is handled in client_fast_path, so it never costs a GTK import.
+    args = sys.argv[1:]
+
+    anchor = "center"
+    if "--anchor" in args:
+        i = args.index("--anchor")
+        if i + 1 >= len(args) or args[i + 1] not in ("left", "center", "right"):
+            print("--anchor takes one of: left, center, right", file=sys.stderr)
+            return 2
+        anchor = args[i + 1]
+
+    # Reaching main() at all means client_fast_path() declined to handle this
+    # invocation, so we are becoming the resident server. Two ways in:
+    #   --server     : autostarted from config/sway/config — come up HIDDEN and
+    #                  wait for SIGUSR1.
+    #   no --server  : a click found no server, so become one AND show, or the
+    #                  click would appear to do nothing.
+    # A second --server never gets here; the fast path declines it, which is also
+    # why the autostart needs no `pgrep` guard — fortunate, since
+    # `pgrep -f sway-calendar` matches the shell running it and would never fire
+    # (the self-match trap the autotiling comment records).
+    show_now = "--server" not in args
+
+    # Month and day names come from the locale; a bare setlocale('') reads the
+    # environment. Never fatal — a broken LC_TIME should not cost you a calendar.
+    try:
+        locale.setlocale(locale.LC_TIME, "")
+    except locale.Error:
+        pass
+
+    # Still set, even though no `for_window` rule keys off it any more: sway
+    # derives a layer surface's namespace from prgname too, so this is what shows
+    # up in debug output and what any future `layer_effects`-style rule would
+    # match. Harmless and cheap to keep correct.
+    GLib.set_prgname(APP_ID)
+
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+    Gtk.StyleContext.add_provider_for_screen(
+        Gdk.Screen.get_default(), provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    win = Calendar(anchor=anchor)
+
+    # ⚠ init_for_window MUST precede the first map — it is what turns this from an
+    # xdg_toplevel into a zwlr_layer_surface_v1, and the surface role cannot be
+    # changed once the surface is committed.
+    GtkLayerShell.init_for_window(win)
+    # OVERLAY, not TOP: TOP is the same layer waybar occupies, so stacking against
+    # the bar would be arbitrary. OVERLAY is unambiguously above it.
+    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+    # ON_DEMAND, not EXCLUSIVE: the calendar needs keys (Escape, PageUp/Down, the
+    # arrows) but must not hold the keyboard hostage while it is open. EXCLUSIVE
+    # would steal every key in the session.
+    GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.ON_DEMAND)
+    # 0, not -1. 0 = "reserve nothing, but respect what others reserved", which is
+    # what makes GAP measure from below waybar. -1 would ignore waybar's exclusive
+    # zone and let the calendar slide under the bar.
+    GtkLayerShell.set_exclusive_zone(win, 0)
+
+    # ⚠ ANCHORED ON ALL FOUR EDGES, so the surface fills the usable area rather
+    # than hugging the panel. That is what lets a click outside the panel reach us
+    # to be dismissed — see Calendar._on_button_press. With every edge anchored and
+    # exclusive_zone 0, wlroots sizes the surface to the area left over after
+    # waybar's zone, so the panel's own GAP / EDGE_MARGIN offsets (applied to the
+    # box in __init__, NOT here) still measure from below the bar and it lands on
+    # y52 as before. Margins are left at zero here on purpose: with the surface
+    # full-bleed they would inset the clickable region, not the panel.
+    for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                 GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+        GtkLayerShell.set_anchor(win, edge, True)
+
+    # Show now only if this invocation is meant to be visible immediately: the
+    # autostarted server comes up hidden and waits for a click, whereas a client
+    # that found no server starts one AND shows it, so the first click after login
+    # still opens something.
+    if show_now:
+        win.show_all()
+
+    try:
+        with open(PIDFILE, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass  # no toggle, but the calendar still works — do not fail on this
+
+    # SIGUSR1 = "the clock was clicked": toggle visibility. This is the whole
+    # point of the resident server — the work already happened, so this costs a
+    # frame instead of 366ms.
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1,
+                         lambda *_a: (win.toggle_visible(), True)[1])
+    # Quit cleanly on SIGTERM rather than letting the default disposition kill the
+    # interpreter outright, so the finally below runs and no pidfile is left
+    # behind. GLib's unix_signal_add is the safe route: it defers to the main loop
+    # instead of running Python inside a signal handler.
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM,
+                         lambda *_a: (Gtk.main_quit(), False)[1])
+
+    try:
+        Gtk.main()
+    finally:
+        # Leave no pidfile behind, or the next click signals a dead pid. A stale
+        # one is survivable (server_pid probes with signal 0) but a clean exit
+        # should not rely on that.
+        try:
+            with open(PIDFILE) as f:
+                if int(f.read().strip()) == os.getpid():
+                    os.unlink(PIDFILE)
+        except (OSError, ValueError):
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

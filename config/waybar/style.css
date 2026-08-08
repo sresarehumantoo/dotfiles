@@ -99,8 +99,12 @@ window#waybar {
                 0 6px 16px rgba(17, 17, 27, 0.38);
 }
 
-/* An empty title should not leave a stub pill floating in the middle of the
-   screen. window#waybar gains .empty when sway/window has nothing to show. */
+/* ⚠ INERT AS LONG AS THE CENTRE MODULE IS THE CLOCK. `.empty` is set by
+   `sway/window` when it has no title to show, and that module is no longer in
+   `modules-center` (config/waybar/config) — the clock is, and a clock is never
+   empty. Kept, not deleted: it is one array entry to put sway/window back, and
+   without this rule an empty title leaves a stub pill floating in the middle of
+   the screen. */
 window#waybar.empty .modules-center {
     background-color: transparent;
     border-color: transparent;

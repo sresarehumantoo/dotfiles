@@ -30,7 +30,15 @@
     "spacing": 0,
 
     "modules-left":   ["sway/workspaces", "sway/mode"],
-    "modules-center": ["sway/window"],
+    // ⚠ THE CLOCK IS THE CENTRE MODULE, and `sway/window` is GONE — the window
+    // title is no longer displayed anywhere on this desktop. That is the point
+    // (a centred clock, macOS/GNOME-style) but it has one consequence worth
+    // knowing: `default_border`'s comment in config/sway/config used to justify
+    // titlebars-off with "the title is already in waybar's centre pill", and
+    // that is no longer true. It has been corrected there.
+    // To get the title back, put "sway/window" in this array — it takes the
+    // centre pill and the clock has to move back to modules-right.
+    "modules-center": ["clock"],
     // No "tray" — see the tray block below for why.
     //
     // Right-hand order follows the GNOME/macOS status-area model rather than a
@@ -39,7 +47,26 @@
     // status cluster (volume, network, battery), then notifications, clock and
     // session. Nothing here is a readout you are meant to monitor; the numbers
     // live in tooltips and the sliders live in the swaync panel behind them.
-    "modules-right":  ["privacy", "mpris", "idle_inhibitor", "network#vpn", "group/system", "pulseaudio", "network", "battery", "custom/notification", "clock", "custom/power"],
+    // ⚠ `custom/notification` IS THE LAST ENTRY ON PURPOSE — it is the control
+    // hub, and the hub belongs at the corner. This follows macOS, where the
+    // Control Centre glyph sits hard right and everything that is an action
+    // rather than a readout lives behind it. `custom/power` used to hold that
+    // corner; the session actions it opened are already in the swaync panel's
+    // buttons-grid, so the bar entry was a second door to the same room.
+    // ⚠ `group/system` is GONE from here — the cpu/memory/temperature readouts
+    // now live in the control hub, as swaync's `system-stats` widget. That
+    // widget is a LOCAL DELTA (config/sway/swaync-system-stats.patch); if
+    // swaync is ever reinstalled from the Debian package the readouts vanish
+    // with it, and this array is where they come back. The group and its three
+    // child modules are still defined below for exactly that reason.
+    //
+    // `idle_inhibitor` deliberately STAYS. It is not a readout — it is the
+    // thing that actually holds the Wayland zwp_idle_inhibitor object on
+    // waybar's own surface. A swaync button can only run a shell command, and
+    // nothing on PATH holds that object; the nearest shell equivalent (killing
+    // swayidle) would also drop `before-sleep $lock`, so a lid-close suspend
+    // would stop locking the screen. It is one glyph, and it is correct here.
+    "modules-right":  ["privacy", "mpris", "idle_inhibitor", "network#vpn", "pulseaudio", "network", "battery", "custom/notification"],
 
     "sway/workspaces": {
         "disable-scroll": true,
@@ -125,6 +152,22 @@
     // affected by the waybar bug — it drives a plain GtkScale and does not
     // write back to the widget you are holding.
     // Do not re-add in-bar sliders without re-reading that note first.
+    // ⚠ ONE DESTINATION: EVERY STATUS READOUT LEFT-CLICKS TO THE CONTROL CENTRE.
+    // `pulseaudio`, `network`, `battery` and `custom/notification` all run
+    // `swaync-client -t -sw` on a plain left click. Keep it that way when adding a
+    // readout — an inconsistent cluster is worse than any individual choice here,
+    // because the whole point of the restrained bar (see docs/sway.md, "The bar
+    // shows almost no numbers") is that the numbers live one predictable click
+    // away. Guessing which glyph opens which different thing is exactly the
+    // friction that removes.
+    //
+    // Secondary buttons are where the specific tools live, and they are NOT
+    // interchangeable — each is the only route to that tool from the bar:
+    //     pulseaudio  middle -> sway-quickpanel      right -> pavucontrol
+    //     network                                    right -> nm-connection-editor
+    //     notification                               right -> DND toggle
+    // `idle_inhibitor` is deliberately exempt: it is not a readout, it toggles a
+    // Wayland object it holds itself (see modules-right).
     "pulseaudio": {
         // Reads from PipeWire via its pulse shim (pipewire-pulse is installed).
         //
@@ -214,7 +257,16 @@
         "tooltip-format-wifi": "<b>{essid}</b>\n{ipaddr}/{cidr} on {ifname}\n{signaldBm} dBm  ·  {frequency} GHz",
         "tooltip-format-ethernet": "<b>{ifname}</b>\n{ipaddr}/{cidr}",
         "tooltip-format-disconnected": "Offline",
-        "on-click": "nm-connection-editor"
+        // Left-click opens the control centre, like every other status readout in
+        // this cluster — see the "one destination" note above `pulseaudio`.
+        "on-click": "swaync-client -t -sw",
+        // ⚠ nm-connection-editor MOVED HERE FROM on-click, it was not dropped.
+        // It is the only route to editing connections from the bar, and it is
+        // what justifies `network-manager-gnome` in swayPackages — check there
+        // before deleting this line. (nm-applet's other job, being NetworkManager's
+        // secret agent for wifi password prompts, is independent of any click and
+        // comes from the `exec nm-applet` line in config/sway/config.)
+        "on-click-right": "nm-connection-editor"
     },
 
     // The VPN light. Separate instance rather than folded into the module
@@ -301,7 +353,11 @@
             "󰁺", "󰁼", "󰁾",
             "󰂀", "󰁹"
         ],
-        "tooltip-format": "{timeTo} ({power:0.1f}W)"
+        "tooltip-format": "{timeTo} ({power:0.1f}W)",
+        // Left-click opens the control centre — see the "one destination" note
+        // above `pulseaudio`. This module had no click action at all before, so
+        // nothing is displaced.
+        "on-click": "swaync-client -t -sw"
     },
 
     // The bell. Before this existed there was no way to reach swaync's control
@@ -332,24 +388,70 @@
         "format": "{icon}{}",
         // Keyed on the `alt` field swaync sets; these are its eight states, and
         // an unlisted one renders as an empty label rather than falling back.
-        // Glyphs resolved from the installed font's post table (md-bell etc.),
+        // Glyphs resolved from the installed font's post table (md-tune etc.),
         // not guessed — see the icon warning at the top of this file.
+        //
+        // ⚠ THE BASE GLYPH IS SLIDERS, NOT A BELL. This module stopped being
+        // "notifications" when it became the last entry on the bar: behind it
+        // are the volume and brightness sliders, the session actions, and the
+        // notification list. md-tune (two horizontal sliders) is the same
+        // shorthand macOS uses for Control Centre, and it describes what is
+        // actually behind the icon; a bell described one of four things.
+        //
+        // Unread count still reads out — `format` is `{icon}{}` and the sed
+        // above blanks a zero — so nothing is lost by dropping the bell's
+        // has-notifications variant. DND keeps a distinct glyph because a
+        // silenced session must be visible at a glance, and md-weather_night
+        // is the crescent macOS uses for Focus.
         "format-icons": {
-            "none": "󰂚",
-            "notification": "󱅫",
-            "dnd-none": "󰂛",
-            "dnd-notification": "󰂛",
+            "none": "󰘮",
+            "notification": "󰘮",
+            "dnd-none": "󰖔",
+            "dnd-notification": "󰖔",
             "inhibited-none": "󰂠",
             "inhibited-notification": "󰂠",
             "dnd-inhibited-none": "󱏧",
             "dnd-inhibited-notification": "󱏧"
         },
-        // swaync's own tooltip text ("3 Notifications"); empty when idle.
-        "tooltip": true,
+        // ⚠ OFF, AND THIS IS THE FIX FOR THE PANEL'S "DISJOINTED CORNER".
+        // This used to be `true`, on the belief that it showed swaync's own
+        // tooltip text ("3 Notifications"). It does not: that field is EMPTY
+        // when idle, which is most of the time, and waybar then falls back to
+        // rendering the module's own label — so the tooltip was a box containing
+        // nothing but the md-tune glyph, a copy of the icon you are pointing at.
+        //
+        // Useless content would be harmless if it stayed inside the bar, but a
+        // GTK tooltip is its own surface and is NOT confined to waybar's 40px
+        // height: this one renders at x≈1855-1910, y≈46-93, i.e. straight over
+        // the control centre's top-right corner, covering part of "Clear all".
+        // Its rounded corners against the panel's edge is exactly the "two
+        // corners that don't line up" artifact.
+        //
+        // And it is not an edge case — it is the DEFAULT view of the panel.
+        // Opening the control centre by clicking this button leaves the pointer
+        // parked on it, so the tooltip is on screen every single time the panel
+        // is opened by hand. It only disappears if you open via `$mod+n` or move
+        // the mouse afterwards, which is why screenshots taken with the cursor
+        // elsewhere looked clean and this survived so long.
+        //
+        // Nothing is lost: the unread count is already in the bar label
+        // (`format` is `{icon}{}`) and the notifications themselves are in the
+        // panel. Do not "fix" this with `tooltip-format` — any tooltip on THIS
+        // module lands on the panel, because this is the button that opens it.
+        "tooltip": false,
         "escape": true,
-        // -sw makes the client start swaync if it isn't running instead of
-        // failing silently, which matters because the sway autostart line only
-        // runs at login/reload.
+        // ⚠ -sw does NOT start swaync. This comment used to claim it did, and
+        // that misreading hid a real outage: swaync's own help says
+        //     -sw, --skip-wait   Doesn't wait when swaync hasn't been started
+        // i.e. it opts OUT of the default block-until-the-daemon-appears, and
+        // gives up immediately instead. So with no daemon running, clicking the
+        // bell does nothing at all, silently — which is exactly how a broken
+        // autostart in config/sway/config presented (the panel "stopped
+        // opening"). Starting the daemon is that line's job; -sw only keeps a
+        // click from hanging waybar's event loop if it ever isn't.
+        //
+        // ⚠ The action flag comes FIRST. swaync-client accepts one option, so
+        // `-sw -t` prints usage and exits 0 — a silent no-op that looks fine.
         "on-click": "swaync-client -t -sw",
         "on-click-right": "swaync-client -d -sw"
     },
@@ -372,19 +474,52 @@
         "spacing": 8
     },
 
+    // Centre module (see `modules-center`). Left-click opens sway-calendar.
     "clock": {
         "format": "󰅐  {:%a %d %b  %H:%M}",
-        "tooltip-format": "<tt><small>{calendar}</small></tt>",
-        "calendar": {
-            "mode": "month",
-            "on-scroll": 1,
-            "format": {
-                "today": "<span color='#f38ba8'><b>{}</b></span>"
-            }
-        },
-        "actions": { "on-click-right": "mode" }
+
+        // ⚠ TOOLTIP OFF, AND THE CALENDAR IS NO LONGER IN IT. waybar's clock
+        // can render `{calendar}` in its tooltip, and that is what this used to
+        // do — but a GTK tooltip is HOVER-ONLY and waybar has no lever to open
+        // one on click or keep it open. So it could never be browsed: reaching
+        // for a month arrow moves the pointer off the clock and dismisses the
+        // surface you were reaching into, `actions.on-scroll-up: shift_up`
+        // flips months only while hovering, and a tooltip cannot take keyboard
+        // focus at all. Hence a real window — see config/sway/sway-calendar.
+        //
+        // Leaving BOTH in place was considered and rejected: two calendars, one
+        // of which vanishes when you try to use it, is worse than one that
+        // works. It also removes a second problem for free — a clock tooltip is
+        // its own surface and overlapped the swaync panel, exactly like the
+        // `custom/notification` tooltip did (see that module).
+        "tooltip": false,
+
+        // ⚠ Absolute via $HOME, not a bare name — GDM starts sway without a
+        // login shell, so ~/.local/bin is NOT on the session PATH and a bare
+        // name silently does nothing. Same trap as custom/power below; this
+        // repo has now hit it three times.
+        //
+        // This is the CLIENT path: it signals the resident sway-calendar server
+        // (autostarted from config/sway/config) to toggle, and exits. ~65ms,
+        // because it deliberately returns before importing GTK — a fresh
+        // Python+GTK process needs ~366ms to first pixel and felt sluggish.
+        //
+        // ⚠ `--anchor` HERE IS ONLY A FALLBACK. The autostarted server owns the
+        // geometry, and a signal cannot carry an argument, so this value applies
+        // ONLY on the path where no server was running and this invocation
+        // becomes one. Change the anchor in BOTH places or the two disagree about
+        // where the panel drops. It must match which module list holds the clock:
+        // `center` for modules-center, `right` if it moves back to modules-right.
+        "on-click": "$HOME/.local/bin/sway-calendar --anchor center"
     },
 
+    // ⚠ DEFINED BUT DELIBERATELY NOT IN `modules-right`. The session actions
+    // now live only behind the control hub, in swaync's buttons-grid (which
+    // already ran this exact command). Kept rather than deleted for two
+    // reasons: re-adding it to the bar is one array entry, and the $HOME note
+    // below is the only written copy of a trap this repo has now hit twice —
+    // most recently with swayosd, where a binary installed to ~/.local/bin was
+    // invisible to everything sway spawns.
     "custom/power": {
         "format": "󰐥",
         "tooltip-format": "Session — lock / logout / suspend / reboot / shutdown",

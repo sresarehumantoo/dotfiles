@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -40,6 +41,10 @@ func (SwayModule) Links() core.LinkSet {
 		// Volume + brightness panel behind the waybar volume/brightness
 		// readouts. Same reason for living in ~/.local/bin.
 		{Src: core.ConfigPath("sway", "sway-quickpanel"), Dst: core.HomeTarget(".local", "bin", "sway-quickpanel")},
+		// Month calendar behind the clock (waybar's centre module). A real
+		// window, not a tooltip: waybar's clock renders {calendar} only in its
+		// tooltip, which is hover-only and cannot be browsed.
+		{Src: core.ConfigPath("sway", "sway-calendar"), Dst: core.HomeTarget(".local", "bin", "sway-calendar")},
 		// Brightness with a floor and a 0-100 user scale, behind the
 		// XF86MonBrightness keys. Not swayosd-client directly: 0.1.0 has no
 		// minimum and will take the panel to black.
@@ -49,7 +54,7 @@ func (SwayModule) Links() core.LinkSet {
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness"}
+var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar"}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //
@@ -99,6 +104,40 @@ var swayPackages = []string{
 	// Applets the bar and panel hand off to.
 	"network-manager-gnome", // nm-connection-editor
 	"blueman",               // blueman-manager
+
+	// GObject-introspection data for gtk-layer-shell. config/sway/sway-calendar
+	// does `gi.require_version("GtkLayerShell", "0.1")` — it is a layer surface,
+	// not a floating window, which is what stops it appearing mid-screen and
+	// sliding into place. Without this package the calendar dies on import, and
+	// because waybar launches it from a click there is nowhere for the traceback
+	// to go: the clock would simply do nothing. See swayPkgGlobs — this one ships
+	// no binary, so it cannot be probed on PATH like everything else here.
+	"gir1.2-gtklayershell-0.1",
+}
+
+// swayPkgGlobs covers packages that ship NO binary, where the PATH probe below
+// cannot see them. The value is a set of globs; the package counts as present if
+// any of them matches. GObject-introspection data forced this: a typelib is a
+// hard runtime dependency of sway-calendar with nothing on PATH to look for.
+//
+// Two globs because Debian installs typelibs under a multiarch directory
+// (/usr/lib/x86_64-linux-gnu/girepository-1.0) while other distros use the plain
+// one — matching on the arch triplet directly would make this host-specific.
+var swayPkgGlobs = map[string][]string{
+	"gir1.2-gtklayershell-0.1": {
+		"/usr/lib/*/girepository-1.0/GtkLayerShell-0.1.typelib",
+		"/usr/lib/girepository-1.0/GtkLayerShell-0.1.typelib",
+	},
+}
+
+// pkgFilePresent reports whether any of a package's marker globs matches.
+func pkgFilePresent(globs []string) bool {
+	for _, pattern := range globs {
+		if matches, err := filepath.Glob(pattern); err == nil && len(matches) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func swayInstalled() bool {
@@ -120,6 +159,14 @@ func swayInstalled() bool {
 func missingSwayPackages() []string {
 	var missing []string
 	for _, pkg := range swayPackages {
+		// Packages with no binary of their own are checked by file — see
+		// swayPkgGlobs. LookPath would report every one of them missing forever.
+		if globs, ok := swayPkgGlobs[pkg]; ok {
+			if !pkgFilePresent(globs) {
+				missing = append(missing, pkg)
+			}
+			continue
+		}
 		if _, err := exec.LookPath(swayPkgBinary(pkg)); err != nil {
 			missing = append(missing, pkg)
 		}
