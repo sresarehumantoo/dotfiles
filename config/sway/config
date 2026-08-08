@@ -446,6 +446,29 @@ exec blueman-applet
 exec systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway
 
+# Dark appearance for GTK4/libadwaita apps.
+#
+# ⚠ THIS IS THE HALF THAT config/gtk/*-settings.ini CANNOT DO, and both halves
+# are needed. libadwaita ignores settings.ini for light/dark entirely: it asks
+# the xdg-desktop-portal Settings interface for org.freedesktop.appearance
+# color-scheme. Under sway that interface is served by xdg-desktop-portal-gtk
+# (routed explicitly in config/sway/sway-portals.conf), and the GTK backend
+# answers it by reading exactly this GSettings key. So without this line a
+# libadwaita app opens light no matter what the ini files say. GTK3 apps are the
+# reverse case — they read the ini and ignore this. Hence one of each.
+#
+# ⚠ GSettings IS USER-GLOBAL, NOT SESSION-SCOPED — this is the one thing in this
+# file that outlives the sway session. It writes to dconf, so GNOME picks up the
+# same preference on the next login and stays dark until something changes it
+# back. That is a deliberate accepted side effect (a dark GNOME is wanted too),
+# but it does mean this is NOT of a piece with sway-portals.conf, which really is
+# sway-only. Undo with:
+#     gsettings set org.gnome.desktop.interface color-scheme 'default'
+#
+# exec_always, not exec: cheap, idempotent, and it re-asserts the value after
+# anything else (a GNOME login, a stray `gsettings reset`) has changed it.
+exec_always gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
+
 # swaybar is replaced by waybar; keep this empty block out of the config
 # rather than defining an unused `bar {}`.
 

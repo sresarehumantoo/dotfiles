@@ -31,6 +31,23 @@ func (SwayModule) Links() core.LinkSet {
 		// desktop. ⚠ That file is GTK4 CSS, unlike every other stylesheet this
 		// module links — see its header before editing.
 		{Src: core.ConfigPath("swayosd", "style.css"), Dst: core.XDGTarget("swayosd", "style.css")},
+		// The launcher behind $mod+d. Unstyled until this file existed, which
+		// left the one surface you summon and look straight at running on
+		// upstream's Solarized defaults and the icon-less `hicolor` theme.
+		{Src: core.ConfigPath("fuzzel", "fuzzel.ini"), Dst: core.XDGTarget("fuzzel", "fuzzel.ini")},
+		// ⚠ GTK appearance, and it takes TWO files plus a `gsettings` line in
+		// config/sway/config — none of the three covers the others. GTK3 apps
+		// (pavucontrol, nm-connection-editor, blueman-manager: everything the
+		// bar hands off to) read settings.ini; plain GTK4 apps read the GTK4
+		// one; libadwaita apps ignore both and ask the portal, which is what
+		// the gsettings line feeds. Miss one and that class of app opens white
+		// against a dark desktop. Full reasoning in the files' own headers.
+		//
+		// Note the destination BASENAMES differ from the sources: GTK requires
+		// `settings.ini` under a version-named directory, so the repo names
+		// them by version to keep both readable side by side in config/gtk/.
+		{Src: core.ConfigPath("gtk", "gtk3-settings.ini"), Dst: core.XDGTarget("gtk-3.0", "settings.ini")},
+		{Src: core.ConfigPath("gtk", "gtk4-settings.ini"), Dst: core.XDGTarget("gtk-4.0", "settings.ini")},
 		// Portal routing is per-desktop and keyed on XDG_CURRENT_DESKTOP, so
 		// this file only takes effect under sway and leaves GNOME's portals
 		// alone. Managed here so `diff`/`status` see it like any other link.
