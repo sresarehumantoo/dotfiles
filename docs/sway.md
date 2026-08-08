@@ -75,9 +75,24 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/sway/sway-quickpanel` | `~/.local/bin/sway-quickpanel` |
 | `config/sway/sway-brightness` | `~/.local/bin/sway-brightness` |
 | `config/sway/sway-calendar` | `~/.local/bin/sway-calendar` |
+| `config/fuzzel/fuzzel.ini` | `~/.config/fuzzel/fuzzel.ini` |
+| `config/gtk/gtk3-settings.ini` | `~/.config/gtk-3.0/settings.ini` |
+| `config/gtk/gtk4-settings.ini` | `~/.config/gtk-4.0/settings.ini` |
+| `config/sway/sway-fx` | `~/.local/bin/sway-fx` |
+| `config/sway/sway-workspaces` | `~/.local/bin/sway-workspaces` |
 
-The four scripts are `chmod 0755` at the **source** before linking, because a
+The six scripts are `chmod 0755` at the **source** before linking, because a
 symlink inherits its target's mode.
+
+⚠ Two GTK destinations **rename**: GTK requires `settings.ini` under a
+version-named directory, so the repo names the sources by version instead to
+keep both readable side by side in `config/gtk/`.
+
+⚠ **Not linked, and deliberately so:** `config/sway/swayfx-session` and
+`config/sway/swayfx.desktop`. They install to `/opt/swayfx/bin/` and
+`/usr/share/wayland-sessions/`, which need root and sit outside the dotfiles
+model — the recipe in *SwayFX — the effects build* copies them. Same
+arrangement as the three swayosd/swaync patches.
 
 ## Manual steps the module deliberately does not do
 
@@ -136,6 +151,16 @@ swaymsg -t get_outputs | grep -E 'make|model|serial|Output'
 > exception: `eDP-1` is stable.
 
 ## Keybindings
+
+> [!NOTE]
+> **`$mod+q` closes the focused window**, alongside the i3 default
+> `$mod+Shift+q` which stays bound for muscle memory. It is the FOCUSED window,
+> not the hovered one, and `focus_follows_mouse no` makes those different here.
+> A keyboard binding cannot target the hovered window at all — sway exposes no
+> pointer coordinates over IPC (`get_seats` carries `focus` and the device list
+> and nothing else). Mouse bindings are the exception, since they act on the
+> container under the pointer: `bindsym --whole-window $mod+button2 kill`.
+
 
 `$mod` is **Mod4 (Super)**. See [Keybindings](keybindings.md) for the full table
 and the reasoning behind the Alt reservation.
@@ -742,6 +767,156 @@ string `falling back to scanning out from primary GPU` is in the built
 is the existing harness). If 0.20 regresses DisplayLink, the fallbacks are
 SwayFX 0.5.3 on the proven wlroots 0.19.3 — all the glass, no animations — or
 nothing. Recovery from a bad login is always: pick **Sway (0.19 / DisplayLink)**.
+
+## The workspace row is nine custom modules, not `sway/workspaces`
+
+`config/sway/sway-workspaces` + `custom/ws1..ws9`. Added when the row needed a
+**travelling highlight**: jumping 9 → 1 sweeps back through 8,7,6…2 before
+landing, without visiting those workspaces.
+
+**Why the built-in module could not do it.** `sway/workspaces` derives every
+button's CSS class from sway's own state, so an intermediate workspace is never
+*anything* and nothing outside the module can light it up. That is structural,
+not a missing option. GTK3 cannot fake it either — sliding one highlight across
+sibling widgets needs `transform`, which GTK3 does not have, and a stray
+`transform:` invalidates the **entire** stylesheet.
+
+**Why nine widgets and not one Pango row.** A single `custom/` module rendering
+markup was the smaller build, and it costs both things the row had just been
+tuned for: Pango backgrounds are **rectangles** and cannot be rounded, and one
+module has one `on-click`, so per-workspace clicking goes away.
+
+> [!IMPORTANT]
+> **Why a server plus `tail`, and not nine subscribers.** waybar instantiates
+> every module **once per bar**, so on the dock that is 9 × 3 = **27 processes**.
+> Nine independent Python subscribers was the obvious build and would cost
+> ~10 MB each — **~300 MB of RSS for a status bar**. One server holds the single
+> sway subscription and appends each slot's state to its own file; the clients
+> are a bare `tail -F`, ~1 MB each.
+>
+> ⚠ **The module `exec` must stay a plain `tail`.** Anything carrying its own
+> interpreter gets multiplied by 27. `-F` (not `-f`) follows by name, so it
+> survives the server truncating the file and waits politely if waybar starts
+> first; `-n1` replays the last line, which is what gives a freshly-started bar
+> its state instead of nine blanks.
+
+Two bugs found by measuring, both of which look correct in the source:
+
+> [!WARNING]
+> **Take the jump from the EVENT, not from polled state.** Refreshing from sway
+> and then comparing silently disables the whole effect: sway emits `init`
+> before `focus` when the target workspace does not exist yet, and the poll on
+> that first event **already returns the new focus**. By the time `focus`
+> arrives, `old == new` and the sweep never fires — which is exactly the common
+> case, because an empty row is when you jump furthest. The event's own
+> `old`/`current` are authoritative and immune to the ordering.
+
+> [!WARNING]
+> **The destination must stay dark until the sweep arrives.** Otherwise the
+> focused chip lights the instant the key is pressed and the trail runs toward
+> an already-lit target — two highlights on screen at once, which reads as a
+> glitch rather than as travel. `arriving` suppresses it for the ~250 ms the
+> sweep is in flight.
+
+Other things that are deliberate: the trail is **weaker than focused and is not
+grown** (giving it the focused chip's padding reflowed the row nine times per
+jump, and the bar visibly convulsed); `MIN_JUMP` means an adjacent switch does
+not animate, so the common case pays no latency; and the server guards itself
+with a **pidfile, not `pgrep`** — `pgrep -f sway-workspaces` matches the `sh -c`
+that launches it, the same self-match trap recorded at `exec autotiling`.
+
+Verify by capturing frames, since 52 ms/frame is fast enough to sample a 245 ms
+sweep:
+
+```sh
+mkdir -p /tmp/sweep
+( sleep 0.15; swaymsg workspace number 1 ) &
+for i in $(seq -w 1 10); do grim -g "0,120 400x52" /tmp/sweep/$i.png; done
+```
+
+## Bar geometry is one set: gaps, margins and pill height
+
+⚠ **These values are coupled and must be changed together and re-measured.**
+The alignment is the point, not the individual numbers.
+
+| what | where | value |
+|---|---|---|
+| bar height | `config/waybar/config` | 40 |
+| bar margin top / bottom | `config/waybar/config` | 6 / 6 |
+| bar margin left / right | `config/waybar/config` | 10 |
+| pill height | `config/waybar/style.css` `min-height` | 32 (+2 border = 34) |
+| inner gap | `config/sway/config` | 8 |
+| outer gap | `config/sway/config` | 2 → visible 10 |
+| **top** outer gap | `config/sway/config` | **−8** → visible 0 |
+
+Measured result: every visible gap is **10 px** — window to each screen edge,
+and window to the bar's pill — and a window starts at y=52 whether there is one
+of them or nine.
+
+### The three things that were wrong, none of which the raw numbers showed
+
+**The pills were different heights.** Measured 34 / 34 / **28** for left /
+centre / right, with the right one also sitting 3 px lower. `.modules-left` and
+`.modules-center` are direct children of the bar so GTK stretches them to the
+full zone; `#status` and `#indicators` are **groups** nested inside
+`.modules-right`, and a group hugs its children instead. Fixed with `min-height`
+on the pill rule — *and* by moving the `margin: 3px 0` inset up to
+`.modules-right`, because it was being applied a second time inside an
+already-positioned container. Fixing only the first took it to 40/40/34.
+
+**Windows did not line up with the bar.** Windows sat at x=12 while the pills
+start at x=10. `gaps outer 2` puts the screen-edge gaps at 10, matching
+`margin-left`.
+
+**The top gap jumped when a second window spawned.** With one window
+`smart_gaps` holds it flush to the exclusive zone, 10 px below the pill; with
+two, the outer gap stacked on top of the bar's own `margin-bottom` and the
+pill's CSS margin — both of which live *inside* the zone — giving 22 px. So it
+visibly moved on spawn. `gaps top -8` cancels the inner gap at that edge only;
+outer gaps are *in addition to* inner, and sway accepts negative values for
+exactly this.
+
+> [!NOTE]
+> **`margin-bottom` is the only lever that moves where windows start.** The
+> exclusive zone is `height + margin-top + margin-bottom`. The pill's own CSS
+> margin cannot do it — that is inside a surface whose size sway has already
+> reserved.
+
+### `smart_gaps on`: alone means full bleed
+
+A lone window takes the whole usable area; gaps return on split. **Three
+settings agree on this and move together**: `smart_gaps on`,
+`hide_edge_borders --i3 smart`, and `smart_corner_radius` in `sway-fx`. The last
+is load-bearing under SwayFX — rounded corners on a window flush to the screen
+edge would cut visible notches out of the display corners.
+
+## The glass tint, and where the accent went
+
+The selected and hover states are a **dark pigment plus a lit edge**, not a
+colour fill. Apple's Liquid Glass guidance is that a tint modulates the
+*material* rather than filling the shape, and that where a tint muddies the
+scene you lower saturation and **let edge cues carry the material**. A saturated
+fill is the specific thing it warns against — and the old sapphire→blue gradient
+on the focused workspace was exactly that: a painted chip sitting in a glass
+pill.
+
+- `@glass-tint` — a dark pigment, not a hue; it deepens the pill it sits in
+- `@glass-edge` — the inset hairline that does the actual work of saying *this one*
+- `@glass-veil` — the same idea at hover strength
+
+⚠ **Legibility decides these numbers, not taste.** Apple's floor is 4.5:1 for
+text over the material after blur; the focused numeral measures **12.8:1**.
+
+**`@blue` is now unused by any resting state.** It came off the focused
+workspace, the hover cue and finally the clock — one remaining blue thing reads
+as a leftover rather than a decision. **Urgent deliberately keeps its saturated
+fill**: drain that too and nothing in the bar can interrupt.
+
+⚠ **Even chip spacing needs measuring, not eyeballing.** The optical corrections
+centre each glyph *within its own chip*, but the gap you see is ink-to-ink and
+every glyph's side bearing differs — nominally identical padding measured
+**22 / 27 / 25 / 31 px**. Two rounds against the ink-span script brought it to
+**29 / 29 / 29 / 31**. Re-derive both halves if the font or size changes.
 
 ## Two GTK dialects, one desktop
 
