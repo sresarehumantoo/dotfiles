@@ -645,6 +645,62 @@ dim the terminal you are reading the moment a dialog takes focus).
 transparent between the three pills, and without it the compositor blurs those
 gaps too — a faint full-width band where the design calls for three islands.
 
+### ⚠ `blur_brightness` has a hard ceiling of 1.0
+
+**The blur region is a rectangle.** It does not follow a pill's rounded corners,
+and `blur_ignore_transparent` does not confine it. At `blur_brightness 1.0` that
+costs nothing — the blurred area and its surroundings are the same backdrop, so
+the boundary is invisible. Push it above 1.0 and the rectangle lights up: a grey
+block with **square corners sitting behind a rounded pill**, which is the
+straight-edge-against-a-curve mismatch this desktop has been burned by before.
+
+Luminance of the strip just outside the pill, minus bare wallpaper:
+
+| `blur_brightness` | delta |
+|---|---|
+| 1.0 | **−2.8** (invisible) |
+| 1.1 | +16.3 |
+| 1.25 | **+45.0** (a grey block on every pill) |
+
+Isolated by elimination, not by guessing: the halo survives `shadows disable`
+and `corner_radius 0`, and disappears only under `blur disable`.
+
+This was briefly set to 1.25 to compensate for the 5%-luminance wallpaper. **That
+trade is not available.** Saturation *is* safe to spend — it scales colour, and a
+near-black backdrop has none to scale, so it cannot expose the boundary.
+Consequence, stated plainly: on this wallpaper the pills are subtle and **no
+setting fixes that**. The wallpaper is the only real fix.
+
+### The right cluster is two pills, and `.modules-right` paints nothing
+
+⚠ **Reading `config/waybar/config` alone will mislead you here.** Every module
+sets `background-color: transparent`; the pill is painted on the *container*. So
+"merge volume/network/battery into one pill" was already true — the GNOME
+merged-quick-settings look came for free from `.modules-right`.
+
+What one pill could not do is separate the two *kinds* of thing in it. Privacy,
+media and the VPN shield hide themselves entirely when idle, so they grew and
+shrank the surface the permanent status icons live on. GNOME keeps its privacy
+indicator apart from the status pill; macOS does the same with its recording dot.
+So the pill moved onto two groups:
+
+- `group/indicators` — privacy · mpris · network#vpn. **Every member must be
+  self-hiding**; an always-visible module in here pins the pill open and
+  collapses the distinction it exists to draw.
+- `group/status` — idle_inhibitor · pulseaudio · network · battery ·
+  custom/notification (hub still last, at the corner).
+
+> [!WARNING]
+> **`#indicators` must carry no `border` and no horizontal `padding`.** Zeroing
+> padding and `min-width` takes the empty group's *content* to zero width, but
+> border and padding both have intrinsic width and keep painting — the artifact
+> is a single bright column beside the status pill (measured x=1676, luminance
+> **46.9** against a ~6 wallpaper) that reads as a smudge rather than a widget.
+> The hairline is an **inset box-shadow**, clipped to the box's own area and so
+> invisible at zero width (6.1 after). Padding stays on the children, where the
+> shared chip rule already puts it. Verify both states — empty *and* populated,
+> the latter by temporarily borrowing an always-visible module into the group.
+
 ### Layer namespaces — read them live, do not guess
 
 Under SwayFX, `swaymsg -t get_outputs` gains a `layer_shell_surfaces` array that
