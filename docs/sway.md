@@ -690,11 +690,23 @@ Luminance of the strip just outside the pill, minus bare wallpaper:
 Isolated by elimination, not by guessing: the halo survives `shadows disable`
 and `corner_radius 0`, and disappears only under `blur disable`.
 
-This was briefly set to 1.25 to compensate for the 5%-luminance wallpaper. **That
-trade is not available.** Saturation *is* safe to spend — it scales colour, and a
-near-black backdrop has none to scale, so it cannot expose the boundary.
-Consequence, stated plainly: on this wallpaper the pills are subtle and **no
-setting fixes that**. The wallpaper is the only real fix.
+This was briefly set to 1.25 to compensate for a near-black wallpaper. **That
+trade is not available** — it buys pill definition with a visible rectangle.
+Saturation *is* safe to spend: it scales colour rather than lifting the region.
+
+> [!NOTE]
+> **The wallpaper was the fix, and it was applied.** The old one measured
+> **13/255** in the strip under the bar, so the glass had nothing to render at
+> `blur_brightness 1.0` and the pills were nearly invisible. It was replaced
+> (2026-08-08) with an ESA/Hubble galaxy image measuring **~57**, and the pills
+> now genuinely tint to what is behind them.
+>
+> ⚠ **A wallpaper is therefore a functional choice here, not decoration.**
+> `~/Pictures/wallpapers/README.md` carries the candidates with their measured
+> bar-strip luminance and the script's criterion. Anything below ~30 puts the
+> glass back to invisible. Changing it means re-judging three coupled values:
+> the pill `@pill` alpha and `.empty` opacity in `config/waybar/style.css`, and
+> `blur_saturation` here.
 
 ### The right cluster is two pills, and `.modules-right` paints nothing
 

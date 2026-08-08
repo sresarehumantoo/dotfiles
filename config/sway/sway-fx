@@ -67,12 +67,12 @@ fx blur_contrast 1.0
 # ⚠ blur_brightness MUST STAY AT 1.0. IT IS NOT A BRIGHTNESS DIAL YOU CAN
 # SPEND — ABOVE 1.0 IT MAKES THE BLUR REGION'S OWN BOUNDARY VISIBLE.
 #
-# The blur region is a RECTANGLE. It does not follow the pill's rounded corners
-# and `blur_ignore_transparent` does not confine it to the pill either. At 1.0
-# that is invisible, because the blurred area and its surroundings are the same
-# backdrop. Push brightness up and the rectangle lights up as a grey block with
-# square corners sitting behind a rounded pill — the exact straight-edge-against-
-# a-curve mismatch this desktop has been burned by before.
+# The blur region is a RECTANGLE. It does not follow the pill's rounded corners,
+# and `blur_ignore_transparent` does not confine it. At 1.0 that is invisible,
+# because the blurred area and its surroundings are the same backdrop. Push
+# brightness up and the rectangle lights up as a grey block with square corners
+# sitting behind a rounded pill — the exact straight-edge-against-a-curve
+# mismatch this desktop has been burned by before.
 #
 # Measured on the bar, luminance of the strip just outside the pill minus bare
 # wallpaper:
@@ -82,15 +82,17 @@ fx blur_contrast 1.0
 # Isolated by elimination: the halo survives `shadows disable` and
 # `corner_radius 0`, and vanishes only with `blur disable`.
 #
-# This was briefly set to 1.25 to compensate for a dark wallpaper — the strip
-# under the bar measures 13/255 luminance, 5%, so at 1.0 the pills read as very
-# subtle. That trade is NOT available: it buys pill definition with a visible
-# rectangle. THE WALLPAPER IS THE ONLY REAL FIX. Over a backdrop with actual
-# luminance and colour, 1.0 makes each pill tint to what is behind it, which is
-# the whole point of the effect.
+# ⚠ HISTORY, so this is not "fixed" back: 1.25 was set to compensate for a
+# near-black wallpaper (13/255 under the bar) that left the pills nearly
+# invisible at 1.0. That trade is not available — it buys pill definition with a
+# visible rectangle. The correct fix was the WALLPAPER, and it was changed
+# (2026-08-08, ~57 luminance under the bar); the pills now tint to what is
+# behind them at 1.0, which is the effect that was wanted all along. If a dark
+# wallpaper ever comes back, lower the pill ALPHA in config/waybar/style.css —
+# never this. See ~/Pictures/wallpapers/README.md.
 #
-# Saturation is safe to spend: it scales colour, and a near-black backdrop has
-# none to scale, so it cannot expose the boundary the way brightness does.
+# Saturation is safe to spend: it scales colour rather than lifting the whole
+# region, so it cannot expose the boundary the way brightness does.
 fx blur_brightness 1.0
 fx blur_saturation 1.2
 
