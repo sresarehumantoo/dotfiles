@@ -351,6 +351,13 @@ two swaync patches touch disjoint files so their order does not matter.
 They supply `/etc/xdg/swaync/*`, the D-Bus service files and the systemd units,
 and they are the fallback if `/usr/local/bin` is ever cleared.
 
+> [!NOTE]
+> **There is a fourth local build, and it is not in this table because it
+> carries no patches:** SwayFX, in `/opt/swayfx`, as an additional GDM session.
+> It is a fork of sway rather than a patched package, so it upgrades on its own
+> schedule and none of the three patches above apply to it. See
+> *SwayFX — the effects build* below.
+
 ### Rebuilding
 
 ```bash
@@ -442,6 +449,160 @@ reads as lag on something you opened to click. Two non-obvious hazards:
 
 Verified by differential against the stock Debian binary: stock renders **2**
 distinct opacity levels, patched renders **6** in and **5** out.
+
+## SwayFX — the effects build (blur, rounded corners, animations)
+
+**Status 2026-08-08: built, validated, NOT YET LOGGED INTO.** The one untested
+thing is DisplayLink; see the go/no-go at the end of this section.
+
+This is the fourth local build, and unlike the three above it is not a patch —
+it is a **fork of sway itself**, in its own prefix, offered as a **third GDM
+session**. Plain sway cannot blur or round corners at any setting; that has been
+recorded elsewhere in this file as the only thing that would ever justify a
+fork. SwayFX **0.6** (2026-08-05) is what made it worth doing, because it added
+the other half: `animation_duration_ms` drives open/close, move/resize and
+workspace-change animations. Every 0.5.x write-up you will find says SwayFX has
+no animations — that stopped being true days before this was built.
+
+| | |
+|---|---|
+| Prefix | `/opt/swayfx` (self-contained, 30 MB) |
+| Session | `/usr/share/wayland-sessions/swayfx.desktop` → `swayfx-session` |
+| Sources | `config/sway/swayfx-session`, `config/sway/swayfx.desktop` |
+| Prebuilt | `~/projects/sway-migration/swayfx-0.6/` + `install.sh` |
+| Versions | SwayFX 0.6 (sway 1.12.0 base) · wlroots 0.20.1 · scenefx 0.5 |
+
+**Nothing is replaced.** `/usr/bin/sway` and `/opt/sway-next` are untouched, so
+GDM offers three entries and a bad SwayFX session is one logout from recovery.
+That is the entire reason this was affordable.
+
+> [!IMPORTANT]
+> **Six of trixie's libraries are too old for wlroots 0.20, and all six are
+> built into the prefix rather than upgraded.** `PLAN.md` in the sway-migration
+> repo rejected 0.20.1 in July on the grounds that it "cannot build here" —
+> true of a system-dependency build, **false** once wlroots' own `.wrap`
+> fallbacks are used. It also under-counted: the note names two, there are six.
+>
+> | | trixie | wlroots 0.20.1 needs |
+> |---|---|---|
+> | libdrm | 2.4.124 | 2.4.129 |
+> | wayland-server | 1.23.1 | 1.24.0 |
+> | wayland-protocols | 1.44 | 1.47 |
+> | libdisplay-info | 0.2.0 | 0.3.0 |
+> | pixman | 0.44.0 | 0.46.0 |
+> | libxkbcommon | 1.7.0 | 1.8.0 |
+>
+> Upgrading these system-wide (sid pinning, or a forky dist-upgrade) was
+> considered and rejected: libdrm and libwayland are the floor of the whole
+> graphics stack, and that is a large permanent change to the host in exchange
+> for a session you might log out of. **No apt package is touched.**
+
+> [!CAUTION]
+> **DO NOT export `LD_LIBRARY_PATH` in `swayfx-session`.** `sway-next-session`
+> does, and copying that line over is the obvious move and a real bug. That
+> prefix holds exactly ONE library, with a soname nothing else on the box links,
+> so leaking it to children is inert — its own comment says so. `/opt/swayfx`
+> holds **twelve**, six of which collide with system sonames (`libdrm.so.2`,
+> `libwayland-{client,server,cursor,egl}.so.*`, `libxkbcommon.so.0`,
+> `libpixman-1.so.0`). `LD_LIBRARY_PATH` is inherited by everything sway spawns,
+> so it would force Firefox, Ghostty and every GTK dialog onto this prefix's
+> libwayland and libxkbcommon for the whole session — while Mesa still links the
+> system libdrm.
+>
+> The binaries instead carry an absolute **RUNPATH**, set at build time with
+> `LDFLAGS`. Meson preserves it through `ninja install`. Verify:
+> `readelf -d /opt/swayfx/bin/sway | grep RUNPATH`.
+
+### Rebuilding
+
+```bash
+# Sources: swayfx 0.6 + scenefx 0.5 tarballs, wlroots 0.20.1 tarball.
+# Copies of all three are kept in ~/projects/sway-migration/swayfx-0.6/.
+tar xf swayfx-0.6.tar.gz && tar xf scenefx-0.5.tar.gz
+cd swayfx-0.6 && mkdir -p subprojects
+cp -r ../scenefx-0.5 subprojects/scenefx
+cp -r ../wlroots-0.20.1 subprojects/wlroots
+
+# ⚠ HOIST wlroots' OWN WRAPS TO THE TOP LEVEL. Meson resolves subprojects only
+# from the root subprojects/ dir, so with the wraps left inside
+# subprojects/wlroots/subprojects/ the scenefx subproject fails with
+# "Neither a subproject directory nor a wayland.wrap file was found" and is
+# silently disabled — the visible error is then the misleading
+# "Subproject subprojects/scenefx required but not found".
+cp -n subprojects/wlroots/subprojects/*.wrap subprojects/
+
+# ⚠ LDFLAGS, not a wrapper env var — see the CAUTION above.
+# ⚠ The libdrm vendor helpers must be disabled EXPLICITLY. wlroots asks for
+#   `auto_features=disabled` on its libdrm fallback and it does not take; the
+#   Intel bufmgr then builds and GCC 14 rejects the kernel header outright
+#   (`error: packed attribute is unnecessary ... [-Werror=packed]`).
+#   `-Dlibdrm:auto_features=...` is NOT a settable option; name each one.
+#   Do not include `install-test-programs` — it is boolean, not a feature, and
+#   one bad option aborts the whole `meson configure` without applying any.
+LDFLAGS="-Wl,-rpath,/opt/swayfx/lib/x86_64-linux-gnu" \
+meson setup build --prefix=/opt/swayfx \
+  --force-fallback-for=libdrm,wayland,wayland-protocols,libdisplay-info,pixman \
+  $(for o in intel radeon amdgpu nouveau vmwgfx omap exynos tegra vc4 \
+             etnaviv cairo-tests man-pages valgrind; do
+      printf -- "-Dlibdrm:%s=disabled " $o; done)
+
+ninja -C build
+doas ninja -C build install
+doas install -m0755 <dotfiles>/config/sway/swayfx-session /opt/swayfx/bin/
+doas install -m0644 <dotfiles>/config/sway/swayfx.desktop /usr/share/wayland-sessions/
+```
+
+> [!WARNING]
+> **Never pipe `ninja` into `tail`.** The pipeline's exit status is `tail`'s, so
+> a failed build reports success. This wasted a round here: `ninja` had stopped
+> on the libdrm error and the harness recorded exit 0. Redirect to a log file
+> and check `$?`, then `grep FAILED:` the log.
+
+### What the fork actually adds
+
+All of these were validated against the built binary (`sway --validate`, exit 0)
+rather than taken from the README:
+
+- `blur enable` + `blur_passes` `blur_radius` `blur_noise` `blur_brightness`
+  `blur_contrast` `blur_saturation` `blur_xray`
+- `corner_radius`, `smart_corner_radius`
+- `shadows` + `shadow_blur_radius` `shadow_color` `shadow_inactive_color`
+  `shadow_offset` `shadows_on_csd`
+- `default_dim_inactive`, per-window `dim_inactive`, `dim_inactive_colors.*`
+- `animation_duration_ms <0-5000>` — **one knob, no easing curve.** Upstream
+  recommends 250. Do not go looking for a bezier; there isn't one.
+- `layer_effects "<namespace>" { … }` — blur/shadows/corners on panels. Accepts
+  `blur`, `blur_xray`, `blur_ignore_transparent`, `shadows`, `corner_radius`
+  only; the blur *strength* knobs are global.
+
+Layer namespaces on this box, read out of the installed binaries rather than
+guessed — `waybar`, `swaync-control-center`, `swaync-notification-window`,
+`launcher` (fuzzel), `wallpaper` (swaybg — do **not** blur that one), and
+`sway-calendar`, whose `GLib.set_prgname` call already anticipates exactly this.
+swayosd's namespace did not fall out of `strings`; under SwayFX it can simply be
+read live, since `swaymsg -t get_outputs` gains a `layer_shell_surfaces` array
+that plain sway does not have.
+
+⚠ **Waybar tooltips will not blur.** They are separate GTK surfaces, not part of
+the `waybar` layer, so `layer_effects` cannot reach them (upstream Waybar #3450,
+unanswered). Keep them opaque — a half-transparent unblurred tooltip reads as
+broken in a way a solid one does not. This desktop has already been bitten once
+by tooltips-are-their-own-surface, in `custom/notification`.
+
+### The go/no-go: DisplayLink
+
+`/opt/sway-next` exists **because** trixie's wlroots 0.18 cannot drive the
+DisplayLink dock, and 0.19 turned that abort into a fallback. SwayFX 0.6 moves
+to wlroots **0.20**, which nothing here has ever run.
+
+The fix is present — `backend/drm/backend.c:182` in the 0.20.1 source, and the
+string `falling back to scanning out from primary GPU` is in the built
+`libwlroots-0.20.so`. That is necessary, not sufficient.
+
+**Test docked, and from a bare VT** (`~/projects/sway-migration/test-displaylink.sh`
+is the existing harness). If 0.20 regresses DisplayLink, the fallbacks are
+SwayFX 0.5.3 on the proven wlroots 0.19.3 — all the glass, no animations — or
+nothing. Recovery from a bad login is always: pick **Sway (0.19 / DisplayLink)**.
 
 ## Two GTK dialects, one desktop
 

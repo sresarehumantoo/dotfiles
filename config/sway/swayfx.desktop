@@ -1,0 +1,20 @@
+[Desktop Entry]
+Name=SwayFX (0.20 / effects)
+Comment=SwayFX 0.6 (sway 1.12 base) + wlroots 0.20.1 + scenefx 0.5 from /opt/swayfx — blur, rounded corners, shadows, animations
+Exec=/opt/swayfx/bin/swayfx-session
+Type=Application
+DesktopNames=sway
+
+# ⚠ THIS FILE IS NOT SYMLINKED BY dfinstall — it is the versioned source for
+# /usr/share/wayland-sessions/swayfx.desktop, which the recipe in docs/sway.md
+# installs. Same arrangement as config/sway/swayfx-session beside it.
+#
+# ⚠ DesktopNames MUST stay `sway`, not `swayfx`. GDM exports it as
+# XDG_CURRENT_DESKTOP, and xdg-desktop-portal resolves its per-desktop config by
+# that value lowercased — so `swayfx` would silently orphan
+# ~/.config/xdg-desktop-portal/sway-portals.conf and take screencast, the GTK
+# file chooser and RemoteDesktop down with it, with no error anywhere.
+#
+# It sits alongside, and does not replace, the two existing entries:
+#   sway.desktop       -> /usr/bin/sway            (trixie; broken when docked)
+#   sway-next.desktop  -> /opt/sway-next/bin/sway  (1.11/0.19; the fallback)
