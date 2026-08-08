@@ -399,6 +399,18 @@ exec_always pkill -SIGUSR2 -x waybar || waybar     # waybar reloads its config o
 # back to what this file says (i.e. none), so re-running here is what makes a
 # reload the correct way to re-apply after editing the script.
 exec_always $HOME/.local/bin/sway-fx
+# The animated workspace row behind waybar's left pill. Owns the single sway
+# subscription and feeds nine `tail -F` clients — see the header of
+# config/sway/sway-workspaces for why it is a server rather than nine
+# subscribers (27 processes on the dock, one per module per bar).
+#
+# ⚠ NO pgrep GUARD — `pgrep -f sway-workspaces` matches the `sh -c` running
+# this very line, the same self-match trap recorded at `exec autotiling` and
+# sway-calendar. The script guards itself with a pidfile and exits 0 if a live
+# server already owns the row, which is what makes it safe under exec_always
+# re-running on every `swaymsg reload`.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-workspaces" ] && "$HOME/.local/bin/sway-workspaces" &'
+
 # swaync, not mako: mako 1.10 has no fade/animation/opacity option of any kind,
 # so notifications could only blink out instantly. swaync animates them
 # (transition-time in config/swaync/config.json).

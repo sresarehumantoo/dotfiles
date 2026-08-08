@@ -29,7 +29,13 @@
     // stay flush. A non-zero value here punches transparent slots through them.
     "spacing": 0,
 
-    "modules-left":   ["sway/workspaces", "sway/mode"],
+    // ⚠ NINE custom modules, not `sway/workspaces` — see config/sway/sway-workspaces
+    // for why the built-in module cannot do this. Each digit is its own GTK
+    // widget so it keeps a rounded chip and its own click target; a single
+    // Pango-markup module would have had neither.
+    "modules-left":   ["custom/ws1", "custom/ws2", "custom/ws3", "custom/ws4",
+                       "custom/ws5", "custom/ws6", "custom/ws7", "custom/ws8",
+                       "custom/ws9", "sway/mode"],
     // ⚠ THE CLOCK IS THE CENTRE MODULE, and `sway/window` is GONE — the window
     // title is no longer displayed anywhere on this desktop. That is the point
     // (a centred clock, macOS/GNOME-style) but it has one consequence worth
@@ -101,33 +107,93 @@
         "modules": ["idle_inhibitor", "pulseaudio", "network", "battery", "custom/notification"]
     },
 
-    "sway/workspaces": {
-        "disable-scroll": true,
-        "all-outputs": false,
-        // Plain numerals. The Material Design circled digits that were here
-        // (md-numeric_1_circle etc.) were chosen back when only live
-        // workspaces showed, to give a sparse row some visual weight — but a
-        // circled glyph is a picture of a number, and nine of them in a row
-        // read as a row of dots. With 1-9 always present the row has its own
-        // structure and the digit can just be a digit, which is what macOS and
-        // GNOME do. It is also strictly more legible at 13px, and $mod+N is
-        // how these are actually used.
-        "format": "{name}",
+    // ── The workspace row ──────────────────────────────────────────────────
+    // Driven by the resident `sway-workspaces` server (autostarted from
+    // config/sway/config), which owns the single sway subscription and appends
+    // each slot's state to its own file.
+    //
+    // ⚠ THE EXEC MUST STAY A BARE `tail`. waybar instantiates every module ONCE
+    // PER BAR, so on the dock this is 9 x 3 = 27 processes; anything carrying
+    // its own interpreter gets multiplied by that. `tail` is ~1MB, a Python
+    // subscriber would have been ~10MB — ~300MB of RSS for a status bar.
+    //
+    // ⚠ `-F`, not `-f`: it follows by NAME, so it survives the server
+    // truncating the file and it waits politely if waybar starts first.
+    // `-n1` replays the last line, which is what gives a freshly-started bar
+    // its state instead of nine blanks.
+    //
+    // The `class` field in the server's JSON is what CSS keys off
+    // (.focused / .trail / .visible / .occupied / .empty / .urgent).
+    "custom/ws1": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-1.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 1",
+        "tooltip": false
+    },
 
-        // ⚠ ALWAYS SHOW 1-9. An empty list means "on every output".
-        //
-        // ⚠ CONSEQUENCE WHEN DOCKED, and it is not testable undocked: with
-        // `all-outputs: false` each bar shows its own output's workspaces PLUS
-        // every persistent one, so all three screens will show a full 1-9 row
-        // rather than only the workspaces living on them. If that turns out to
-        // be wrong, the fix is to name outputs per entry —
-        //   "1": ["eDP-1"], "4": ["DP-1"], ...
-        // which is host-specific data and would belong in outputs.conf's
-        // sibling rather than here.
-        "persistent-workspaces": {
-            "1": [], "2": [], "3": [], "4": [], "5": [],
-            "6": [], "7": [], "8": [], "9": []
-        }
+    "custom/ws2": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-2.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 2",
+        "tooltip": false
+    },
+
+    "custom/ws3": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-3.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 3",
+        "tooltip": false
+    },
+
+    "custom/ws4": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-4.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 4",
+        "tooltip": false
+    },
+
+    "custom/ws5": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-5.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 5",
+        "tooltip": false
+    },
+
+    "custom/ws6": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-6.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 6",
+        "tooltip": false
+    },
+
+    "custom/ws7": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-7.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 7",
+        "tooltip": false
+    },
+
+    "custom/ws8": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-8.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 8",
+        "tooltip": false
+    },
+
+    "custom/ws9": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-9.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 9",
+        "tooltip": false
     },
 
     "sway/mode": {

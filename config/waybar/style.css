@@ -230,13 +230,23 @@ window#waybar.empty .modules-center {
 
 /* Workspaces ------------------------------------------------------------ */
 
-#workspaces {
-    padding: 0;
-}
-
-#workspaces button {
-    /* Numerals, not glyphs — so size them as text. Slightly tighter than the
-       icon size that was here, and bold enough to hold their own small. */
+/* ⚠ NINE SEPARATE WIDGETS, and every rule here has to be repeated across all
+   nine ids — GTK3 CSS has no nesting and no `:is()`, so there is no shorter
+   way to say it. These were `#workspaces button` until the row needed a
+   travelling highlight; config/sway/sway-workspaces explains why the built-in
+   module could not provide one. Keeping them as real widgets is what preserves
+   the rounded chip and the per-digit click.
+   The classes come from the server's JSON, so the vocabulary is its:
+   focused / trail / visible / occupied / empty / urgent. */
+#custom-ws1,
+#custom-ws2,
+#custom-ws3,
+#custom-ws4,
+#custom-ws5,
+#custom-ws6,
+#custom-ws7,
+#custom-ws8,
+#custom-ws9 {
     font-size: 13px;
     font-weight: bold;
     padding: 0 9px;
@@ -244,69 +254,124 @@ window#waybar.empty .modules-center {
     background-color: transparent;
     color: @overlay;
     border-radius: 11px;
-    /* ⚠ THERE IS NO TRAVELLING PILL, AND THERE CANNOT BE. The obvious modern
-       treatment — one highlight that slides from workspace to workspace — needs
-       to move a box across sibling widgets, and GTK3 CSS has no `transform`
-       and no way to position one child against another. (A stray `transform:`
-       does not just fail, it invalidates the whole stylesheet — see the swaync
-       header.) What is available is per-widget property interpolation, so the
-       transition is a crossfade plus a grow, tuned long enough to read as
-       motion rather than as a jump.
-       ⚠ Keep every property listed explicitly; `transition: all` drags
-       background-image and box-shadow in and re-rasterises a gradient every
-       frame. */
-    transition: background-color 260ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                color            220ms ease,
-                box-shadow       260ms ease-in-out,
-                padding          300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-shadow: inset 0 0 0 1px transparent;
+    /* ⚠ The fade must stay SHORTER than the server's STEP (35ms) would
+       suggest — a chip has to reach full strength and start falling before the
+       next one lights, or the trail smears into a single glow instead of
+       reading as travel. 200ms out, quick in.
+       Keep every property explicit; `transition: all` drags background-image
+       and re-rasterises a gradient every frame. */
+    transition: background-color 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                color            160ms ease,
+                box-shadow       200ms ease-in-out,
+                padding          260ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-#workspaces button:hover {
-    /* A breath of light on the glass, not a fill. */
-    background-color: @glass-veil;
-    color: @text;
-    box-shadow: none;
-    text-shadow: none;
-}
-
-/* An unfocused-but-occupied workspace should read as "there is something
-   there" without competing with the focused one. Opacity rather than a
-   second colour keeps the single-accent discipline intact. */
-/* ⚠ NOW THE COMMON CASE, not a rarity — with 1-9 always shown, most of the
-   row is persistent-and-empty at any moment. It has to recede far enough that
-   the row reads as a quiet ruler rather than nine competing chips, while
-   staying legible enough to aim $mod+N at. Opacity rather than a second colour
-   keeps the palette discipline intact. */
-#workspaces button.persistent {
+/* Empty-but-persistent is most of the row at any moment, so it recedes far
+   enough to read as a quiet ruler while staying legible to aim $mod+N at. */
+#custom-ws1.empty,
+#custom-ws2.empty,
+#custom-ws3.empty,
+#custom-ws4.empty,
+#custom-ws5.empty,
+#custom-ws6.empty,
+#custom-ws7.empty,
+#custom-ws8.empty,
+#custom-ws9.empty {
     opacity: 0.38;
 }
 
-#workspaces button.visible {
+#custom-ws1.occupied,
+#custom-ws2.occupied,
+#custom-ws3.occupied,
+#custom-ws4.occupied,
+#custom-ws5.occupied,
+#custom-ws6.occupied,
+#custom-ws7.occupied,
+#custom-ws8.occupied,
+#custom-ws9.occupied {
+    opacity: 0.72;
     color: @subtext;
 }
 
-#workspaces button.focused {
-    /* Dark pigment + lit edge, per the @glass-tint note above. The edge is an
-       INSET shadow, so it draws inside the button's own box and cannot nudge a
-       neighbour — the same reason the status-chip hover uses one. */
+#custom-ws1.visible,
+#custom-ws2.visible,
+#custom-ws3.visible,
+#custom-ws4.visible,
+#custom-ws5.visible,
+#custom-ws6.visible,
+#custom-ws7.visible,
+#custom-ws8.visible,
+#custom-ws9.visible {
+    opacity: 0.85;
+    color: @subtext;
+}
+
+/* The focused chip: dark pigment plus a lit edge, per @glass-tint. */
+#custom-ws1.focused,
+#custom-ws2.focused,
+#custom-ws3.focused,
+#custom-ws4.focused,
+#custom-ws5.focused,
+#custom-ws6.focused,
+#custom-ws7.focused,
+#custom-ws8.focused,
+#custom-ws9.focused {
     color: @text;
     background-color: @glass-tint;
-    background-image: none;
     box-shadow: inset 0 0 0 1px @glass-edge;
     opacity: 1;
-    /* The growth half of the transition. Modest on purpose: the row must not
-       visibly reflow every time focus moves. */
     padding: 0 14px;
 }
 
-/* ⚠ URGENT KEEPS ITS SATURATED FILL, deliberately. Everything else went
-   low-saturation so that a genuine alert is the only loud thing in the bar —
-   draining this one too would leave nothing able to interrupt. */
-#workspaces button.urgent {
+/* ⚠ THE TRAIL. Deliberately WEAKER than .focused and deliberately NOT grown —
+   it is a wake, not a destination. Giving it the focused chip's padding made
+   the whole row reflow nine times per jump, which reads as the bar convulsing
+   rather than as a highlight travelling; only colour and the edge move. */
+#custom-ws1.trail,
+#custom-ws2.trail,
+#custom-ws3.trail,
+#custom-ws4.trail,
+#custom-ws5.trail,
+#custom-ws6.trail,
+#custom-ws7.trail,
+#custom-ws8.trail,
+#custom-ws9.trail {
+    color: @text;
+    background-color: alpha(@glass-tint, 0.55);
+    box-shadow: inset 0 0 0 1px alpha(@glass-edge, 0.55);
+    opacity: 1;
+}
+
+/* Urgent keeps its saturated fill — the one thing in the bar allowed to shout. */
+#custom-ws1.urgent,
+#custom-ws2.urgent,
+#custom-ws3.urgent,
+#custom-ws4.urgent,
+#custom-ws5.urgent,
+#custom-ws6.urgent,
+#custom-ws7.urgent,
+#custom-ws8.urgent,
+#custom-ws9.urgent {
     color: @crust;
     background-color: @red;
     background-image: linear-gradient(to bottom, @peach, @red);
+    opacity: 1;
     padding: 0 14px;
+}
+
+/* Hover: a breath of light on the glass, matching the status chips. */
+#custom-ws1:hover,
+#custom-ws2:hover,
+#custom-ws3:hover,
+#custom-ws4:hover,
+#custom-ws5:hover,
+#custom-ws6:hover,
+#custom-ws7:hover,
+#custom-ws8:hover,
+#custom-ws9:hover {
+    background-color: @glass-veil;
+    color: @text;
     opacity: 1;
 }
 

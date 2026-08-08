@@ -71,12 +71,18 @@ func (SwayModule) Links() core.LinkSet {
 		// plain sway fails the whole config load on an unknown command, so
 		// putting `blur enable` in it would nag on every fallback login.
 		{Src: core.ConfigPath("sway", "sway-fx"), Dst: core.HomeTarget(".local", "bin", "sway-fx")},
+		// The animated 1-9 workspace row. A resident server feeding nine
+		// `tail -F` clients, one per waybar module — waybar's own
+		// sway/workspaces cannot render a travelling highlight, because it
+		// derives every button's class from sway state and an intermediate
+		// workspace is never "anything".
+		{Src: core.ConfigPath("sway", "sway-workspaces"), Dst: core.HomeTarget(".local", "bin", "sway-workspaces")},
 	}
 }
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx"}
+var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces"}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //
