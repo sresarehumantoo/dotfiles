@@ -1,0 +1,166 @@
+--- a/src/controlCenter/controlCenter.vala
++++ b/src/controlCenter/controlCenter.vala
+@@ -21,6 +21,27 @@
+         private double scroll_animation_progress = 1.0;
+         private Animation ? scroll_animation;
+ 
++        // LOCAL DELTA — control centre open/close fade.
++        //
++        // Upstream maps and unmaps this window outright, so the whole panel
++        // appears and vanishes between two frames. Everything needed to do it
++        // properly already exists: `Animation` is frame-clock driven, has
++        // easing, and no-ops when gtk-enable-animations is off -- so this
++        // honours the accessibility setting for free rather than inventing a
++        // second animation path.
++        //
++        // 180ms out of ANIMATION_DURATION's 400: this fires every time the
++        // panel is opened, and 400ms of fade on something you opened to click
++        // reads as lag, not polish. ease_out_cubic (fast start, gentle settle)
++        // rather than ease_in_out_cubic, so the panel feels like it is already
++        // arriving when the keypress lands.
++        private const uint CC_FADE_DURATION = 180;
++        private Animation ? cc_fade_animation;
++        // True from the moment a close is requested until the fade finishes.
++        // The window is still mapped through that window of time, so `visible`
++        // alone cannot answer "is the panel open?" -- see cc_is_open.
++        private bool cc_closing = false;
++
+         HashTable<uint32, unowned NotificationGroup> noti_groups_id =
+             new HashTable<uint32, unowned NotificationGroup> (direct_hash, direct_equal);
+         /** NOTE: Only includes groups with ids with length of > 0 */
+@@ -200,6 +221,11 @@
+                                               Animation.ease_in_out_cubic,
+                                               scroll_animation_value_cb,
+                                               scroll_animation_done_cb);
++            // LOCAL DELTA — see cc_set_visible_animated.
++            cc_fade_animation = new Animation (this, CC_FADE_DURATION,
++                                               Animation.ease_out_cubic,
++                                               cc_fade_value_cb,
++                                               cc_fade_done_cb);
+             list_box.draw.connect (list_box_draw_cb);
+         }
+ 
+@@ -608,12 +634,18 @@
+         }
+ 
+         private void on_visibility_change () {
++            // LOCAL DELTA — cc_is_open(), not `visible`. A window mid-fade-out
++            // is still mapped, and reporting it as open would leave widget
++            // polling running and tell waybar the panel is up after it has
++            // visually gone.
++            bool is_open = cc_is_open ();
++
+             // Updates all widgets on visibility change
+             foreach (var widget in widgets.data) {
+-                widget.on_cc_visibility_change (visible);
++                widget.on_cc_visibility_change (is_open);
+             }
+ 
+-            if (this.visible) {
++            if (is_open) {
+                 // Focus the first notification
+                 list_position = list_reverse ?
+                                 (((int) list_box.get_children ().length ()) - 1) : 0;
+@@ -632,23 +664,94 @@
+             }
+             swaync_daemon.subscribe_v2 (notification_count (),
+                                         noti_daemon.dnd,
+-                                        this.visible,
++                                        is_open, // LOCAL DELTA — see above
+                                         swaync_daemon.inhibited);
+         }
+ 
+-        public bool toggle_visibility () {
+-            var cc_visibility = !this.visible;
+-            if (this.visible != cc_visibility) {
+-                this.set_visible (cc_visibility);
++        /**
++         * LOCAL DELTA — the panel's LOGICAL open state.
++         *
++         * ⚠ Do not substitute `this.visible` for this. During a close the
++         * window stays mapped for the length of the fade, so `visible` is still
++         * true while the panel is, to the user, already shut. Reading `visible`
++         * there makes a toggle pressed mid-fade compute "it is open, so close
++         * it" -- and the panel would refuse to reopen until the fade finished.
++         */
++        private bool cc_is_open () {
++            return this.visible && !cc_closing;
++        }
++
++        void cc_fade_value_cb (double progress) {
++            this.set_opacity (progress);
++        }
++
++        void cc_fade_done_cb () {
++            if (!cc_closing) return;
++            cc_closing = false;
++            this.set_visible (false);
++            // Reset, or the next open starts from 0 on any path that does not
++            // animate (gtk-enable-animations off, or an unmapped window) and
++            // the panel would open fully transparent.
++            this.set_opacity (1.0);
++        }
++
++        /**
++         * LOCAL DELTA — fade the window instead of mapping/unmapping it.
++         */
++        private void cc_set_visible_animated (bool visibility) {
++            if (cc_is_open () == visibility) return;
++
++            if (cc_fade_animation == null) {
++                // Nothing built the animation (should not happen); behave
++                // exactly as upstream did rather than doing nothing at all.
++                cc_closing = false;
++                this.set_visible (visibility);
+                 on_visibility_change ();
++                return;
+             }
++
++            cc_fade_animation.stop ();
++
++            if (visibility) {
++                cc_closing = false;
++                if (!this.visible) {
++                    // Opacity BEFORE visibility: the window must never be
++                    // painted at full strength for even one frame, or the fade
++                    // reads as a flash followed by a fade.
++                    this.set_opacity (0.0);
++                    this.set_visible (true);
++                }
++                on_visibility_change ();
++
++                // ⚠ Deferred to an idle. Animation.start() checks
++                // widget.get_mapped() and, when false, jumps straight to the
++                // end value -- so starting it in the same turn as set_visible()
++                // silently produces no fade at all on the open path.
++                double from = this.opacity;
++                Idle.add (() => {
++                    if (cc_fade_animation != null && !cc_closing && this.visible) {
++                        cc_fade_animation.start (from, 1.0);
++                    }
++                    return Source.REMOVE;
++                });
++            } else {
++                cc_closing = true;
++                // Report the new state at the START of the close, not when the
++                // fade lands: this is what stops widget polling and tells
++                // waybar the panel is shut. cc_is_open() already answers false.
++                on_visibility_change ();
++                cc_fade_animation.start (this.opacity, 0.0);
++            }
++        }
++
++        public bool toggle_visibility () {
++            var cc_visibility = !cc_is_open ();
++            cc_set_visible_animated (cc_visibility);
+             return cc_visibility;
+         }
+ 
+         public void set_visibility (bool visibility) {
+-            if (this.visible == visibility) return;
+-            this.set_visible (visibility);
+-            on_visibility_change ();
++            cc_set_visible_animated (visibility);
+         }
+ 
+         public void close_notification (uint32 id, bool dismiss) {

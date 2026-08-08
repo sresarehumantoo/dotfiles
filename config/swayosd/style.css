@@ -61,6 +61,25 @@ window#osd label {
     color: @text;
 }
 
+/* Tabular figures: proportional fonts draw `1` narrower than `0`, so a counting
+   percentage shuffles its own digits as it changes. This is the second half of
+   the fix — the first half is the FIGURE SPACE padding in config/sway/
+   sway-brightness, which makes every label the same number of digit-widths
+   wide. Both are needed: padding equalises the string length, tabular figures
+   equalise what a digit is worth.
+
+   ⚠ Do NOT "fix" the width here with `min-width` instead. That was tried and
+   does not work: min-width is a floor, not a cap, so it pads `0%` up but lets
+   `100%` take its larger natural width — measured, the pill's left edge locked
+   but the right edge still travelled 11px. Only equal-width text equalises it.
+
+   GTK4 drops an unsupported property and keeps the rest of the block, so these
+   are safe on a build that lacks them. */
+window#osd label {
+    font-feature-settings: "tnum" 1;
+    font-variant-numeric: tabular-nums;
+}
+
 /* Muted rather than hidden — this is how a muted sink or a disabled control
    reports itself. */
 window#osd progressbar:disabled,

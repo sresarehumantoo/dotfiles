@@ -32,11 +32,28 @@ set -eu
 
 # Real hardware percent at user-scale zero. 5 rather than 1: measured on this
 # panel, 1% is not reliably distinguishable from off in a lit room, which
-# defeats the entire point. Shared with BRIGHTNESS_MIN in sway-quickpanel —
-# change both together or the slider and the keys will disagree about where
-# the bottom is.
+# defeats the entire point. Duplicated as BRIGHTNESS_MIN in sway-quickpanel and
+# as widget-config.backlight.min in config/swaync/config.json — change all
+# three together or the keys and the sliders disagree about where the bottom is.
 FLOOR=5
-STEP=5
+
+# ⚠ STEP IS A FUNCTION OF HOW FAST A PRESS COMPLETES, not a taste setting.
+# `input * repeat_rate 40` (config/sway/config) fires a press every 25ms while
+# the key is held, and sway `exec`s each one independently — so if a press costs
+# more than 25ms they overlap and race on the state file below.
+#
+# This used to cost ~80ms, i.e. three deep at full repeat, and the only way to
+# make a held key cross the range at a sane speed was a coarse STEP=5. The hot
+# path is now ~14ms (see the sysfs notes below), so a press keeps up with the
+# repeat rate and STEP can be small enough to look continuous:
+#
+#     80ms/press, STEP 5  ->  ~12 eff. presses/s  ->  62%/s, visibly chunky
+#     14ms/press, STEP 5  ->   40 presses/s       -> 200%/s, uncontrollable
+#     14ms/press, STEP 2  ->   40 presses/s       ->  80%/s, ~1.25s end to end
+#
+# So the two numbers move together: making a press cheaper without lowering
+# STEP makes the key WORSE, not better.
+STEP=2
 
 # Nerd-Font-independent: this is a Freedesktop icon name, resolved by the OSD's
 # GTK icon theme, not a glyph from our terminal font.
@@ -44,17 +61,64 @@ ICON=display-brightness-symbolic
 
 usable=$((100 - FLOOR))
 
-# Current real percent. brightnessctl -m prints:
-#   <device>,<class>,<current>,<percent>%,<max>
-# Parsing its percent field rather than computing from raw avoids assuming a
-# linear raw->percent mapping, which is not guaranteed across backends.
-real_now() {
-    brightnessctl -m 2>/dev/null | head -1 | cut -d, -f4 | tr -d '%'
-}
+# ⚠ THE SYSFS FAST PATH IS THE WHOLE REASON A HELD KEY IS SMOOTH. Measured per
+# call on this box: `brightnessctl -m` 16.9ms and `brightnessctl set` 18.5ms,
+# against ~0.1ms for reading or writing the attribute directly. Reading it with
+# the `read` builtin and writing it with `printf >` forks NOTHING, so the whole
+# press collapses to the one swayosd-client spawn we cannot avoid.
+#
+# This mirrors what config/sway/sway-quickpanel already does, deliberately —
+# the two must agree about the hardware or the keys and the slider drift apart.
+# It needs config/sway/90-backlight.rules installed (grants the `video` group
+# write access) and the user in `video`; Debian's brightnessctl ships no such
+# rule. Without it the write fails with EACCES and we fall back to
+# brightnessctl, which is slower but correct — so a box without the rule
+# degrades in feel, never in behaviour.
+BL=""
+BL_MAX=""
+for _d in /sys/class/backlight/*; do
+    [ -r "$_d/brightness" ] && [ -r "$_d/max_brightness" ] || continue
+    read -r BL_MAX < "$_d/max_brightness" 2>/dev/null || continue
+    case "$BL_MAX" in ''|*[!0-9]*) continue ;; esac
+    [ "$BL_MAX" -gt 0 ] || continue
+    BL=$_d
+    break
+done
 
 # Round-half-up integer division, so repeated up/down steps land back where
 # they started instead of drifting down through truncation.
 divround() { echo $((($1 + $2 / 2) / $2)); }
+
+# Current real percent.
+#
+# Computing the percent from raw/max rather than parsing brightnessctl's own
+# percent field assumes the raw->percent mapping is linear. That is what
+# sway-quickpanel has always done, and brightnessctl itself computes its
+# percent the same way, so the two agree; the fallback below still parses
+# brightnessctl's field for any backend where we cannot read sysfs at all.
+real_now() {
+    if [ -n "$BL" ]; then
+        if read -r _cur < "$BL/brightness" 2>/dev/null; then
+            case "$_cur" in
+                ''|*[!0-9]*) : ;;
+                *) divround $((_cur * 100)) "$BL_MAX"; return ;;
+            esac
+        fi
+    fi
+    # brightnessctl -m prints: <device>,<class>,<current>,<percent>%,<max>
+    brightnessctl -m 2>/dev/null | head -1 | cut -d, -f4 | tr -d '%'
+}
+
+# Write a real percent. Never called with anything below FLOOR.
+set_real() {
+    if [ -n "$BL" ]; then
+        _raw=$(divround $(( $1 * BL_MAX )) 100)
+        [ "$_raw" -lt 1 ] && _raw=1
+        [ "$_raw" -gt "$BL_MAX" ] && _raw=$BL_MAX
+        printf '%s\n' "$_raw" > "$BL/brightness" 2>/dev/null && return
+    fi
+    brightnessctl set "$1%" >/dev/null 2>&1 || true
+}
 
 real_to_user() {
     r=$1
@@ -71,22 +135,67 @@ user_to_real() {
     echo $(( FLOOR + scaled ))
 }
 
+# U+2007 FIGURE SPACE, written as octal escapes so this file stays pure ASCII.
+# Unicode defines it as "a space equal to the width of a digit", which is the
+# entire reason it exists, and it is what makes the OSD stop resizing.
+#
+# ⚠ AN ORDINARY SPACE DOES NOT WORK HERE, and the difference is not subtle.
+# swayosd sizes the label to its text: upstream reserves a width for its own
+# volume OSD (osd_window.rs:150, build_text_widget(.., Some(4))) but passes
+# None for custom_progress (:298), which is the path brightness uses. So the
+# pill grew with the digit count and the bar slid on every press through 5 and
+# 100 — while volume, going through the reserved path, never moved. Measured
+# pill widths at the same font:
+#
+#     "100%"                    262px
+#     "0%"                      251px   <- 11px of travel
+#     "  0%"  (two U+0020)      255px   <- still wrong; a space is not a digit
+#     "<FS><FS>0%" (U+2007)     262px   <- exact match
+#
+# Pad to three digit-widths, so every label is four cells wide.
+FIGSP=$(printf '\342\200\207')
+
+pad_pct() {
+    case ${#1} in
+        1) printf '%s%s%s%%' "$FIGSP" "$FIGSP" "$1" ;;
+        2) printf '%s%s%%' "$FIGSP" "$1" ;;
+        *) printf '%s%%' "$1" ;;
+    esac
+}
+
 show_osd() {
     user=$1
     command -v swayosd-client >/dev/null 2>&1 || return 0
 
-    # Preferred: draw the bar at the USER fraction while the real value stays
-    # floored — the honest bar for the value the user thinks they are setting.
-    # Only exists in swayosd >= 0.3, so it is probed rather than assumed; when
-    # Debian catches up this starts working with no change here.
-    if swayosd-client --help-all 2>&1 | grep -q -- '--custom-progress'; then
-        swayosd-client --custom-progress "$(echo "$user" | awk '{printf "%.2f", $1/100}')" \
-                       --custom-progress-text "${user}%" \
-                       --custom-icon "$ICON" >/dev/null 2>&1 || true
+    # ⚠ TRY THE MODERN CALL AND FALL BACK ON ITS EXIT CODE — do NOT probe
+    # `--help` first. An earlier version of this ran
+    #     swayosd-client --help 2>&1 | grep -q -- '--custom-progress'
+    # on every single press, which cost a measured 11ms of the press budget and
+    # was stale the moment swayosd was upgraded mid-session (the cached answer
+    # outlives the binary it described).
+    #
+    # Unknown options are already a hard error in both argument parsers, so the
+    # attempt IS the probe, and it self-heals across an upgrade:
+    #     swayosd 0.1.0 (GLib)  --custom-progress -> exit 1
+    #     swayosd 0.3.2 (clap)  --custom-progress -> exit 0
+    # Cost is one spawn in the common case and two only on a version too old to
+    # draw a bar at all.
+    #
+    # `--custom-progress` draws the bar at the USER fraction while the real
+    # value stays floored — the honest bar for the value the user thinks they
+    # are setting. Added upstream in 0.2.1.
+    #
+    # The fraction is built with shell arithmetic rather than
+    #     echo "$user" | awk '{printf "%.2f", $1/100}'
+    # which forked twice for 9.3ms to divide an integer by 100. user is always
+    # 0..100, so `d.dd` is exact: 0 -> 0.00, 5 -> 0.05, 100 -> 1.00.
+    if swayosd-client --custom-progress "$((user / 100)).$(printf '%02d' $((user % 100)))" \
+                      --custom-progress-text "$(pad_pct "$user")" \
+                      --custom-icon "$ICON" >/dev/null 2>&1; then
         return 0
     fi
 
-    # Fallback for swayosd 0.1.0: a numeric OSD. Deliberately NOT
+    # Fallback for swayosd < 0.2.1: a numeric OSD. Deliberately NOT
     # `--brightness <real>`, which would both re-set the backlight (fighting
     # the value we just wrote) and display the REAL percent — showing 5% at
     # the bottom of the scale, which is the confusion this script exists to
@@ -94,8 +203,11 @@ show_osd() {
     swayosd-client --custom-message "${user}%" --custom-icon "$ICON" >/dev/null 2>&1 || true
 }
 
-command -v brightnessctl >/dev/null 2>&1 || {
-    echo "sway-brightness: brightnessctl not found" >&2
+# brightnessctl is now only the fallback for a box where the sysfs attribute is
+# unreadable, so it is required only when there is no usable device — it used to
+# be an unconditional hard exit.
+[ -n "$BL" ] || command -v brightnessctl >/dev/null 2>&1 || {
+    echo "sway-brightness: no readable backlight and brightnessctl not found" >&2
     exit 1
 }
 
@@ -136,10 +248,11 @@ fi
 # ⚠ Step to the next/previous multiple of STEP rather than adding to the
 # current value. The user<->real mapping is integer maths on two different
 # scales, so it does not always round-trip exactly — measured: user 50% maps to
-# real 53%, which reads back as 51%. Adding 5 to that would walk the scale onto
-# 56, 61, 66 … and the bottom of the range would stop landing exactly on 0.
-# Snapping to the grid makes every press idempotent in aggregate: the sequence
-# is always 0, 5, 10 … 100 regardless of accumulated rounding.
+# real 53%, which reads back as 51%. Adding STEP to that would walk the scale
+# off the grid and the bottom of the range would stop landing exactly on 0.
+# Snapping makes every press idempotent in aggregate: the sequence is always
+# 0, STEP, 2*STEP … 100 regardless of accumulated rounding. (100 is on the grid
+# for any STEP that divides it — another reason STEP is 2 and not 3.)
 case "${1:-}" in
     up)
         user=$(( user / STEP * STEP + STEP ))
@@ -166,7 +279,7 @@ esac
 [ "$target" -lt "$FLOOR" ] && target=$FLOOR
 [ "$target" -gt 100 ] && target=100
 
-brightnessctl set "${target}%" >/dev/null 2>&1 || true
+set_real "$target"
 
 # Record what the hardware actually settled on, not what we asked for — those
 # differ whenever the device's step granularity is coarser than one percent,
