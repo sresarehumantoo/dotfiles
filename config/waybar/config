@@ -104,24 +104,29 @@
     "sway/workspaces": {
         "disable-scroll": true,
         "all-outputs": false,
-        "format": "{icon}",
-        // Icons, but the digit is still legible: $mod+N is how these actually
-        // get used, so a row of anonymous dots would be a regression. The
-        // Unicode circled digits (U+2460..) were tried first and render as
-        // cramped ovals in IosevkaTerm at bar size — these Material ones match
-        // the rest of the bar's icon set instead.
-        "format-icons": {
-            "1": "󰲡",
-            "2": "󰲣",
-            "3": "󰲥",
-            "4": "󰲧",
-            "5": "󰲩",
-            "6": "󰲫",
-            "7": "󰲭",
-            "8": "󰲯",
-            "9": "󰲱",
-            "default": "󰧞",
-            "urgent": "󰀨"
+        // Plain numerals. The Material Design circled digits that were here
+        // (md-numeric_1_circle etc.) were chosen back when only live
+        // workspaces showed, to give a sparse row some visual weight — but a
+        // circled glyph is a picture of a number, and nine of them in a row
+        // read as a row of dots. With 1-9 always present the row has its own
+        // structure and the digit can just be a digit, which is what macOS and
+        // GNOME do. It is also strictly more legible at 13px, and $mod+N is
+        // how these are actually used.
+        "format": "{name}",
+
+        // ⚠ ALWAYS SHOW 1-9. An empty list means "on every output".
+        //
+        // ⚠ CONSEQUENCE WHEN DOCKED, and it is not testable undocked: with
+        // `all-outputs: false` each bar shows its own output's workspaces PLUS
+        // every persistent one, so all three screens will show a full 1-9 row
+        // rather than only the workspaces living on them. If that turns out to
+        // be wrong, the fix is to name outputs per entry —
+        //   "1": ["eDP-1"], "4": ["DP-1"], ...
+        // which is host-specific data and would belong in outputs.conf's
+        // sibling rather than here.
+        "persistent-workspaces": {
+            "1": [], "2": [], "3": [], "4": [], "5": [],
+            "6": [], "7": [], "8": [], "9": []
         }
     },
 

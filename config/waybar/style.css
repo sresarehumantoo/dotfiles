@@ -43,7 +43,7 @@
    transparent bar. That is the fallback session and it is acceptable. */
 @define-color pill        rgba(24, 24, 37, 0.78);
 @define-color pill-border rgba(69, 71, 90, 0.55);
-@define-color pill-hover  rgba(49, 50, 68, 0.85);
+@define-color pill-hover  rgba(205, 214, 244, 0.07);   /* a veil on the glass, not a grey fill */
 
 /* The lit top edge of each pill. A single hairline lighter than the fill is
    what makes a flat rounded rectangle read as a raised piece of glass rather
@@ -51,6 +51,31 @@
    low alpha; at anything above ~0.10 it stops looking like light and starts
    looking like a second border. */
 @define-color pill-edge   rgba(205, 214, 244, 0.07);
+
+/* ── Glass tint: the selected/hovered state, Apple's way ───────────────────
+   These replace @blue as the "something is active here" signal.
+
+   Apple's Liquid Glass guidance for tinting is that a tint modulates the
+   MATERIAL rather than filling the shape, and that when a tint muddies the
+   scene you lower its saturation and "let edge cues carry the material". A
+   saturated fill is the thing it warns against, because it stops reading as
+   glass and starts reading as a painted chip — which is exactly what the old
+   sapphire→blue gradient on the focused workspace was.
+
+   So selection here is DENSER, DARKER glass plus a lit edge:
+     · @glass-tint  a dark pigment, not a hue — it deepens the pill it sits in
+     · @glass-edge  the specular hairline that does the actual work of saying
+                    "this one", drawn as an inset shadow so it costs no layout
+     · @glass-veil  the same idea at hover strength: a light breath, not a fill
+
+   ⚠ Legibility is the constraint that decides these numbers, not taste.
+   Apple's rule is 4.5:1 for text over the material AFTER blur. Text on the
+   focused chip is @text (#cdd6f4) over @glass-tint over the pill, which keeps
+   it bright-on-dark; the old scheme inverted to @crust-on-blue instead. Do not
+   deepen @glass-tint far enough to swallow the numeral. */
+@define-color glass-tint  rgba(17, 17, 27, 0.55);
+@define-color glass-edge  rgba(205, 214, 244, 0.30);
+@define-color glass-veil  rgba(205, 214, 244, 0.07);
 
 /* GTK3 has alpha()/shade() as first-class colour functions (verified against
    the real CSS engine — unlike `filter` and `text-transform`, which it
@@ -184,30 +209,35 @@ window#waybar.empty .modules-center {
 }
 
 #workspaces button {
-    /* Circled digits sit small on their em box; nudge them up to icon size. */
-    font-size: 15px;
-    padding: 0 8px;
+    /* Numerals, not glyphs — so size them as text. Slightly tighter than the
+       icon size that was here, and bold enough to hold their own small. */
+    font-size: 13px;
+    font-weight: bold;
+    padding: 0 9px;
     margin: 4px 2px;
     background-color: transparent;
     color: @overlay;
-    border-radius: 12px;
-    /* The focused workspace grows into a wider pill rather than just changing
-       colour, so the eye can find it by shape at a glance. `padding` is the
-       property doing the work — it is a length, so GTK3 interpolates it. The
-       easing is a standard ease-out quart: fast to ~80% of the distance, then
-       a long settle, which reads as physical rather than linear.
-       ⚠ Keep every animated property listed explicitly. `transition: all`
-       parses fine but drags background-image and box-shadow into the
-       animation, and re-rasterising a gradient every frame is exactly the cost
-       the slider note at the bottom of this file warns about. */
-    transition: background-color 150ms ease,
-                color 150ms ease,
-                padding 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    border-radius: 11px;
+    /* ⚠ THERE IS NO TRAVELLING PILL, AND THERE CANNOT BE. The obvious modern
+       treatment — one highlight that slides from workspace to workspace — needs
+       to move a box across sibling widgets, and GTK3 CSS has no `transform`
+       and no way to position one child against another. (A stray `transform:`
+       does not just fail, it invalidates the whole stylesheet — see the swaync
+       header.) What is available is per-widget property interpolation, so the
+       transition is a crossfade plus a grow, tuned long enough to read as
+       motion rather than as a jump.
+       ⚠ Keep every property listed explicitly; `transition: all` drags
+       background-image and box-shadow in and re-rasterises a gradient every
+       frame. */
+    transition: background-color 260ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
+                color            220ms ease,
+                box-shadow       260ms ease-in-out,
+                padding          300ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
 #workspaces button:hover {
-    /* Override GTK's default button:hover box-shadow, which draws a halo. */
-    background-color: @pill-hover;
+    /* A breath of light on the glass, not a fill. */
+    background-color: @glass-veil;
     color: @text;
     box-shadow: none;
     text-shadow: none;
@@ -216,8 +246,13 @@ window#waybar.empty .modules-center {
 /* An unfocused-but-occupied workspace should read as "there is something
    there" without competing with the focused one. Opacity rather than a
    second colour keeps the single-accent discipline intact. */
+/* ⚠ NOW THE COMMON CASE, not a rarity — with 1-9 always shown, most of the
+   row is persistent-and-empty at any moment. It has to recede far enough that
+   the row reads as a quiet ruler rather than nine competing chips, while
+   staying legible enough to aim $mod+N at. Opacity rather than a second colour
+   keeps the palette discipline intact. */
 #workspaces button.persistent {
-    opacity: 0.55;
+    opacity: 0.38;
 }
 
 #workspaces button.visible {
@@ -225,20 +260,28 @@ window#waybar.empty .modules-center {
 }
 
 #workspaces button.focused {
-    color: @crust;
-    background-color: @blue;
-    background-image: linear-gradient(to bottom, @sapphire, @blue);
-    /* The growth half of the transition above. 8px → 14px is deliberately
-       modest: the row must not visibly reflow the modules to its right every
-       time focus moves. */
+    /* Dark pigment + lit edge, per the @glass-tint note above. The edge is an
+       INSET shadow, so it draws inside the button's own box and cannot nudge a
+       neighbour — the same reason the status-chip hover uses one. */
+    color: @text;
+    background-color: @glass-tint;
+    background-image: none;
+    box-shadow: inset 0 0 0 1px @glass-edge;
+    opacity: 1;
+    /* The growth half of the transition. Modest on purpose: the row must not
+       visibly reflow every time focus moves. */
     padding: 0 14px;
 }
 
+/* ⚠ URGENT KEEPS ITS SATURATED FILL, deliberately. Everything else went
+   low-saturation so that a genuine alert is the only loud thing in the bar —
+   draining this one too would leave nothing able to interrupt. */
 #workspaces button.urgent {
     color: @crust;
     background-color: @red;
     background-image: linear-gradient(to bottom, @peach, @red);
     padding: 0 14px;
+    opacity: 1;
 }
 
 #mode {
@@ -391,6 +434,8 @@ window#waybar.empty .modules-center {
     transition: background-color 150ms ease, box-shadow 200ms ease-in-out;
 }
 
+/* The hover cue is now a lit edge rather than an accent bar — same reasoning
+   as the focused workspace, and it keeps @blue meaning exactly one thing. */
 #idle_inhibitor:hover,
 #pulseaudio:hover,
 #network:hover,
@@ -399,7 +444,7 @@ window#waybar.empty .modules-center {
 #custom-system:hover,
 #custom-notification:hover,
 #mpris:hover {
-    box-shadow: inset 0 -2px @blue;
+    box-shadow: inset 0 -2px @glass-edge;
 }
 
 /* ── Transient indicators ──────────────────────────────────────────────────
