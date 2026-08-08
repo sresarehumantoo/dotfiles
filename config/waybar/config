@@ -66,7 +66,40 @@
     // nothing on PATH holds that object; the nearest shell equivalent (killing
     // swayidle) would also drop `before-sleep $lock`, so a lid-close suspend
     // would stop locking the screen. It is one glyph, and it is correct here.
-    "modules-right":  ["privacy", "mpris", "idle_inhibitor", "network#vpn", "pulseaudio", "network", "battery", "custom/notification"],
+    // ⚠ TWO GROUPS, AND THAT IS THE WHOLE POINT — see `#indicators` / `#status`
+    // in style.css. `.modules-right` used to paint ONE pill around all of this,
+    // which already gave the GNOME "merged quick-settings pill" look for free;
+    // what it could not do was separate the two KINDS of thing sharing it.
+    // GNOME keeps its privacy/recording indicators visually apart from the
+    // status pill, and so does macOS with its recording dot. Now so does this:
+    // the pill is painted on the groups, not on the container.
+    "modules-right":  ["group/indicators", "group/status"],
+
+    // TRANSIENT. Every module here hides itself completely when it has nothing
+    // to say, so this pill is absent from the bar most of the time and appears
+    // only when something is actually happening — a mic is live, media is
+    // playing, a tunnel is up. That is why it is a separate surface: a pill
+    // that comes and goes cannot share a background with one that must not.
+    // ⚠ Do not put an always-visible module in here. It would pin the pill open
+    // permanently and collapse the distinction this group exists to draw.
+    "group/indicators": {
+        "orientation": "horizontal",
+        "modules": ["privacy", "mpris", "network#vpn"]
+    },
+
+    // PERSISTENT. The status cluster plus the control hub — always present, and
+    // always the same width give or take the battery digits. `idle_inhibitor`
+    // lives here rather than with the transients: it is always visible, so by
+    // the rule above it belongs with the things that are.
+    // ⚠ `custom/notification` STAYS LAST — the hub belongs at the corner (see
+    // the note on modules-right ordering above). Folding it into this pill is
+    // deliberate and matches GNOME, where the quick-settings button *is* the
+    // status cluster rather than a separate glyph beside it; every module in
+    // here already left-clicks to the same control centre.
+    "group/status": {
+        "orientation": "horizontal",
+        "modules": ["idle_inhibitor", "pulseaudio", "network", "battery", "custom/notification"]
+    },
 
     "sway/workspaces": {
         "disable-scroll": true,
