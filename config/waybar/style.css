@@ -344,6 +344,17 @@ window#waybar.empty .modules-center {
     background-size: 150% 150%;
     color: @text;
     opacity: 1;
+    /* ⚠ THE PILL GROWS BECAUSE THE CHIP DOES — there is no other lever.
+       `.modules-left:hover` and friends never match: the pill containers are
+       GtkBoxes and a GtkBox has NO EVENT WINDOW, so GTK never puts them in the
+       prelight state. Measured: growing a container's padding on :hover
+       produced exactly 0px of change, while growing the CHILD's grew the pill
+       by the full amount, because the pill hugs its contents.
+       +3px a side, not more: this DOES reflow — the chips to the right shift by
+       the same amount — and that is acceptable for a pointer-driven, one-at-a-
+       time change in a way it was not for the workspace trail, which moved nine
+       times per keypress. Keep it small enough to read as the pill breathing. */
+    padding: 0 12px;
 }
 
 /* Empty-but-persistent is most of the row at any moment, so it recedes — the
@@ -407,6 +418,20 @@ window#waybar.empty .modules-center {
     box-shadow: inset 0 0 0 1px @glass-edge;
     opacity: 1;
     padding: 0 14px;
+}
+
+/* The focused chip is already wider, so it needs its own hover value or it
+   would SHRINK when the pointer lands on it. */
+#custom-ws1.focused:hover,
+#custom-ws2.focused:hover,
+#custom-ws3.focused:hover,
+#custom-ws4.focused:hover,
+#custom-ws5.focused:hover,
+#custom-ws6.focused:hover,
+#custom-ws7.focused:hover,
+#custom-ws8.focused:hover,
+#custom-ws9.focused:hover {
+    padding: 0 17px;
 }
 
 /* ⚠ THE TRAIL. Deliberately WEAKER than .focused and deliberately NOT grown —
@@ -507,7 +532,8 @@ window#waybar.empty .modules-center {
     background-position: center center;
     background-repeat: no-repeat;
     transition: background-color 150ms ease,
-                background-size  240ms cubic-bezier(0.34, 1.56, 0.64, 1);
+                background-size  240ms cubic-bezier(0.34, 1.56, 0.64, 1),
+                padding          240ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 #idle_inhibitor:hover,
@@ -521,6 +547,19 @@ window#waybar.empty .modules-center {
     background-color: @pill-hover;
     background-size: 150% 150%;
 }
+
+/* ⚠ ONE HOVER RULE PER CHIP, and they are not interchangeable: each is that
+   chip's OWN optical-correction padding plus 3px a side. A single shared
+   `padding: 0 12px` here would grow the pill correctly and simultaneously
+   throw every glyph off-centre on hover, undoing the corrections above. GTK3
+   has no calc(), so the arithmetic has to be written out. */
+#idle_inhibitor:hover      { padding-left: 12px; padding-right: 16px; }
+#pulseaudio:hover          { padding-left: 15px; padding-right: 12px; }
+#network:hover             { padding-left: 11px; padding-right: 14px; }
+#battery:hover             { padding-left: 12px; padding-right:  7px; }
+#custom-notification:hover { padding-left:  5px; padding-right: 14px; }
+#custom-system:hover       { padding-left: 10px; padding-right: 14px; }
+#clock:hover               { padding-left: 12px; padding-right: 12px; }
 
 /* ── Single-accent discipline ──────────────────────────────────────────────
    Everything in the status cluster is plain @text. Colour is not decoration
