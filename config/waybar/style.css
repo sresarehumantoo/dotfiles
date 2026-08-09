@@ -281,23 +281,33 @@ window#waybar.empty .modules-center {
    the rounded chip and the per-digit click.
    The classes come from the server's JSON, so the vocabulary is its:
    focused / trail / visible / occupied / empty / urgent. */
-/* ── The hover bubble ──────────────────────────────────────────────────────
-   ⚠ THIS IS A radial-gradient THAT GROWS, NOT A SCALE, AND IT CANNOT BE A
-   SCALE. GTK3 has no `transform` — verified by feeding it to a real
-   CssProvider, which rejects it outright ("'transform' is not a valid
-   property") — and a stray `transform:` does not merely fail, it invalidates
-   the ENTIRE stylesheet. So the usual hover-lift is simply unavailable.
+/* ── Hover: the chip grows ─────────────────────────────────────────────────
+   ⚠ IT IS PADDING, NOT A SCALE, AND IT CANNOT BE A SCALE. GTK3 has no
+   `transform` — verified by feeding it to a real CssProvider, which rejects it
+   outright ("'transform' is not a valid property") — and a stray `transform:`
+   does not merely fail, it invalidates the ENTIRE stylesheet. So the usual
+   hover-lift is unavailable and the growth has to come from a property GTK3
+   interpolates: padding, min-width, font-size, box-shadow or opacity.
 
-   What IS available and interpolable: padding, min-width, font-size,
-   box-shadow, opacity and `background-size`. The first three all change the
-   widget's allocation, so growing with them REFLOWS every neighbour — a
-   workspace chip would shove the eight beside it every time the pointer
-   crossed it. `background-size` changes nothing about layout: the bubble
-   inflates inside the chip's own box, so the row stays perfectly still.
+   Padding is the one that grows the PILL too, because a pill hugs its
+   contents. ⚠ Growing the container instead does nothing at all —
+   `.modules-left:hover` and friends never match, since those are GtkBoxes and
+   a GtkBox has no event window, so GTK never puts them in the prelight state.
+   Measured side by side: container padding on :hover moved the pill 0px, child
+   padding moved it the full amount.
 
-   The bounce comes from the easing, not from a keyframe: cubic-bezier's third
-   control point above 1.0 overshoots and settles back, which is what reads as
-   "alive" rather than as a fade. */
+   ⚠ It reflows — chips to the right shift by the same amount. Acceptable here
+   because it is pointer-driven and one chip at a time; the workspace trail was
+   not, and moved nine chips per keypress. Hence 3px a side.
+
+   The bounce is the easing, not a keyframe: cubic-bezier's third control point
+   above 1.0 overshoots and settles back, which is what reads as alive rather
+   than as a jump.
+
+   A radial-gradient "bubble" that inflated inside the chip was tried here and
+   removed — it read as a glow competing with the expand rather than
+   reinforcing it. `background-size` is interpolable if it is ever wanted back;
+   it is the one growth property that costs no layout. */
 #custom-ws1,
 #custom-ws2,
 #custom-ws3,
@@ -315,21 +325,10 @@ window#waybar.empty .modules-center {
     color: @overlay;
     border-radius: 11px;
     box-shadow: inset 0 0 0 1px transparent;
-    /* The bubble at rest: a centred radial gradient scaled to nothing, so it
-       costs no pixels until the pointer arrives. `no-repeat` matters — without
-       it GTK tiles the gradient across the chip. */
-    background-image: radial-gradient(circle at center,
-                                      alpha(@text, 0.22) 0%,
-                                      alpha(@text, 0.10) 45%,
-                                      transparent 70%);
-    background-size: 0% 0%;
-    background-position: center center;
-    background-repeat: no-repeat;
     transition: background-color 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
                 color            160ms ease,
                 box-shadow       200ms ease-in-out,
-                background-size  240ms cubic-bezier(0.34, 1.56, 0.64, 1),
-                padding          260ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+                padding          240ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 #custom-ws1:hover,
@@ -341,7 +340,6 @@ window#waybar.empty .modules-center {
 #custom-ws7:hover,
 #custom-ws8:hover,
 #custom-ws9:hover {
-    background-size: 150% 150%;
     color: @text;
     opacity: 1;
     /* ⚠ THE PILL GROWS BECAUSE THE CHIP DOES — there is no other lever.
@@ -480,7 +478,12 @@ window#waybar.empty .modules-center {
 #custom-ws7:hover,
 #custom-ws8:hover,
 #custom-ws9:hover {
-    background-color: @glass-veil;
+    /* ⚠ `transparent` stated deliberately — omitting it uncovers the GTK
+       theme's own prelight. See the status-chip :hover note. The digit still
+       brightens, which is a text property rather than a glow and is what keeps
+       a dimmed empty workspace legible under the pointer. */
+    background-color: transparent;
+    background-image: none;    /* see the status-chip :hover note — this is the load-bearing one */
     color: @text;
     opacity: 1;
 }
@@ -523,16 +526,7 @@ window#waybar.empty .modules-center {
     border-radius: 12px;
     background-color: transparent;
     color: @text;
-    /* Same bubble as the workspace chips — see the note above them. */
-    background-image: radial-gradient(circle at center,
-                                      alpha(@text, 0.20) 0%,
-                                      alpha(@text, 0.09) 45%,
-                                      transparent 70%);
-    background-size: 0% 0%;
-    background-position: center center;
-    background-repeat: no-repeat;
     transition: background-color 150ms ease,
-                background-size  240ms cubic-bezier(0.34, 1.56, 0.64, 1),
                 padding          240ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
@@ -542,10 +536,28 @@ window#waybar.empty .modules-center {
 #network:hover,
 #clock:hover,
 #custom-system:hover,
+/* ⚠ HOVER IS THE SIZE CHANGE AND NOTHING ELSE — deliberately. This rule used
+   to set `background-color: @pill-hover`, and there was an inset underline
+   below plus a radial-gradient glow; all three were removed because they
+   competed with the expand instead of reinforcing it. The chip grows, and that
+   is the whole cue. Restore any of them by putting the property back here. */
 #custom-notification:hover,
 #custom-power:hover {
-    background-color: @pill-hover;
-    background-size: 150% 150%;
+    /* ⚠ `transparent` MUST BE STATED, not omitted. Dropping our own hover
+       background does not leave the chip unstyled — it uncovers the GTK
+       theme's default prelight, which lit the pill by +27 luminance and looked
+       exactly like the glow we had just removed. Adwaita styles the hovered
+       state whether or not we ask it to; the only way to have no hover
+       background is to say so. */
+    /* ⚠ `background-image: none` IS THE ONE THAT MATTERS, and omitting it is
+       why this looked unfixable for several rounds. The GTK theme paints its
+       hover state with a background-IMAGE gradient, not a background-color —
+       so `background-color: transparent` removes nothing visible and the chip
+       still lit up by +27 luminance. config/swaync/style.css already records
+       this exact trap for Adwaita's buttons; it applies here too. */
+    background-color: transparent;
+    background-image: none;
+    color: @text;
 }
 
 /* ⚠ ONE HOVER RULE PER CHIP, and they are not interchangeable: each is that
@@ -683,18 +695,10 @@ window#waybar.empty .modules-center {
     transition: background-color 150ms ease, box-shadow 200ms ease-in-out;
 }
 
-/* The hover cue is now a lit edge rather than an accent bar — same reasoning
-   as the focused workspace, and it keeps @blue meaning exactly one thing. */
-#idle_inhibitor:hover,
-#pulseaudio:hover,
-#network:hover,
-#battery:hover,
-#clock:hover,
-#custom-system:hover,
-#custom-notification:hover,
-#mpris:hover {
-    box-shadow: inset 0 -2px @glass-edge;
-}
+/* ⚠ The inset hover underline was removed with the rest of the hover
+   decoration — see the note on the status-chip :hover rule above. The rest
+   state keeps its transparent inset so the transition has something to
+   interpolate from if a cue is ever restored. */
 
 /* ── Transient indicators ──────────────────────────────────────────────────
    privacy renders its own icon row and takes no format string, so it is
