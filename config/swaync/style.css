@@ -512,14 +512,26 @@ scrollbar slider:hover {
 
 .widget-system-stats .system-stats-cpu,
 .widget-system-stats .system-stats-memory,
-.widget-system-stats .system-stats-temperature {
+.widget-system-stats .system-stats-temperature,
+.widget-system-stats .system-stats-battery {
     color: @subtext;
     font-size: 0.92em;
 }
 
+/* ⚠ THIS PANEL IS WHERE THE BATTERY PERCENTAGE LIVES NOW. The bar shows only a
+   glyph (config/waybar/config), on the same reasoning as volume and
+   brightness: a number you are not currently changing belongs one predictable
+   click away. Consequence worth knowing — the readout comes from
+   config/sway/swaync-system-stats.patch, so a swaync reinstall from the Debian
+   package removes it and the percentage then has NO home at all. If that
+   happens, put `{capacity}%` back in the bar's battery format until the patch
+   is rebuilt. */
+
 /* Matches waybar's own critical-temperature treatment, so a hot machine reads
-   the same whichever surface you happen to be looking at. */
-.widget-system-stats .system-stats-temperature.critical {
+   the same whichever surface you happen to be looking at. Battery joins it:
+   low-and-not-charging is the other thing in this panel allowed to shout. */
+.widget-system-stats .system-stats-temperature.critical,
+.widget-system-stats .system-stats-battery.critical {
     color: @red;
 }
 

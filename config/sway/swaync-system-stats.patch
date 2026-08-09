@@ -1,6 +1,15 @@
 diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine/src/controlCenter/widgets/factory.vala sway-notification-center-0.11.0/src/controlCenter/widgets/factory.vala
---- a/src/controlCenter/widgets/factory.vala	2025-04-07 15:17:06.000000000 -0400
-+++ b/src/controlCenter/widgets/factory.vala	2026-08-04 08:53:32.559450128 -0400
+
+⚠ UPDATED: the widget now also shows BATTERY. The bar dropped its battery
+percentage (config/waybar/config), so this is where the number lives — the
+same "one predictable click away" rule the status readouts already follow.
+The glyph ramp here must stay in step with the bar's `format-icons`; the bar
+and the panel disagreeing about the same charge is worse than either choice.
+Auto-detection deliberately skips scope=Device supplies, because this box
+exposes a Logitech mouse as a second type=Battery.
+
+--- a/src/controlCenter/widgets/factory.vala
++++ b/src/controlCenter/widgets/factory.vala
 @@ -37,6 +37,10 @@
              case "inhibitors":
                  widget = new Inhibitors (suffix, swaync_daemon, noti_daemon);
@@ -12,10 +21,9 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
              default:
                  warning ("Could not find widget: \"%s\"!", key);
                  return null;
-diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine/src/controlCenter/widgets/systemStats/systemStats.vala sway-notification-center-0.11.0/src/controlCenter/widgets/systemStats/systemStats.vala
---- a/src/controlCenter/widgets/systemStats/systemStats.vala	1969-12-31 19:00:00.000000000 -0500
-+++ b/src/controlCenter/widgets/systemStats/systemStats.vala	2026-08-04 08:54:47.276211245 -0400
-@@ -0,0 +1,270 @@
+--- a/src/controlCenter/widgets/systemStats/systemStats.vala
++++ b/src/controlCenter/widgets/systemStats/systemStats.vala
+@@ -0,0 +1,359 @@
 +using GLib;
 +
 +namespace SwayNotificationCenter.Widgets {
@@ -45,11 +53,13 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +        Gtk.Label cpu_label = new Gtk.Label (null);
 +        Gtk.Label mem_label = new Gtk.Label (null);
 +        Gtk.Label temp_label = new Gtk.Label (null);
++        Gtk.Label batt_label = new Gtk.Label (null);
 +
 +        uint timeout_id = 0;
 +        int interval = 2;
 +        int critical_temp = 85;
 +        string temp_path = "";
++        string batt_path = "";
 +
 +        // Previous /proc/stat totals. CPU use is only meaningful as a delta
 +        // between two samples -- the file holds cumulative jiffies since boot,
@@ -76,9 +86,13 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +
 +                string ? tp = get_prop<string> (config, "temperature-path");
 +                if (tp != null) temp_path = tp;
++
++                string ? bp = get_prop<string> (config, "battery-path");
++                if (bp != null) batt_path = bp;
 +            }
 +
 +            if (temp_path.length == 0) temp_path = find_temp_path ();
++            if (batt_path.length == 0) batt_path = find_battery_path ();
 +
 +            label_widget.set_label (label_text);
 +            label_widget.set_halign (Gtk.Align.START);
@@ -86,6 +100,7 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +            cpu_label.get_style_context ().add_class ("system-stats-cpu");
 +            mem_label.get_style_context ().add_class ("system-stats-memory");
 +            temp_label.get_style_context ().add_class ("system-stats-temperature");
++            batt_label.get_style_context ().add_class ("system-stats-battery");
 +
 +            Gtk.Box readouts = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
 +            readouts.set_halign (Gtk.Align.END);
@@ -93,6 +108,7 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +            readouts.pack_start (cpu_label, false, false, 0);
 +            readouts.pack_start (mem_label, false, false, 0);
 +            if (temp_path.length > 0) readouts.pack_start (temp_label, false, false, 0);
++            if (batt_path.length > 0) readouts.pack_start (batt_label, false, false, 0);
 +
 +            add (label_widget);
 +            pack_start (readouts, true, true, 0);
@@ -130,6 +146,61 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +                debug ("system-stats: no coretemp hwmon: %s", e.message);
 +            }
 +            return "";
++        }
++
++        /**
++         * ⚠ Pick a SYSTEM battery, never a device one. This box exposes two
++         * power supplies of type Battery: the laptop cell (scope absent or
++         * "System") and a Logitech mouse on a Powerplay mat (scope "Device",
++         * pinned near 80% forever). Auto-detection that takes the first
++         * type=Battery it finds can land on the mouse and report its charge as
++         * the laptop's -- config/waybar/config pins `bat` explicitly for the
++         * same reason.
++         */
++        string find_battery_path () {
++            string base_dir = "/sys/class/power_supply";
++            try {
++                Dir dir = Dir.open (base_dir);
++                string ? name;
++                while ((name = dir.read_name ()) != null) {
++                    string cand = Path.build_filename (base_dir, name);
++                    string t;
++                    if (!read_first_line (Path.build_filename (cand, "type"), out t)) continue;
++                    if (t.strip () != "Battery") continue;
++                    string scope;
++                    if (read_first_line (Path.build_filename (cand, "scope"), out scope)
++                        && scope.strip () == "Device") continue;
++                    if (!FileUtils.test (Path.build_filename (cand, "capacity"), FileTest.EXISTS)) continue;
++                    return cand;
++                }
++            } catch (Error e) {
++                debug ("system-stats: no battery: %s", e.message);
++            }
++            return "";
++        }
++
++        int battery_percent () {
++            string line;
++            if (!read_first_line (Path.build_filename (batt_path, "capacity"), out line)) return -1;
++            return int.parse (line.strip ());
++        }
++
++        bool battery_charging () {
++            string line;
++            if (!read_first_line (Path.build_filename (batt_path, "status"), out line)) return false;
++            string st = line.strip ();
++            return st == "Charging" || st == "Full";
++        }
++
++        unichar battery_icon (int pct, bool charging) {
++            if (charging) return ICON_BATT_CHARGING;
++            if (pct < 10) return ICON_BATT_OUTLINE;
++            if (pct > 90) return ICON_BATT_FULL;
++            // 10..90 -> one of nine glyphs, same ~9% buckets the bar uses.
++            int idx = (pct / 10) - 1;
++            if (idx < 0) idx = 0;
++            if (idx >= ICON_BATT.length) idx = ICON_BATT.length - 1;
++            return ICON_BATT[idx];
 +        }
 +
 +        bool read_first_line (string path, out string line) {
@@ -237,6 +308,17 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +        const unichar ICON_MEMORY = 0xF035B;      // md-memory
 +        const unichar ICON_TEMP = 0xF050F;        // md-thermometer
 +        const unichar ICON_TEMP_CRIT = 0xF0E01;   // md-thermometer_alert
++        // ⚠ The battery ramp must stay in step with config/waybar/config's
++        // format-icons — the bar and the panel showing different glyphs for the
++        // same charge is worse than either choice alone. Order is ascending:
++        // outline, 10..90, full. Charging has its own glyph and ignores the ramp.
++        const unichar ICON_BATT_OUTLINE = 0xF008E; // md-battery_outline
++        const unichar ICON_BATT_FULL = 0xF0079;    // md-battery
++        const unichar ICON_BATT_CHARGING = 0xF0084;// md-battery_charging
++        const unichar[] ICON_BATT = {
++            0xF007A, 0xF007B, 0xF007C, 0xF007D, 0xF007E,   // 10..50
++            0xF007F, 0xF0080, 0xF0081, 0xF0082             // 60..90
++        };
 +
 +        static string glyph (unichar c) {
 +            StringBuilder sb = new StringBuilder ();
@@ -270,6 +352,21 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +                    }
 +                }
 +            }
++            if (batt_path.length > 0) {
++                int b = battery_percent ();
++                if (b < 0) {
++                    batt_label.set_label ("%s  --".printf (glyph (ICON_BATT_OUTLINE)));
++                } else {
++                    bool chg = battery_charging ();
++                    batt_label.set_label ("%s  %d%%".printf (glyph (battery_icon (b, chg)), b));
++                    if (!chg && b <= 15) {
++                        batt_label.get_style_context ().add_class ("critical");
++                    } else {
++                        batt_label.get_style_context ().remove_class ("critical");
++                    }
++                }
++            }
++
 +            return Source.CONTINUE;
 +        }
 +
@@ -286,9 +383,8 @@ diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine
 +        }
 +    }
 +}
-diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine/src/meson.build sway-notification-center-0.11.0/src/meson.build
---- a/src/meson.build	2025-04-07 15:17:06.000000000 -0400
-+++ b/src/meson.build	2026-08-04 08:53:23.939362582 -0400
+--- a/src/meson.build
++++ b/src/meson.build
 @@ -46,6 +46,9 @@
    'controlCenter/widgets/backlight/backlightUtil.vala',
    # Widget: Inhibitors
