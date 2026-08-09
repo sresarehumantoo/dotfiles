@@ -682,18 +682,22 @@ window#waybar.empty .modules-center {
 #custom-notification { padding-left: 2px; padding-right: 11px; }
 #idle_inhibitor { padding-left: 9px;  padding-right: 13px; }
 #pulseaudio     { padding-left: 12px; padding-right: 9px;  }
-#battery        { padding-left: 9px;  padding-right: 4px;  }
+/* ⚠ Retuned when the battery lost its percentage — the old 9/4 was balancing
+   an icon-plus-text chip. The battery glyph's ink is only ~6px wide, so a
+   generous right pad plus the min-width floor below pushed a 38px hole between
+   it and the hub while every other gap was 29. Measured back to 29/29/27/28. */
+#battery        { padding-left: 9px;  padding-right: 2px;  }
 
 /* ── Anti-reflow ───────────────────────────────────────────────────────────
    A variable-width module re-lays-out every module beside it each time its
    text changes width — 9% → 10% shifts the whole cluster, and the bar
    visibly twitches. Pinning a floor stops it. These are minimums, not fixed
    widths, so an unexpectedly long value still fits. */
-/* ⚠ Wide enough for THREE digits. At 42px "100%" grew the chip and shoved the
-   whole cluster left every time the laptop finished charging — the anti-reflow
-   floor has to cover the widest value the module can ever print, not the
-   common one. */
-#battery              { min-width: 52px; }
+/* ⚠ Was 52px, wide enough for "100%". The battery is icon-only now, so the
+   floor only has to cover one glyph — and leaving it at 52 would have padded
+   the chip out with 30px of dead space and broken the even spacing across the
+   cluster. An anti-reflow floor must track what the module actually prints. */
+#battery              { min-width: 14px; }
 #custom-notification  { min-width: 26px; }
 #network              { min-width: 20px; }
 #pulseaudio           { min-width: 20px; }

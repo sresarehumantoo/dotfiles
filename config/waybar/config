@@ -484,14 +484,33 @@
         "bat": "CMB0",
         "adapter": "ADP0",
         "states": { "warning": 25, "critical": 10 },
-        "format": "{icon}  {capacity}%",
-        "format-charging": "󰂄  {capacity}%",
-        "format-plugged": "󰚥  {capacity}%",
+        // ⚠ ICON ONLY — the percentage moved to the control centre (swaync's
+        // system-stats widget). Same reasoning as volume and brightness: a
+        // number you are not currently changing is noise in the bar, and the
+        // exact value is one predictable click away. It is also still in the
+        // tooltip below, which is the hover-distance answer.
+        "format": "{icon}",
+        "format-charging": "󰂄",
+        "format-plugged": "󰚥",
+
+        // ⚠ ELEVEN ICONS, AND THE COUNT IS THE WHOLE POINT. waybar buckets
+        // format-icons by percentage — bucket width is 100/len — so the five
+        // icons that used to be here meant [0-19][20-39][40-59][60-79][80-100],
+        // and everything from 80% up drew the FULL battery. At 85% the glyph
+        // claimed a full charge, which is exactly what it should not do.
+        // With 11 the buckets are ~9% wide: 85% now lands on battery_90 (near
+        // full), and only 91-100% draws full. 0-9% gets the empty outline
+        // rather than pretending to be 10%.
+        // Order is outline, 10..90, full — it must stay ascending or the ramp
+        // reads backwards.
         "format-icons": [
-            "󰁺", "󰁼", "󰁾",
-            "󰂀", "󰁹"
+            "󰂎",
+            "󰁺", "󰁻", "󰁼", "󰁽", "󰁾",
+            "󰁿", "󰂀", "󰂁", "󰂂",
+            "󰁹"
         ],
-        "tooltip-format": "{timeTo} ({power:0.1f}W)",
+        // Carries the number the bar no longer shows.
+        "tooltip-format": "{capacity}%  ·  {timeTo}  ·  {power:0.1f}W",
         // Left-click opens the control centre — see the "one destination" note
         // above `pulseaudio`. This module had no click action at all before, so
         // nothing is displaced.
