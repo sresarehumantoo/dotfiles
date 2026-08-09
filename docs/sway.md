@@ -1695,6 +1695,17 @@ Levers **not** taken, in case the call is ever revisited:
 > sleep 2.5                                                 # past the tooltip delay
 > ```
 >
+> ⚠ **`cursor set` and `grim -g` DO NOT USE THE SAME COORDINATE SPACE, and the
+> numbers above are right — do not "correct" them.** `grim -g` takes GLOBAL
+> coordinates, so capturing the bar needs the output's offset (`0,120` here);
+> the cursor commands do NOT take that offset, so the bar is at y≈26 for them.
+> Adding the offset to a `cursor set` puts the pointer 120 px below the bar,
+> where it hovers nothing — and the failure is silent, because `cursor set`
+> still returns `success: true`. Cost real time here: it looked exactly like
+> "hover is broken", including on modules whose `:hover` had worked for months,
+> and briefly implicated `seat -` (which is fine; `seat -` and `seat seat0`
+> behave identically). Sweep y and watch for the reaction if in doubt.
+>
 > **Always assert the hover state itself**, or you cannot tell "tooltip
 > suppressed" from "pointer never arrived": count waybar's blue `:hover`
 > underline inside the pill (y=34-41, `B > 120 and B > R + 40`). It must be

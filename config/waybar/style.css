@@ -281,6 +281,23 @@ window#waybar.empty .modules-center {
    the rounded chip and the per-digit click.
    The classes come from the server's JSON, so the vocabulary is its:
    focused / trail / visible / occupied / empty / urgent. */
+/* ── The hover bubble ──────────────────────────────────────────────────────
+   ⚠ THIS IS A radial-gradient THAT GROWS, NOT A SCALE, AND IT CANNOT BE A
+   SCALE. GTK3 has no `transform` — verified by feeding it to a real
+   CssProvider, which rejects it outright ("'transform' is not a valid
+   property") — and a stray `transform:` does not merely fail, it invalidates
+   the ENTIRE stylesheet. So the usual hover-lift is simply unavailable.
+
+   What IS available and interpolable: padding, min-width, font-size,
+   box-shadow, opacity and `background-size`. The first three all change the
+   widget's allocation, so growing with them REFLOWS every neighbour — a
+   workspace chip would shove the eight beside it every time the pointer
+   crossed it. `background-size` changes nothing about layout: the bubble
+   inflates inside the chip's own box, so the row stays perfectly still.
+
+   The bounce comes from the easing, not from a keyframe: cubic-bezier's third
+   control point above 1.0 overshoots and settles back, which is what reads as
+   "alive" rather than as a fade. */
 #custom-ws1,
 #custom-ws2,
 #custom-ws3,
@@ -298,16 +315,35 @@ window#waybar.empty .modules-center {
     color: @overlay;
     border-radius: 11px;
     box-shadow: inset 0 0 0 1px transparent;
-    /* ⚠ The fade must stay SHORTER than the server's STEP (35ms) would
-       suggest — a chip has to reach full strength and start falling before the
-       next one lights, or the trail smears into a single glow instead of
-       reading as travel. 200ms out, quick in.
-       Keep every property explicit; `transition: all` drags background-image
-       and re-rasterises a gradient every frame. */
+    /* The bubble at rest: a centred radial gradient scaled to nothing, so it
+       costs no pixels until the pointer arrives. `no-repeat` matters — without
+       it GTK tiles the gradient across the chip. */
+    background-image: radial-gradient(circle at center,
+                                      alpha(@text, 0.22) 0%,
+                                      alpha(@text, 0.10) 45%,
+                                      transparent 70%);
+    background-size: 0% 0%;
+    background-position: center center;
+    background-repeat: no-repeat;
     transition: background-color 200ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
                 color            160ms ease,
                 box-shadow       200ms ease-in-out,
+                background-size  240ms cubic-bezier(0.34, 1.56, 0.64, 1),
                 padding          260ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+#custom-ws1:hover,
+#custom-ws2:hover,
+#custom-ws3:hover,
+#custom-ws4:hover,
+#custom-ws5:hover,
+#custom-ws6:hover,
+#custom-ws7:hover,
+#custom-ws8:hover,
+#custom-ws9:hover {
+    background-size: 150% 150%;
+    color: @text;
+    opacity: 1;
 }
 
 /* Empty-but-persistent is most of the row at any moment, so it recedes — the
@@ -462,7 +498,16 @@ window#waybar.empty .modules-center {
     border-radius: 12px;
     background-color: transparent;
     color: @text;
-    transition: background-color 150ms ease;
+    /* Same bubble as the workspace chips — see the note above them. */
+    background-image: radial-gradient(circle at center,
+                                      alpha(@text, 0.20) 0%,
+                                      alpha(@text, 0.09) 45%,
+                                      transparent 70%);
+    background-size: 0% 0%;
+    background-position: center center;
+    background-repeat: no-repeat;
+    transition: background-color 150ms ease,
+                background-size  240ms cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 #idle_inhibitor:hover,
@@ -474,6 +519,7 @@ window#waybar.empty .modules-center {
 #custom-notification:hover,
 #custom-power:hover {
     background-color: @pill-hover;
+    background-size: 150% 150%;
 }
 
 /* ── Single-accent discipline ──────────────────────────────────────────────
