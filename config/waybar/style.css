@@ -36,8 +36,11 @@
              keep the bar readable, which meant almost no glass
      · 0.50  base #1e1e2e — first bright wallpaper; glass appeared, but the
              backdrop read as CONTENT rather than tint and the digits fought it
-     · 0.72  base #11111b — current. Deeper pigment, so the wallpaper reads as
-             a tint on dark glass instead of as the pill's subject.
+     · 0.72  base #11111b — deeper pigment, so the wallpaper reads as a tint on
+             dark glass rather than as the pill's subject
+     · 0.60  base #11111b — current. Eased back once `window#waybar` itself was
+             tinted: the bar surface now carries part of the "this is dark
+             glass" job, so the pills no longer have to do all of it alone.
    ⚠ DARKENING IS NEARLY FREE, WHICH IS NOT OBVIOUS. Going 0.50 -> 0.82 moves
    pill luminance 48.7 -> 21.6 but colour retention only 0.56 -> 0.51, because
    `blur_saturation` in sway-fx preserves hue independently of luminance. So a
@@ -49,7 +52,7 @@
    ⚠ Change the wallpaper and re-judge this together with `.empty`'s opacity
    below and `blur_saturation` in config/sway/sway-fx. See
    ~/Pictures/wallpapers/README.md for the criterion that picks a wallpaper. */
-@define-color pill        rgba(11, 11, 17, 0.72);
+@define-color pill        rgba(11, 11, 17, 0.60);
 @define-color pill-border rgba(69, 71, 90, 0.55);
 @define-color pill-hover  rgba(205, 214, 244, 0.07);   /* a veil on the glass, not a grey fill */
 
