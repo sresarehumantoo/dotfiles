@@ -461,6 +461,26 @@
         // Logitech mouse on a Powerplay mat, scope=Device, perma ~80%). Without
         // "bat" waybar auto-detects and can pick the mouse. ADP0 is the AC
         // adapter, so charging/plugged states resolve correctly too.
+        // ⚠ NOT OPTIONAL, AND THE FIX FOR "PLUGGING IN TAKES AGES TO SHOW".
+        // waybar's battery module is POLL-ONLY and the default interval is
+        // 60s, so `format-charging` could take a full minute to appear after
+        // the charger went in — which reads as the bar being broken, because
+        // the one moment you look at the battery icon is the moment you plug
+        // in.
+        //
+        // ⚠ There is no event-driven alternative to reach for, and the binary
+        // looks like there might be: waybar links libudev and carries the
+        // whole udev_monitor API. That monitor belongs to the BACKLIGHT
+        // module — `backlight` is the only subsystem string in the binary and
+        // there is no `power_supply` string at all. waybar-battery(5) documents
+        // exactly one knob, `interval`. Nor could it be inotify-driven: the
+        // kernel does not emit inotify events for sysfs ATTRIBUTE changes, so
+        // watching /sys/class/power_supply/*/status can never work.
+        //
+        // 5s matches `network` above, which carries the same lesson for the
+        // same reason. The cost is reading three small sysfs files, which is
+        // nothing; drop to 2 if 5 still feels laggy when plugging in.
+        "interval": 5,
         "bat": "CMB0",
         "adapter": "ADP0",
         "states": { "warning": 25, "critical": 10 },

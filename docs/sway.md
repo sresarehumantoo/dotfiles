@@ -872,6 +872,33 @@ mkdir -p /tmp/sweep
 for i in $(seq -w 1 10); do grim -g "0,120 400x52" /tmp/sweep/$i.png; done
 ```
 
+## ⚠ Two bar modules poll, and both defaulted to 60s
+
+`network` and `battery` are **poll-only**, and waybar's default `interval` is
+**60 seconds** for both. Neither failure looks like a stale readout — it looks
+like the bar is broken:
+
+- **network** appeared frozen: everything nl80211-derived (essid, signal
+  strength, the icon ramp) refreshes only on that timer.
+- **battery** took up to a minute to show `format-charging` after the charger
+  went in — and the one moment anyone looks at the battery icon is the moment
+  they plug in.
+
+Both are now `"interval": 5`. The cost is reading a few small sysfs files.
+
+> [!IMPORTANT]
+> **There is no event-driven alternative for battery, and the binary makes it
+> look like there is.** waybar links `libudev`/`libgudev` and carries the whole
+> `udev_monitor` API — but that monitor belongs to the **backlight** module:
+> `backlight` is the only subsystem string in the binary, and there is no
+> `power_supply` string at all. `waybar-battery(5)` documents exactly one knob,
+> `interval`.
+>
+> Nor could it be inotify-driven, which is the other instinct: **the kernel does
+> not emit inotify events for sysfs *attribute* changes**, so watching
+> `/sys/class/power_supply/*/status` can never work. Polling is the only
+> mechanism available.
+
 ## Bar geometry is one set: gaps, margins and pill height
 
 ⚠ **These values are coupled and must be changed together and re-measured.**
