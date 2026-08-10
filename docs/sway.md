@@ -1003,14 +1003,120 @@ Two different behaviours, chosen by how many things share the pill:
 
 | pill | on hover |
 |---|---|
-| clock (alone in its pill) | the **pill itself grows**, ~3px a side |
-| workspaces, status (many items) | the hovered **item** gets a floating outline oval, +4px taller; the pill does not move |
+| clock (alone in its pill) | the chip grows into an outline oval and the **pill grows with it**, ~4px a side, plus a drop shadow — the "raise" |
+| workspaces, status (many items) | the hovered **item** expands into an outline oval, +4px taller; the pill does not move at all |
 
 The split is the point. Growing a chip grows its pill, because a pill hugs its
 contents — correct when the chip *is* the pill's only content, and wrong in a
-nine-item row, where it makes the whole pill breathe and shoves every chip
-right of the pointer. Measured after the split: workspace and status pills
-`276 → 276` and `237 → 237`, clock `284 → 287`.
+nine-item row, where it would make the whole pill breathe and shove every chip
+right of the pointer. Measured: workspace and status pills do not move a pixel
+in any hover state, clock pill `~171 → ~180`.
+
+### The expand is a padding/margin trade, and the sum is the invariant
+
+A chip *can* grow without reflowing its row. Two boxes matter and they are not
+the same box:
+
+```
+painted box = 2*padding + ink          <- what the inset ring traces
+allocation  = painted box + 2*margin   <- what the row spends on the chip
+```
+
+Hold `padding + margin` constant and the allocation never changes, so growth is
+paid for out of the **gap** rather than out of the row. The workspace chips run
+at `padding + margin = 12`, i.e. allocation 31 in every state:
+
+| state | padding | margin | painted |
+|---|---|---|---|
+| rest | 4 | 8 | 15 |
+| `.trail` | 8 | 4 | 23 |
+| `.focused`, `.urgent`, `:hover` | 11 | 1 | **29** |
+| `.focused:hover`, `.urgent:hover` | 12 | 0 | 31 |
+
+Hover and focused land on the same 29px, which is the whole point — the outline
+that appears under the pointer is recognisably the *same object* that lives on
+the focused workspace, so moving the pointer along the row reads as the outline
+travelling. The status cluster does the same thing with its own constant
+(padding sum 10 → 18, margin 5 → 1, allocation 33 throughout), so its resting
+box is 23 and its hover oval is the same **31 × 28** it has always been.
+
+Measured live, ring centred on its own digit to 0.0px and neighbours frozen:
+
+```
+ws2 hovered   ring x  47..75   w=29 h=28   centre 61.0  (digit centre 61.0)
+ws5 hovered   ring x 140..168  w=29 h=28   centre 154.0 (digit centre 154.0)
+ws9 hovered   ring x 264..292  w=29 h=28   centre 278.0 (digit centre 278.0)
+ws1 focused+hovered  x 15..45  w=31 h=28   centre 30.0
+battery hovered      x 1840..1870  w=31 h=28
+```
+
+> [!CAUTION]
+> **Margin must never go negative, and the reason is not layout — the overflow
+> is clipped on ONE SIDE ONLY.** A negative margin makes the painted box wider
+> than the allocation, which lays out fine, but waybar gives each module its own
+> `GdkWindow` and later siblings stack above earlier ones. So a chip paints over
+> its left neighbour and is painted over by its right one: the ring comes out
+> cut off down one side and off-centre from its own digit. Measured at
+> `padding 14 / margin -3`, which predicts a 35px box:
+> ```
+> ws5 hovered   ring x 142..173 = 32px   digit centre 159, ring centre 157.5
+> ws9 hovered   ring x 258..289 = 32px   clipped at allocation end 289
+> ```
+> ws9 has nothing to its right and was clipped anyway, so this is the widget's
+> own clip rectangle rather than a neighbour drawing over it. Both stopped
+> exactly at `allocation.x + allocation.width` while overhanging freely left.
+
+> [!CAUTION]
+> **An offscreen GTK harness will not reproduce that clip.** Plain `GtkLabel`s
+> have no `GdkWindow` of their own, so a probe built from them reports the full
+> 35px and says the scheme works. This was measured as working offscreen and
+> clipped on the real bar. The harness is still the right tool for *allocation*
+> questions — it is how the padding/margin trade was found — but chip geometry
+> has to be confirmed on the bar.
+
+### ⚠ A duplicate `transition:` further down the file made the expand snap
+
+The right-hand chips carried a second `transition` declaration, left over from
+a hover underline that had since been deleted. Same specificity, later in the
+file, so it won — and it listed only `background-color` and `box-shadow`,
+silently dropping the `padding` and `margin` entries from the rule above. The
+visible symptom was that the clock's hover expand had no motion in it at all.
+
+Measured offscreen, painted clock width after PRELIGHT:
+
+```
+with the duplicate:   53 -> 67px between t=0 and t=20ms     (one frame; a snap)
+without it:           53 -> 60 -> 64 -> 66 -> 67 over ~320ms
+```
+
+One state, one rule. This file has now been bitten three times by a later
+duplicate quietly winning — this, the `#custom-notification` padding shorthand,
+and a redundant second workspace `:hover` stub.
+
+### The "slide" is asymmetric timing, because a ring cannot move between widgets
+
+Each chip owns its own box, so there is no way to animate one outline from one
+widget to another — GTK3 has no overlay to draw it in and no `transform` to
+move it with. What is available is timing, and it is enough:
+
+> GTK3 reads the transition from the style being animated **towards**, exactly
+> as web CSS does. So the base rule governs hover-**out** and the `:hover` rule
+> governs hover-**in**.
+
+The ring is therefore quick to arrive (130ms) and slow to let go (260ms), so
+sweeping the pointer along a row leaves the chip behind still lit as the next
+one lights up, which reads as one outline travelling rather than as several
+fading in and out. Verified offscreen by sampling the rendered ring's alpha
+over time at in=100ms / out=400ms: entering reached full at ~150ms, leaving
+decayed `255 → 191 → 126 → 62 → 0` across ~400ms.
+
+The lift under the clock and the status chips is a drop shadow, since
+`translateY` does not exist here. It is safe now in a way it would not have
+been before `window#waybar` was tinted: the compositor's blur region is every
+non-transparent pixel, the whole bar strip is already in it, and the shadow
+falls well inside the strip — measured vertical extent y 12..39 against a pill
+interior of y 12..40. Keep it tight anyway; a wide one would smudge across the
+pill even though it can no longer leak blur.
 
 > [!WARNING]
 > **`transform` does not exist in GTK3, and a stray `transform:` invalidates
