@@ -1126,7 +1126,88 @@ fill**: drain that too and nothing in the bar can interrupt.
 centre each glyph *within its own chip*, but the gap you see is ink-to-ink and
 every glyph's side bearing differs — nominally identical padding measured
 **22 / 27 / 25 / 31 px**. Two rounds against the ink-span script brought it to
-**29 / 29 / 29 / 31**. Re-derive both halves if the font or size changes.
+**29 / 29 / 29 / 31**.
+
+⚠ **…and then that tuning had to be undone, because it was written in the wrong
+property.** See *One box, one oval* below. Padding is no longer available for
+spacing; `margin` is.
+
+### One box, one oval
+
+> [!CAUTION]
+> **The hover outline is an INSET ring, so it is drawn on the chip's
+> padding-box edge — which means padding stopped being invisible the moment the
+> oval replaced the pill-growth cue.** Every padding value in the status cluster
+> is now on screen. The scheme above had padding doing two incompatible jobs at
+> once — centring the glyph *and* evening the ink-to-ink gaps — plus four
+> different `min-width` floors left over from an anti-reflow pass. Measured on
+> the live bar:
+>
+> | chip | padding | min-width | oval | ink off-centre |
+> |---|---|---|---|---|
+> | `battery` | 9 / 2 | 14 | **25 × 28** | +3.0px |
+> | `idle_inhibitor` | 9 / 13 | — | **29 × 28** | +0.0px |
+> | `network` | 8 / 11 | 20 | **39 × 28** | +0.5px |
+> | `pulseaudio` | 12 / 9 | 20 | **41 × 28** | +2.5px |
+> | `custom/notification` | 10 / 10 | 26 | **46 × 28** | +1.0px |
+>
+> A **21px spread** in oval width — the battery's ring barely over half the
+> hub's — with the glyph up to **3px** right of the ring it is supposed to sit
+> inside.
+
+The fix is to decouple the box from the glyph:
+
+- **`min-width: 13px` + a padding sum of `18px` on every glyph chip** → a
+  uniform **31 × 28** oval, whatever the chip prints.
+- the 18px is **split** per glyph by that glyph's own ink offset. Moving *N*px
+  of padding from left to right pulls the content box *N*px left without
+  changing the total, so the ink lands on the ring's centre line and the ring
+  does not move.
+- **`margin`** — outside the padding box, so it cannot touch the oval — is now
+  the only lever for inter-chip spacing.
+
+Result: oval width spread **0px**, ink centred to within **±0.5px** (confirmed
+twice, by ink bounding box and by luminance-weighted centroid, which agree). The
+status pill is **24px narrower** (198 → 174).
+
+> [!WARNING]
+> **13, not 12 — and the parity is the point.** GTK centres the label in the
+> content box by an **integer** offset, so with an odd gap between the box and
+> the glyph's 7px natural width it floors, and the glyph lands half a pixel
+> left. At `min-width: 12px` all five chips measured
+> **−0.51 · −0.11 · −0.74 · −0.53 · −1.14px** — a bias in the *same direction*
+> on every one, which is the signature of a rounding rather than of a bad
+> correction value. `13 − 7 = 6` divides evenly and it disappears. Keep
+> `(min-width − 7)` even.
+
+> [!CAUTION]
+> **A shorthand later in the file silently beat the longhand correction.**
+> `#custom-notification` carried `padding: 0 10px` in its colour rule, ~100
+> lines below its `padding-left`/`padding-right` correction. Same specificity,
+> later wins, and a shorthand overrides both longhands — so the bell's optical
+> correction was dead code for as long as both existed, with nothing on screen
+> to say why the glyph sat off-centre. One chip, one place for its padding.
+
+**The chip margins are deliberately all still 1px.** With uniform boxes and
+centred glyphs the ink-to-ink gaps come out at **23 / 21 / 24 / 24 px** — a 3px
+spread against the 9px that justified hand-tuning them in the first place, and
+not worth closing: the volume ramp is three glyphs whose ink is **4.9 / 7.3 /
+9.8px** wide, so two of those four gaps swing **±2.4px** with nothing but the
+volume level. Tuning them to the pixel would be tuning to one screenshot of one
+volume. The same caveat is why `pulseaudio`'s own correction is 1px rather than
+an exact value — its offset is 0.00 / 0.40 / 1.62px depending on level.
+
+End clearance inside the pill is **5px** each side (`#status` padding 4 + the
+chip's 1px margin) against 2px between chips, measured symmetric (pill interior
+`1736..1908`, end ovals `1741..1771` and `1873..1903`). It looks tighter than
+that at 6× magnification because the pill's 16px corner radius curves away
+beside the end chips; it is not clipped.
+
+⚠ `#mpris` and `#privacy` are deliberately **out** of the uniform-box rule.
+mpris prints a track title, so it can never share the 31px oval — a text chip is
+legitimately wider than a glyph chip — and pinning a 31px floor on a member of
+`group/indicators` argues with that pill's requirement to collapse to nothing.
+privacy renders its own icon row and has no hover rule at all.
 
 ## Two GTK dialects, one desktop
 

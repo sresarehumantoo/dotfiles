@@ -568,11 +568,6 @@ window#waybar.empty .modules-center {
     color: @text;
 }
 
-/* ⚠ ONE HOVER RULE PER CHIP, and they are not interchangeable: each is that
-   chip's OWN optical-correction padding plus 3px a side. A single shared
-   `padding: 0 12px` here would grow the pill correctly and simultaneously
-   throw every glyph off-centre on hover, undoing the corrections above. GTK3
-   has no calc(), so the arithmetic has to be written out. */
 /* ⚠ ONLY THE CLOCK GROWS. It is alone in its pill, so growing it grows the
    pill, which is the intended "the whole thing responds" feel. Every other
    chip shares a pill with neighbours and gets the outline oval instead — see
@@ -590,6 +585,12 @@ window#waybar.empty .modules-center {
 #custom-notification:hover,
 #custom-system:hover,
 #mpris:hover {
+    /* ⚠ AN INSET RING IS DRAWN ON THE PADDING-BOX EDGE, so this rule is what
+       makes every padding value below visible. The oval's SIZE and the glyph's
+       position inside it are not set here — they come from the uniform-box
+       block further down ("One box, one oval"). Read that before changing any
+       chip's padding or min-width. Measured: 31 x 28 on all five status chips,
+       glyphs centred to within ±0.5px. */
     box-shadow: inset 0 0 0 1px @glass-edge;
     margin-top: 2px;
     margin-bottom: 2px;
@@ -666,41 +667,127 @@ window#waybar.empty .modules-center {
    ⚠ Adjust these if the font, its build (Mono vs non-Mono), or the font-size
    changes — they are derived from all three. Re-measure with fontTools rather
    than nudging by eye. */
-/* ⚠ THESE ARE NOT ARBITRARY, AND THEY ARE ALSO NOT ENOUGH ON THEIR OWN.
-   The values below are the optical corrections derived from the font's own
-   metrics (see the table above). They centre each glyph in its own chip — but
-   centring every glyph individually does NOT produce even spacing BETWEEN
-   chips, because the gap you actually see is ink-to-ink, and each glyph's side
-   bearing differs. Measured across the status cluster, the gaps were
-       22 · 27 · 25 · 31 px
-   which is a 9px spread on nominally identical padding, and reads as a wobble.
-   The extra nudges after each correction close that; re-measure with the
-   ink-span script rather than adjusting by eye, and re-derive both halves if
-   the font or font-size changes. */
-#network        { padding-left: 8px;  padding-right: 11px; }
-#custom-system  { padding-left: 7px;  padding-right: 11px; }
-#custom-notification { padding-left: 2px; padding-right: 11px; }
-#idle_inhibitor { padding-left: 9px;  padding-right: 13px; }
-#pulseaudio     { padding-left: 12px; padding-right: 9px;  }
-/* ⚠ Retuned when the battery lost its percentage — the old 9/4 was balancing
-   an icon-plus-text chip. The battery glyph's ink is only ~6px wide, so a
-   generous right pad plus the min-width floor below pushed a 38px hole between
-   it and the hub while every other gap was 29. Measured back to 29/29/27/28. */
-#battery        { padding-left: 9px;  padding-right: 2px;  }
 
-/* ── Anti-reflow ───────────────────────────────────────────────────────────
-   A variable-width module re-lays-out every module beside it each time its
-   text changes width — 9% → 10% shifts the whole cluster, and the bar
-   visibly twitches. Pinning a floor stops it. These are minimums, not fixed
-   widths, so an unexpectedly long value still fits. */
-/* ⚠ Was 52px, wide enough for "100%". The battery is icon-only now, so the
-   floor only has to cover one glyph — and leaving it at 52 would have padded
-   the chip out with 30px of dead space and broken the even spacing across the
-   cluster. An anti-reflow floor must track what the module actually prints. */
-#battery              { min-width: 14px; }
-#custom-notification  { min-width: 26px; }
-#network              { min-width: 20px; }
-#pulseaudio           { min-width: 20px; }
+/* ── One box, one oval ─────────────────────────────────────────────────────
+   ⚠ PADDING NOW HAS EXACTLY ONE JOB: WHERE THE GLYPH SITS. IT MUST NOT BE
+   USED TO SPACE CHIPS APART. That is what `margin` is for, below.
+
+   The reason is the hover outline. It is an INSET ring, so it is drawn on the
+   chip's padding-box edge — which means padding stopped being invisible the
+   day the outline oval replaced the pill-growth cue. Every value in here is
+   now on screen, and the old scheme had padding doing two incompatible jobs
+   at once: centring the glyph AND evening the ink-to-ink gaps. Measured on the
+   live bar, that produced
+
+       chip             padding    min-width   outline oval   ink off-centre
+       battery            9 / 2        14         25 x 28          +3.0px
+       idle_inhibitor     9 / 13        —         29 x 28          +0.0px
+       network            8 / 11       20         39 x 28          +0.5px
+       pulseaudio        12 / 9        20         41 x 28          +2.5px
+       custom-notif       10 / 10      26         46 x 28          +1.0px
+
+   i.e. a 21px spread in oval width — the battery's ring was barely over half
+   the hub's — with the glyph sitting up to 3px right of the ring it is
+   supposed to be inside. Both defects are the same cause: the ring traces a
+   box that was never being shaped for the eye.
+
+   So the box is now uniform and the glyph moves inside it:
+
+     · `min-width: 13px` + a padding sum of `18px` on EVERY glyph chip
+       → a 31 x 28 oval, identical for all of them, whatever they print.
+     · the 18px is SPLIT per glyph by that glyph's own ink offset (table
+       above): shifting Npx of padding from left to right pulls the content
+       box Npx left without changing the total, so the ink lands on the ring's
+       centre line and the ring does not move.
+
+   ⚠ THE SUM MUST STAY 18. A chip whose padding does not add to 18, or that
+   sets its own min-width, gets an oval a different size from every other one
+   — which is the exact defect this replaced.
+
+   Measured after: oval width spread 0, ink centred to within ±0.5px —
+   confirmed twice, by ink bounding box and by luminance-weighted centroid,
+   which agree. The status pill is 24px narrower (198 -> 174).
+
+   Reference points for the 31px: the workspace chips' oval measures 25 x 28,
+   and the widest glyph here (the wifi fan, 0.970em ≈ 12.6px of ink) keeps
+   9.2px of air each side. */
+/* ⚠ `#mpris` IS DELIBERATELY NOT IN THIS LIST, even though it does get a hover
+   outline. It prints a track title, so its natural width always exceeds any
+   floor worth setting and it can never share the 31px oval — a text chip is
+   legitimately wider than a glyph chip. Adding it would also put a 31px floor
+   on a module that lives in `group/indicators`, and that pill is required to
+   collapse to nothing when its children are idle (see the `#indicators` note
+   above); waybar hides an empty-format module outright so it would probably be
+   harmless, but there is no reason to find out. `#privacy` is out for the same
+   reason — it renders its own icon row and has no hover rule at all. */
+#idle_inhibitor,
+#pulseaudio,
+#network,
+#battery,
+#custom-notification {
+    /* ⚠ 13, NOT 12, AND THE PARITY IS THE POINT. GTK centres the label in the
+       content box by an INTEGER offset, so with an odd gap between the box and
+       the glyph's 7px natural width it floors and the glyph lands half a pixel
+       left. Measured across all five chips at min-width 12: −0.51 · −0.11 ·
+       −0.74 · −0.53 · −1.14px, a bias in the same direction on every one, which
+       is the signature of a rounding rather than of a bad correction value.
+       13 − 7 = 6 divides evenly and it goes away. Keep (min-width − 7) even. */
+    min-width: 13px;
+}
+
+/* The per-glyph splits. Left pad = 9 − offset, right pad = 9 + offset, where
+   the offset is (ink centre − advance centre) × 13px from the table above,
+   rounded to the pixel. Sum is 18 in every row — check that first if an oval
+   ever comes out the wrong size. */
+#battery             { padding-left: 9px; padding-right:  9px; }  /* +0.00px — symmetric ink */
+#pulseaudio          { padding-left: 8px; padding-right: 10px; }  /* volume ramp, see below */
+#custom-notification { padding-left: 7px; padding-right: 11px; }  /* bell      +1.62px */
+#idle_inhibitor      { padding-left: 7px; padding-right: 11px; }  /* coffee    +2.16px */
+#network             { padding-left: 6px; padding-right: 12px; }  /* wifi fan  +3.05px */
+
+/* ⚠ The volume chip is the one that cannot be exact: its ink offset changes
+   with the level, because the ramp is three different glyphs —
+   low +0.00px · medium +0.40px · high/muted +1.62px. 1px is the compromise
+   (worst case 0.6px out at high). Do not "fix" it to 2px by looking at a
+   screenshot taken at full volume. */
+
+/* ⚠ NO `min-width` BELOW THIS LINE for a chip in the status pill. There used
+   to be an anti-reflow block here pinning battery/notification/network/
+   pulseaudio to 14/26/20/20px — four different floors, and therefore four
+   different oval widths. It is not needed any more: network, pulseaudio and
+   battery are all icon-only and every Nerd Font icon in this font has the same
+   0.500em advance, so those three cannot reflow at all whatever they display.
+   The uniform 13px floor above covers them.
+
+   The one real loser is `custom/notification`, whose format is `{icon}{}` — it
+   genuinely gets wider when a count appears, and the old 26px floor reserved
+   the room so the chip did not jump. It now jumps. That is accepted: the bell
+   simultaneously turns yellow and bold at that moment, so the width change
+   reads as part of one deliberate state change rather than a twitch, and it is
+   the last module in the pill, so nothing to its right moves. */
+
+/* ── Why the chip margins are all still 1px ────────────────────────────────
+   `margin` is the lever for inter-chip spacing now that padding is spoken for,
+   and it is the right one: it sits outside the padding box, so it moves chips
+   apart without touching the oval. It is deliberately NOT being used.
+
+   The gap the eye actually judges is ink-to-ink, and with uniform boxes and
+   centred glyphs it comes out at 23 / 21 / 24 / 24 px — a 3px spread, against
+   the 9px spread (22 · 27 · 25 · 31) that justified tuning this by hand in the
+   first place. Evening the last 3px is not worth it, because the volume glyph
+   moves the gaps by more than that on its own: the ramp is three glyphs whose
+   ink is 4.9 / 7.3 / 9.8px wide, so two of those four gaps swing ±2.4px with
+   nothing but the volume level. Tuning them to the pixel would be tuning to
+   one screenshot of one volume.
+
+   ⚠ If you do reach for it, use `margin-left`/`margin-right`. Never go back to
+   padding — that is the coupling this whole section exists to undo. */
+
+/* End clearance inside the pill is 5px each side (`#status` padding 4 + the
+   chip's own 1px margin) against 2px between chips, and measured symmetric:
+   pill interior 1736..1908, ovals 1741..1771 and 1873..1903. It looks tighter
+   than that at 6x magnification because the pill's 16px corner radius curves
+   away beside the end chips; it is not clipped. */
 
 /* ── Hover ─────────────────────────────────────────────────────────────────
    An inset shadow drawn along the bottom edge, INSIDE the widget's own box,
@@ -743,13 +830,14 @@ window#waybar.empty .modules-center {
 /* The VPN shield. Green because "up" is the reassuring state, and the module
    is absent entirely when no tunnel exists — so this only ever renders as
    good news. */
-/* The shield overflows 0.250em, not the wifi ramp's 0.470em, so it needs a
-   smaller correction than the `#network` rule above gives it. id+class beats
-   the bare id, so this wins for the VPN instance only. */
+/* The shield's ink overflows 0.250em, not the wifi ramp's 0.470em, so it needs
+   a smaller correction than the `#network` split gives it. id+class beats the
+   bare id, so this wins for the VPN instance only — and it keeps the 18px sum,
+   so the shield's oval matches every other chip's. ⚠ No `min-width` override:
+   it would take this one chip off the shared 30px box. */
 #network.vpn {
     color: @green;
-    min-width: 20px;
-    padding-left: 7px;
+    padding-left: 7px;   /* shield +1.62px */
     padding-right: 11px;
 }
 
@@ -777,11 +865,15 @@ window#waybar.empty .modules-center {
    vocabulary, not ours: {dnd-,inhibited-,dnd-inhibited-,}{none,notification}.
    Idle is deliberately the quietest thing in the bar — an indicator that is
    always lit teaches you to stop seeing it, which defeats the point. */
+/* ⚠ NO `padding` HERE. This rule used to carry `padding: 0 10px`, and because
+   it is a bare id selector appearing LATER in the file than the optical
+   correction, the shorthand silently won on both sides — so the bell's
+   correction was dead code for as long as both existed and the glyph sat
+   off-centre with no sign of why. Same specificity, later wins; a shorthand
+   overrides the longhands. Padding for this chip lives with the other splits,
+   in one place. */
 #custom-notification {
     color: @subtext;
-    /* Room for the count that appears beside the glyph; without it the chip
-       visibly jumps wider on the first notification. */
-    padding: 0 10px;
 }
 
 /* Unread. Accent colour plus bold does the work — no blink. A permanently
