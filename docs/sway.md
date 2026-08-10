@@ -1103,12 +1103,66 @@ move it with. What is available is timing, and it is enough:
 > as web CSS does. So the base rule governs hover-**out** and the `:hover` rule
 > governs hover-**in**.
 
-The ring is therefore quick to arrive (130ms) and slow to let go (260ms), so
-sweeping the pointer along a row leaves the chip behind still lit as the next
-one lights up, which reads as one outline travelling rather than as several
-fading in and out. Verified offscreen by sampling the rendered ring's alpha
-over time at in=100ms / out=400ms: entering reached full at ~150ms, leaving
-decayed `255 → 191 → 126 → 62 → 0` across ~400ms.
+The ring is therefore quick to arrive (180ms, with the bounce) and monotonic
+on the way out (150ms), so sweeping the pointer along a row leaves the chip
+behind still lit as the next one lights up, which reads as one outline
+travelling rather than as several fading in and out. Verified offscreen by
+sampling the rendered ring's alpha over time at in=100ms / out=400ms: entering
+reached full at ~150ms, leaving decayed `255 → 191 → 126 → 62 → 0` across
+~400ms.
+
+> [!CAUTION]
+> **The exit must be monotonic, and its duration is a budget rather than a
+> taste.** This shipped at 300ms using the same overshooting bezier as the
+> arrival, and both were wrong: a bounce on the way *out* makes a departing chip
+> spring past its resting size and settle back, and a long exit lets a fast
+> pointer stack the whole row. The exit duration bounds how many chips a sweep
+> can light, roughly `exit duration / time the pointer spends per chip`.
+> Measured, real rings (≥15px) per frame across an identical sweep:
+> ```
+> 300ms bouncy exit  ->  up to 9 lit, several mid-bounce
+> 150ms ease-out     ->  peak 2
+> ```
+> Shortening further buys nothing — 110ms measured identical on both the sweep
+> and the boundary case below.
+
+> [!CAUTION]
+> **The bounce's overshoot has a hard ceiling, and it is the allocation.** Peak
+> painted box is `15 + 14 * peak`, and anything over 31 is clipped on the right
+> — the same cliff the negative-margin caution describes, reached by a different
+> route. Budget: `peak ≤ 1.143`.
+> ```
+> cubic-bezier(0.34, 1.56, 0.64, 1)   peak 1.098  ->  30.4px   fits, but only just
+> cubic-bezier(0.34, 1.25, 0.64, 1)   peak 1.020  ->  29.3px   <- this
+> ```
+> 1.56 is also violent when re-triggered every few milliseconds at a chip
+> boundary. Recompute the peak before raising it.
+
+### ⚠ A 2px band at every chip boundary lights both neighbours, and no CSS fixes it
+
+waybar's module event regions overlap by 2px, so a pointer in that band is
+claimed by both chips at once and they trade it back and forth, each
+perpetually mid-animation. Mapped from cold starts (park off the bar, walk in,
+hold 1.3s), `ws2` allocation `46..76` against `ws3` allocation `77..107`:
+
+```
+x <= 74     ws2 alone, stable 29px
+x = 75, 76  BOTH lit, both ~26px, oscillating
+x >= 77     ws3 alone, stable 29px
+```
+
+It is deterministic rather than pointer jitter, and nothing in the stylesheet
+causes it: **the event region is the full allocation regardless of the CSS
+margin** — verified, `x=50` hovers `ws2` cleanly and settles at 29px even though
+its resting painted box is only `54..68`. Transition duration does not touch it
+either (110ms and 150ms exits measured the same spread, 21px on the thrashing
+chip). GTK3 CSS has no hysteresis to add, and `transition-delay` would trade the
+boundary case straight back for the sweep case, since it cannot tell a
+re-entry from a pass-through.
+
+What the timing *does* control is how violent the trade looks, which is the
+reason the exit is monotonic and short. Anything claiming to have fixed this
+should be checked against the map above.
 
 The lift under the clock and the status chips is a drop shadow, since
 `translateY` does not exist here. It is safe now in a way it would not have

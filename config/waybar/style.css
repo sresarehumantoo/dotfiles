@@ -374,18 +374,51 @@ window#waybar.empty .modules-center {
        the style being animated TOWARDS, exactly as web CSS does — so this rule
        governs hover-OUT and the `:hover` rule below governs hover-IN. That
        asymmetry is deliberate and it is what sells the outline as one object
-       travelling along the row: the ring is quick to arrive and slow to let
+       travelling along the row: the ring is quick to arrive and slower to let
        go, so sweeping the pointer across leaves the chip behind still lit as
        the next one lights up.
        Verified offscreen by sampling the rendered ring's alpha over time with
        in=100ms / out=400ms: entering reached full at ~150ms, leaving decayed
-       255 -> 191 -> 126 -> 62 -> 0 across ~400ms. */
-    transition: background-color 260ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                color            220ms ease,
-                box-shadow       260ms ease-out,
-                margin           300ms cubic-bezier(0.34, 1.56, 0.64, 1),
-                padding          300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+       255 -> 191 -> 126 -> 62 -> 0 across ~400ms.
+
+       ⚠ EASE-OUT, NOT THE BOUNCE — AND THE DURATION IS A BUDGET, NOT A TASTE.
+       This started at 300ms with the same overshooting bezier the arrival uses,
+       and both were wrong. A bounce on the way OUT makes a departing chip
+       spring PAST its resting size and settle back, and a long exit lets a fast
+       pointer stack the whole row: measured, sweeping across the pill lit
+       NINE chips at once, six of them mid-animation. The exit must be
+       monotonic, and its duration bounds how many chips a sweep can light —
+       roughly (exit duration / time the pointer spends per chip). At 150ms the
+       same sweep peaks at two rings, which is exactly the one-arriving-
+       one-departing trail the asymmetry is for.
+       Measured, real rings (>=15px) per frame across an identical sweep:
+           300ms bouncy exit  ->  up to 9 lit, several mid-bounce
+           150ms ease-out     ->  peak 2
+       ⚠ Shortening further does NOT buy anything — 110ms measured identical on
+       both the sweep and the boundary case below, so 150ms is kept for being
+       the more graceful of two equivalents. */
+    transition: background-color 140ms ease-out,
+                color            110ms ease-out,
+                box-shadow       150ms ease-out,
+                margin           150ms ease-out,
+                padding          150ms ease-out;
 }
+
+/* ⚠ THERE IS A 2px BAND AT EVERY CHIP BOUNDARY WHERE BOTH NEIGHBOURS LIGHT UP,
+   AND NO CSS FIXES IT. waybar's module event regions overlap by 2px, so the
+   pointer in that band is claimed by both chips at once and they trade it
+   back and forth, each perpetually mid-animation. Mapped from cold starts,
+   ws2 (allocation 46..76) against ws3 (allocation 77..107):
+       x <= 74   ws2 alone, stable 29px
+       x = 75,76 BOTH lit, both ~26px and oscillating
+       x >= 77   ws3 alone, stable 29px
+   It is deterministic, not pointer jitter, and it is not caused by anything in
+   this file: the event region is the full allocation regardless of the CSS
+   margin (verified — x=50 hovers ws2 cleanly even though its resting painted
+   box is 54..68). Duration does not touch it either; 110ms and 150ms exits
+   measured the same spread. What the timing above DOES control is how violent
+   the trade looks, which is why the exit is monotonic and short. Anything that
+   claims to have fixed this should be checked against the map. */
 
 /* ⚠ A SECOND `:hover` STUB THAT LIVED HERE IS DELETED. It set nothing the real
    hover rule further down does not set (`color: @text; opacity: 1`), but it
@@ -476,8 +509,14 @@ window#waybar.empty .modules-center {
 #custom-ws7.focused:hover,
 #custom-ws8.focused:hover,
 #custom-ws9.focused:hover {
-    padding: 0 12px;
-    margin: 2px 0px;
+    /* ⚠ VERTICAL ONLY — no horizontal growth, deliberately. At 12/0 the painted
+       box is 31px, exactly the allocation, which leaves the bounce ZERO
+       headroom: any overshoot pushes past the allocation and gets clipped on
+       the right (see the negative-margin caution above — same mechanism). The
+       chip is already outlined, so the +4px of height every other chip gets is
+       cue enough, and it cannot clip. */
+    padding: 0 11px;
+    margin: 2px 1px;
 }
 
 /* ⚠ THE TRAIL. Deliberately WEAKER than .focused — it is a wake, not a
@@ -534,8 +573,8 @@ window#waybar.empty .modules-center {
 #custom-ws7.urgent:hover,
 #custom-ws8.urgent:hover,
 #custom-ws9.urgent:hover {
-    padding: 0 12px;
-    margin: 2px 0px;
+    padding: 0 11px;
+    margin: 2px 1px;
 }
 
 /* Hover: a breath of light on the glass, matching the status chips. */
@@ -575,15 +614,26 @@ window#waybar.empty .modules-center {
        the pill, whose height is fixed by the bar (measured: vertical padding on
        a bar child moves it 0px, because GTK stretches it to the bar). */
     margin: 2px 1px;
-    /* ⚠ THE ARRIVING TRANSITION. Faster than the base rule's departing one —
+    /* ⚠ THE ARRIVING TRANSITION. Quicker than the base rule's departing one —
        see the note there. The bounce is the easing, not a keyframe: the third
        control point above 1.0 overshoots and settles back, which is what reads
-       as a bubble rather than as a box getting wider. */
-    transition: background-color 150ms cubic-bezier(0.25, 0.46, 0.45, 0.94),
-                color            120ms ease,
-                box-shadow       130ms ease-out,
-                margin           200ms cubic-bezier(0.34, 1.56, 0.64, 1),
-                padding          200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+       as a bubble rather than as a box getting wider.
+
+       ⚠ THE OVERSHOOT HAS A HARD CEILING, AND IT IS THE ALLOCATION. The peak
+       painted box is `15 + 14 * peak`, and anything over 31 is clipped on the
+       right (see the negative-margin caution at the top of this section — the
+       bounce reaches the same cliff by a different route). Budget: peak <=
+       1.143. Computed peaks for this family of curves:
+           cubic-bezier(0.34, 1.56, 0.64, 1)  peak 1.098  ->  30.4px  (ok, tight)
+           cubic-bezier(0.34, 1.25, 0.64, 1)  peak 1.020  ->  29.3px  <- this
+       1.56 fits, but only just, and it is violent when it is re-triggered
+       every few milliseconds at a chip boundary. 1.25 keeps the bubble and
+       leaves real headroom. Recompute the peak before raising it. */
+    transition: background-color 140ms ease-out,
+                color            110ms ease-out,
+                box-shadow       120ms ease-out,
+                margin           180ms cubic-bezier(0.34, 1.25, 0.64, 1),
+                padding          180ms cubic-bezier(0.34, 1.25, 0.64, 1);
 }
 
 #mode {
@@ -643,10 +693,10 @@ window#waybar.empty .modules-center {
            without it:          53 -> 60 -> 64 -> 66 -> 67 over ~320ms
        Slow half, per the asymmetry described in the workspace section: this
        governs hover-OUT, and each `:hover` rule below governs hover-IN. */
-    transition: background-color 220ms ease,
-                box-shadow       260ms ease-out,
-                margin           300ms cubic-bezier(0.34, 1.56, 0.64, 1),
-                padding          300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: background-color 140ms ease-out,
+                box-shadow       150ms ease-out,
+                margin           150ms ease-out,
+                padding          150ms ease-out;
 }
 
 #idle_inhibitor:hover,
@@ -703,10 +753,10 @@ window#waybar.empty .modules-center {
     margin: 2px 1px;
     box-shadow: inset 0 0 0 1px @glass-edge,
                 0 2px 5px rgba(17, 17, 27, 0.55);
-    transition: background-color 150ms ease,
-                box-shadow       130ms ease-out,
-                margin           200ms cubic-bezier(0.34, 1.56, 0.64, 1),
-                padding          200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: background-color 140ms ease-out,
+                box-shadow       120ms ease-out,
+                margin           180ms cubic-bezier(0.34, 1.25, 0.64, 1),
+                padding          180ms cubic-bezier(0.34, 1.25, 0.64, 1);
 }
 
 #idle_inhibitor:hover,
@@ -740,10 +790,10 @@ window#waybar.empty .modules-center {
        why this belongs on `:hover`): quick in, bouncy, so the outline feels
        like it snapped across to the chip under the pointer and the slow
        departure on the one you left reads as it having come FROM there. */
-    transition: background-color 150ms ease,
-                box-shadow       130ms ease-out,
-                margin           200ms cubic-bezier(0.34, 1.56, 0.64, 1),
-                padding          200ms cubic-bezier(0.34, 1.56, 0.64, 1);
+    transition: background-color 140ms ease-out,
+                box-shadow       120ms ease-out,
+                margin           180ms cubic-bezier(0.34, 1.25, 0.64, 1),
+                padding          180ms cubic-bezier(0.34, 1.25, 0.64, 1);
 }
 
 /* ── Single-accent discipline ──────────────────────────────────────────────
