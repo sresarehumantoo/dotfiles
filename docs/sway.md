@@ -953,13 +953,49 @@ exactly this.
 > margin cannot do it — that is inside a surface whose size sway has already
 > reserved.
 
-### `smart_gaps on`: alone means full bleed
+### `smart_gaps off`: a lone window is framed like a tiled one
 
-A lone window takes the whole usable area; gaps return on split. **Three
-settings agree on this and move together**: `smart_gaps on`,
-`hide_edge_borders --i3 smart`, and `smart_corner_radius` in `sway-fx`. The last
-is load-bearing under SwayFX — rounded corners on a window flush to the screen
-edge would cut visible notches out of the display corners.
+**Reverted to `off` on 2026-08-09, together with `smart_corner_radius disable`.**
+A lone window now gets the same 10px gaps and the same 12px rounded corners as a
+tiled one, so splitting a workspace no longer restyles the window you were
+already looking at. Measured live: one window → `x=10 y=172 w=1900 h=1138`, i.e.
+10px on all four sides, top unchanged at y=52.
+
+This setting has now been written up both ways — treat any earlier revision as
+history, not authority.
+
+**The old "alone = full bleed" trio is dissolved, and only two of it moved.**
+`smart_corner_radius` existed for exactly one reason: a window flush to the
+screen edge cannot have rounded corners without cutting visible notches out of
+the display corners. Nothing is ever flush now, so the reason is gone — and
+re-enabling it alone would just square a window that has room to be round. The
+two must stay in step.
+
+`hide_edge_borders --i3 smart` **stays on and is no longer part of this set.**
+It drops the *border* on a lone window, which is an independent aesthetic call
+(see its own comment in `config/sway/config`); gaps do not re-justify a bright
+`#89b4fa` frame. Verified it still hides the border once gaps exist: the columns
+just outside the lone window read wallpaper, not border.
+
+Verified after the change: no notch at the display corners (nothing is flush),
+and the swaync panel's new 16px corners still measure **0 bright leaks** on all
+four (peaks 76/76/56/94) under this geometry — the lone window's right edge now
+sits at x=1910, the same place the two-window case put it when that rounding was
+measured.
+
+> [!CAUTION]
+> **The `swaymsg reload` that applied this killed the compositor.** Sway died
+> silently at 23:47:42 (every client lost its Wayland connection at once; no
+> segfault, no assert, no coredump) and GDM started a fresh session ~10s later.
+> The `sway-fx: rejected: layer_effects …` lines in the journal are the
+> *consequence* — `swaymsg` could no longer connect — not the cause.
+>
+> The settings themselves are not implicated: the replacement session read this
+> exact config at startup and came up clean and stable. What is suspect is the
+> **reload path** under SwayFX 0.6 on DisplayLink, where a reload also restarts
+> the `exec_always` children (swaybg had just re-run when it died). Unproven —
+> reproducing it costs another session. If you reload often, save your work
+> first.
 
 ## Hover: what each surface does, and what GTK3 makes impossible
 
@@ -1060,6 +1096,22 @@ resting state**. Before this the panel was on blue-grey `@surface0` tiles, the
 calendar on a flat `#1e1e2e` with a solid `#89b4fa` "today", and fuzzel on
 Catppuccin surfaces with a blue match colour — three different materials
 sitting next to each other.
+
+**As of 2026-08-09 they also share one corner radius: 16px.** fuzzel's
+`radius=16` and the waybar pills already had it; `sway-calendar` had *no*
+`border-radius` at all (square body hanging under a rounded clock pill) and the
+swaync panel was deliberately squared to fix a corner artifact that has since
+stopped firing. Both are now 16px, so the family is consistent in pigment, edge
+*and* silhouette.
+
+> [!CAUTION]
+> **On both panels the rounding is CSS, and the `corner_radius` in
+> `config/sway/sway-fx` for their layer namespaces is inert.** Neither surface is
+> the size of the panel it draws — the calendar's spans the whole usable area so
+> click-outside can dismiss it, and swaync's is likewise larger — so the
+> compositor rounds something invisible. Proven by elimination: the swaync panel
+> measured square while its namespace carried `corner_radius 12`. Edit the
+> stylesheet, not `sway-fx`.
 
 ### The layers, and why the numbers differ
 
@@ -1355,8 +1407,11 @@ set_anchor(TOP, True); set_margin(TOP, GAP)
 # anchoring NEITHER left nor right is what centres it; there is no "centre" anchor
 ```
 
-`GAP` is only 6 because a layer surface's margins resolve against the **usable
-area**, so waybar's 46px exclusive zone is already subtracted — no bar arithmetic.
+`GAP` is **0** because a layer surface's margins resolve against the **usable
+area**, so waybar's 52px exclusive zone is already subtracted — no bar arithmetic
+— and a tiled window starts at that same y, so any margin drops the calendar
+below the window beside it. (It was 6, from a comment that put the zone at 46 by
+omitting waybar's `margin-bottom`; see *Margins* above.)
 `--anchor left|center|right` must match which module list holds the clock.
 
 > [!CAUTION]
@@ -1695,6 +1750,36 @@ was the waybar tooltip, not the window border.** Both are fixed:
 
 <sub>* the residual 18 is a 1px edge bleed, not a corner cut-out — see below.</sub>
 
+> [!IMPORTANT]
+> **The border half of this was superseded on 2026-08-09: the panel is rounded
+> again at 16px** (`config/swaync/style.css`), matching fuzzel, the waybar pills
+> and `sway-calendar`. The tooltip fix stands unchanged — that was always the
+> cause you actually saw.
+>
+> Two changes since killed the border half. `hide_edge_borders --i3 smart` means
+> a single-window workspace has **no border under the panel at all**, and the
+> panel's drop shadow dims the ~5px band just outside its edge — precisely the
+> band a radius exposes — so the border arrives in the cut-out pre-dimmed
+> instead of undimmed. Re-measured with the worst case rebuilt deliberately (two
+> windows so borders return, rightmost focused so `#89b4fa` runs the full height
+> at x=1908-1909 under the panel edge): bright pixels per corner are **0/0/0/0
+> at radius 16**, identical to squared, peaks 76/76/65/65 vs 76/78/56/56. The
+> shadow does it: same column, panel open vs closed, y≤50 is untouched while
+> y=54 goes (133,175,243) → (67,69,88).
+>
+> The measurement tables below are still correct **for the geometry they were
+> taken in** — margins were `top 14 / right 8` then and are `top 5 / right 10`
+> now, and `usable_area.y` is **52** (waybar `height 40 + margin-top 6 +
+> margin-bottom 6`), not the 46 used below, which puts the panel top at y=57 and
+> the window's top border at y=52-53 — i.e. *above* the panel, not under it.
+> Re-derive before reusing a number from here.
+>
+> ⚠ **Confirm the panel is open before believing a clean corner measurement.** A
+> closed panel measures zero leaks in all four corners and is indistinguishable
+> from a pass; `swaync-client --reload-css` can leave it closed. Assert
+> `swaync-control-center` is in `swaymsg -t get_outputs` → `layer_shell_surfaces`
+> first. That produced a false pass during this very change.
+
 **The tooltip is the one that mattered, and it hid the real story for months.**
 `custom/notification` had `"tooltip": true`, commented as showing swaync's own
 text ("3 Notifications"). That field is **empty when idle**, which is most of the
@@ -1722,8 +1807,11 @@ the artifact was plainly visible in use.
 The rest of this section is the border half. Three of the four things previously
 written about it were wrong, and the corrections are the valuable part.
 
-**The geometry, which is simple and was not.** waybar's exclusive zone is
-`height 40 + margin-top 6` = **46**, so `usable_area.y = 46`. Then:
+**The geometry, which is simple and was not.** ⚠ *The numbers in this block are
+the ones in force when the border half was investigated, and both have since
+changed — see the [!IMPORTANT] note at the top of this section. The zone is now
+**52** (the `margin-bottom 6` term was missing), and the gaps are `outer 2` /
+`top -8`, putting a window's top edge at 52.* As measured then:
 
 ```
 panel top edge y  =  46 + control-center-margin-top      (linear, no clamp)
@@ -1814,9 +1902,10 @@ The bottom-left residue of 18 is **not** a corner cut-out — it is the border
 bleeding through the panel's own `1px solid @surface0` edge at x=1443, a 1px-wide
 effect no radius change can reach. Every actual cut-out leak is zero.
 
-At full height against the screen's corner the squared panel reads as a docked
-sidebar, and inner elements (buttons, notifications, the Clear-all pill) keep
-their own radius so the panel still feels soft — only its outer edge is hard.
+At full height against the screen's corner the squared panel read as a docked
+sidebar, and inner elements kept their own radius so it still felt soft. *(That
+was the shipped look until 2026-08-09; the outer edge is now rounded at 16px
+again — see the note at the top of this section.)*
 
 > [!TIP]
 > **Parse the stylesheet with the real GTK engine before trusting a reload.** One
@@ -1834,15 +1923,31 @@ hanging **17px** below the island with the window's bright blue border line
 stranded in the gap. Both margins are now derived from the bar's own geometry in
 `config/waybar/config` — **re-derive them if that changes**:
 
+**Superseded 2026-08-09 — the margins are now zero-ish, and that is the fix, not
+a regression.** The panel is aligned to the *tiled window*, edge for edge:
+
 | value | why |
 |---|---|
-| `control-center-margin-top: 5` | The island's visible rows are y=9-42, i.e. it floats **9px** below the screen top. A 9px gap below it (43 → panel top y=52) mirrors that exactly. |
-| `control-center-margin-right: 10` | Puts the panel's right edge at x=1908 — **the island's own right edge** — and 10 *is* waybar's `margin-right`, so the two share one inset. Measured: 8 and 9 land 2px and 1px outside it. |
+| `control-center-margin-top: 0` | Panel top y=**52** = the window's top edge. `usable_area.y` is already 52 and a tiled window starts at exactly 52 (`gaps top -8` cancels `gaps inner 8`), so any margin here is pure surplus that drops the panel *below* the window beside it. |
+| `control-center-margin-bottom: 10` | Panel last row y=**1189** = the window's last row; matches the 10px screen-edge gap windows get. |
+| `control-center-margin-right: 10` | Right edge x=**1909** = the window's right edge, and 10 *is* waybar's `margin-right`. One shared inset. |
 
-`panel top y = 47 + margin-top`, linear. The gap options, if the balance is ever
-revisited: margin 0 → 4px gap (reads as docked to the bar), 2 → 6px, 5 → **9px
-(shipped)**, 14 → 18px (the old detached look). Corner leaks stay at 0 for every
-one of these, so this is now purely an aesthetic dial.
+`panel top y = usable_area.y + margin-top`, linear, no clamp.
+
+> [!WARNING]
+> **The old derivation on this page was arithmetically stale, and that is why
+> both panels sat low.** It read `panel top y = 47 + margin-top` (table 0→47,
+> 2→49 … 14→61) and picked 5 to land on y=52. The real zone is **52** — waybar's
+> exclusive zone is `height 40 + margin-top 6 + margin-bottom 6`, and the
+> **margin-bottom was the term left out**. So 5 landed the panel on y=57, five
+> pixels below the window. `sway-calendar` carried the identical error with the
+> identical cause (`GAP = 6`, comment claiming "waybar's 46px (height 40 +
+> margin-top 6)", landing on y=58); it is now `GAP = 0`.
+>
+> **Measure the usable area; do not recompute it from the bar's parts.** The
+> exclusive zone includes *both* waybar margins, which is the term that keeps
+> getting dropped. Verified after the fix: window top, swaync top and calendar
+> top all read **y=52**, and swaync's last row is **y=1189**, the window's.
 
 > [!WARNING]
 > **Do not reach for the margins to fix a corner artifact while any corner is
@@ -1856,8 +1961,8 @@ one of these, so this is now purely an aesthetic dial.
 
 Squaring the corners stopped the border *leaking through* the panel, but the
 border was still there — a bright `#89b4fa` frame around the whole screen,
-**2876 pixels along the top edge alone**, and against a panel whose outer edge is
-deliberately square and quiet it was the loudest thing on screen. It kept reading
+**2876 pixels along the top edge alone**, and against a panel whose outer edge was
+deliberately quiet it was the loudest thing on screen. It kept reading
 as an outline attached to the panel. `hide_edge_borders --i3 smart` in
 `config/sway/config` takes it to **0**, verified with the panel both open and
 closed, and `sway --validate` exits 0.
