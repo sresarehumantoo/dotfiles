@@ -182,16 +182,25 @@ CHEVRON_RIGHT = "\U000f0142"
 
 WEEKS = 6  # fixed row count, so flipping months never resizes the window
 
-# ⚠ GAP IS MEASURED FROM THE USABLE AREA, NOT THE SCREEN EDGE, and that is what
-# makes it a small number. A layer surface anchored to TOP without its own
-# exclusive zone has its margins resolved by the compositor against the area left
-# over AFTER other surfaces' exclusive zones — so waybar's 46px (height 40 +
-# margin-top 6) is already subtracted and there is no bar arithmetic to do here.
-# GAP 6 therefore lands the top edge on y52, exactly where swaync's control
-# centre sits (its own `control-center-margin-top` is 5, against the same usable
-# area), so the two panels line up when both are open. Mirrors
-# config/waybar/config and config/swaync/config.json — keep the three in step.
-GAP = 6
+# ⚠ GAP IS MEASURED FROM THE USABLE AREA, NOT THE SCREEN EDGE, and ZERO IS THE
+# CORRECT VALUE — not a missing setting. A layer surface anchored to TOP without
+# its own exclusive zone has its margins resolved by the compositor against the
+# area left over AFTER other surfaces' exclusive zones, so waybar's zone is
+# already subtracted and there is no bar arithmetic to do here. usable_area.y is
+# 52, and a tiled window also starts at exactly 52 (`gaps top -8` cancels
+# `gaps inner 8`), so GAP 0 puts the calendar's top edge level with the window
+# beside it. Any GAP at all is pure surplus that drops it BELOW the window.
+#
+# ⚠ THIS WAS 6, AND THE COMMENT JUSTIFYING IT WAS ARITHMETICALLY STALE. It said
+# waybar's zone was "46px (height 40 + margin-top 6)" and that GAP 6 therefore
+# landed on y52. The zone is 52 — height 40 + margin-top 6 + margin-BOTTOM 6, and
+# the margin-bottom was the term left out — so GAP 6 actually landed on y58, 6px
+# low. swaync carried the identical error (`control-center-margin-top` 5 -> y57,
+# also now 0). Measure the usable area, do not recompute it from the bar's parts:
+#   swaymsg -t get_outputs | jq '.[0].rect, .[0].layer_shell_surfaces'
+# Mirrors config/waybar/config and config/swaync/config.json — keep the three in
+# step; both panels and a window should share one top edge.
+GAP = 0
 EDGE_MARGIN = 10  # waybar's own margin-left/right, for the left/right anchors
 
 # How long to ignore focus events after mapping. See the connect() in __init__ —
@@ -243,9 +252,16 @@ window { background-color: transparent; }
    Alpha is high for the same reason swaync's is: this surface is NOT reliably
    blurred (a layer_effects rule exists for it, but blur on a panel-sized
    surface spills past its edge -- measured on swaync), so anything showing
-   through arrives sharp. */
+   through arrives sharp.
+   !! THE ROUNDING IS THIS border-radius, NOT the compositor. `layer_effects`
+   for the "sway-calendar" namespace carries a corner_radius, but it applies to
+   the SURFACE, which spans the whole usable area and is transparent -- so it
+   rounds nothing anyone can see. 16px to match fuzzel's `radius=16` and the
+   waybar pills; the panel sits directly under the clock pill and read as a
+   different material with square corners. */
 box.calendar {
     background-color: rgba(11, 11, 17, 0.94);
+    border-radius: 16px;
     box-shadow: inset 0 1px 0 rgba(205, 214, 244, 0.10);
     padding: 10px 12px 12px 12px;
 }

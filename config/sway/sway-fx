@@ -44,7 +44,14 @@ fx() {
 
 # ── Windows ────────────────────────────────────────────────────────────────
 fx corner_radius 12
-fx smart_corner_radius enable      # square corners when a window is alone/tiled full
+# ⚠ DISABLED ON PURPOSE (2026-08-09), and it must stay in step with `smart_gaps`
+# in config/sway/config. `enable` squares the corners of a window that is alone
+# or tiled full — which was right only while `smart_gaps on` made such a window
+# flush to the screen edge, where rounded corners cut visible notches out of the
+# display corners. smart_gaps is now off, so nothing is ever flush and every
+# window keeps the radius. Re-enabling this without also re-enabling smart_gaps
+# just squares a window that has the room to be round.
+fx smart_corner_radius disable
 fx shadows enable
 fx shadow_blur_radius 20
 fx shadow_color '#00000066'
@@ -148,8 +155,21 @@ fx layer_effects '"waybar"' '"blur enable; blur_ignore_transparent enable; corne
 # opaque surface is imperceptible, while the spill beside it is not. If the panel
 # is ever made genuinely translucent, re-measure the spill before turning this
 # back on.
+# !! `corner_radius` HERE IS INERT TOO, same as sway-calendar below: swaync's
+# surface is larger than the panel it draws, so this rounds nothing visible.
+# Proven by elimination -- while the CSS said `border-radius: 0` the panel
+# corners were measurably square with this line active. The visible rounding is
+# `border-radius` on .control-center in config/swaync/style.css.
+# `shadows enable` is NOT decorative here: the shadow dims the band just outside
+# the panel edge, which is what lets that radius exist without re-exposing the
+# focused window's border. See the corner-artifact section in docs/sway.md.
 fx layer_effects '"swaync-control-center"' '"blur disable; corner_radius 12; shadows enable"'
 fx layer_effects '"swaync-notification-window"' '"blur disable; corner_radius 12; shadows enable"'
 fx layer_effects '"launcher"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
 fx layer_effects '"swayosd"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
+# !! `corner_radius` HERE IS INERT AND CANNOT ROUND THE CALENDAR. Unlike every
+# other namespace above, this surface is not the panel -- it spans the whole
+# usable area (transparent, so a click landing outside the panel reaches the
+# script and dismisses it). Rounding it rounds the screen, which nobody can see.
+# The visible rounding is `border-radius` on box.calendar in config/sway/sway-calendar.
 fx layer_effects '"sway-calendar"' '"blur enable; blur_ignore_transparent enable; corner_radius 14; shadows enable"'

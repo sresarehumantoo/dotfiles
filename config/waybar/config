@@ -31,8 +31,14 @@
     //
     // Measured before: 9px of air above the pill (6 here + the pill's 3px CSS
     // margin) against 3px below it, so the row sat visibly high in its own bar
-    // and a single window — which under `smart_gaps on` is flush to the
-    // exclusive zone — butted straight up against it. 6 here makes it 9 and 9.
+    // and a window butted straight up against it. 6 here makes it 9 and 9.
+    //
+    // ⚠ THIS margin-bottom IS PART OF THE EXCLUSIVE ZONE, which is therefore
+    // height 40 + margin-top 6 + margin-bottom 6 = 52, NOT 46. Omitting this
+    // term is a mistake that has now been made twice, in swaync's
+    // control-center-margin-top and in sway-calendar's GAP, and it put both
+    // panels several pixels below the window they sit beside. Anything deriving
+    // a layer surface's position must count it.
     //
     // ⚠ Changing this MOVES EVERY WINDOW DOWN. Keep it in step with margin-top
     // rather than tuning it alone, or the bar drifts off-centre in its own zone.

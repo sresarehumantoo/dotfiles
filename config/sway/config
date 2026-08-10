@@ -76,30 +76,31 @@ default_floating_border pixel 2
 # zero, and `gaps inner 8` / `outer 4` below mean it would never trigger.
 hide_edge_borders --i3 smart
 
-# ⚠ smart_gaps IS NOW ON, AND THIS COMMENT USED TO ARGUE THE OPPOSITE. It read
-# "smart_gaps OFF, deliberately… that would silently cancel the outer gap and
-# let a lone window sit flush to the screen edge" — which is an accurate
-# description of what `on` does, and is now the wanted behaviour rather than the
-# objection to it. A single window takes the whole usable area; the gaps come
-# back the moment the workspace splits.
+# ⚠ smart_gaps IS OFF, AND THIS COMMENT HAS NOW ARGUED BOTH WAYS — do not read
+# an earlier revision as authority. It was OFF (gaps always), then ON ("alone =
+# full bleed"), and is OFF again as of 2026-08-09. The current intent is that a
+# lone window is framed exactly like a tiled one: same 10px gaps, same rounded
+# corners, so splitting a workspace does not restyle the window you were
+# already looking at.
 #
-# Measured live rather than assumed:
-#   1 window   ->  0,166  1920x1154   (flush; usable area is the output minus
-#                                      the bar's 46px exclusive zone)
-#   2 windows  ->  12,178 944x1130  and  964,178 944x1130
-#                                     (outer 4 + inner 8 both restored)
+# ⚠ THE "ALONE = FULL BLEED" SET IS DISSOLVED. Two of its three settings moved
+# together here; the third is deliberately left alone:
+#   · smart_gaps off             here                    — gaps always
+#   · smart_corner_radius disable  config/sway/sway-fx   — rounded always
+#   · hide_edge_borders --i3 smart  above  — LEFT ON, and it is not part of this
+#     any more. It drops the BORDER on a lone window, which is an independent
+#     aesthetic call owen already made (see its own comment); gaps do not
+#     re-justify a bright #89b4fa frame around a single window.
 #
-# ⚠ THREE SETTINGS NOW AGREE THAT "ALONE = FULL BLEED", and they should be
-# changed together or not at all:
-#   · smart_gaps on          here          — drops the gaps
-#   · hide_edge_borders --i3 smart  above  — drops the border
-#   · smart_corner_radius enable    in config/sway/sway-fx — squares the corners
-# That last one matters under SwayFX: rounded corners on a window that is flush
-# to the screen edge would cut visible notches out of the display corners.
+# smart_corner_radius had exactly one job — a window flush to the screen edge
+# cannot have rounded corners without cutting visible notches out of the display
+# corners. With gaps always on, nothing is ever flush, so the job is gone. Do
+# NOT re-enable it without also setting smart_gaps back on; alone it just
+# squares the corners of a window that has room to be round.
 #
 # `inverse_outer` is the other value worth knowing and is NOT what is wanted: it
-# applies outer gaps ONLY when a workspace has exactly one child, i.e. the
-# reverse of this.
+# applies outer gaps ONLY when a workspace has exactly one child, i.e. it would
+# give a lone window MORE gap than a tiled one.
 gaps inner 8
 # ⚠ PER-EDGE, AND THE TOP IS NEGATIVE ON PURPOSE. Outer gaps are IN ADDITION to
 # inner, so the visible gap at an edge is inner + that edge's outer.
@@ -130,7 +131,7 @@ gaps inner 8
 # individual numbers.
 gaps outer 2
 gaps top -8
-smart_gaps on
+smart_gaps off
 
 ### Colours ----------------------------------------------------------------
 # Catppuccin Mocha, the same palette as config/waybar/style.css — keep the two

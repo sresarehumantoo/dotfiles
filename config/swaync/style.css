@@ -286,44 +286,60 @@ button {
 
 /* Control centre --------------------------------------------------------- */
 
-/* ⚠ ALL FOUR CORNERS ARE SQUARE ON PURPOSE. This is the fix for the corner
-   artifact that used to be the open item at the end of docs/sway.md — read that
-   section before rounding any of them back.
+/* ⚠ THESE CORNERS WERE SQUARE FOR A REASON, AND THE REASON EXPIRED. Rounded
+   again 2026-08-09 at 16px, to match fuzzel's `radius=16`, the waybar pills and
+   sway-calendar — read this before changing it either way, and re-measure rather
+   than trusting the old table in docs/sway.md.
 
-   Why: @panel is 94% opaque, so it DIMS the focused window's border wherever it
-   covers it — the right border (#f5e0dc, `indicator` in client.focused) from
-   (245,224,220) down to (36,35,47). ANY rounded corner carves the panel away and
-   leaves that border undimmed in the cut-out, so a short straight bright segment
-   appears welded to a rounded corner. That mismatch is the artifact; the radius
-   is what creates it. `fit-to-screen: true` makes the panel 1130px tall (it
-   fills the output — `control-center-height` is inert), so its bottom edge at
-   y=1190 sits just past the window's bottom border at y=1186-1187 and the bottom
-   corners clipped it exactly like the top ones did.
+   The artifact it used to cause: @panel is 94% opaque, so it DIMS the focused
+   window's border wherever it covers it. A rounded corner carves the panel away
+   and used to leave that border UNDIMMED in the cut-out, so a short straight
+   bright segment appeared welded to a rounded corner. The mismatch is the
+   artifact — a straight bright segment against a curve reads as a defect at a
+   fraction of the contrast it needs beside a straight edge, so pixel counts are
+   the wrong metric for judging it.
 
-   Measured bright pixels in each corner box:
+   Why it no longer fires. Two independent changes since, either of which alone
+   would blunt it:
+     1. `hide_edge_borders --i3 smart` (config/sway/config) — with ONE window on
+        the workspace there is no border under the panel at all. That is the
+        common case, and the artifact simply cannot occur in it.
+     2. The panel's drop shadow blankets the ~5px band just outside its edge,
+        which is exactly the band a corner radius exposes. So the border arrives
+        in the cut-out already dimmed, and there is no bright/dark step.
 
-     corner        radius 18px      squared
-     top-right     11 (cream)       0
-     bottom-right   3               0
-     bottom-left   30               18*
+   Measured, worst case reconstructed on purpose: TWO windows on the workspace
+   (borders return) with the RIGHTMOST focused, so client.focused's #89b4fa
+   (137,180,250) runs the full height at x=1908-1909, directly under the panel's
+   right edge. Bright pixels (lum>100) strictly inside each corner box:
 
-   * the bottom-left residue is not a cut-out — it is the border bleeding through
-     the panel's own 1px edge at x=1443, a 1px-wide effect that no radius change
-     can reach.
+     corner         radius 0 (old)   radius 16px
+     top-left       0                0
+     top-right      0                0
+     bottom-left    0                0
+     bottom-right   0                0
+                    peaks 76/78/56/56   peaks 76/76/65/65
 
-   ⚠ DO NOT try to fix this with the margins instead — measured, they all make it
-   WORSE, because they move the border out from under the panel that was hiding
-   it. `control-center-margin-bottom: 20` takes the bottom-right from 3 to 60.
-   Same result at the top with margin-top/right; see docs/sway.md.
+   The shadow effect, same column x=1908, panel open vs closed: y<=50 identical
+   (out of shadow reach), y=54 goes (133,175,243) -> (67,69,88). Halved.
 
-   Inner elements (buttons, notifications, the Clear-all pill) keep their own
-   radius, so the panel still reads as soft — only its outer edge is square, and
-   at full height against the screen corner it reads as a docked sidebar. */
+   ⚠ DO NOT reach for the margins if it ever comes back — measured previously,
+   they all make it WORSE, because they move the border out from under the panel
+   that was hiding it. `control-center-margin-bottom: 20` took the bottom-right
+   from 3 to 60. Squaring the corners again is the cheap revert: `border-radius: 0`.
+
+   ⚠ VERIFY THE PANEL IS ACTUALLY OPEN BEFORE BELIEVING A CLEAN MEASUREMENT. A
+   closed panel measures zero leaks in every corner and looks exactly like a
+   pass; `swaync-client --reload-css` can leave it closed. Assert the namespace
+   is present in `swaymsg -t get_outputs` -> layer_shell_surfaces first. This
+   produced one false "it's fine" during the change above.
+
+   Inner elements keep their own radius, so the panel reads as soft throughout. */
 .control-center {
     background: @panel;
     border: 1px solid @surface0;
     border-top-color: @glass-edge;
-    border-radius: 0;
+    border-radius: 16px;
     padding: 12px 10px;
     /* ⚠ TIGHT ONLY — a soft shadow on a surface the compositor blurs makes the
        blur region cover the shadow's whole extent, which shows up as a smeared
