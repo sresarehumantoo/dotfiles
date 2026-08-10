@@ -237,8 +237,16 @@ CSS = b"""
    glyph here fails at import with "bytes can only contain ASCII literal
    characters". Keep prose outside the literal. */
 window { background-color: transparent; }
+/* The panel body. Same dark pigment and lit edge as the bar's pills and the
+   swaync panel -- see config/waybar/style.css. It was #1e1e2e flat, which is a
+   different material from everything it sits next to.
+   Alpha is high for the same reason swaync's is: this surface is NOT reliably
+   blurred (a layer_effects rule exists for it, but blur on a panel-sized
+   surface spills past its edge -- measured on swaync), so anything showing
+   through arrives sharp. */
 box.calendar {
-    background-color: #1e1e2e;
+    background-color: rgba(11, 11, 17, 0.94);
+    box-shadow: inset 0 1px 0 rgba(205, 214, 244, 0.10);
     padding: 10px 12px 12px 12px;
 }
 
@@ -250,14 +258,14 @@ button.nav {
     border-radius: 8px; min-width: 28px;
     font-family: "IosevkaTerm Nerd Font", monospace; font-size: 16px;
 }
-button.nav:hover { background-color: #313244; color: #cdd6f4; }
+button.nav:hover { background-color: rgba(205, 214, 244, 0.07); color: #cdd6f4; }
 button.title {
     background-color: transparent; background-image: none; border: none;
     box-shadow: none; color: #cdd6f4; font-weight: bold;
     font-family: Cantarell, sans-serif; font-size: 15px;
     border-radius: 8px; padding: 3px 12px;
 }
-button.title:hover { background-color: #313244; }
+button.title:hover { background-color: rgba(205, 214, 244, 0.07); }
 
 /* Grid -------------------------------------------------------------------- */
 label.weekday {
@@ -274,16 +282,30 @@ button.day {
     min-width: 34px; min-height: 32px; padding: 0;
     border-radius: 16px;
 }
-button.day:hover { background-color: #313244; }
+button.day:hover { background-color: rgba(205, 214, 244, 0.07); }
 /* Days belonging to the neighbouring month: present, but clearly not this
    month. GNOME shows these rather than leaving holes, which keeps the grid a
    stable 6x7 and makes the month boundary readable. */
 button.day.dim { color: #45475a; }
-/* Today is the accent; the selection is an outline, so both can show at once
-   without one hiding the other. */
-button.day.today { background-color: #89b4fa; color: #11111b; font-weight: bold; }
-button.day.today:hover { background-color: #a6c8ff; }
-button.day.selected { box-shadow: inset 0 0 0 2px #f5e0dc; }
+/* Today and the selection are both EDGE cues now, which is what lets them show
+   at once without one hiding the other.
+   !! Today was a solid #89b4fa fill. That is the saturated fill Apple's Liquid
+   Glass guidance warns against -- a tint should modulate the material rather
+   than paint over it -- and it was the last blue left on this desktop after the
+   bar dropped its accent. It is now the same dark pigment + lit hairline as the
+   bar's focused workspace chip, so the two read as one system.
+   Today is FILLED pigment plus a full ring; selected is a ring only. */
+button.day.today {
+    background-color: rgba(17, 17, 27, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.30);
+    color: #cdd6f4; font-weight: bold;
+}
+button.day.today:hover { background-color: rgba(17, 17, 27, 0.75); }
+button.day.selected { box-shadow: inset 0 0 0 2px rgba(205, 214, 244, 0.55); }
+/* Both at once: the selection ring wins on the outside, today's fill stays. */
+button.day.today.selected {
+    box-shadow: inset 0 0 0 2px rgba(205, 214, 244, 0.55);
+}
 
 /* Footer ------------------------------------------------------------------ */
 label.footer {

@@ -48,6 +48,9 @@
 @define-color text     #cdd6f4;
 @define-color subtext  #a6adc8;
 @define-color overlay  #6c7086;
+/* ⚠ @blue is no longer used by any RESTING state here, matching the bar —
+   the accent came off every idle surface so a genuinely urgent one is the
+   only coloured thing on screen. Kept as a palette entry only. */
 @define-color blue     #89b4fa;
 @define-color sapphire #74c7ec;
 @define-color green    #a6e3a1;
@@ -59,11 +62,36 @@
 /* Surfaces. The panel is a dark sheet of glass; widgets are slightly lighter
    tiles resting on it; notifications are lighter again. Three levels is enough
    to build a hierarchy — a fourth stops being legible against the wallpaper. */
-@define-color panel       rgba(24, 24, 37, 0.94);
-@define-color tile        rgba(49, 50, 68, 0.42);
-@define-color tile-hover  rgba(69, 71, 90, 0.58);
-@define-color glass-edge  rgba(205, 214, 244, 0.08);
-@define-color hairline    rgba(69, 71, 90, 0.45);
+/* ── The glass material, shared with the bar ───────────────────────────────
+   ⚠ THESE MIRROR config/waybar/style.css AND SHOULD BE CHANGED TOGETHER. The
+   panel is the surface the bar hands off to, so the two being different
+   materials is the thing that makes the desktop feel assembled rather than
+   designed. The waybar values are the reference; these are the same pigments
+   at the opacities a large surface needs.
+
+   The palette is a DARK PIGMENT plus a lit edge, not a grey fill — Apple's
+   Liquid Glass rule that a tint modulates the material rather than filling the
+   shape, and that where a tint muddies the scene you lower saturation and let
+   edge cues carry it. The old values here were a blue-grey wash (@surface0 at
+   0.42), which is exactly the saturated fill that rule warns against. */
+/* ⚠ 0.94, NOT the bar's 0.60 — and the difference is not an oversight. The bar
+   is genuinely blurred, so a low alpha reads as glass; this panel is NOT
+   blurred (see config/sway/sway-fx: blur spills ~60px past its edge, measured
+   even with the shadow tightened), so whatever shows through arrives SHARP.
+   At 0.86 the terminal text behind was plainly legible through the panel.
+   Measured bleed-through, same panel pixels over a text backdrop vs the
+   wallpaper: 0.86 -> 5.93, 0.94 -> 2.70, 0.98 -> 0.73. 0.94 keeps a hint of
+   depth without the backdrop becoming content. The PIGMENT is what changed
+   here (#1e1e2e -> #11111b), matching the bar; the opacity is unchanged. */
+@define-color panel       rgba(11, 11, 17, 0.94);
+/* Tiles are a VEIL on the panel, not a lighter slab — same idea as the bar's
+   @glass-veil. They read as areas of the same glass rather than as objects
+   stuck onto it. */
+@define-color tile        rgba(205, 214, 244, 0.05);
+@define-color tile-hover  rgba(205, 214, 244, 0.10);
+/* The specular hairline. Matches the bar's @glass-edge exactly. */
+@define-color glass-edge  rgba(205, 214, 244, 0.30);
+@define-color hairline    rgba(205, 214, 244, 0.09);
 
 * {
     /* Same family as the bar and the compositor font. */
@@ -297,7 +325,11 @@ button {
     border-top-color: @glass-edge;
     border-radius: 0;
     padding: 12px 10px;
-    box-shadow: 0 2px 6px rgba(17, 17, 27, 0.55),
+    /* ⚠ TIGHT ONLY — a soft shadow on a surface the compositor blurs makes the
+       blur region cover the shadow's whole extent, which shows up as a smeared
+       band beside the panel. Same cause as the bar's pills; see
+       config/waybar/style.css. */
+    box-shadow: 0 1px 2px rgba(17, 17, 27, 0.55),
                 0 12px 36px rgba(17, 17, 27, 0.60);
 }
 
