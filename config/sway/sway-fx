@@ -155,21 +155,46 @@ fx layer_effects '"waybar"' '"blur enable; blur_ignore_transparent enable; corne
 # opaque surface is imperceptible, while the spill beside it is not. If the panel
 # is ever made genuinely translucent, re-measure the spill before turning this
 # back on.
-# !! `corner_radius` HERE IS INERT TOO, same as sway-calendar below: swaync's
-# surface is larger than the panel it draws, so this rounds nothing visible.
-# Proven by elimination -- while the CSS said `border-radius: 0` the panel
-# corners were measurably square with this line active. The visible rounding is
-# `border-radius` on .control-center in config/swaync/style.css.
-# `shadows enable` is NOT decorative here: the shadow dims the band just outside
-# the panel edge, which is what lets that radius exist without re-exposing the
-# focused window's border. See the corner-artifact section in docs/sway.md.
-fx layer_effects '"swaync-control-center"' '"blur disable; corner_radius 12; shadows enable"'
+# ⚠ SHADOWS ARE OFF FOR BOTH PANELS, AND corner_radius IS INERT ON BOTH — one
+# cause: SwayFX applies these to the layer SURFACE, and neither surface is the
+# size of the panel it draws. swaync's is much larger; sway-calendar's spans the
+# whole usable area so a click outside the panel can dismiss it.
+#
+# `corner_radius` therefore rounds something invisible (proven by elimination:
+# while the CSS said `border-radius: 0` the corners measured square with this
+# line active). Harmless, kept only so the namespace list reads uniformly.
+#
+# `shadows` was NOT harmless. It drew the shadow around the SURFACE, so it
+# landed as a ~10px FULL-WIDTH BAND under the bar, in the gap between waybar and
+# the window — nothing to do with the panel's own outline, and the giveaway was
+# that both panels darkened that band by the identical amount (-8.30 / -9.01 /
+# -5.94 across three regions) despite being completely different sizes. Off, it
+# is +0.00. The panels now cast their shadows from CSS, where the shape is the
+# actual panel: `.control-center` in config/swaync/style.css and `box.calendar`
+# in config/sway/sway-calendar.
+#
+# ⚠ Those CSS shadows include a 0-offset halo that is load-bearing, not
+# decoration — it dims the few pixels outside the rounded corners where a
+# cut-out would otherwise expose the focused window's border. Removing the
+# compositor shadow without adding it took the bottom-right corner from 0 leaked
+# pixels to 4. Do not trim it back to just the offset shadows.
+fx layer_effects '"swaync-control-center"' '"blur disable; corner_radius 12; shadows disable"'
 fx layer_effects '"swaync-notification-window"' '"blur disable; corner_radius 12; shadows enable"'
 fx layer_effects '"launcher"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
 fx layer_effects '"swayosd"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
-# !! `corner_radius` HERE IS INERT AND CANNOT ROUND THE CALENDAR. Unlike every
-# other namespace above, this surface is not the panel -- it spans the whole
-# usable area (transparent, so a click landing outside the panel reaches the
-# script and dismisses it). Rounding it rounds the screen, which nobody can see.
-# The visible rounding is `border-radius` on box.calendar in config/sway/sway-calendar.
-fx layer_effects '"sway-calendar"' '"blur enable; blur_ignore_transparent enable; corner_radius 14; shadows enable"'
+# ⚠ SAME AS swaync ABOVE — read that comment. This surface spans the whole usable
+# area, so `corner_radius` rounds the screen (invisible) and `shadows` drew a
+# full-width band under the bar rather than around the calendar. Both now come
+# from `box.calendar` in config/sway/sway-calendar.
+#
+# ⚠ BLUR IS OFF, AND IT HAD TO GO THE MOMENT THE PANEL GREW A CSS SHADOW. The
+# compositor blurs every not-fully-transparent pixel, so a soft `0 12px 36px`
+# shadow hands it a ~36px ring of barely-transparent pixels and the blur region
+# grows to the shadow's whole extent — measured: the wallpaper for ~40px around
+# the calendar went visibly out of focus, which the sharp-cornered version never
+# did. Same cause as the bar's pills (config/waybar/style.css) and swaync.
+# Nothing is lost: `box.calendar` is 0.94 opaque, so blur behind it was already
+# imperceptible — the identical argument that turned blur off for swaync. If the
+# panel is ever made genuinely translucent, re-measure the spill before turning
+# this back on.
+fx layer_effects '"sway-calendar"' '"blur disable; corner_radius 14; shadows disable"'

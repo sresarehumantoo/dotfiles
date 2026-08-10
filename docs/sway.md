@@ -1105,13 +1105,40 @@ stopped firing. Both are now 16px, so the family is consistent in pigment, edge
 *and* silhouette.
 
 > [!CAUTION]
-> **On both panels the rounding is CSS, and the `corner_radius` in
-> `config/sway/sway-fx` for their layer namespaces is inert.** Neither surface is
-> the size of the panel it draws — the calendar's spans the whole usable area so
-> click-outside can dismiss it, and swaync's is likewise larger — so the
-> compositor rounds something invisible. Proven by elimination: the swaync panel
-> measured square while its namespace carried `corner_radius 12`. Edit the
-> stylesheet, not `sway-fx`.
+> **On both panels, rounding AND shadow must come from CSS — the compositor
+> applies both to the layer SURFACE, and neither surface is the size of the panel
+> it draws.** The calendar's spans the whole usable area so click-outside can
+> dismiss it; swaync's is likewise much larger.
+>
+> `corner_radius` is merely inert — it rounds something invisible (proven by
+> elimination: the swaync panel measured square while its namespace carried
+> `corner_radius 12`).
+>
+> **`shadows` was actively wrong.** It drew the shadow around the *surface*, so
+> it landed as a ~10px **full-width dark band under the bar**, in the gap between
+> waybar and the window — very obvious on an empty workspace. The giveaway was
+> that both panels darkened that band by the *identical* amount (−8.30 / −9.01 /
+> −5.94 across three regions) despite being completely different sizes; a panel's
+> own shadow cannot do that. `shadows disable` on both namespaces takes it to
+> **+0.00**, and the panels now cast from `box-shadow` in CSS, where the shape is
+> the real panel.
+>
+> ⚠ Those CSS shadows carry a **0-offset halo that is load-bearing**: it dims the
+> few pixels outside the rounded corners where a cut-out would otherwise expose
+> the focused window's border. Removing the compositor shadow without adding it
+> took the bottom-right corner from 0 leaked pixels to 4 (peak 130); with it, 1
+> (peak 104).
+>
+> ⚠ **Adding that CSS shadow is what forced the calendar's blur off.** The
+> compositor blurs every not-fully-transparent pixel, so a soft `0 12px 36px`
+> shadow hands it a ~36px ring of them and the blur region grows to the shadow's
+> whole extent — measured, the wallpaper for ~40px around the calendar went
+> visibly out of focus. Nothing is lost at 0.94 opacity; this is the same trade
+> already made for swaync, and the same mechanism as the bar's pills.
+>
+> `swaync-notification-window` is **not** affected — its surface is sized to the
+> notification, measured −0.00, so it keeps `shadows enable`. The bug is
+> specifically a surface-much-larger-than-panel one.
 
 ### The layers, and why the numbers differ
 

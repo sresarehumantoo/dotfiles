@@ -341,11 +341,20 @@ button {
     border-top-color: @glass-edge;
     border-radius: 16px;
     padding: 12px 10px;
-    /* ⚠ TIGHT ONLY — a soft shadow on a surface the compositor blurs makes the
-       blur region cover the shadow's whole extent, which shows up as a smeared
-       band beside the panel. Same cause as the bar's pills; see
-       config/waybar/style.css. */
+    /* ⚠ THE SHADOW HAS TO COME FROM HERE, because the compositor's is disabled
+       for this namespace — see config/sway/sway-fx. SwayFX shadows the layer
+       SURFACE, and swaync's surface is much larger than the panel it draws, so
+       its shadow landed as a full-width band under the bar instead of around
+       the panel.
+       The 0-offset halo is load-bearing, not decoration: it is what dims the
+       few pixels just outside the rounded corners, where a cut-out would
+       otherwise expose the focused window's border. Dropping it took the
+       bottom-right corner from 0 leaked pixels to 4 (peak 130).
+       ⚠ The "soft shadow + compositor blur = smeared band" trap (see
+       config/waybar/style.css) does NOT apply here — blur is off for this
+       namespace. It very much does apply to the bar's pills. */
     box-shadow: 0 1px 2px rgba(17, 17, 27, 0.55),
+                0 0 10px rgba(17, 17, 27, 0.65),
                 0 12px 36px rgba(17, 17, 27, 0.60);
 }
 
