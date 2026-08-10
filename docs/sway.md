@@ -366,7 +366,7 @@ re-applied.
 | Patch | Applies to | What it adds |
 |---|---|---|
 | `config/sway/swayosd-fade.patch` | SwayOSD v0.3.2 | fade in/out for the OSD overlay |
-| `config/sway/swaync-system-stats.patch` | swaync 0.11.0 | the `system-stats` widget |
+| `config/sway/swaync-system-stats.patch` | swaync 0.11.0 | the `system-stats` widget (cpu / memory / temperature / **battery**) |
 | `config/sway/swaync-cc-fade.patch` | swaync 0.11.0 | fade in/out for the control centre |
 
 All three were verified to apply cleanly to a pristine upstream tree, and the
@@ -724,8 +724,14 @@ Saturation *is* safe to spend: it scales colour rather than lifting the region.
 > **The wallpaper was the fix, and it was applied.** The old one measured
 > **13/255** in the strip under the bar, so the glass had nothing to render at
 > `blur_brightness 1.0` and the pills were nearly invisible. It was replaced
-> (2026-08-08) with an ESA/Hubble galaxy image measuring **~57**, and the pills
-> now genuinely tint to what is behind them.
+> with an ESA galaxy image measuring well above that, and the pills now
+> genuinely tint to what is behind them.
+>
+> ⚠ **Which image is in use is deliberately NOT recorded here** — it changes,
+> and four files hard-coding its name and luminance went stale the first time
+> it did. `~/Pictures/wallpapers/README.md` is the single place that tracks the
+> current choice, the shortlist, and each candidate's measured bar-strip
+> luminance.
 >
 > ⚠ **A wallpaper is therefore a functional choice here, not decoration.**
 > `~/Pictures/wallpapers/README.md` carries the candidates with their measured
@@ -955,7 +961,146 @@ settings agree on this and move together**: `smart_gaps on`,
 is load-bearing under SwayFX — rounded corners on a window flush to the screen
 edge would cut visible notches out of the display corners.
 
+## Hover: what each surface does, and what GTK3 makes impossible
+
+Two different behaviours, chosen by how many things share the pill:
+
+| pill | on hover |
+|---|---|
+| clock (alone in its pill) | the **pill itself grows**, ~3px a side |
+| workspaces, status (many items) | the hovered **item** gets a floating outline oval, +4px taller; the pill does not move |
+
+The split is the point. Growing a chip grows its pill, because a pill hugs its
+contents — correct when the chip *is* the pill's only content, and wrong in a
+nine-item row, where it makes the whole pill breathe and shoves every chip
+right of the pointer. Measured after the split: workspace and status pills
+`276 → 276` and `237 → 237`, clock `284 → 287`.
+
+> [!WARNING]
+> **`transform` does not exist in GTK3, and a stray `transform:` invalidates
+> the ENTIRE stylesheet.** Verified by feeding it to a real `CssProvider`,
+> which rejects it outright. So the usual hover-scale is unavailable. What GTK3
+> *does* interpolate: `padding`, `min-width`, `font-size`, `box-shadow`,
+> `opacity`, `background-size`. The first three change the widget's allocation
+> and therefore reflow neighbours; the last two do not.
+
+> [!WARNING]
+> **The pill CONTAINERS never receive `:hover`.** `.modules-left:hover`,
+> `.modules-center:hover` and friends match nothing — they are `GtkBox`es and a
+> `GtkBox` has no event window, so GTK never puts them in the prelight state.
+> Measured both ways: a background colour on `.modules-center:hover` produced
+> **0** changed pixels, while the same property on the child painted the whole
+> pill. Grow the child, never the container. (Same fact that makes a click on
+> `sway-calendar`'s padding arrive at the toplevel.)
+
+> [!CAUTION]
+> **`background-color: transparent` does NOT remove the theme's hover
+> highlight — `background-image: none` is the one that matters.** The GTK theme
+> paints its prelight with a background *image* gradient, so setting the colour
+> transparent removes nothing visible; the chip still lit up by **+27**
+> luminance. `config/swaync/style.css` already recorded this for Adwaita's
+> buttons and it applies to waybar's chips too. This cost several rounds,
+> partly because a red-background test proved our own selector *did* paint the
+> chip — which made "our rule isn't reaching it" look wrong when the real
+> answer was "our rule overrides the wrong property".
+
+> [!CAUTION]
+> **`cursor set` and `grim -g` do not share a coordinate space.** grim takes
+> GLOBAL coordinates, so capturing the bar needs the output's offset (`0,120`
+> here); the cursor commands do NOT take that offset, so the bar is at y≈26 for
+> them. Adding the offset parks the pointer 120px below the bar where it hovers
+> nothing — and `cursor set` still returns `success: true`, so it presents as
+> "hover is broken" on modules whose `:hover` has worked for months. `seat -`
+> and `seat seat0` behave identically; that is not the variable.
+
+## The battery lives in two places, on purpose
+
+The bar shows **only a glyph**; the percentage is in the control centre. Same
+rule as volume and brightness — a number you are not currently changing is
+noise in the bar, and the exact value is one predictable click away. It is
+also in the bar's tooltip (capacity · time-to · watts).
+
+> [!IMPORTANT]
+> **The glyph ramp has ELEVEN entries and the count is the whole point.**
+> waybar buckets `format-icons` by percentage at `100/len`. With the five icons
+> that used to be there the buckets were `[0-19][20-39][40-59][60-79][80-100]`,
+> so **everything from 80% up drew the full battery** — at 85% the glyph
+> claimed a full charge. Eleven gives ~9% buckets: 85% lands on `battery_90`,
+> only 91-100% draws full, and 0-9% gets the empty outline. Check codepoints
+> against the installed font's cmap before adding any; all eleven were verified
+> present.
+
+The panel-side readout is part of `config/sway/swaync-system-stats.patch`.
+⚠ **swaync cannot do this natively** — its widget list has no battery, and the
+`label` widget is static text (`update-command` exists in the binary but
+belongs to buttons-grid *toggles*, setting their active state). Extending the
+local patch was the only route, so **a swaync reinstall from the Debian package
+removes the percentage entirely**; put `{capacity}%` back in the bar's format
+until the patch is rebuilt.
+
+⚠ **Auto-detection skips `scope=Device` supplies.** This box exposes two
+`type=Battery` power supplies — the laptop cell and a Logitech mouse on a
+Powerplay mat sitting near 80% forever — so "first battery found" can report
+the mouse as the laptop. `config/waybar/config` pins `bat` explicitly for the
+same reason. `battery-path` overrides the heuristic.
+
+⚠ Both surfaces compute the glyph independently (waybar from its bucket ramp,
+the widget from `(pct/10)-1`), so **they must be kept in step**; verified
+agreeing at 40%.
+
+⚠ `interval` is not optional. See *Two bar modules poll* above — battery
+defaulted to 60s, which meant plugging in took up to a minute to show.
+
 ## The glass tint, and where the accent went
+
+**Four surfaces share one material now**: the bar, the swaync control centre,
+`sway-calendar` and the fuzzel launcher. They are all a dark pigment
+(`#11111b`) plus a lit hairline, and **none of them carries an accent hue in a
+resting state**. Before this the panel was on blue-grey `@surface0` tiles, the
+calendar on a flat `#1e1e2e` with a solid `#89b4fa` "today", and fuzzel on
+Catppuccin surfaces with a blue match colour — three different materials
+sitting next to each other.
+
+### The layers, and why the numbers differ
+
+| surface | value | why |
+|---|---|---|
+| `window#waybar` (the strip) | `#11111b` @ **0.32** | ties the three pills into one piece of glass |
+| bar pills | `#11111b` @ **0.60** | eased once the strip carried part of the job |
+| swaync / calendar / fuzzel | `#11111b` @ **~0.94** | **not blurred** — see below |
+
+> [!IMPORTANT]
+> **Do not copy the bar's alpha onto the other surfaces.** The bar can sit at
+> 0.60 because it is genuinely blurred, so a low alpha reads as glass. The
+> panel-sized surfaces are **not** blurred, so anything showing through arrives
+> **sharp**: at 0.86 the terminal behind was plainly legible through the swaync
+> panel. Measured bleed-through — the same panel pixels over a text backdrop vs
+> over the wallpaper — **5.93 / 2.70 / 0.73** at 0.86 / 0.94 / 0.98.
+>
+> **Blur was re-tested for swaync rather than assumed**, since the bar's leak
+> turned out to be soft shadows: with its panel shadow tightened, blur *still*
+> smeared a 60px band beside the panel (backdrop texture 20.3 → 12.9 with blur
+> on, unchanged with it off). A panel-sized surface spills regardless.
+
+> [!NOTE]
+> **Tinting `window#waybar` removed the blur leak at source**, which was not
+> the reason for doing it. The compositor blurs every pixel that is not fully
+> transparent; with the strip transparent, only the pills and their shadows
+> were blurred, so the blurred area had a hard rectangular edge sitting in
+> sharp wallpaper. Tinting the whole strip makes it one uniform blur region —
+> high-frequency energy in the gaps between pills went **10.2 → 1.3**. The
+> trade is that the wallpaper behind the *whole* bar is blurred, not just
+> behind the pills.
+
+> [!NOTE]
+> **Darkening the pill is nearly free, which is not obvious.** Across
+> 0.50 → 0.82 the pill's luminance moves 48.7 → 21.6 while colour retention
+> only moves 0.56 → 0.51, because `blur_saturation` preserves hue independently
+> of luminance. So the smoked-glass look costs almost none of the tint and buys
+> a lot of legibility. What matters is not the pill's absolute darkness but its
+> **separation from the strip behind it** — below roughly +20 luminance the
+> pills start dissolving into the bar.
+
 
 The selected and hover states are a **dark pigment plus a lit edge**, not a
 colour fill. Apple's Liquid Glass guidance is that a tint modulates the
