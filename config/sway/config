@@ -289,8 +289,33 @@ bindsym $mod+b           splith
 bindsym $mod+v           splitv
 bindsym $mod+s           layout stacking
 bindsym $mod+w           layout tabbed
-bindsym $mod+t           layout toggle split
+# ⚠ `split tabbed`, NOT bare `split`. `layout toggle` takes a LIST and cycles
+# through it; with only `split` it flips splith <-> splitv, which is a different
+# and much less useful thing than what this key looks like it should do. With
+# tabbed in the list, one key flips the focused container between the tiling you
+# built and one-window-fills-it, and back, with the arrangement intact.
+# This is the bar-preserving monocle: unlike $mod+m below it keeps waybar
+# visible, at the cost of the tab title row (which sway cannot hide — neither
+# `default_border none` nor `hide_edge_borders` touch it).
+bindsym $mod+t           layout toggle split tabbed
 bindsym $mod+f           fullscreen
+
+# dwm-style monocle for the focused workspace: the focused window fills the
+# screen and the focus keys cycle which one is showing, with the tiling
+# underneath left completely untouched. Per workspace, so ws1 can be in monocle
+# while ws2 is tiled.
+#
+# ⚠ THIS COVERS WAYBAR, and that is sway's layer ordering rather than a choice
+# here — the bar is `layer: top` and sway renders fullscreen surfaces above that
+# layer. Measured: a fullscreen window's rect is 0,120 1920x1200, the whole
+# output, against 10,172 for a tiled one. $mod+t above is the variant that keeps
+# the bar.
+#
+# ⚠ Absolute path for the same GDM/PATH reason as the brightness keys: sway is
+# started without a login shell, so ~/.local/bin is not on its PATH.
+# Why this needs a program at all — every focus command is a no-op while a
+# window is fullscreen — is measured and written up in config/sway/sway-monocle.
+bindsym $mod+m           exec $HOME/.local/bin/sway-monocle toggle
 bindsym $mod+Shift+space floating toggle
 bindsym $mod+space       focus mode_toggle
 bindsym $mod+a           focus parent
@@ -500,6 +525,19 @@ exec_always sh -c 'command -v swayosd-server >/dev/null 2>&1 && ! pgrep -x swayo
 # on every `swaymsg reload`. Absolute path for the same GDM/PATH reason as the
 # brightness keys.
 exec_always sh -c '[ -x "$HOME/.local/bin/sway-calendar" ] && "$HOME/.local/bin/sway-calendar" --server --anchor center &'
+
+# sway-monocle's resident half, bound to $mod+m above. It exists for the events
+# a keybinding cannot see: a window OPENED while monocle is on takes focus but
+# is not fullscreen, so it would appear behind the one that still is, and
+# CLOSING the visible window drops you back to the tiling underneath. The daemon
+# re-shows whatever sway settles focus on, which covers both.
+# ⚠ NO pgrep GUARD, for the same self-match reason as sway-calendar and
+# sway-workspaces above — `pgrep -f sway-monocle` matches this very `sh -c`.
+# `--server` checks its own pidfile and declines to start a second instance,
+# which is what makes this safe under `exec_always` on every reload.
+# ⚠ It also clears its state on startup, so a reload can never leave a
+# workspace marked monocle with nothing actually fullscreen.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-monocle" ] && "$HOME/.local/bin/sway-monocle" --server &'
 
 # Dynamic-tiling approximation over sway IPC — the mitigation for sway being
 # manual-tiling. Comment this out to judge plain sway.

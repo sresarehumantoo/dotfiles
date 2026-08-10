@@ -812,6 +812,108 @@ is the existing harness). If 0.20 regresses DisplayLink, the fallbacks are
 SwayFX 0.5.3 on the proven wlroots 0.19.3 — all the glass, no animations — or
 nothing. Recovery from a bad login is always: pick **Sway (0.19 / DisplayLink)**.
 
+## Monocle: `$mod+m`, and why it is not `fullscreen`
+
+`config/sway/sway-monocle`. One window takes over the workspace's **tiling
+area** — bar and gaps untouched — the rest sit hidden behind it, and the focus
+keys swap which one is showing. Per workspace, so ws1 can be in monocle while
+ws2 is tiled.
+
+sway has no monocle layout, and the obvious build is wrong twice over:
+
+> [!CAUTION]
+> **`fullscreen` takes the whole output and ignores both the bar and the gaps.**
+> Measured: a fullscreen window's rect is `0,120 1920x1200` — the entire output
+> — against `10,172 1900x1138` for the tiling area. It covers waybar (the bar is
+> `layer: top` and sway renders fullscreen above that layer) and discards the
+> 10px gaps. `$mod+f` already does that; a monocle built on it adds nothing.
+
+> [!CAUTION]
+> **Every focus command is a no-op while a window is fullscreen.** Measured with
+> three tiled windows and the first fullscreened — `focus left`, `focus right`,
+> `focus next`, `focus prev`, `focus next sibling`, `focus parent` and even
+> `move left` all left the focused container unchanged, and the same
+> `focus right` moved focus the instant fullscreen was disabled.
+
+So the window is **floated onto the workspace's own rect**, which sway publishes
+with the bar's exclusive zone and the gaps already subtracted — there is no
+geometry to compute and nothing to keep in step with waybar.
+
+### Every window is floated, not just the one on show
+
+Floating removes a window from the tiling tree, and `floating disable` reinserts
+it next to whatever tiled container is focused — not where it came from. So
+cycling by float-one/unfloat-one mangles the layout on every step:
+
+```
+flat    [43, 44, 45]  ->  [45, 43, 44]                      (rotated)
+nested  [63,[splitv,[64,[splith,[66]]]]]
+        ->  [[splith,[[splitv,[[splith,[[splitv, ...]]]]]]]] (wrappers accumulate)
+```
+
+Anchoring the reinsertion to the window's recorded left neighbour fixes the flat
+case exactly and does **not** fix the nested one — and this box runs
+`autotiling`, so every layout here is nested.
+
+Monocle therefore floats **all** of the workspace's windows at once, stacked on
+the same rect. The tiling tree is empty for the duration, so cycling is one
+`focus` with zero tree operations, and the restore is a single deterministic
+pass. ⚠ The trade, taken knowingly: **the restore is flat** — windows return as
+siblings in their original left-to-right order, so a 2x2 grid comes back as four
+columns.
+
+### The geometry races, and where it had to be applied
+
+Sizing the whole stack up front does not converge. Three increasingly careful
+versions, floating four windows:
+
+```
+one call per window          1900x1138, 1004x680,  946x565, 1004x680
+float-all then place-all     1900x1138, 1900x565, 1900x1138, 1004x680
+all placements one message   still two wrong after four retries
+```
+
+Each `floating enable` makes sway re-tile the windows still tiled, and that
+re-tile is evaluated against geometry that is still moving. Only one window is
+visible at a time, so the others' sizes are not observable — geometry is applied
+**lazily, to the window being shown**, against a settled empty tiling, with a
+bounded read-back check because the very first show still races the float pass.
+Measured after: every cycle step exact at `10,172 1900x1138`, order preserved,
+nothing left floating.
+
+Two smaller facts worth keeping:
+
+- **`floating enable` + `resize` + `move` must be ONE chained message.** Issued
+  as separate messages the resize races the float and silently loses:
+  `10,172 804x604` (the client's default) against `10,172 1900x1138` chained —
+  with every individual command returning success.
+- **`hide` must NOT be chained**, for the mirror-image reason: sway settles focus
+  between messages, and the reinsertion point is decided from the focus that has
+  already landed. Chained, the `floating disable` ran against the pre-focus state
+  and left the window floating.
+
+### The keys are shadowed at runtime, not routed through the script
+
+sway accepts `bindsym` and `unbindsym` over IPC (both return success), so
+monocle installs its own focus/move bindings when it turns on and removes them
+when it turns off. Monocle costs **nothing** when off — the config's own
+bindings are in force, handled inside sway with no process spawned.
+
+⚠ The shadowed bindings are read from sway, not hardcoded: `swaymsg -t
+get_config` returns the raw config text, and the script shadows exactly the
+`bindsym` lines whose command is `focus <dir>` or `move <dir>`, expanding
+`set $var` first. Rebinding those keys in the config needs no change here.
+
+### `$mod+t` is the bar-preserving alternative
+
+`layout toggle split tabbed` — note the list; with only `split` it flips
+splith ↔ splitv, which is not what the key looks like it should do. One key
+flips the focused container between the tiling you built and one-window-fills-it.
+It keeps waybar and costs a **25px tab bar row** (sway cannot hide it — neither
+`default_border none` nor `hide_edge_borders` touch it). It is not a substitute
+for monocle on this box: measured at workspace level with a nested tree it showed
+*two* windows at once, because a tab holding a split shows the whole split.
+
 ## The workspace row is nine custom modules, not `sway/workspaces`
 
 `config/sway/sway-workspaces` + `custom/ws1..ws9`. Added when the row needed a

@@ -77,12 +77,19 @@ func (SwayModule) Links() core.LinkSet {
 		// derives every button's class from sway state and an intermediate
 		// workspace is never "anything".
 		{Src: core.ConfigPath("sway", "sway-workspaces"), Dst: core.HomeTarget(".local", "bin", "sway-workspaces")},
+
+		// dwm-style monocle mode ($mod+m). A resident server plus the client
+		// half the runtime keybindings call — sway has no monocle layout, and
+		// `fullscreen` alone cannot be one because every focus command is a
+		// no-op while a window is fullscreen. Measured, and written up in the
+		// script.
+		{Src: core.ConfigPath("sway", "sway-monocle"), Dst: core.HomeTarget(".local", "bin", "sway-monocle")},
 	}
 }
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces"}
+var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle"}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //
