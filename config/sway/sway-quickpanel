@@ -181,6 +181,27 @@ def set_volume(pct):
     _volume_cmd.send(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{int(pct)}%"])
 
 
+def brightness_to_user(real):
+    """Rebase the hardware percentage onto a 0-100 user scale.
+
+    BRIGHTNESS_MIN is the lowest value the panel may take, so the hardware
+    range is really BRIGHTNESS_MIN..100. Reporting the raw number would make
+    the slider bottom out reading "5%" — a control that looks broken rather
+    than floored. Every desktop OS rebases here instead: Android maps its
+    slider onto [screenBrightnessSettingMinimum, max], GNOME's gsd-backlight
+    clamps to the lowest non-zero step. The floor is real; the zero is the
+    honest way to present it.
+
+    config/sway/sway-brightness applies the identical mapping to the
+    XF86MonBrightness keys — change the formula in one and you must change it
+    in the other, or the keys and this slider will disagree.
+    """
+    span = 100 - BRIGHTNESS_MIN
+    if real <= BRIGHTNESS_MIN or span <= 0:
+        return 0
+    return round((real - BRIGHTNESS_MIN) * 100 / span)
+
+
 def get_brightness():
     if _BL and _BL_MAX:
         try:
@@ -223,8 +244,16 @@ def set_brightness(pct):
 class Row:
     """One labelled slider with coalesced writes."""
 
-    def __init__(self, icon, name, style, lo, hi, getter, setter):
+    def __init__(self, icon, name, style, lo, hi, getter, setter, to_display=None):
         self.setter = setter
+        # Maps the REAL value the hardware takes onto the number shown to the
+        # user. Identity for volume; for brightness it rebases the floor to
+        # zero so the bottom of the slider reads 0% while the panel is still
+        # lit — see BRIGHTNESS_MIN and config/sway/sway-brightness, which
+        # applies the same mapping to the keyboard keys. Without it the slider
+        # bottoms out reading "5%", which looks like a control that refuses to
+        # go all the way down rather than one with a deliberate floor.
+        self.to_display = to_display or (lambda v: v)
         self.pending = None
         self.timer = None
         self.dragging = False
@@ -246,7 +275,7 @@ class Row:
         self.available = current is not None
         if self.available:
             self.scale.set_value(max(lo, min(hi, current)))
-            self.value_label.set_text(f"{current}%")
+            self.value_label.set_text(f"{self.to_display(current)}%")
         else:
             # Tool missing or failed — show the row disabled rather than
             # silently pretending the control works.
@@ -279,7 +308,7 @@ class Row:
         v = int(scale.get_value())
         if v != self.last_shown:
             self.last_shown = v
-            self.value_label.set_text(f"{v}%")
+            self.value_label.set_text(f"{self.to_display(v)}%")
         self._changed_body(v)
         if PROFILER:
             PROFILER.record_handler((time.monotonic() - t0) * 1000)
@@ -311,7 +340,8 @@ class QuickPanel(Gtk.Window):
         self.rows = [
             Row("\U000f057e", "Volume", "volume", 0, 100, get_volume, set_volume),
             Row("\U000f00e0", "Brightness", "brightness",
-                BRIGHTNESS_MIN, 100, get_brightness, set_brightness),
+                BRIGHTNESS_MIN, 100, get_brightness, set_brightness,
+                to_display=brightness_to_user),
         ]
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)

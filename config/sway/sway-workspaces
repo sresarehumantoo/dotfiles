@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""sway-workspaces — the animated 1-9 workspace row behind waybar's left pill.
+
+Managed by dfinstall (modules/sway.go), linked to ~/.local/bin/sway-workspaces.
+Runs as a resident server from `exec_always` in config/sway/config.
+
+############################################################################
+#  WHY THIS EXISTS AT ALL — i.e. why not waybar's own `sway/workspaces`     #
+#                                                                          #
+#  The wanted effect is a TRAIL: jumping 9 -> 1 should visibly sweep back   #
+#  through 8,7,6…2 before settling, without actually visiting those         #
+#  workspaces. `sway/workspaces` cannot do it at any setting, and the       #
+#  reason is structural rather than a missing option: that module derives   #
+#  every button's CSS class from sway's own state, so an intermediate       #
+#  workspace is never "anything" and nothing outside the module can make    #
+#  it light up. GTK3 cannot fake it either — sliding one highlight across   #
+#  sibling widgets needs `transform`, which GTK3 does not have (and a       #
+#  stray `transform:` invalidates the entire stylesheet).                   #
+#                                                                          #
+#  So the row is nine `custom/wsN` modules, each its own GTK widget with    #
+#  its own class — which is what keeps the rounded glass chip and the       #
+#  per-workspace click that a single Pango-markup module would have lost    #
+#  (Pango backgrounds are rectangles and cannot be rounded).                #
+############################################################################
+
+############################################################################
+#  WHY A SERVER PLUS `tail`, AND NOT NINE SUBSCRIBERS                      #
+#                                                                          #
+#  Each waybar module runs its own `exec`, and waybar instantiates every    #
+#  module ONCE PER BAR — so on this box's dock that is 9 modules x 3        #
+#  outputs = 27 processes. Nine independent Python subscribers would have   #
+#  been the obvious build and would cost ~10MB each: ~300MB of RSS for a    #
+#  status bar, which is not a reasonable thing to do to a laptop.           #
+#                                                                          #
+#  Instead ONE server holds the single sway subscription and appends each   #
+#  slot's state to its own file; the modules are a bare `tail -F` apiece,   #
+#  ~1MB each. Same push semantics, ~5% of the memory.                       #
+#                                                                          #
+#  ⚠ The client side must stay a plain `tail`. Anything that needs its own  #
+#  interpreter gets multiplied by 27.                                       #
+############################################################################
+"""
+
+import json
+import os
+import signal
+import subprocess
+import sys
+import time
+
+APP_ID = "sway-workspaces"
+SLOTS = range(1, 10)
+
+# ⚠ TIMING. STEP is how long the trail rests on each intermediate workspace.
+# It is deliberately shorter than the CSS transition on the chip
+# (config/waybar/style.css) — the chips crossfade, so a step shorter than the
+# fade makes the trail read as one moving highlight rather than as nine
+# separate blinks. Much below ~25ms and waybar starts coalescing repaints and
+# the trail visibly skips slots; measured, it repaints reliably at 40ms.
+STEP = 0.035
+# A jump of one workspace is not a journey — animating 4->5 just adds latency
+# to the common case. Only sweep when there is something to sweep through.
+MIN_JUMP = 2
+# Bound the sweep so a 1->9 jump cannot outlast a fast second keypress.
+MAX_STEPS = 8
+
+
+def runtime_dir():
+    base = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/{os.getuid()}"
+    d = os.path.join(base, APP_ID)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+class Emitter:
+    """One append-only file per slot; `tail -F` on the other end.
+
+    ⚠ Files are TRUNCATED rather than left to grow, and the current state is
+    re-emitted immediately after — `tail -F` follows by name and survives
+    truncation, but a truncate with nothing written after it would leave that
+    module showing whatever it last read, forever.
+    """
+
+    MAX_LINES = 400
+
+    def __init__(self, d):
+        self.dir = d
+        self.files = {}
+        self.counts = {}
+        self.last = {}
+        for n in SLOTS:
+            p = os.path.join(d, f"slot-{n}.jsonl")
+            # Truncate on start: a stale file from a previous session would
+            # otherwise replay old state into a fresh bar.
+            self.files[n] = open(p, "w", buffering=1)
+            self.counts[n] = 0
+            self.last[n] = None
+
+    def emit(self, slot, text, cls):
+        payload = {"text": text, "class": cls}
+        if self.last[slot] == payload:
+            return          # never write a frame that changes nothing
+        self.last[slot] = payload
+        f = self.files[slot]
+        if self.counts[slot] >= self.MAX_LINES:
+            f.seek(0)
+            f.truncate()
+            self.counts[slot] = 0
+        f.write(json.dumps(payload) + "\n")
+        self.counts[slot] = self.counts[slot] + 1
+
+    def resend(self, slot):
+        """Force the next emit for this slot to be written even if unchanged."""
+        self.last[slot] = None
+
+
+class Row:
+    def __init__(self, emitter):
+        self.out = emitter
+        self.focused = 1
+        self.occupied = set()
+        self.urgent = set()
+        self.visible = set()
+        self.trail = None       # slot currently lit by the sweep
+        self.arriving = False   # True while a sweep is in flight
+
+    # ── state -------------------------------------------------------------
+    def refresh_from_sway(self):
+        try:
+            raw = subprocess.run(
+                ["swaymsg", "-t", "get_workspaces"],
+                capture_output=True, text=True, timeout=5, check=True).stdout
+            ws = json.loads(raw)
+        except Exception:
+            return
+        self.occupied = {w["num"] for w in ws if w.get("num", -1) in SLOTS}
+        self.urgent = {w["num"] for w in ws if w.get("urgent")}
+        self.visible = {w["num"] for w in ws if w.get("visible")}
+        foc = [w["num"] for w in ws if w.get("focused")]
+        if foc and foc[0] in SLOTS:
+            self.focused = foc[0]
+
+    def class_for(self, n):
+        # ⚠ Order matters: the trail must beat `empty`, or a sweep across
+        # workspaces that do not exist yet would be invisible — which is most
+        # of the row on a fresh login, and exactly when the effect is wanted.
+        if n == self.trail:
+            return "trail"
+        # ⚠ THE DESTINATION STAYS DARK UNTIL THE SWEEP ARRIVES. Without this the
+        # focused chip lights the instant the key is pressed and the trail runs
+        # toward an already-lit target — two highlights on screen at once, which
+        # reads as a glitch rather than as travel. Suppressing it makes the
+        # highlight genuinely move: it leaves where you were, walks the row, and
+        # lands. Costs nothing, because `arriving` is only true for the ~250ms
+        # the sweep is in flight.
+        if n == self.focused:
+            return "empty" if self.arriving else "focused"
+        if n in self.urgent:
+            return "urgent"
+        if n in self.visible:
+            return "visible"
+        if n in self.occupied:
+            return "occupied"
+        return "empty"
+
+    def paint(self):
+        for n in SLOTS:
+            self.out.emit(n, str(n), self.class_for(n))
+
+    def repaint_all(self):
+        for n in SLOTS:
+            self.out.resend(n)
+        self.paint()
+
+    # ── the sweep ---------------------------------------------------------
+    def path(self, prev, cur):
+        if abs(cur - prev) < MIN_JUMP:
+            return []
+        step = 1 if cur > prev else -1
+        p = list(range(prev + step, cur, step))
+        return p[:MAX_STEPS]
+
+
+def main():
+    if "--help" in sys.argv or "-h" in sys.argv:
+        print(__doc__)
+        return 0
+
+    d = runtime_dir()
+
+    # ⚠ Single-instance guard by PIDFILE, not by pgrep. `pgrep -f sway-workspaces`
+    # matches the `sh -c` that sway uses to launch this, so it would report the
+    # server as already running and this would never start — the same
+    # self-match trap recorded at `exec autotiling` and sway-calendar.
+    pidfile = os.path.join(d, "server.pid")
+    try:
+        with open(pidfile) as f:
+            old = int(f.read().strip())
+        os.kill(old, 0)
+        return 0                      # a live server already owns the row
+    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        pass
+    with open(pidfile, "w") as f:
+        f.write(str(os.getpid()))
+
+    out = Emitter(d)
+    row = Row(out)
+    row.refresh_from_sway()
+    row.repaint_all()
+
+    def bye(*_):
+        try:
+            os.unlink(pidfile)
+        except OSError:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, bye)
+    signal.signal(signal.SIGINT, bye)
+
+    sub = subprocess.Popen(
+        ["swaymsg", "-t", "subscribe", "-m", '["workspace"]'],
+        stdout=subprocess.PIPE, text=True)
+
+    for line in sub.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            evt = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        # ⚠ TAKE THE JUMP FROM THE EVENT, NOT FROM POLLED STATE. Refreshing
+        # from sway first and then comparing looks equivalent and is not: sway
+        # emits `init` before `focus` when the target workspace did not exist
+        # yet, and the poll on that first event already returns the NEW focus.
+        # By the time the `focus` event arrives, old == new and the sweep never
+        # fires — which is exactly the common case, since an empty row is
+        # precisely when you jump furthest. The event's own `old`/`current`
+        # are authoritative and immune to that ordering.
+        prev = cur = None
+        if evt.get("change") == "focus":
+            cur = (evt.get("current") or {}).get("num")
+            prev = (evt.get("old") or {}).get("num")
+
+        row.refresh_from_sway()
+
+        if prev in SLOTS and cur in SLOTS:
+            steps = row.path(prev, cur)
+            if steps:
+                row.arriving = True
+            for n in steps:
+                row.trail = n
+                row.paint()
+                time.sleep(STEP)
+            row.trail = None
+            row.arriving = False
+
+        row.paint()
+
+    bye()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -393,7 +393,7 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 | tmux-yank | Clipboard copy from copy mode |
 | tmux-logging | Pane logging, screen capture, history save (`~/.local/share/tmux/logs/`) |
 
-**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar with a powerline theme. The left side shows a distro icon detected at install time (same Nerd Font v3 icons as powerlevel10k), read from `~/.config/dfinstall/distro-icon`.
+**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar. Two rounded pills — the left holds a badge and the window list, the right holds every readout — on a transparent strip, with one accent colour used only where something is active. The left badge is a literal glyph in `tmux.conf` (U+F120, a terminal prompt); it was previously a distro icon read from `~/.config/dfinstall/distro-icon`, and `writeDistroIcon()` still writes that file but nothing reads it.
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 

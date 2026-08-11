@@ -1,0 +1,34 @@
+# Scoped to container/Dockerfile (BuildKit resolves <dockerfile>.dockerignore
+# in preference to a context-root .dockerignore), so the repo root stays clean.
+#
+# NOTE: .git is deliberately NOT excluded. bootstrap/wsl-setup.sh's
+# install_dotfiles() only uses a local source_dir when it finds $source_dir/.git;
+# without it the function silently falls through to cloning from GitHub, which
+# would build the image from origin instead of the working tree and make local
+# iteration impossible.
+
+bin/
+.claude/
+.github/
+.continue/
+.idea/
+.vscode/
+
+# Host-specific dfinstall state — the container gets container/config.container.yaml
+.config.yaml
+
+# Keep the container/ dir out of /src, but the Dockerfile COPYs two files from
+# it, so they must be re-included. Note the glob: excluding the directory itself
+# ("container/") makes re-includes unreachable, so exclude its CONTENTS.
+container/*
+!container/config.container.yaml
+!container/entrypoint.sh
+
+# Build/editor noise
+*.swp
+*.swo
+*~
+__pycache__/
+*.pyc
+*.test
+*.out

@@ -1,0 +1,115 @@
+#!/bin/bash
+# swayfx-session — launch the /opt/swayfx build (SwayFX 0.6 / sway 1.12 base)
+#
+# ⚠ THIS FILE IS NOT SYMLINKED BY dfinstall. It is the versioned SOURCE for
+#   /opt/swayfx/bin/swayfx-session, which the build recipe in docs/sway.md
+#   copies into place. /opt needs root and sits outside the dotfiles model, but
+#   the script itself is reviewable code and belongs in the repo — same
+#   arrangement as the three swayosd/swaync patches beside it. If you edit one
+#   copy, copy it across.
+#
+# WHY THIS EXISTS
+#   SwayFX is the eye-candy fork: blur, rounded corners, shadows, dim_inactive,
+#   layer_effects (blur behind waybar/swaync/fuzzel) and — new in 0.6 —
+#   animations. Plain sway has none of these at any setting, which is the only
+#   thing that ever justified a fork here (docs/sway.md says so explicitly).
+#
+#   It is a THIRD session entry, not a replacement. GDM keeps offering:
+#     · "Sway"                       -> /usr/bin/sway,           trixie's build
+#     · "Sway (0.19 / DisplayLink)"  -> /opt/sway-next/bin/sway, the fallback
+#     · "SwayFX"                     -> this
+#   Nothing here touches either of the others. If a SwayFX session is broken or
+#   drains the battery, log out and pick the 0.19 one — that is the whole point
+#   of the /opt prefix, and it is why this was worth doing at all.
+#
+# ⚠ THE STACK IS SELF-CONTAINED, AND IT HAS TO BE. SwayFX 0.6 needs wlroots
+#   0.20, and SIX of wlroots 0.20's dependencies are newer than stock trixie:
+#       libdrm 2.4.129 (trixie 2.4.124)     wayland-server 1.24 (1.23.1)
+#       wayland-protocols 1.47 (1.44)       libdisplay-info 0.3 (0.2.0)
+#       pixman 0.46 (0.44.0)                libxkbcommon 1.8 (1.7.0)
+#   All six are built as meson subprojects INTO this prefix rather than
+#   upgraded system-wide — upgrading libdrm/libwayland on the host would drag
+#   the whole graphics stack with them, for a session you might log out of.
+#   Nothing outside /opt/swayfx changes, and no apt package is touched.
+#
+# USAGE
+#   Testing, from a bare VT (Ctrl+Alt+F3), dock attached:
+#       /opt/swayfx/bin/swayfx-session
+#   Daily use: picked at GDM.
+#   Debug log:  SWAYFX_DEBUG=1 swayfx-session   -> /tmp/swayfx.log
+set -u
+
+PREFIX=/opt/swayfx
+LOG=/tmp/swayfx.log
+
+if [ ! -x "$PREFIX/bin/sway" ]; then
+    echo "ERROR: $PREFIX/bin/sway not found — the SwayFX build is gone." >&2
+    echo "Rebuild per docs/sway.md, or pick another session at GDM." >&2
+    exit 1
+fi
+
+# Refuse to nest — but ONLY when a human is driving, since a nested sway cannot
+# drive real DRM outputs and would silently prove nothing. Under GDM stdin is
+# not a tty, so this can never kill a real session login. (Copied deliberately
+# from sway-next-session; the reasoning is identical.)
+if [ -t 0 ] && { [ -n "${WAYLAND_DISPLAY:-}" ] || [ -n "${DISPLAY:-}" ]; }; then
+    echo "ERROR: already inside a graphical session (WAYLAND_DISPLAY/DISPLAY set)." >&2
+    echo "Nested sway cannot drive real DRM outputs — switch to a bare VT (Ctrl+Alt+F3)." >&2
+    exit 1
+fi
+
+# ⚠ THERE IS DELIBERATELY NO `export LD_LIBRARY_PATH` HERE, AND ADDING ONE
+# WOULD BREAK THE WHOLE SESSION IN A WAY THAT IS HARD TO TRACE.
+#
+# sway-next-session DOES export it, and copying that line over was the first
+# instinct. It is safe there and unsafe here, for a reason worth spelling out:
+# /opt/sway-next/lib holds exactly ONE library (libwlroots-0.19.so) whose soname
+# nothing else on the box links, so leaking the path to children is inert.
+# /opt/swayfx/lib holds TWELVE, and six of them collide with system sonames:
+#
+#     libdrm.so.2          (prefix 2.4.134  vs system 2.4.124)
+#     libwayland-client.so.0 / -server / -cursor / -egl  (1.26 vs 1.23.1)
+#     libxkbcommon.so.0    (1.14 vs 1.7.0)
+#     libpixman-1.so.0     (0.46.5 vs 0.44.0)
+#
+# LD_LIBRARY_PATH is inherited by every process sway spawns — waybar, ghostty,
+# Firefox, every GTK dialog — so exporting it would silently force all of them
+# onto this prefix's libwayland and libxkbcommon instead of the system's, for a
+# whole login session. Mesa in particular links system libdrm.
+#
+# Instead the binaries carry an absolute RUNPATH of $PREFIX/lib/<triplet>, set
+# at build time with LDFLAGS=-Wl,-rpath,... (see the recipe in docs/sway.md).
+# The loader then finds them with no environment at all, and nothing leaks.
+# Verify with:  readelf -d /opt/swayfx/bin/sway | grep RUNPATH
+
+# Ahead of /usr/bin so swaymsg/swaynag/swaybar match the running compositor.
+# Version skew between swaymsg and sway is not a supported pairing.
+#
+# ⚠ This does NOT put ~/.local/bin on the PATH, and must not be "fixed" to.
+# GDM starts sway without a login shell; everything this desktop calls by name
+# is either in /usr/local/bin or spelled with an absolute $HOME path for exactly
+# that reason. See the custom/power comment in config/waybar/config.
+export PATH="$PREFIX/bin:$PATH"
+
+# ⚠ "sway", not "swayfx". XDG_CURRENT_DESKTOP is what makes xdg-desktop-portal
+# pick up ~/.config/xdg-desktop-portal/sway-portals.conf — that filename must
+# match the value lowercased. Calling this desktop "swayfx" would silently strip
+# the portal routing (screencast, file chooser, RemoteDesktop) with no error.
+export XDG_CURRENT_DESKTOP=sway
+export XDG_SESSION_DESKTOP=sway
+export XDG_SESSION_TYPE=wayland
+
+# REQUIRED: sway hard-exits on detecting the proprietary evdi driver otherwise
+# ("!!! Proprietary DisplayLink drivers are in use !!!"). Same flag, same
+# reason, as sway-next-session. Deliberately NOT setting WLR_DRM_DEVICES —
+# pinning it disables GPU hotplug and the 2026-08-01 test showed it is not
+# needed.
+args=( --unsupported-gpu )
+
+if [ -n "${SWAYFX_DEBUG:-}" ]; then
+    [ -f "$LOG" ] && mv -f "$LOG" "$LOG.prev"   # keep one run back, for diffing
+    args+=( -d )
+    exec "$PREFIX/bin/sway" "${args[@]}" "$@" >"$LOG" 2>&1
+fi
+
+exec "$PREFIX/bin/sway" "${args[@]}" "$@"

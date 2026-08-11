@@ -23,39 +23,197 @@
     "position": "top",
     "height": 40,
     "margin-top": 6,
+    // ⚠ MATCHES margin-top, AND IT IS NOT COSMETIC — it is what stops a window
+    // sitting against the bar. waybar's exclusive zone is
+    // height + margin-top + margin-bottom, so this is the only lever that
+    // moves where windows START; the pill's own CSS margin cannot, because it
+    // is inside a surface whose size sway has already reserved.
+    //
+    // Measured before: 9px of air above the pill (6 here + the pill's 3px CSS
+    // margin) against 3px below it, so the row sat visibly high in its own bar
+    // and a window butted straight up against it. 6 here makes it 9 and 9.
+    //
+    // ⚠ THIS margin-bottom IS PART OF THE EXCLUSIVE ZONE, which is therefore
+    // height 40 + margin-top 6 + margin-bottom 6 = 52, NOT 46. Omitting this
+    // term is a mistake that has now been made twice, in swaync's
+    // control-center-margin-top and in sway-calendar's GAP, and it put both
+    // panels several pixels below the window they sit beside. Anything deriving
+    // a layer surface's position must count it.
+    //
+    // ⚠ Changing this MOVES EVERY WINDOW DOWN. Keep it in step with margin-top
+    // rather than tuning it alone, or the bar drifts off-centre in its own zone.
+    "margin-bottom": 6,
     "margin-left": 10,
     "margin-right": 10,
     // 0: gaps between modules come from CSS padding so the pill backgrounds
     // stay flush. A non-zero value here punches transparent slots through them.
     "spacing": 0,
 
-    "modules-left":   ["sway/workspaces", "sway/mode"],
-    "modules-center": ["sway/window"],
+    // ⚠ NINE custom modules, not `sway/workspaces` — see config/sway/sway-workspaces
+    // for why the built-in module cannot do this. Each digit is its own GTK
+    // widget so it keeps a rounded chip and its own click target; a single
+    // Pango-markup module would have had neither.
+    "modules-left":   ["custom/ws1", "custom/ws2", "custom/ws3", "custom/ws4",
+                       "custom/ws5", "custom/ws6", "custom/ws7", "custom/ws8",
+                       "custom/ws9", "sway/mode"],
+    // ⚠ THE CLOCK IS THE CENTRE MODULE, and `sway/window` is GONE — the window
+    // title is no longer displayed anywhere on this desktop. That is the point
+    // (a centred clock, macOS/GNOME-style) but it has one consequence worth
+    // knowing: `default_border`'s comment in config/sway/config used to justify
+    // titlebars-off with "the title is already in waybar's centre pill", and
+    // that is no longer true. It has been corrected there.
+    // To get the title back, put "sway/window" in this array — it takes the
+    // centre pill and the clock has to move back to modules-right.
+    "modules-center": ["clock"],
     // No "tray" — see the tray block below for why.
-    "modules-right":  ["idle_inhibitor", "pulseaudio", "backlight", "network", "group/system", "battery", "clock", "custom/power"],
+    //
+    // Right-hand order follows the GNOME/macOS status-area model rather than a
+    // dashboard: TRANSIENT indicators first (privacy, media, idle, VPN — each
+    // hides itself entirely when it has nothing to say), then the persistent
+    // status cluster (volume, network, battery), then notifications, clock and
+    // session. Nothing here is a readout you are meant to monitor; the numbers
+    // live in tooltips and the sliders live in the swaync panel behind them.
+    // ⚠ `custom/notification` IS THE LAST ENTRY ON PURPOSE — it is the control
+    // hub, and the hub belongs at the corner. This follows macOS, where the
+    // Control Centre glyph sits hard right and everything that is an action
+    // rather than a readout lives behind it. `custom/power` used to hold that
+    // corner; the session actions it opened are already in the swaync panel's
+    // buttons-grid, so the bar entry was a second door to the same room.
+    // ⚠ `group/system` is GONE from here — the cpu/memory/temperature readouts
+    // now live in the control hub, as swaync's `system-stats` widget. That
+    // widget is a LOCAL DELTA (config/sway/swaync-system-stats.patch); if
+    // swaync is ever reinstalled from the Debian package the readouts vanish
+    // with it, and this array is where they come back. The group and its three
+    // child modules are still defined below for exactly that reason.
+    //
+    // `idle_inhibitor` deliberately STAYS. It is not a readout — it is the
+    // thing that actually holds the Wayland zwp_idle_inhibitor object on
+    // waybar's own surface. A swaync button can only run a shell command, and
+    // nothing on PATH holds that object; the nearest shell equivalent (killing
+    // swayidle) would also drop `before-sleep $lock`, so a lid-close suspend
+    // would stop locking the screen. It is one glyph, and it is correct here.
+    // ⚠ TWO GROUPS, AND THAT IS THE WHOLE POINT — see `#indicators` / `#status`
+    // in style.css. `.modules-right` used to paint ONE pill around all of this,
+    // which already gave the GNOME "merged quick-settings pill" look for free;
+    // what it could not do was separate the two KINDS of thing sharing it.
+    // GNOME keeps its privacy/recording indicators visually apart from the
+    // status pill, and so does macOS with its recording dot. Now so does this:
+    // the pill is painted on the groups, not on the container.
+    "modules-right":  ["group/indicators", "group/status"],
 
-    "sway/workspaces": {
-        "disable-scroll": true,
-        "all-outputs": false,
-        "format": "{icon}",
-        // Icons, but the digit is still legible: $mod+N is how these actually
-        // get used, so a row of anonymous dots would be a regression. The
-        // Unicode circled digits (U+2460..) were tried first and render as
-        // cramped ovals in IosevkaTerm at bar size — these Material ones match
-        // the rest of the bar's icon set instead.
-        "format-icons": {
-            "1": "󰲡",
-            "2": "󰲣",
-            "3": "󰲥",
-            "4": "󰲧",
-            "5": "󰲩",
-            "6": "󰲫",
-            "7": "󰲭",
-            "8": "󰲯",
-            "9": "󰲱",
-            "default": "󰧞",
-            "urgent": "󰀨"
-        }
+    // TRANSIENT. Every module here hides itself completely when it has nothing
+    // to say, so this pill is absent from the bar most of the time and appears
+    // only when something is actually happening — a mic is live, media is
+    // playing, a tunnel is up. That is why it is a separate surface: a pill
+    // that comes and goes cannot share a background with one that must not.
+    // ⚠ Do not put an always-visible module in here. It would pin the pill open
+    // permanently and collapse the distinction this group exists to draw.
+    "group/indicators": {
+        "orientation": "horizontal",
+        "modules": ["privacy", "mpris", "network#vpn"]
+    },
+
+    // PERSISTENT. The status cluster plus the control hub — always present, and
+    // always the same width give or take the battery digits. `idle_inhibitor`
+    // lives here rather than with the transients: it is always visible, so by
+    // the rule above it belongs with the things that are.
+    // ⚠ `custom/notification` STAYS LAST — the hub belongs at the corner (see
+    // the note on modules-right ordering above). Folding it into this pill is
+    // deliberate and matches GNOME, where the quick-settings button *is* the
+    // status cluster rather than a separate glyph beside it; every module in
+    // here already left-clicks to the same control centre.
+    "group/status": {
+        "orientation": "horizontal",
+        "modules": ["idle_inhibitor", "pulseaudio", "network", "battery", "custom/notification"]
+    },
+
+    // ── The workspace row ──────────────────────────────────────────────────
+    // Driven by the resident `sway-workspaces` server (autostarted from
+    // config/sway/config), which owns the single sway subscription and appends
+    // each slot's state to its own file.
+    //
+    // ⚠ THE EXEC MUST STAY A BARE `tail`. waybar instantiates every module ONCE
+    // PER BAR, so on the dock this is 9 x 3 = 27 processes; anything carrying
+    // its own interpreter gets multiplied by that. `tail` is ~1MB, a Python
+    // subscriber would have been ~10MB — ~300MB of RSS for a status bar.
+    //
+    // ⚠ `-F`, not `-f`: it follows by NAME, so it survives the server
+    // truncating the file and it waits politely if waybar starts first.
+    // `-n1` replays the last line, which is what gives a freshly-started bar
+    // its state instead of nine blanks.
+    //
+    // The `class` field in the server's JSON is what CSS keys off
+    // (.focused / .trail / .visible / .occupied / .empty / .urgent).
+    "custom/ws1": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-1.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 1",
+        "tooltip": false
+    },
+
+    "custom/ws2": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-2.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 2",
+        "tooltip": false
+    },
+
+    "custom/ws3": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-3.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 3",
+        "tooltip": false
+    },
+
+    "custom/ws4": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-4.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 4",
+        "tooltip": false
+    },
+
+    "custom/ws5": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-5.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 5",
+        "tooltip": false
+    },
+
+    "custom/ws6": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-6.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 6",
+        "tooltip": false
+    },
+
+    "custom/ws7": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-7.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 7",
+        "tooltip": false
+    },
+
+    "custom/ws8": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-8.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 8",
+        "tooltip": false
+    },
+
+    "custom/ws9": {
+        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-9.jsonl 2>/dev/null",
+        "return-type": "json",
+        "format": "{}",
+        "on-click": "swaymsg workspace number 9",
+        "tooltip": false
     },
 
     "sway/mode": {
@@ -65,6 +223,38 @@
     "sway/window": {
         "max-length": 60,
         "tooltip": false
+    },
+
+    // Lights up only while something is actually using the mic, the camera or
+    // capturing the screen — PipeWire-sourced, no dependencies, and invisible
+    // the rest of the time. Worth having on a laptop that leaves the house.
+    // ⚠ This module takes no `format` or `tooltip-format`: it renders its own
+    // icon row, so it is configured through `modules` and sizes instead.
+    "privacy": {
+        "icon-spacing": 6,
+        "icon-size": 14,
+        "transition-duration": 250,
+        "modules": [
+            { "type": "screenshare", "tooltip": true, "tooltip-icon-size": 20 },
+            { "type": "audio-in",    "tooltip": true, "tooltip-icon-size": 20 }
+        ]
+    },
+
+    // Native MPRIS (libplayerctl) — replaces the custom/spotify script pattern.
+    // `playerctld` follows whichever player is active rather than pinning one.
+    // Kept short and hidden when nothing is playing, so it cannot push the
+    // status cluster around: a media title is the one field here with no
+    // natural width limit.
+    "mpris": {
+        "player": "playerctld",
+        "format": "{status_icon}  {dynamic}",
+        "dynamic-order": ["title", "artist"],
+        "dynamic-len": 28,
+        "ellipsis": "…",
+        // An empty format hides the module entirely.
+        "format-stopped": "",
+        "status-icons": { "playing": "󰎇", "paused": "󰏤" },
+        "tooltip": true
     },
 
     "idle_inhibitor": {
@@ -81,47 +271,148 @@
     // waybar's pulseaudio/slider and backlight/slider. They were removed as
     // unusable for daily driving; the cause is upstream and not
     // configurable — see the WHY THIS EXISTS block in config/sway/sway-quickpanel.
-    // Dragging now lives in that floating panel, which left-click opens.
+    // Dragging now lives in the swaync panel (left click) and in
+    // sway-quickpanel (middle click). Note that swaync's sliders are NOT
+    // affected by the waybar bug — it drives a plain GtkScale and does not
+    // write back to the widget you are holding.
     // Do not re-add in-bar sliders without re-reading that note first.
+    // ⚠ ONE DESTINATION: EVERY STATUS READOUT LEFT-CLICKS TO THE CONTROL CENTRE.
+    // `pulseaudio`, `network`, `battery` and `custom/notification` all run
+    // `swaync-client -t -sw` on a plain left click. Keep it that way when adding a
+    // readout — an inconsistent cluster is worse than any individual choice here,
+    // because the whole point of the restrained bar (see docs/sway.md, "The bar
+    // shows almost no numbers") is that the numbers live one predictable click
+    // away. Guessing which glyph opens which different thing is exactly the
+    // friction that removes.
+    //
+    // Secondary buttons are where the specific tools live, and they are NOT
+    // interchangeable — each is the only route to that tool from the bar:
+    //     pulseaudio  middle -> sway-quickpanel      right -> pavucontrol
+    //     network                                    right -> nm-connection-editor
+    //     notification                               right -> DND toggle
+    // `idle_inhibitor` is deliberately exempt: it is not a readout, it toggles a
+    // Wayland object it holds itself (see modules-right).
     "pulseaudio": {
         // Reads from PipeWire via its pulse shim (pipewire-pulse is installed).
-        "format": "{icon}  {volume}%",
-        "format-muted": "󰖁  muted",
-        "format-bluetooth": "{icon}  {volume}%",
+        //
+        // Icon only. The percentage is gone from the bar on purpose: a volume
+        // number is only meaningful in the moment you are changing it, and in
+        // that moment swayosd puts it centre-screen where you are already
+        // looking. At rest the useful signal is muted-or-not, which the glyph
+        // carries. Same reasoning GNOME and macOS apply to their status areas.
+        "format": "{icon}",
+        "format-muted": "󰖁",
+        "format-bluetooth": "{icon}",
+        // Keys are port/device names, not indices. Any key suffixed `-muted`
+        // is chosen when muted, and a key's value may itself be an array,
+        // which is then percentage-indexed.
         "format-icons": {
             "headphone": "󰋋",
+            "headset": "󰋎",
             "default": ["󰕿", "󰖀", "󰕾"]
         },
-        "on-click": "$HOME/.local/bin/sway-quickpanel",
-        // NOTE: inert unless pavucontrol is installed. Left-click is already
-        // the quick panel, so a full mixer belongs on right.
+        // ⚠ Plain text only — pulseaudio is one of the modules that renders
+        // Pango tags literally rather than interpreting them.
+        "tooltip-format": "{desc} — {volume}%",
+        // Left click opens the full panel (sliders + quick actions), matching
+        // the "click the status icon, get the quick settings" model. Middle
+        // click keeps sway-quickpanel, which is faster but narrower. Right
+        // click is the full mixer — inert until pavucontrol is installed.
+        "on-click": "swaync-client -t -sw",
+        "on-click-middle": "$HOME/.local/bin/sway-quickpanel",
         "on-click-right": "pavucontrol",
         "scroll-step": 5
     },
 
-    "backlight": {
-        // Polling is only a fallback — waybar also watches udev, so the
-        // readout updates promptly when the keys or the quick panel change it.
-        "interval": 10,
-        "format": "{icon}  {percent}%",
-        "on-click": "$HOME/.local/bin/sway-quickpanel",
-        // md-brightness_1..7 — the ramp is 7 wide, not 9.
-        "format-icons": [
-            "󰃚", "󰃛", "󰃜",
-            "󰃝", "󰃞", "󰃟",
-            "󰃠"
-        ],
-        "on-scroll-up": "brightnessctl set 5%+",
-        "on-scroll-down": "brightnessctl set 5%-"
+    // ⚠ THERE IS DELIBERATELY NO `backlight` MODULE. Brightness was removed
+    // from the bar entirely rather than reduced to an icon: unlike volume it
+    // has no meaningful at-rest state to report — nobody needs to be told the
+    // screen is currently on — and a permanent readout of a value you change
+    // by feel is pure noise. It now lives in exactly the two places it is
+    // useful: swayosd shows the level on screen while the keys are held, and
+    // the swaync panel carries a slider for setting it deliberately.
+    // Re-adding it means re-adding "backlight" to modules-right above.
+
+
+    // ⚠ `interface` IS THE BUG FIX, not a preference. Without it waybar picks
+    // whichever interface owns the lowest-metric default route in table main —
+    // and a full-tunnel VPN wins that outright. This bar spent its life showing
+    // an HTB `tun0` (10.10.14.x / dead:beef::) behind an ETHERNET icon, because
+    // getNetworkState() classifies purely on "did nl80211 give me an ESSID":
+    // no ESSID means `format-ethernet`, whatever the interface actually is.
+    // Upstream #2671 and #784 are the same complaint, both still open.
+    //
+    // Two things this costs, both accepted knowingly:
+    //   1. With `interface` set, waybar stops subscribing to route events AND
+    //      skips the link-down cleanup path, relying only on carrier changes.
+    //      That is upstream #2416/#4364 — the module can hold a stale state
+    //      after `nmcli radio wifi off`. Restarting waybar clears it.
+    //   2. A wildcard takes the FIRST match in netlink dump order with no
+    //      carrier or IP check (#2167). Safe here because this box has exactly
+    //      one `wl` interface; a machine with two would need the exact name,
+    //      which is per-host data and belongs in a local override, not here.
+    "network": {
+        // ⚠ Not optional. Everything nl80211-derived — essid, signalStrength,
+        // the icon ramp — is refreshed ONLY by this timer, and the default is
+        // 60s. That is why the readout used to look frozen.
+        "interval": 5,
+        "interface": "wl*",
+        // Icon-only at rest, GNOME/macOS style: which network you are on is a
+        // hover away, and the glyph already carries signal strength.
+        "format-wifi": "{icon}",
+        "format-ethernet": "{icon}",
+        "format-linked": "{icon}",
+        "format-disconnected": "{icon}",
+        // ⚠ Object form, keyed by state — NOT a flat array. format-icons is
+        // indexed by signal strength, and signal strength is 0 in every
+        // non-wifi state, so a flat array silently renders icons[0] (the
+        // one-bar glyph) for ethernet and disconnected alike.
+        // The nested wifi array is still percentage-indexed: 4 icons → the
+        // buckets are [0-24] [25-49] [50-74] [75-100].
+        "format-icons": {
+            "wifi": ["󰤟", "󰤢", "󰤥", "󰤨"],
+            "ethernet": "󰈀",
+            "linked": "󰈁",
+            "disconnected": "󰤮",
+            "default": "󰤫"
+        },
+        // Pango markup DOES work in this module's tooltip (it is one of the few
+        // — pulseaudio, backlight and battery all render tags literally).
+        "tooltip-format-wifi": "<b>{essid}</b>\n{ipaddr}/{cidr} on {ifname}\n{signaldBm} dBm  ·  {frequency} GHz",
+        "tooltip-format-ethernet": "<b>{ifname}</b>\n{ipaddr}/{cidr}",
+        "tooltip-format-disconnected": "Offline",
+        // Left-click opens the control centre, like every other status readout in
+        // this cluster — see the "one destination" note above `pulseaudio`.
+        "on-click": "swaync-client -t -sw",
+        // ⚠ nm-connection-editor MOVED HERE FROM on-click, it was not dropped.
+        // It is the only route to editing connections from the bar, and it is
+        // what justifies `network-manager-gnome` in swayPackages — check there
+        // before deleting this line. (nm-applet's other job, being NetworkManager's
+        // secret agent for wifi password prompts, is independent of any click and
+        // comes from the `exec nm-applet` line in config/sway/config.)
+        "on-click-right": "nm-connection-editor"
     },
 
-    "network": {
-        "format-wifi": "󰖩  {essid} ({signalStrength}%)",
-        "format-ethernet": "󰈀  {ipaddr}",
-        "format-linked": "󰈁  no IP",
-        "format-disconnected": "󰖪  offline",
-        "tooltip-format": "{ifname}: {ipaddr}/{cidr}",
-        "on-click": "nm-connection-editor"
+    // The VPN light. Separate instance rather than folded into the module
+    // above, because one network module can only ever track one interface.
+    //
+    // ⚠ The instance id must NOT be a state word. `network#wifi`,
+    // `#ethernet`, `#linked`, `#disconnected` and `#disabled` all collide:
+    // the id becomes a CSS class, state is ALSO a CSS class, and update()
+    // removes the state class by name — so `network#wifi` would strip its own
+    // id the first time it disconnected and the CSS would stop matching.
+    //
+    // A tun has no ESSID, so it resolves to the *ethernet* state — that is why
+    // the shield is set on format-ethernet and not on format-wifi. An empty
+    // format hides the module outright, so this occupies zero space until an
+    // HTB box is actually spawned.
+    "network#vpn": {
+        "interface": "tun0",
+        "format-ethernet": "󰦝",
+        "format-linked": "󰦝",
+        "format-wifi": "",
+        "format-disconnected": "",
+        "tooltip-format": "VPN up — {ifname} {ipaddr}"
     },
 
     // Collapsible cpu/memory/temperature. The first entry in "modules" is the
@@ -176,17 +467,156 @@
         // Logitech mouse on a Powerplay mat, scope=Device, perma ~80%). Without
         // "bat" waybar auto-detects and can pick the mouse. ADP0 is the AC
         // adapter, so charging/plugged states resolve correctly too.
+        // ⚠ NOT OPTIONAL, AND THE FIX FOR "PLUGGING IN TAKES AGES TO SHOW".
+        // waybar's battery module is POLL-ONLY and the default interval is
+        // 60s, so `format-charging` could take a full minute to appear after
+        // the charger went in — which reads as the bar being broken, because
+        // the one moment you look at the battery icon is the moment you plug
+        // in.
+        //
+        // ⚠ There is no event-driven alternative to reach for, and the binary
+        // looks like there might be: waybar links libudev and carries the
+        // whole udev_monitor API. That monitor belongs to the BACKLIGHT
+        // module — `backlight` is the only subsystem string in the binary and
+        // there is no `power_supply` string at all. waybar-battery(5) documents
+        // exactly one knob, `interval`. Nor could it be inotify-driven: the
+        // kernel does not emit inotify events for sysfs ATTRIBUTE changes, so
+        // watching /sys/class/power_supply/*/status can never work.
+        //
+        // 5s matches `network` above, which carries the same lesson for the
+        // same reason. The cost is reading three small sysfs files, which is
+        // nothing; drop to 2 if 5 still feels laggy when plugging in.
+        "interval": 5,
         "bat": "CMB0",
         "adapter": "ADP0",
         "states": { "warning": 25, "critical": 10 },
-        "format": "{icon}  {capacity}%",
-        "format-charging": "󰂄  {capacity}%",
-        "format-plugged": "󰚥  {capacity}%",
+        // ⚠ ICON ONLY — the percentage moved to the control centre (swaync's
+        // system-stats widget). Same reasoning as volume and brightness: a
+        // number you are not currently changing is noise in the bar, and the
+        // exact value is one predictable click away. It is also still in the
+        // tooltip below, which is the hover-distance answer.
+        "format": "{icon}",
+        "format-charging": "󰂄",
+        "format-plugged": "󰚥",
+
+        // ⚠ ELEVEN ICONS, AND THE COUNT IS THE WHOLE POINT. waybar buckets
+        // format-icons by percentage — bucket width is 100/len — so the five
+        // icons that used to be here meant [0-19][20-39][40-59][60-79][80-100],
+        // and everything from 80% up drew the FULL battery. At 85% the glyph
+        // claimed a full charge, which is exactly what it should not do.
+        // With 11 the buckets are ~9% wide: 85% now lands on battery_90 (near
+        // full), and only 91-100% draws full. 0-9% gets the empty outline
+        // rather than pretending to be 10%.
+        // Order is outline, 10..90, full — it must stay ascending or the ramp
+        // reads backwards.
         "format-icons": [
-            "󰁺", "󰁼", "󰁾",
-            "󰂀", "󰁹"
+            "󰂎",
+            "󰁺", "󰁻", "󰁼", "󰁽", "󰁾",
+            "󰁿", "󰂀", "󰂁", "󰂂",
+            "󰁹"
         ],
-        "tooltip-format": "{timeTo} ({power:0.1f}W)"
+        // Carries the number the bar no longer shows.
+        "tooltip-format": "{capacity}%  ·  {timeTo}  ·  {power:0.1f}W",
+        // Left-click opens the control centre — see the "one destination" note
+        // above `pulseaudio`. This module had no click action at all before, so
+        // nothing is displaced.
+        "on-click": "swaync-client -t -sw"
+    },
+
+    // The bell. Before this existed there was no way to reach swaync's control
+    // centre at all — no bar affordance and no keybind — so notifications that
+    // timed out were simply gone. $mod+n in config/sway/config is the keyboard
+    // route; this is the pointer one.
+    //
+    // `swaync-client -swb` is a long-running subscription that prints one JSON
+    // line per notification add/close. waybar keeps the process alive and
+    // re-renders on each line, so there is no polling interval to tune.
+    "custom/notification": {
+        "return-type": "json",
+        // ⚠ The sed is load-bearing, and it is the one fragile part of this
+        // module. swaync reports the count in `text` as a plain number, so with
+        // no filter the bar reads "󰂚 0" whenever there is nothing to see —
+        // which is most of the time. The first expression blanks a zero; the
+        // second re-pads a surviving count so `{icon}{}` spaces correctly
+        // without leaving a trailing gap in the blank case.
+        //
+        // `sed -u` is required: without it sed block-buffers and the bar stops
+        // updating until 4KB of notifications have accrued. If swaync ever
+        // changes its JSON spacing this silently stops matching — the failure
+        // mode is a visible "0", not a broken bar, so it is safe but check
+        // here first. Drop the pipe entirely and use "format": "{icon}" to
+        // fall back to an icon-only indicator.
+        "exec": "swaync-client -swb | sed -u -e 's/\"text\": \"0\"/\"text\": \"\"/' -e 's/\"text\": \"\\([0-9]\\+\\)\"/\"text\": \"  \\1\"/'",
+        "exec-if": "which swaync-client",
+        "format": "{icon}{}",
+        // Keyed on the `alt` field swaync sets; these are its eight states, and
+        // an unlisted one renders as an empty label rather than falling back.
+        // Glyphs resolved from the installed font's post table (md-tune etc.),
+        // not guessed — see the icon warning at the top of this file.
+        //
+        // ⚠ THE BASE GLYPH IS SLIDERS, NOT A BELL. This module stopped being
+        // "notifications" when it became the last entry on the bar: behind it
+        // are the volume and brightness sliders, the session actions, and the
+        // notification list. md-tune (two horizontal sliders) is the same
+        // shorthand macOS uses for Control Centre, and it describes what is
+        // actually behind the icon; a bell described one of four things.
+        //
+        // Unread count still reads out — `format` is `{icon}{}` and the sed
+        // above blanks a zero — so nothing is lost by dropping the bell's
+        // has-notifications variant. DND keeps a distinct glyph because a
+        // silenced session must be visible at a glance, and md-weather_night
+        // is the crescent macOS uses for Focus.
+        "format-icons": {
+            "none": "󰘮",
+            "notification": "󰘮",
+            "dnd-none": "󰖔",
+            "dnd-notification": "󰖔",
+            "inhibited-none": "󰂠",
+            "inhibited-notification": "󰂠",
+            "dnd-inhibited-none": "󱏧",
+            "dnd-inhibited-notification": "󱏧"
+        },
+        // ⚠ OFF, AND THIS IS THE FIX FOR THE PANEL'S "DISJOINTED CORNER".
+        // This used to be `true`, on the belief that it showed swaync's own
+        // tooltip text ("3 Notifications"). It does not: that field is EMPTY
+        // when idle, which is most of the time, and waybar then falls back to
+        // rendering the module's own label — so the tooltip was a box containing
+        // nothing but the md-tune glyph, a copy of the icon you are pointing at.
+        //
+        // Useless content would be harmless if it stayed inside the bar, but a
+        // GTK tooltip is its own surface and is NOT confined to waybar's 40px
+        // height: this one renders at x≈1855-1910, y≈46-93, i.e. straight over
+        // the control centre's top-right corner, covering part of "Clear all".
+        // Its rounded corners against the panel's edge is exactly the "two
+        // corners that don't line up" artifact.
+        //
+        // And it is not an edge case — it is the DEFAULT view of the panel.
+        // Opening the control centre by clicking this button leaves the pointer
+        // parked on it, so the tooltip is on screen every single time the panel
+        // is opened by hand. It only disappears if you open via `$mod+n` or move
+        // the mouse afterwards, which is why screenshots taken with the cursor
+        // elsewhere looked clean and this survived so long.
+        //
+        // Nothing is lost: the unread count is already in the bar label
+        // (`format` is `{icon}{}`) and the notifications themselves are in the
+        // panel. Do not "fix" this with `tooltip-format` — any tooltip on THIS
+        // module lands on the panel, because this is the button that opens it.
+        "tooltip": false,
+        "escape": true,
+        // ⚠ -sw does NOT start swaync. This comment used to claim it did, and
+        // that misreading hid a real outage: swaync's own help says
+        //     -sw, --skip-wait   Doesn't wait when swaync hasn't been started
+        // i.e. it opts OUT of the default block-until-the-daemon-appears, and
+        // gives up immediately instead. So with no daemon running, clicking the
+        // bell does nothing at all, silently — which is exactly how a broken
+        // autostart in config/sway/config presented (the panel "stopped
+        // opening"). Starting the daemon is that line's job; -sw only keeps a
+        // click from hanging waybar's event loop if it ever isn't.
+        //
+        // ⚠ The action flag comes FIRST. swaync-client accepts one option, so
+        // `-sw -t` prints usage and exits 0 — a silent no-op that looks fine.
+        "on-click": "swaync-client -t -sw",
+        "on-click-right": "swaync-client -d -sw"
     },
 
     // ⚠ Deliberately NOT in modules-right. The only thing that ever registered
@@ -207,19 +637,52 @@
         "spacing": 8
     },
 
+    // Centre module (see `modules-center`). Left-click opens sway-calendar.
     "clock": {
         "format": "󰅐  {:%a %d %b  %H:%M}",
-        "tooltip-format": "<tt><small>{calendar}</small></tt>",
-        "calendar": {
-            "mode": "month",
-            "on-scroll": 1,
-            "format": {
-                "today": "<span color='#f38ba8'><b>{}</b></span>"
-            }
-        },
-        "actions": { "on-click-right": "mode" }
+
+        // ⚠ TOOLTIP OFF, AND THE CALENDAR IS NO LONGER IN IT. waybar's clock
+        // can render `{calendar}` in its tooltip, and that is what this used to
+        // do — but a GTK tooltip is HOVER-ONLY and waybar has no lever to open
+        // one on click or keep it open. So it could never be browsed: reaching
+        // for a month arrow moves the pointer off the clock and dismisses the
+        // surface you were reaching into, `actions.on-scroll-up: shift_up`
+        // flips months only while hovering, and a tooltip cannot take keyboard
+        // focus at all. Hence a real window — see config/sway/sway-calendar.
+        //
+        // Leaving BOTH in place was considered and rejected: two calendars, one
+        // of which vanishes when you try to use it, is worse than one that
+        // works. It also removes a second problem for free — a clock tooltip is
+        // its own surface and overlapped the swaync panel, exactly like the
+        // `custom/notification` tooltip did (see that module).
+        "tooltip": false,
+
+        // ⚠ Absolute via $HOME, not a bare name — GDM starts sway without a
+        // login shell, so ~/.local/bin is NOT on the session PATH and a bare
+        // name silently does nothing. Same trap as custom/power below; this
+        // repo has now hit it three times.
+        //
+        // This is the CLIENT path: it signals the resident sway-calendar server
+        // (autostarted from config/sway/config) to toggle, and exits. ~65ms,
+        // because it deliberately returns before importing GTK — a fresh
+        // Python+GTK process needs ~366ms to first pixel and felt sluggish.
+        //
+        // ⚠ `--anchor` HERE IS ONLY A FALLBACK. The autostarted server owns the
+        // geometry, and a signal cannot carry an argument, so this value applies
+        // ONLY on the path where no server was running and this invocation
+        // becomes one. Change the anchor in BOTH places or the two disagree about
+        // where the panel drops. It must match which module list holds the clock:
+        // `center` for modules-center, `right` if it moves back to modules-right.
+        "on-click": "$HOME/.local/bin/sway-calendar --anchor center"
     },
 
+    // ⚠ DEFINED BUT DELIBERATELY NOT IN `modules-right`. The session actions
+    // now live only behind the control hub, in swaync's buttons-grid (which
+    // already ran this exact command). Kept rather than deleted for two
+    // reasons: re-adding it to the bar is one array entry, and the $HOME note
+    // below is the only written copy of a trap this repo has now hit twice —
+    // most recently with swayosd, where a binary installed to ~/.local/bin was
+    // invisible to everything sway spawns.
     "custom/power": {
         "format": "󰐥",
         "tooltip-format": "Session — lock / logout / suspend / reboot / shutdown",

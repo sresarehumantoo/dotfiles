@@ -1,0 +1,697 @@
+#!/usr/bin/env python3
+"""sway-monocle — a dwm-style monocle layout mode for sway.
+
+Managed by dfinstall (modules/sway.go), linked to ~/.local/bin/sway-monocle.
+Runs as a resident server from `exec_always` in config/sway/config; toggled with
+$mod+m.
+
+Monocle means: one window takes over the workspace's TILING AREA — the bar and
+the gaps stay exactly as they are — the rest of the workspace's windows sit
+hidden behind it, and moving focus swaps which one is showing. It is a MODE, per
+workspace, so ws1 can be in monocle while ws2 is tiled, and turning it off puts
+the layout back the way it was.
+
+This is deliberately NOT $mod+f. Fullscreen takes the whole output and discards
+both the bar and the gaps; monocle keeps them and fills what is left.
+
+⚠ THE RESTORE IS FLAT. Windows come back as siblings in their original
+left-to-right order, so a 2x2 grid returns as four columns. That is a knowing
+trade for a restore that behaves the same way every time — see the block below
+on why the alternative could not be made exact.
+
+############################################################################
+#  WHY THIS IS NOT `fullscreen`, WHICH IS THE OBVIOUS BUILD AND IS WRONG    #
+#                                                                          #
+#  Monocle is not zoom. dwm's monocle keeps the bar and the gaps and lets   #
+#  ONE client take over the tiling area; $mod+f already does the other      #
+#  thing, so a monocle built on `fullscreen` would add nothing.             #
+#                                                                          #
+#      ⚠ `fullscreen` TAKES THE WHOLE OUTPUT AND IGNORES BOTH.              #
+#                                                                          #
+#  Measured: a fullscreen window's rect is 0,120 1920x1200 — the entire     #
+#  output — against 10,172 1900x1138 for the tiling area. It covers waybar  #
+#  (the bar is `layer: top` and sway renders fullscreen above that layer)   #
+#  and it discards the 10px gaps.                                          #
+#                                                                          #
+#  So the window is FLOATED and sized to the workspace's own rect. That     #
+#  rect is exactly the space monocle should fill: sway has already          #
+#  subtracted the bar's exclusive zone and the gaps from it, so there is no #
+#  geometry to compute here and nothing to keep in step with the bar.       #
+#  Measured, floated to the workspace rect: 10,172 1900x1138 — the tiling   #
+#  area to the pixel, bar visible, gaps intact.                            #
+#                                                                          #
+#  `fullscreen` was also structurally hostile: EVERY focus command is a     #
+#  no-op while a window is fullscreen (measured — focus left/right/next/    #
+#  prev/next sibling/parent and even `move left` all did nothing, and the   #
+#  same commands worked the instant fullscreen was disabled). Floating has  #
+#  no such restriction.                                                     #
+############################################################################
+
+############################################################################
+#  ⚠ WHY EVERY WINDOW IS FLOATED, NOT JUST THE ONE ON SHOW                  #
+#                                                                          #
+#  Floating a window REMOVES it from the tiling tree, and `floating         #
+#  disable` puts it back next to whatever tiled container is focused — not  #
+#  where it came from. Cycling by float-one/unfloat-one therefore mangles   #
+#  the layout a little on every step. Measured, three windows, seven steps: #
+#                                                                          #
+#      flat   [43, 44, 45]              ->  [45, 43, 44]   (rotated)       #
+#      nested [63,[splitv,[64,[splith,[66]]]]]                             #
+#             -> [[splith,[[splitv,[[splith,[[splitv, ...]]]]]]]]          #
+#                                                                          #
+#  i.e. on a nested tree each cycle wraps the tree in another container and #
+#  the junk accumulates without bound. Anchoring the reinsertion to the     #
+#  window's recorded left neighbour fixes the FLAT case exactly, and does   #
+#  not fix the nested one — and this box runs `autotiling`, so every layout #
+#  here is nested.                                                          #
+#                                                                          #
+#  So monocle floats ALL of the workspace's windows at once, stacked on the #
+#  same rect. The tiling tree is then EMPTY for the duration, which means:  #
+#                                                                          #
+#    * cycling does ZERO tree operations — it is one `focus`, so there is   #
+#      no churn to accumulate and nothing to get wrong;                     #
+#    * the restore is one deterministic pass instead of N racy ones.        #
+#                                                                          #
+#  ⚠ THE TRADE, ACCEPTED KNOWINGLY: the restore is FLAT. Windows come back  #
+#  in their original left-to-right order as siblings, so a 2x2 grid returns #
+#  as four columns. That is the price of a restore that is predictable      #
+#  every time rather than one that is exact sometimes and garbage the rest. #
+############################################################################
+
+############################################################################
+#  WHY THE KEYS ARE REBOUND AT RUNTIME RATHER THAN ROUTED THROUGH HERE      #
+#                                                                          #
+#  The focus keys only need to behave differently while monocle is ON. If   #
+#  config/sway/config bound them to `exec sway-monocle focus left`          #
+#  permanently, every focus keypress in every workspace would pay a fork    #
+#  plus a Python interpreter — for a key you hit constantly, in the mode    #
+#  where the plain command already works perfectly.                        #
+#                                                                          #
+#  sway accepts `bindsym` and `unbindsym` at RUNTIME over IPC (verified,    #
+#  both return success), so this installs its shadow bindings when monocle  #
+#  turns on and removes them when it turns off. Monocle costs exactly       #
+#  nothing when it is off — the config's own bindings are in force,         #
+#  handled inside sway with no process spawned at all.                     #
+#                                                                          #
+#  ⚠ THE SHADOWED BINDINGS ARE READ FROM SWAY, NOT HARDCODED. `swaymsg -t   #
+#  get_config` returns the raw config text; this parses the `bindsym` lines #
+#  whose command is `focus <dir>` or `move <dir>` and shadows exactly       #
+#  those, expanding `set $var` first. So $mod+h and $mod+Left are both      #
+#  picked up because both are in the config, and rebinding them there needs #
+#  no change here. Hardcoding the list was the obvious build and would rot  #
+#  silently the first time a key moved.                                    #
+############################################################################
+
+Usage:
+    sway-monocle --server           the resident daemon (from exec_always)
+    sway-monocle toggle             monocle on/off for the focused workspace
+    sway-monocle on | off
+    sway-monocle status             prints "on" or "off" for the focused ws
+    sway-monocle focus <direction>  navigate    (installed by the daemon)
+    sway-monocle move  <direction>  reorder     (installed by the daemon)
+"""
+
+import json
+import os
+import re
+import signal
+import subprocess
+import sys
+
+APP_ID = "sway-monocle"
+
+# Directions, in the cycle order used when monocle flattens the tree. left/up
+# step backwards through the workspace's windows and right/down step forwards,
+# which is what a two-dimensional tiling arrangement collapses to once only one
+# window is visible at a time.
+BACKWARD = ("left", "up")
+FORWARD = ("right", "down")
+
+
+def runtime_dir():
+    base = os.environ.get("XDG_RUNTIME_DIR") or f"/tmp/{os.getuid()}"
+    d = os.path.join(base, APP_ID)
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+def state_path():
+    return os.path.join(runtime_dir(), "workspaces")
+
+
+def swaymsg(*args, parse=True):
+    """Run swaymsg and return parsed JSON, or None on any failure.
+
+    Never raises: this runs from keybindings and from an event loop, and a
+    compositor that is going away mid-command must not leave a traceback in the
+    journal on every keypress.
+    """
+    try:
+        out = subprocess.run(["swaymsg", *args], capture_output=True,
+                             text=True, timeout=5)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    if not parse:
+        return out.stdout
+    try:
+        return json.loads(out.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+# ── monocle state ─────────────────────────────────────────────────────────
+# {workspace_name: {"shown": con_id, "anchor": con_id | None}} for every
+# workspace currently in monocle. `anchor` is the window the shown one sat
+# immediately after in the tiling when it was floated, and it is what makes the
+# layout survive a cycle — see the hazard block at the top.
+#
+# It lives in a FILE rather than in the daemon's memory, and that is deliberate:
+# the client commands (toggle, focus, move) run as separate short-lived
+# processes and need the same answer the daemon has. A file both of them read is
+# simpler and less breakable than a socket protocol.
+
+def read_state():
+    try:
+        with open(state_path()) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_state(data):
+    """Atomic replace, so a client reading mid-write never sees a partial file."""
+    tmp = state_path() + ".tmp"
+    try:
+        with open(tmp, "w") as f:
+            json.dump(data, f)
+        os.replace(tmp, state_path())
+    except OSError:
+        pass
+
+
+# ── sway queries ──────────────────────────────────────────────────────────
+
+def focused_workspace():
+    for w in swaymsg("-t", "get_workspaces") or []:
+        if w.get("focused"):
+            return w.get("name")
+    return None
+
+
+def _walk(node, out, ws=None, floating=False):
+    """Collect (workspace, node, is_floating) for every real window, in tree order.
+
+    ⚠ Floating-ness is tracked by WHICH ARRAY we descended through, not by the
+    node's `type`. sway does label a floating window `floating_con`, but that is
+    a string this script would be trusting on someone else's behalf; the arrays
+    are structural. A node reached via any `floating_nodes` is floating, and so
+    is everything under it.
+    """
+    if node.get("type") == "workspace":
+        ws = node.get("name")
+    # A real window has a pid and an app_id (Wayland) or window_properties
+    # (Xwayland). Containers and workspaces have neither.
+    if node.get("pid") and (node.get("app_id") or node.get("window_properties")):
+        out.append((ws, node, floating))
+    for child in node.get("nodes", []):
+        _walk(child, out, ws, floating)
+    for child in node.get("floating_nodes", []):
+        _walk(child, out, ws, True)
+
+
+def windows_on(ws_name):
+    """Tiled windows of a workspace, in tree order.
+
+    ⚠ Floating windows are deliberately excluded from the CYCLE. Monocle is a
+    tiling mode; a floating window is already on top of everything, and pulling
+    it in would make the cycle length change depending on whether a dialog
+    happens to be open.
+    """
+    tree = swaymsg("-t", "get_tree")
+    if not tree:
+        return []
+    found = []
+    _walk(tree, found)
+    return [n for w, n, floating in found if w == ws_name and not floating]
+
+
+def all_windows_on(ws_name):
+    """Every window of a workspace, tiled or floating, in tree order.
+
+    While monocle is on the workspace's windows are ALL floating, so
+    `windows_on()` returns nothing — anything reconciling the recorded order
+    against reality has to look at both arrays.
+    """
+    tree = swaymsg("-t", "get_tree")
+    if not tree:
+        return []
+    found = []
+    _walk(tree, found)
+    return [n for w, n, _ in found if w == ws_name]
+
+
+def focused_window(ws_name):
+    for n in windows_on(ws_name):
+        if n.get("focused"):
+            return n
+    return None
+
+
+# ── shadow bindings ───────────────────────────────────────────────────────
+
+BIND_RE = re.compile(
+    r"^\s*bindsym\s+(?P<flags>(?:--\S+\s+)*)(?P<keys>\S+)\s+"
+    r"(?P<cmd>focus|move)\s+(?P<dir>left|down|up|right)\s*$")
+SET_RE = re.compile(r"^\s*set\s+(\$\S+)\s+(.+?)\s*$")
+
+
+def config_bindings():
+    """[(keys, 'focus'|'move', direction)] for every focus/move binding sway has.
+
+    Read from `swaymsg -t get_config` so this tracks config/sway/config rather
+    than duplicating it. `set $var value` lines are expanded first, longest name
+    first so `$mod` cannot eat the start of a longer name.
+    """
+    cfg = swaymsg("-t", "get_config")
+    if not isinstance(cfg, dict):
+        return []
+    text = cfg.get("config", "")
+
+    variables = {}
+    for line in text.splitlines():
+        m = SET_RE.match(line)
+        if m:
+            variables[m.group(1)] = m.group(2)
+
+    def expand(s):
+        for _ in range(5):                       # nested vars; bounded, not while-True
+            before = s
+            for name in sorted(variables, key=len, reverse=True):
+                s = s.replace(name, variables[name])
+            if s == before:
+                break
+        return s
+
+    out = []
+    for line in text.splitlines():
+        m = BIND_RE.match(line)
+        if not m:
+            continue
+        # Bindings carrying flags (--locked, --to-code, ...) are skipped rather
+        # than guessed at: re-emitting one without its flags would change what
+        # it does, and none of the focus/move bindings here use any.
+        if m.group("flags").strip():
+            continue
+        out.append((expand(m.group("keys")), m.group("cmd"), m.group("dir")))
+    return out
+
+
+def self_path():
+    return os.path.abspath(sys.argv[0])
+
+
+def install_bindings():
+    for keys, cmd, direction in config_bindings():
+        swaymsg("bindsym", keys, "exec",
+                f"{self_path()} {cmd} {direction}", parse=False)
+
+
+def remove_bindings():
+    """Hand the keys back to the config's own bindings.
+
+    ⚠ `unbindsym` REMOVES the binding rather than restoring the config's, so
+    each one is re-declared explicitly. Dropping this and relying on a reload
+    would work but would also re-run every `exec_always` in the config.
+    """
+    for keys, cmd, direction in config_bindings():
+        swaymsg("bindsym", keys, cmd, direction, parse=False)
+
+
+# ── the mode itself ───────────────────────────────────────────────────────
+
+def workspace_rect(ws_name):
+    """The tiling area: bar's exclusive zone and gaps ALREADY subtracted by sway.
+
+    ⚠ Do not compute this from the bar height and the gap settings. sway
+    publishes the answer on the workspace node (measured 10,172 1900x1138 here
+    against a 1920x1200 output at y=120), so monocle cannot drift out of step
+    with waybar's exclusive zone or with `gaps inner`/`outer`/`top`.
+    """
+    for node in swaymsg("-t", "get_workspaces") or []:
+        if node.get("name") == ws_name:
+            return node.get("rect")
+    return None
+
+
+def float_over(ws_name, cid, rect=None):
+    """Float one window onto the tiling area.
+
+    ⚠ ONE CHAINED MESSAGE, NOT THREE CALLS. sway runs a comma-separated list in
+    order within a single message; issued separately the resize races the float
+    and silently loses. Measured, same three commands:
+        separate swaymsg calls  ->  10,172 804x604   (the client's own default)
+        one chained message     ->  10,172 1900x1138 (the tiling area)
+    It presented as "monocle doesn't fill the screen", with every individual
+    command returning success.
+    """
+    rect = rect or workspace_rect(ws_name)
+    if not rect or not cid:
+        return
+    swaymsg(f"[con_id={cid}] floating enable"
+            f", resize set width {rect['width']} px height {rect['height']} px"
+            f", move absolute position {rect['x']} px {rect['y']} px", parse=False)
+
+
+def place(cid, rect):
+    """Re-assert one window's geometry, with no `floating enable` in the chain.
+
+    ⚠ FLOATING A ROW OF WINDOWS NEEDS A SECOND PASS AND THIS IS IT. Each
+    `floating enable` pulls a window out of the tiling, which makes sway re-tile
+    the ones still in it — and that re-tile races the `resize` of the NEXT
+    window in the loop, which then keeps the size it had while tiled. Measured,
+    floating four windows in one pass:
+        96 -> 1900x1138   (the only one correct)
+        97 -> 1004x680    99 -> 946x565    101 -> 1004x680   (their tiled sizes)
+    Floating everything first and placing afterwards has no tiling left to
+    churn, so every window lands on the area.
+    """
+    if not rect or not cid:
+        return
+    swaymsg(f"[con_id={cid}] resize set width {rect['width']} px"
+            f" height {rect['height']} px"
+            f", move absolute position {rect['x']} px {rect['y']} px", parse=False)
+
+
+def show(ws_name, cid, rect=None):
+    """Bring one of the stacked windows to the front, sized to the area.
+
+    ⚠ GEOMETRY IS APPLIED HERE, LAZILY, AND NOT TO THE WHOLE STACK UP FRONT.
+    Sizing every window at enable time raced badly and would not converge:
+    floating a window makes sway re-tile the ones still tiled, and that re-tile
+    is evaluated against geometry that is still moving, so windows kept their
+    tiled size. Measured over three increasingly careful versions —
+        one call per window        -> 1900x1138, 1004x680,  946x565, 1004x680
+        float-all then place-all   -> 1900x1138, 1900x565, 1900x1138, 1004x680
+        all placements one message -> still two wrong after four retries
+    — none of which put four windows on the area reliably.
+    Only ONE window is visible at a time, so the other sizes are not observable
+    and there is nothing to gain by fixing them. Placing just the window being
+    shown is one message against a settled, empty tiling, and it is exact.
+    """
+    if not cid:
+        return
+    rect = rect or workspace_rect(ws_name)
+    if not rect:
+        swaymsg(f"[con_id={cid}]", "focus", parse=False)
+        return
+    want = (rect["x"], rect["y"], rect["width"], rect["height"])
+    # ⚠ PLACE, THEN CHECK. One shot is right once the tiling has settled — every
+    # cycle step measured exact — but the FIRST show happens immediately after
+    # the whole row was floated, and sway is still re-tiling behind it: that one
+    # came out 1004x680, the window's tiled size. This is a bounded correction,
+    # not a poll; it exits as soon as the geometry agrees, which is the first
+    # attempt in the steady state.
+    for _ in range(3):
+        swaymsg(f"[con_id={cid}] resize set width {rect['width']} px"
+                f" height {rect['height']} px"
+                f", move absolute position {rect['x']} px {rect['y']} px",
+                parse=False)
+        got = next((n for n in all_windows_on(ws_name) if n["id"] == cid), None)
+        if not got:
+            break
+        r = got["rect"]
+        if (r["x"], r["y"], r["width"], r["height"]) == want:
+            break
+    swaymsg(f"[con_id={cid}]", "focus", parse=False)
+
+
+def restore(order):
+    """Un-float back into the tiling, rebuilding `order` left to right.
+
+    ⚠ THE FOCUS BETWEEN EACH IS WHAT MAKES THE ORDER COME OUT RIGHT. Un-floating
+    reinserts next to the focused tiled container, so restoring w1 first (into
+    an empty workspace) and then focusing w1 before restoring w2 lands w2 after
+    w1, and so on. Without it they reinsert wherever focus happens to be and the
+    row comes back shuffled.
+    """
+    prev = None
+    for cid in order:
+        if prev:
+            swaymsg(f"[con_id={prev}]", "focus", parse=False)
+        swaymsg(f"[con_id={cid}]", "floating", "disable", parse=False)
+        prev = cid
+
+
+# ── the mode itself ───────────────────────────────────────────────────────
+
+def enable(ws_name):
+    state = read_state()
+    if ws_name in state:
+        return
+    wins = windows_on(ws_name)
+    if not wins:
+        return
+    rect = workspace_rect(ws_name)
+    order = [n["id"] for n in wins]
+    shown = next((n["id"] for n in wins if n.get("focused")), order[0])
+    # ⚠ FLOAT THE ONE BEING SHOWN *LAST*, AND THE ORDER IS THE WHOLE BUG.
+    # `floating enable` raises the window it acts on, so floating the row in
+    # tree order leaves the LAST window on top — and it is raised after `show()`
+    # has already focused the right one. Focus and paint order then disagree:
+    # the correct window has input focus while a different one covers the
+    # screen. Reported as "focused the terminal, pressed $mod+m, and firefox
+    # went monocle", and invisible to a test that only asserts which window is
+    # focused (which is what the first one did). Floating `shown` last makes it
+    # topmost by construction, before any placement or focus is attempted.
+    for cid in order:
+        if cid != shown:
+            float_over(ws_name, cid, rect)
+    float_over(ws_name, shown, rect)
+    state[ws_name] = {"order": order, "shown": shown}
+    write_state(state)
+    install_bindings()
+    show(ws_name, shown, rect)
+
+
+def disable(ws_name):
+    state = read_state()
+    entry = state.pop(ws_name, None)
+    write_state(state)
+    if entry:
+        restore(live_order(ws_name, entry.get("order", [])))
+    # ⚠ Only give the keys back once NO workspace is in monocle. Turning it off
+    # on one workspace must not un-shadow the keys for another still in it.
+    if not state:
+        remove_bindings()
+
+
+def live_order(ws_name, order):
+    """`order` minus anything that has since closed, plus anything new, in order.
+
+    The recorded order is the source of truth for POSITION; the tree is the
+    source of truth for EXISTENCE. Reconciling both here means a window closed
+    behind the monocle cannot leave a dead con_id in the restore pass.
+    """
+    present = {n["id"] for n in all_windows_on(ws_name)}
+    kept = [c for c in order if c in present]
+    return kept + [c for c in present if c not in set(order)]
+
+
+def step(direction):
+    """Raise the next stacked window, or fall through to sway when monocle is off.
+
+    The fall-through matters: the shadow bindings are removed on the last
+    disable, but a keypress already in flight, or a workspace that was never in
+    monocle, must still just move focus.
+    """
+    state = read_state()
+    ws = focused_workspace()
+    entry = state.get(ws)
+    if not entry:
+        swaymsg("focus", direction, parse=False)
+        return
+    order = live_order(ws, entry.get("order", []))
+    if not order:
+        return
+    entry["order"] = order
+    current = entry.get("shown")
+    i = order.index(current) if current in order else 0
+    j = (i - 1 if direction in BACKWARD else i + 1) % len(order)
+    entry["shown"] = order[j]
+    state[ws] = entry
+    write_state(state)
+    show(ws, order[j])
+
+
+def shift(direction):
+    """Reorder the row you will get back, without leaving monocle.
+
+    Nothing is tiled while monocle is on, so "moving a window" can only mean
+    moving it in the restore order — which is exactly what it will mean once the
+    windows are put back. The shown window travels with its own position.
+    """
+    state = read_state()
+    ws = focused_workspace()
+    entry = state.get(ws)
+    if not entry:
+        swaymsg("move", direction, parse=False)
+        return
+    order = live_order(ws, entry.get("order", []))
+    current = entry.get("shown")
+    if current not in order or len(order) < 2:
+        return
+    i = order.index(current)
+    j = (i - 1 if direction in BACKWARD else i + 1) % len(order)
+    order[i], order[j] = order[j], order[i]
+    entry["order"] = order
+    state[ws] = entry
+    write_state(state)
+
+
+# ── the daemon ────────────────────────────────────────────────────────────
+#
+# It exists for the events a keybinding cannot see. Without it:
+#   * a window opened in monocle takes focus but is NOT fullscreen, so it
+#     appears behind the one that still is — the mode looks broken;
+#   * closing the visible window drops you back to the tiling underneath,
+#     because whatever gains focus is not fullscreen either.
+# Both are one `show()` on the newly focused window.
+
+def serve():
+    d = runtime_dir()
+
+    # ⚠ Single-instance guard by PIDFILE, not pgrep — `pgrep -f sway-monocle`
+    # matches the `sh -c` sway uses to launch this, so the server would decide
+    # it was already running and never start. Same trap recorded in
+    # sway-workspaces and sway-calendar.
+    pidfile = os.path.join(d, "server.pid")
+    try:
+        with open(pidfile) as f:
+            os.kill(int(f.read().strip()), 0)
+        return 0
+    except (FileNotFoundError, ValueError, ProcessLookupError, PermissionError):
+        pass
+    with open(pidfile, "w") as f:
+        f.write(str(os.getpid()))
+
+    # ⚠ Start from a clean slate. A stale entry from a previous session would
+    # name con_ids that no longer exist, and the first focus key would then
+    # float a window that is already tiled and strand it.
+    write_state({})
+
+    def bye(*_):
+        try:
+            os.unlink(pidfile)
+        except OSError:
+            pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, bye)
+    signal.signal(signal.SIGINT, bye)
+
+    sub = subprocess.Popen(
+        ["swaymsg", "-t", "subscribe", "-m", '["window", "workspace"]'],
+        stdout=subprocess.PIPE, text=True)
+
+    for line in sub.stdout:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            evt = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        change = evt.get("change")
+        if change not in ("new", "close", "move", "focus"):
+            continue
+
+        state = read_state()
+        if not state:
+            continue
+        ws = focused_workspace()
+        entry = state.get(ws)
+        if not entry:
+            continue
+
+        order = live_order(ws, entry.get("order", []))
+
+        if change == "new":
+            # A new window joins the stack and takes the monocle, the way a new
+            # client does in dwm. It arrives tiled, so it must be floated onto
+            # the area like the rest — otherwise it is the only tiled window on
+            # the workspace and lands *behind* the stack at a random size.
+            cid = (evt.get("container") or {}).get("id")
+            if not cid:
+                continue
+            float_over(ws, cid)
+            if cid not in order:
+                order.append(cid)
+            entry["order"] = order
+            entry["shown"] = cid
+            state[ws] = entry
+            write_state(state)
+            show(ws, cid)
+            continue
+
+        if change == "close":
+            # ⚠ The last window closing must LEAVE monocle, not sit in it with
+            # an empty stack — otherwise the mode is stuck on a workspace with
+            # nothing to show and the shadow bindings stay installed.
+            if not order:
+                state.pop(ws, None)
+                write_state(state)
+                if not state:
+                    remove_bindings()
+                continue
+            if entry.get("shown") in order:
+                continue
+            entry["order"] = order
+            entry["shown"] = order[0]
+            state[ws] = entry
+            write_state(state)
+            show(ws, order[0])
+
+    return 0
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        return 0
+
+    cmd = args[0]
+    if cmd == "--server":
+        return serve()
+
+    if cmd in ("focus", "move"):
+        if len(args) < 2 or args[1] not in BACKWARD + FORWARD:
+            print(f"{APP_ID}: {cmd} needs a direction", file=sys.stderr)
+            return 2
+        (step if cmd == "focus" else shift)(args[1])
+        return 0
+
+    ws = focused_workspace()
+    if ws is None:
+        return 1
+
+    if cmd == "status":
+        print("on" if ws in read_state() else "off")
+    elif cmd == "on":
+        enable(ws)
+    elif cmd == "off":
+        disable(ws)
+    elif cmd == "toggle":
+        (disable if ws in read_state() else enable)(ws)
+    else:
+        print(f"{APP_ID}: unknown command {cmd!r}", file=sys.stderr)
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

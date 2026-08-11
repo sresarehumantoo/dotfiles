@@ -1,0 +1,79 @@
+# dotfiles-box — persistent Linux dev "OS" as a WSL replacement.
+#
+#   docker compose -f container/compose.yaml up -d --build
+#   docker exec -it box zsh -l
+#
+# Run from the repo root; the build context is the repo so bootstrap/ and
+# config/ are visible to the Dockerfile.
+
+services:
+  box:
+    build:
+      context: ..
+      dockerfile: container/Dockerfile
+      args:
+        USERNAME: ${BOX_USER:-owen}
+        BRANCH: ${BOX_BRANCH:-develop}
+        # Set BOX_BUILD_NEOVIM=0 for a much faster image using Debian's nvim.
+        BUILD_NEOVIM: ${BOX_BUILD_NEOVIM:-1}
+    image: dotfiles-box:latest
+    container_name: box
+    hostname: box
+
+    # tini is already the ENTRYPOINT; init: true would add a second reaper.
+    init: false
+
+    # The whole point: a pet that comes back after a Docker Desktop or host
+    # restart. "unless-stopped" (not "always") so an explicit `docker stop`
+    # is respected until the next `up`.
+    restart: unless-stopped
+
+    environment:
+      BOX_USER: ${BOX_USER:-owen}
+      # Public key(s) admitted over SSH — used by the Windows Terminal profile
+      # and by SSHFS-Win. Set in container/.env (gitignored), e.g.
+      #   BOX_AUTHORIZED_KEYS="ssh-ed25519 AAAA... owen@windows"
+      BOX_AUTHORIZED_KEYS: ${BOX_AUTHORIZED_KEYS:-}
+      # Advertised to the shell so scripts can find the Windows host.
+      WINDOWS_HOST: host.docker.internal  # decoupling-ok: Docker-provided DNS name, not site infrastructure
+
+    volumes:
+      # ── The pet's state. Everything that must survive an image rebuild. ──
+      - home:/home/${BOX_USER:-owen}
+      # sshd host keys, so recreating the container does not trip
+      # StrictHostKeyChecking on the Windows side.
+      - sshkeys:/etc/ssh/keys
+      # ── Source tree. A NAMED VOLUME, not a bind mount: on the Hyper-V
+      # backend a bind mount crosses the host/VM boundary over gRPC-FUSE and
+      # that is the whole performance problem. Native ext4 inside the VM is
+      # the fastest option available. Reach it from Windows over SSHFS-Win
+      # rather than by bind-mounting it out. See container/README.md.
+      - work:/work
+
+    ports:
+      # Loopback-only BY DEFAULT. The container is a dev box, not a service.
+      #
+      # BOX_SSH_BIND can widen this for a specific reason (e.g. letting a
+      # Windows host mount /work over SSHFS-Win). If you set it, set it to a
+      # SPECIFIC interface address, never 0.0.0.0 — this workstation routinely
+      # has VPN interfaces up (HTB tun0), and 0.0.0.0 would publish the box's
+      # sshd onto those networks too.
+      #
+      #   BOX_SSH_BIND=<this-host-lan-ip> docker compose -f container/compose.yaml up -d
+      - "${BOX_SSH_BIND:-127.0.0.1}:${BOX_SSH_PORT:-2222}:22"
+
+    # The Docker-provided host alias resolves on Docker Desktop natively; this
+    # keeps the same name working on plain Linux Docker too.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # decoupling-ok: Docker-provided DNS name, not site infrastructure
+
+    # Long-running interactive sessions should not be killed at 10s.
+    stop_grace_period: 30s
+
+volumes:
+  home:
+    name: box-home
+  work:
+    name: box-work
+  sshkeys:
+    name: box-sshkeys

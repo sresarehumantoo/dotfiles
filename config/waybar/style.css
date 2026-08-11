@@ -28,11 +28,70 @@
 @define-color red      #f38ba8;
 @define-color mauve    #cba6f7;
 
-/* The pill fill. Slightly translucent so the wallpaper reads through and the
-   bar looks like it is floating over the desktop rather than pasted on it. */
-@define-color pill        rgba(24, 24, 37, 0.88);
+/* The pill fill — a DARK TINT the inner chips sit inside, not a light wash.
+   ⚠ TUNED TO THE WALLPAPER AND NOT PORTABLE. Blur only shows through what this
+   leaves transparent, so the right value depends on what is behind the bar:
+     · 0.88  base #1e1e2e — the original, from before SwayFX (no blur at all)
+     · 0.78  base #1e1e2e — a near-black wallpaper; had to stay high just to
+             keep the bar readable, which meant almost no glass
+     · 0.50  base #1e1e2e — first bright wallpaper; glass appeared, but the
+             backdrop read as CONTENT rather than tint and the digits fought it
+     · 0.72  base #11111b — deeper pigment, so the wallpaper reads as a tint on
+             dark glass rather than as the pill's subject
+     · 0.60  base #11111b — current. Eased back once `window#waybar` itself was
+             tinted: the bar surface now carries part of the "this is dark
+             glass" job, so the pills no longer have to do all of it alone.
+   ⚠ DARKENING IS NEARLY FREE, WHICH IS NOT OBVIOUS. Going 0.50 -> 0.82 moves
+   pill luminance 48.7 -> 21.6 but colour retention only 0.56 -> 0.51, because
+   `blur_saturation` in sway-fx preserves hue independently of luminance. So a
+   darker tint buys a lot of legibility (empty-digit ink +34 -> +55 over its own
+   backdrop) at almost no cost to the tint itself. 0.72 is the point where the
+   chips are crisp and the wallpaper still clearly colours the glass; 0.82 is
+   available if a busier wallpaper needs it.
+   Legibility is not the cap either way — the focused numeral measures +193.
+   ⚠ Change the wallpaper and re-judge this together with `.empty`'s opacity
+   below and `blur_saturation` in config/sway/sway-fx. See
+   ~/Pictures/wallpapers/README.md for the criterion that picks a wallpaper. */
+@define-color pill        rgba(11, 11, 17, 0.60);
 @define-color pill-border rgba(69, 71, 90, 0.55);
-@define-color pill-hover  rgba(49, 50, 68, 0.85);
+@define-color pill-hover  rgba(205, 214, 244, 0.07);   /* a veil on the glass, not a grey fill */
+
+/* The lit top edge of each pill. A single hairline lighter than the fill is
+   what makes a flat rounded rectangle read as a raised piece of glass rather
+   than a painted shape — it stands in for a specular highlight. Keep it very
+   low alpha; at anything above ~0.10 it stops looking like light and starts
+   looking like a second border. */
+@define-color pill-edge   rgba(205, 214, 244, 0.07);
+
+/* ── Glass tint: the selected/hovered state, Apple's way ───────────────────
+   These replace @blue as the "something is active here" signal.
+
+   Apple's Liquid Glass guidance for tinting is that a tint modulates the
+   MATERIAL rather than filling the shape, and that when a tint muddies the
+   scene you lower its saturation and "let edge cues carry the material". A
+   saturated fill is the thing it warns against, because it stops reading as
+   glass and starts reading as a painted chip — which is exactly what the old
+   sapphire→blue gradient on the focused workspace was.
+
+   So selection here is DENSER, DARKER glass plus a lit edge:
+     · @glass-tint  a dark pigment, not a hue — it deepens the pill it sits in
+     · @glass-edge  the specular hairline that does the actual work of saying
+                    "this one", drawn as an inset shadow so it costs no layout
+     · @glass-veil  the same idea at hover strength: a light breath, not a fill
+
+   ⚠ Legibility is the constraint that decides these numbers, not taste.
+   Apple's rule is 4.5:1 for text over the material AFTER blur. Text on the
+   focused chip is @text (#cdd6f4) over @glass-tint over the pill, which keeps
+   it bright-on-dark; the old scheme inverted to @crust-on-blue instead. Do not
+   deepen @glass-tint far enough to swallow the numeral. */
+@define-color glass-tint  rgba(17, 17, 27, 0.55);
+@define-color glass-edge  rgba(205, 214, 244, 0.30);
+@define-color glass-veil  rgba(205, 214, 244, 0.07);
+
+/* GTK3 has alpha()/shade() as first-class colour functions (verified against
+   the real CSS engine — unlike `filter` and `text-transform`, which it
+   rejects outright). Prefer them over hand-mixed rgba() literals so a palette
+   change propagates instead of needing every constant recomputed. */
 
 * {
     /* Matches `font pango:IosevkaTerm Nerd Font 10` in the sway config. One
@@ -54,72 +113,527 @@
     text-shadow: none;
 }
 
+/* ⚠ NOT TRANSPARENT ANY MORE, AND THAT IS LOAD-BEARING IN TWO WAYS.
+   This is the surface the three pills float in — the thin strip visible
+   between and around them.
+   1. LOOK: a tint here makes the bar read as ONE piece of glass with segments
+      inside it, rather than three islands over bare wallpaper.
+   2. IT REMOVES THE BLUR-LEAK PROBLEM AT SOURCE. The compositor blurs every
+      pixel that is not fully transparent. With this transparent, only the
+      pills (and anything they cast) were blurred, so the blurred area had a
+      hard rectangular edge sitting in sharp wallpaper — the "blurred
+      rectangles" beside each pill. Tinting the whole surface makes the entire
+      strip one uniform blur region, so there is no boundary left to see.
+      Measured, high-frequency energy in the gaps between pills:
+          transparent -> 10.2  (sharp wallpaper; the rectangles show)
+          0.18        ->  1.6  (uniform)
+          0.32        ->  1.3  (uniform)  <- this
+          0.48        ->  1.0  (uniform)
+   ⚠ Consequence to accept knowingly: the wallpaper behind the WHOLE bar is now
+   blurred, not just behind the pills. That is the trade for a continuous
+   surface, and it is why this is a design choice rather than a bug fix.
+   Pill-vs-bar separation at 0.32 measures +33 luminance, so the pills still
+   read as distinct objects nested inside it; 0.48 is available if a busier
+   wallpaper needs the bar to assert itself more. */
 window#waybar {
-    background-color: transparent;
+    background-color: rgba(11, 11, 17, 0.32);
     color: @text;
 }
 
 /* Pills ----------------------------------------------------------------- */
 
+/* ⚠ `.modules-right` IS NO LONGER A PILL — the two groups inside it are.
+   It used to be listed here with left and center, which painted one pill
+   around the whole right-hand side. That gave the merged look, but it also
+   meant the transient indicators (privacy, media, VPN) shared a surface with
+   the permanent status cluster, so an appearing indicator grew the pill the
+   status icons live in. `#indicators` and `#status` below take the pill
+   treatment instead, and this container just holds them. */
 .modules-left,
 .modules-center,
-.modules-right {
+#indicators,
+#status {
     background-color: @pill;
+    /* A shallow top-to-bottom lift over the flat fill. The stops are only ~4%
+       apart on purpose: enough to give the pill a direction of light, not
+       enough to read as a gradient in its own right. */
+    background-image: linear-gradient(to bottom,
+                                      alpha(@surface0, 0.18),
+                                      alpha(@crust, 0.10));
     border: 1px solid @pill-border;
+    border-top-color: @pill-edge;
     border-radius: 16px;
     padding: 0 4px;
-    /* Vertical inset inside the 40px exclusive zone, so the pill is ~30px
-       tall and visibly detached from the screen edge. */
+    /* Vertical inset inside the 40px exclusive zone, so the pill is visibly
+       detached from the screen edge. */
     margin: 3px 0;
-    box-shadow: 0 2px 6px rgba(17, 17, 27, 0.55);
+    /* ⚠ WITHOUT THIS THE PILLS ARE DIFFERENT HEIGHTS, and it is not subtle:
+       measured 34 / 34 / 28px for left / centre / right.
+       `.modules-left` and `.modules-center` are direct children of the bar, so
+       GTK stretches them to the full 40px exclusive zone minus their margin.
+       `#status` and `#indicators` are GROUPS nested inside `.modules-right`,
+       and a group hugs its children instead — so the right-hand pill came out
+       6px shorter than the other two and sat visibly smaller in the bar.
+       Pinning the content height makes all four identical regardless of what
+       is inside them or how deeply they are nested. 32 + 1px border top and
+       bottom = the 34px the stretched pills already were. */
+    min-height: 26px;
+    /* ⚠ ONE TIGHT CONTACT SHADOW ONLY — THE WIDE ONE LEAKS BLUR. There used to
+       be a second `0 6px 16px` shadow here for height over the wallpaper, and
+       under SwayFX it is the direct cause of the blurred rectangles that appear
+       BESIDE each pill: the compositor's blur region covers every pixel that is
+       not fully transparent, a soft shadow is ~16px of barely-transparent
+       pixels around the pill, and the blur therefore extends into the bar's
+       empty space with a hard rectangular edge.
+       Measured spill into the gap between the workspace and clock pills:
+           0 1px 2px + 0 6px 16px   ->  18 / 28 px
+           0 1px 3px + 0 2px 6px    ->   2 /  7 px
+           0 1px 2px only           ->   2 /  0 px   <- this
+           no shadow at all         ->   2 /  0 px
+       i.e. the tight shadow costs nothing over having none, so the pill still
+       reads as seated. ⚠ Do not reintroduce a soft/wide shadow on any surface
+       the compositor blurs — including `#indicators` further down, which was
+       given the same treatment for the same reason. It is invisible on a dark
+       wallpaper (nothing behind it to smear) and obvious on a detailed one. */
+    box-shadow: 0 1px 2px rgba(17, 17, 27, 0.50);
 }
 
-/* An empty title should not leave a stub pill floating in the middle of the
-   screen. window#waybar gains .empty when sway/window has nothing to show. */
+/* ⚠ INERT AS LONG AS THE CENTRE MODULE IS THE CLOCK. `.empty` is set by
+   `sway/window` when it has no title to show, and that module is no longer in
+   `modules-center` (config/waybar/config) — the clock is, and a clock is never
+   empty. Kept, not deleted: it is one array entry to put sway/window back, and
+   without this rule an empty title leaves a stub pill floating in the middle of
+   the screen. */
 window#waybar.empty .modules-center {
     background-color: transparent;
     border-color: transparent;
     box-shadow: none;
 }
 
-/* Workspaces ------------------------------------------------------------ */
-
-#workspaces {
+/* The right-hand container itself paints nothing now; it only spaces the two
+   pills apart. Keep this transparent — giving it a background reinstates the
+   single-pill layout the groups exist to replace. */
+.modules-right {
+    /* Carries the vertical inset for the two pills inside it — see the note on
+       `#indicators, #status` below. */
+    margin: 3px 0;
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
     padding: 0;
 }
 
-#workspaces button {
-    /* Circled digits sit small on their em box; nudge them up to icon size. */
-    font-size: 15px;
-    padding: 0 8px;
-    margin: 4px 2px;
+/* The gap between the transient pill and the status pill. It is a margin on
+   the pills rather than `spacing` in the jsonc, because waybar's `spacing`
+   punches transparent slots through EVERY module gap including the ones inside
+   a pill — which is why that value is 0 (see the note on it in `config`). */
+/* ⚠ THE VERTICAL INSET BELONGS TO `.modules-right`, NOT TO THESE GROUPS.
+   The pill rule gives every pill `margin: 3px 0`. For the two direct children
+   of the bar that is the only inset they get; for these two it was a SECOND
+   one, applied inside a container that had already been positioned — so the
+   right-hand pill sat 3px lower and 6px shorter than the other two. Zero it
+   here and let the container carry it, so all three pills share one origin. */
+#indicators,
+#status {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+#indicators { margin-right: 6px; }
+
+/* ⚠ Collapse the transient pill completely when it has nothing to show.
+   Every module in `group/indicators` hides itself when idle, which leaves the
+   group with zero-width children — but padding, border and background are
+   properties of the BOX, not of its children, so without this an empty group
+   still paints a small floating stub beside the status pill. Same failure the
+   `window#waybar.empty .modules-center` rule guards against.
+   `:not(:hover)` is not involved; GTK sets no "empty" class on a group, so the
+   lever available is min-width 0 plus zero horizontal padding, letting the box
+   shrink to nothing on its own. */
+#indicators {
+    padding: 0;
+    min-width: 0;
+    /* ⚠ NO `border` — that is what leaves the stub. Zeroing padding and
+       min-width gets the empty group's CONTENT to zero width, but a border has
+       intrinsic width and keeps painting: the visible artifact is a ~2px
+       vertical sliver beside the status pill (1px each side), which reads as a
+       dirty mark on the bar rather than as a widget.
+       The hairline is redrawn as an INSET shadow instead, which is clipped to
+       the box's own area and so paints nothing at all when that area is
+       empty. Two shadows: the ring, then the pill's usual drop shadows. */
+    /* ⚠ Padding must stay 0 and stay on the CHILDREN (the shared chip rule
+       below already gives every module `padding: 0 9px`). Putting horizontal
+       padding here instead looks tidier and reintroduces the stub — padding,
+       like border, has intrinsic width and paints when the group is empty. */
+    border: none;
+    box-shadow: inset 0 0 0 1px @pill-border,
+                0 1px 2px rgba(17, 17, 27, 0.50);
+}
+
+/* Workspaces ------------------------------------------------------------ */
+
+/* ⚠ NINE SEPARATE WIDGETS, and every rule here has to be repeated across all
+   nine ids — GTK3 CSS has no nesting and no `:is()`, so there is no shorter
+   way to say it. These were `#workspaces button` until the row needed a
+   travelling highlight; config/sway/sway-workspaces explains why the built-in
+   module could not provide one. Keeping them as real widgets is what preserves
+   the rounded chip and the per-digit click.
+   The classes come from the server's JSON, so the vocabulary is its:
+   focused / trail / visible / occupied / empty / urgent. */
+/* ── Hover: the chip grows ─────────────────────────────────────────────────
+   ⚠ IT IS PADDING, NOT A SCALE, AND IT CANNOT BE A SCALE. GTK3 has no
+   `transform` — verified by feeding it to a real CssProvider, which rejects it
+   outright ("'transform' is not a valid property") — and a stray `transform:`
+   does not merely fail, it invalidates the ENTIRE stylesheet. So the usual
+   hover-lift is unavailable and the growth has to come from a property GTK3
+   interpolates: padding, min-width, font-size, box-shadow or opacity.
+
+   Padding is the one that grows the PILL too, because a pill hugs its
+   contents. ⚠ Growing the container instead does nothing at all —
+   `.modules-left:hover` and friends never match, since those are GtkBoxes and
+   a GtkBox has no event window, so GTK never puts them in the prelight state.
+   Measured side by side: container padding on :hover moved the pill 0px, child
+   padding moved it the full amount.
+
+   ⚠ It reflows — chips to the right shift by the same amount. Acceptable here
+   because it is pointer-driven and one chip at a time; the workspace trail was
+   not, and moved nine chips per keypress. Hence 3px a side.
+
+   The bounce is the easing, not a keyframe: cubic-bezier's third control point
+   above 1.0 overshoots and settles back, which is what reads as alive rather
+   than as a jump.
+
+   A radial-gradient "bubble" that inflated inside the chip was tried here and
+   removed — it read as a glow competing with the expand rather than
+   reinforcing it. `background-size` is interpolable if it is ever wanted back;
+   it is the one growth property that costs no layout.
+
+   ── ⚠ PADDING AND MARGIN ARE A PAIR: `padding + margin = 12`, ALWAYS ───────
+   The chip CAN grow without reflowing the row, which the note above said it
+   could not. Growth is paid for out of the gap rather than out of the row:
+
+       painted box = 2*padding + ink        (what the inset ring traces)
+       allocation  = painted box + 2*margin (what the row spends on the chip)
+
+   Hold `padding + margin` constant and the allocation is constant, so every
+   neighbour stays exactly where it is while the painted box grows by twice
+   whatever the margin gave up. Every state below obeys it — rest 4/8, trail
+   8/4, focused and urgent 11/1, hover 11/1, focused-hover 12/0 — giving a
+   uniform 31px allocation for all nine chips in all states. Break the sum in
+   any state and the row reflows the moment that state is entered, which is the
+   defect this whole scheme exists to avoid.
+
+   So the resting box is deliberately SMALL (15px painted, was 25) and the
+   margin correspondingly large. That costs nothing visually, because a
+   non-focused chip's ring is transparent at rest — nothing is drawn at that
+   size for the eye to miss. What it buys is 16px of gap for the hover ring to
+   grow into, landing at exactly the .focused chip's width, so the outline that
+   appears under the pointer is recognisably the same object that lives on the
+   focused workspace.
+
+   ⚠ MARGIN MUST NEVER GO NEGATIVE, AND THE REASON IS NOT LAYOUT — IT IS THAT
+   THE OVERFLOW IS CLIPPED ON ONE SIDE ONLY. A negative margin makes the
+   painted box wider than the allocation, and on the real bar the excess is
+   occluded to the RIGHT but not to the LEFT: waybar gives each module its own
+   GdkWindow, later siblings stack above earlier ones, so a chip paints over
+   its left neighbour and is painted over by its right one. The result is a
+   ring that is cut off down one side and sits off-centre from its own digit.
+   Measured live at 14/-3, which predicts a 35px box:
+       ws5 hovered   ring x 142..173 = 32px   (digit centre 159, ring centre 157.5)
+       ws9 hovered   ring x 258..289 = 32px   (clipped at allocation end 289)
+   ws9 has nothing to its right and was clipped anyway, so this is the widget's
+   own clip rectangle, not a neighbour drawing over it. Both stopped exactly at
+   `allocation.x + allocation.width` while overhanging freely to the left.
+   ⚠ AN OFFSCREEN HARNESS WILL NOT REPRODUCE THIS. Plain GtkLabels have no
+   GdkWindow of their own, so a probe built from them reports the full 35px and
+   says the scheme works. It was measured as working offscreen and clipped on
+   the bar. Verify chip geometry on the real bar. */
+#custom-ws1,
+#custom-ws2,
+#custom-ws3,
+#custom-ws4,
+#custom-ws5,
+#custom-ws6,
+#custom-ws7,
+#custom-ws8,
+#custom-ws9 {
+    font-size: 13px;
+    font-weight: bold;
+    /* 4 + 8 rather than 9 + 2. Allocation 31 against the old row's 29, so the
+       ink-to-ink gap goes 22 -> 24px and the row 271 -> 279px — near enough
+       that the resting bar is unchanged to the eye — while the painted box
+       drops to 15px and hands 16px of growth to the hover ring. */
+    padding: 0 4px;
+    margin: 4px 8px;
     background-color: transparent;
     color: @overlay;
-    border-radius: 12px;
-    /* Only color/background animate usefully in GTK; keep it cheap. */
-    transition: background-color 150ms ease, color 150ms ease;
+    border-radius: 11px;
+    box-shadow: inset 0 0 0 1px transparent;
+    /* ⚠ THIS IS THE LEAVING TRANSITION ONLY. GTK3 reads the transition from
+       the style being animated TOWARDS, exactly as web CSS does — so this rule
+       governs hover-OUT and the `:hover` rule below governs hover-IN. That
+       asymmetry is deliberate and it is what sells the outline as one object
+       travelling along the row: the ring is quick to arrive and slower to let
+       go, so sweeping the pointer across leaves the chip behind still lit as
+       the next one lights up.
+       Verified offscreen by sampling the rendered ring's alpha over time with
+       in=100ms / out=400ms: entering reached full at ~150ms, leaving decayed
+       255 -> 191 -> 126 -> 62 -> 0 across ~400ms.
+
+       ⚠ EASE-OUT, NOT THE BOUNCE — AND THE DURATION IS A BUDGET, NOT A TASTE.
+       This started at 300ms with the same overshooting bezier the arrival uses,
+       and both were wrong. A bounce on the way OUT makes a departing chip
+       spring PAST its resting size and settle back, and a long exit lets a fast
+       pointer stack the whole row: measured, sweeping across the pill lit
+       NINE chips at once, six of them mid-animation. The exit must be
+       monotonic, and its duration bounds how many chips a sweep can light —
+       roughly (exit duration / time the pointer spends per chip). At 150ms the
+       same sweep peaks at two rings, which is exactly the one-arriving-
+       one-departing trail the asymmetry is for.
+       Measured, real rings (>=15px) per frame across an identical sweep:
+           300ms bouncy exit  ->  up to 9 lit, several mid-bounce
+           150ms ease-out     ->  peak 2
+       ⚠ Shortening further does NOT buy anything — 110ms measured identical on
+       both the sweep and the boundary case below, so 150ms is kept for being
+       the more graceful of two equivalents. */
+    transition: background-color 140ms ease-out,
+                color            110ms ease-out,
+                box-shadow       150ms ease-out,
+                margin           150ms ease-out,
+                padding          150ms ease-out;
 }
 
-#workspaces button:hover {
-    /* Override GTK's default button:hover box-shadow, which draws a halo. */
-    background-color: @pill-hover;
-    color: @text;
-    box-shadow: none;
-    text-shadow: none;
+/* ⚠ THERE IS A 2px BAND AT EVERY CHIP BOUNDARY WHERE BOTH NEIGHBOURS LIGHT UP,
+   AND NO CSS FIXES IT. waybar's module event regions overlap by 2px, so the
+   pointer in that band is claimed by both chips at once and they trade it
+   back and forth, each perpetually mid-animation. Mapped from cold starts,
+   ws2 (allocation 46..76) against ws3 (allocation 77..107):
+       x <= 74   ws2 alone, stable 29px
+       x = 75,76 BOTH lit, both ~26px and oscillating
+       x >= 77   ws3 alone, stable 29px
+   It is deterministic, not pointer jitter, and it is not caused by anything in
+   this file: the event region is the full allocation regardless of the CSS
+   margin (verified — x=50 hovers ws2 cleanly even though its resting painted
+   box is 54..68). Duration does not touch it either; 110ms and 150ms exits
+   measured the same spread. What the timing above DOES control is how violent
+   the trade looks, which is why the exit is monotonic and short. Anything that
+   claims to have fixed this should be checked against the map. */
+
+/* ⚠ A SECOND `:hover` STUB THAT LIVED HERE IS DELETED. It set nothing the real
+   hover rule further down does not set (`color: @text; opacity: 1`), but it
+   made the row look as though hover were defined in two places, and this file
+   has already been bitten twice by a later duplicate silently winning — see
+   the deleted transition rule in the right-hand section, and the
+   `#custom-notification` padding shorthand. One state, one rule. */
+
+/* Empty-but-persistent is most of the row at any moment, so it recedes — the
+   row should read as a quiet ruler, not nine competing chips.
+   ⚠ COUPLED TO THE PILL TINT ABOVE, and it moves the opposite way. It went
+   0.38 -> 0.55 -> 0.62 while chasing legibility against an increasingly bright
+   pill, and came back to 0.50 once the pill itself went dark: a deeper
+   container does the work, so the digits can recede again. Measured at 0.72/
+   0.50: empty ink +39 over its own backdrop, and still +60 below an occupied
+   workspace, which is the distinction this opacity exists to draw. */
+#custom-ws1.empty,
+#custom-ws2.empty,
+#custom-ws3.empty,
+#custom-ws4.empty,
+#custom-ws5.empty,
+#custom-ws6.empty,
+#custom-ws7.empty,
+#custom-ws8.empty,
+#custom-ws9.empty {
+    opacity: 0.50;
 }
 
-#workspaces button.visible {
+#custom-ws1.occupied,
+#custom-ws2.occupied,
+#custom-ws3.occupied,
+#custom-ws4.occupied,
+#custom-ws5.occupied,
+#custom-ws6.occupied,
+#custom-ws7.occupied,
+#custom-ws8.occupied,
+#custom-ws9.occupied {
+    opacity: 0.72;
     color: @subtext;
 }
 
-#workspaces button.focused {
-    color: @crust;
-    background-color: @blue;
+#custom-ws1.visible,
+#custom-ws2.visible,
+#custom-ws3.visible,
+#custom-ws4.visible,
+#custom-ws5.visible,
+#custom-ws6.visible,
+#custom-ws7.visible,
+#custom-ws8.visible,
+#custom-ws9.visible {
+    opacity: 0.85;
+    color: @subtext;
 }
 
-#workspaces button.urgent {
+/* The focused chip: dark pigment plus a lit edge, per @glass-tint. */
+#custom-ws1.focused,
+#custom-ws2.focused,
+#custom-ws3.focused,
+#custom-ws4.focused,
+#custom-ws5.focused,
+#custom-ws6.focused,
+#custom-ws7.focused,
+#custom-ws8.focused,
+#custom-ws9.focused {
+    color: @text;
+    background-color: @glass-tint;
+    box-shadow: inset 0 0 0 1px @glass-edge;
+    opacity: 1;
+    /* Painted 29px wide (11 + 11 + 7 ink), margin 1 -> allocation 31. The
+       hover state below is built to match this exactly, so the ring under the
+       pointer reads as the same object having moved. */
+    padding: 0 11px;
+    margin: 4px 1px;
+}
+
+/* ⚠ THE FOCUSED CHIP NEEDS ITS OWN HOVER OR THE ROW SHRINKS 14px.
+   It rests at allocation 43 (14 + 14 + 7 ink + 4 + 4), not the 29 every other
+   chip rests at, so letting the generic `:hover` rule apply its 14/-3 would
+   drop it to 29 and yank the rest of the row leftwards while the pointer sits
+   on it. 16/2 keeps 43 and still blooms the painted box 35 -> 39, so the chip
+   that is already outlined acknowledges the pointer without moving anything. */
+#custom-ws1.focused:hover,
+#custom-ws2.focused:hover,
+#custom-ws3.focused:hover,
+#custom-ws4.focused:hover,
+#custom-ws5.focused:hover,
+#custom-ws6.focused:hover,
+#custom-ws7.focused:hover,
+#custom-ws8.focused:hover,
+#custom-ws9.focused:hover {
+    /* ⚠ VERTICAL ONLY — no horizontal growth, deliberately. At 12/0 the painted
+       box is 31px, exactly the allocation, which leaves the bounce ZERO
+       headroom: any overshoot pushes past the allocation and gets clipped on
+       the right (see the negative-margin caution above — same mechanism). The
+       chip is already outlined, so the +4px of height every other chip gets is
+       cue enough, and it cannot clip. */
+    padding: 0 11px;
+    margin: 2px 1px;
+}
+
+/* ⚠ THE TRAIL. Deliberately WEAKER than .focused — it is a wake, not a
+   destination — but it is no longer forbidden from having a size of its own.
+   The old note here said growing it made the whole row reflow nine times per
+   jump, which was true of `padding: 0 14px` alone; paying for the growth out
+   of the margin (11/0, allocation 29, the same constant as the resting chip)
+   means it can be 29px painted against the resting 21px and STILL move
+   nothing. Kept between rest and focused-35 on purpose: a wake that is the
+   same size as the destination stops reading as a wake. */
+#custom-ws1.trail,
+#custom-ws2.trail,
+#custom-ws3.trail,
+#custom-ws4.trail,
+#custom-ws5.trail,
+#custom-ws6.trail,
+#custom-ws7.trail,
+#custom-ws8.trail,
+#custom-ws9.trail {
+    color: @text;
+    background-color: alpha(@glass-tint, 0.55);
+    box-shadow: inset 0 0 0 1px alpha(@glass-edge, 0.55);
+    opacity: 1;
+    padding: 0 8px;
+    margin: 4px 4px;
+}
+
+/* Urgent keeps its saturated fill — the one thing in the bar allowed to shout. */
+#custom-ws1.urgent,
+#custom-ws2.urgent,
+#custom-ws3.urgent,
+#custom-ws4.urgent,
+#custom-ws5.urgent,
+#custom-ws6.urgent,
+#custom-ws7.urgent,
+#custom-ws8.urgent,
+#custom-ws9.urgent {
     color: @crust;
     background-color: @red;
+    background-image: linear-gradient(to bottom, @peach, @red);
+    opacity: 1;
+    padding: 0 11px;
+    margin: 4px 1px;
+}
+
+/* Same reason as `.focused:hover` — urgent also rests at allocation 43, so it
+   needs the 16/2 form rather than the generic 14/-3 or the row jumps. */
+#custom-ws1.urgent:hover,
+#custom-ws2.urgent:hover,
+#custom-ws3.urgent:hover,
+#custom-ws4.urgent:hover,
+#custom-ws5.urgent:hover,
+#custom-ws6.urgent:hover,
+#custom-ws7.urgent:hover,
+#custom-ws8.urgent:hover,
+#custom-ws9.urgent:hover {
+    padding: 0 11px;
+    margin: 2px 1px;
+}
+
+/* Hover: a breath of light on the glass, matching the status chips. */
+#custom-ws1:hover,
+#custom-ws2:hover,
+#custom-ws3:hover,
+#custom-ws4:hover,
+#custom-ws5:hover,
+#custom-ws6:hover,
+#custom-ws7:hover,
+#custom-ws8:hover,
+#custom-ws9:hover {
+    /* ⚠ `transparent` stated deliberately — omitting it uncovers the GTK
+       theme's own prelight. See the status-chip :hover note. The digit still
+       brightens, which is a text property rather than a glow and is what keeps
+       a dimmed empty workspace legible under the pointer. */
+    background-color: transparent;
+    background-image: none;    /* see the status-chip :hover note — this is the load-bearing one */
+    color: @text;
+    opacity: 1;
+    /* The outline oval, at the .focused chip's exact painted width (35px), so
+       what appears under the pointer reads as the row's one outline having
+       slid over rather than as a second, smaller decoration.
+       ⚠ NO BACKGROUND FILL, and that is the distinction being drawn: focused is
+       pigment PLUS edge, hover is edge ALONE. That is what makes one of them
+       permanent and the other visibly temporary. */
+    box-shadow: inset 0 0 0 1px @glass-edge;
+    /* ⚠ 14 / -3 IS ONE VALUE, NOT TWO — see the invariant at the top of this
+       section. 14 + 14 + 7 + (-3) + (-3) = 29, the resting allocation, so the
+       painted box goes 21 -> 35 and NOT ONE NEIGHBOUR MOVES. Measured: with
+       ws5 hovered, ws4 stays at x=99 and ws6 at x=157 in both states, and the
+       row stays 271px. The old note here concluded a multi-item pill could not
+       grow; that was true of growing the padding alone. */
+    padding: 0 11px;
+    /* The vertical half is unchanged: the chip sits inside the pill with a 4px
+       margin, so shrinking it to 2px grows the oval 4px taller WITHOUT touching
+       the pill, whose height is fixed by the bar (measured: vertical padding on
+       a bar child moves it 0px, because GTK stretches it to the bar). */
+    margin: 2px 1px;
+    /* ⚠ THE ARRIVING TRANSITION. Quicker than the base rule's departing one —
+       see the note there. The bounce is the easing, not a keyframe: the third
+       control point above 1.0 overshoots and settles back, which is what reads
+       as a bubble rather than as a box getting wider.
+
+       ⚠ THE OVERSHOOT HAS A HARD CEILING, AND IT IS THE ALLOCATION. The peak
+       painted box is `15 + 14 * peak`, and anything over 31 is clipped on the
+       right (see the negative-margin caution at the top of this section — the
+       bounce reaches the same cliff by a different route). Budget: peak <=
+       1.143. Computed peaks for this family of curves:
+           cubic-bezier(0.34, 1.56, 0.64, 1)  peak 1.098  ->  30.4px  (ok, tight)
+           cubic-bezier(0.34, 1.25, 0.64, 1)  peak 1.020  ->  29.3px  <- this
+       1.56 fits, but only just, and it is violent when it is re-triggered
+       every few milliseconds at a chip boundary. 1.25 keeps the bubble and
+       leaves real headroom. Recompute the peak before raising it. */
+    transition: background-color 140ms ease-out,
+                color            110ms ease-out,
+                box-shadow       120ms ease-out,
+                margin           180ms cubic-bezier(0.34, 1.25, 0.64, 1),
+                padding          180ms cubic-bezier(0.34, 1.25, 0.64, 1);
 }
 
 #mode {
@@ -151,13 +665,38 @@ window#waybar.empty .modules-center {
 #tray,
 #clock,
 #custom-system,
+#custom-notification,
+#privacy,
+#mpris,
 #custom-power {
     padding: 0 9px;
     margin: 4px 1px;
     border-radius: 12px;
     background-color: transparent;
     color: @text;
-    transition: background-color 150ms ease;
+    /* Two shadows, both invisible at rest, because the hover state uses two —
+       the ring and the lift beneath it. Declaring the same list shape here is
+       tidiness rather than necessity (GTK3 interpolates between mismatched
+       shadow lists happily — measured, a bare `inset 0 -2px transparent` ramps
+       to a spread ring identically to a matched pair), but it makes what is
+       being animated legible in the source. */
+    box-shadow: inset 0 0 0 1px transparent,
+                0 0 0 rgba(17, 17, 27, 0);
+    /* ⚠ THE ONLY `transition` FOR THESE CHIPS — DO NOT RE-DECLARE IT LATER IN
+       THE FILE. There used to be a second, shorter list further down (with the
+       hover underline that has since been deleted), and because it was the same
+       specificity and came later it WON: these chips' transition was reduced to
+       `background-color, box-shadow`, silently dropping padding and margin. The
+       visible consequence was that the clock's hover expand did not animate at
+       all — it snapped. Measured offscreen, painted clock width after PRELIGHT:
+           with the duplicate:  53 -> 67px between t=0 and t=20ms   (one frame)
+           without it:          53 -> 60 -> 64 -> 66 -> 67 over ~320ms
+       Slow half, per the asymmetry described in the workspace section: this
+       governs hover-OUT, and each `:hover` rule below governs hover-IN. */
+    transition: background-color 140ms ease-out,
+                box-shadow       150ms ease-out,
+                margin           150ms ease-out,
+                padding          150ms ease-out;
 }
 
 #idle_inhibitor:hover,
@@ -166,23 +705,376 @@ window#waybar.empty .modules-center {
 #network:hover,
 #clock:hover,
 #custom-system:hover,
+/* ⚠ HOVER IS THE SIZE CHANGE AND NOTHING ELSE — deliberately. This rule used
+   to set `background-color: @pill-hover`, and there was an inset underline
+   below plus a radial-gradient glow; all three were removed because they
+   competed with the expand instead of reinforcing it. The chip grows, and that
+   is the whole cue. Restore any of them by putting the property back here. */
+#custom-notification:hover,
 #custom-power:hover {
-    background-color: @pill-hover;
+    /* ⚠ `transparent` MUST BE STATED, not omitted. Dropping our own hover
+       background does not leave the chip unstyled — it uncovers the GTK
+       theme's default prelight, which lit the pill by +27 luminance and looked
+       exactly like the glow we had just removed. Adwaita styles the hovered
+       state whether or not we ask it to; the only way to have no hover
+       background is to say so. */
+    /* ⚠ `background-image: none` IS THE ONE THAT MATTERS, and omitting it is
+       why this looked unfixable for several rounds. The GTK theme paints its
+       hover state with a background-IMAGE gradient, not a background-color —
+       so `background-color: transparent` removes nothing visible and the chip
+       still lit up by +27 luminance. config/swaync/style.css already records
+       this exact trap for Adwaita's buttons; it applies here too. */
+    background-color: transparent;
+    background-image: none;
+    color: @text;
 }
 
-#clock          { color: @blue; font-weight: bold; }
-#cpu            { color: @green; }
-#memory         { color: @mauve; }
-#backlight      { color: @yellow; }
-#temperature    { color: @peach; }
-#network        { color: @sapphire; }
-#pulseaudio     { color: @green; }
-#custom-system  { color: @subtext; }
-#idle_inhibitor { color: @subtext; }
+/* ⚠ THE CLOCK IS THE ONE CHIP THAT GROWS ITS PILL, and that is the whole
+   reason it is treated differently. It is alone in `modules-center`, and a pill
+   hugs its contents, so its padding is the only padding in the bar that moves a
+   pill — measured offscreen, pill 63 -> 71px, growing symmetrically about the
+   centre (x 118 -> 114). Every other chip shares a pill and must instead pay
+   for growth out of its own margin (see the workspace section).
 
+   So this is the "raise", assembled from what GTK3 will actually animate:
+     · the chip's own outline oval inflates, and the pill inflates with it
+     · a tight drop shadow appears beneath the oval — the lift. `transform` and
+       therefore `translateY` do not exist in GTK3, so a shadow that was not
+       there a moment ago is the only way to say "this came up off the surface"
+     · the oval also gains 4px of height out of its vertical margin, the same
+       trade every other chip makes
+
+   ⚠ It only reads as smooth because the duplicate `transition` further down
+   the file is gone; with it, this snapped to full width in a single frame.
+   See the note at the deleted rule. */
+#clock:hover {
+    padding-left: 13px;
+    padding-right: 13px;
+    margin: 2px 1px;
+    box-shadow: inset 0 0 0 1px @glass-edge,
+                0 2px 5px rgba(17, 17, 27, 0.55);
+    transition: background-color 140ms ease-out,
+                box-shadow       120ms ease-out,
+                margin           180ms cubic-bezier(0.34, 1.25, 0.64, 1),
+                padding          180ms cubic-bezier(0.34, 1.25, 0.64, 1);
+}
+
+#idle_inhibitor:hover,
+#pulseaudio:hover,
+#network:hover,
+#battery:hover,
+#custom-notification:hover,
+#custom-system:hover,
+#mpris:hover {
+    /* ⚠ AN INSET RING IS DRAWN ON THE PADDING-BOX EDGE, so this rule is what
+       makes every padding value below visible. The oval's SIZE and the glyph's
+       position inside it are not set here — they come from the uniform-box
+       block further down ("One box, one oval"). Read that before changing any
+       chip's padding or min-width. Measured: 31 x 28 on all five status chips,
+       glyphs centred to within ±0.5px.
+       ⚠ The second shadow is the LIFT, and it is what the raise is made of,
+       since GTK3 has no `transform`. Keep it TIGHT. It is safe here in a way it
+       would not have been before `window#waybar` was tinted: the compositor's
+       blur region is every non-transparent pixel, the whole bar strip is now
+       tinted and therefore already in it, and this shadow falls well inside the
+       strip — so it adds no blur region and cannot produce the blurred
+       rectangles a wide shadow used to. A wide one would still be wrong, on the
+       plain visual ground that it would smudge across the pill. */
+    box-shadow: inset 0 0 0 1px @glass-edge,
+                0 2px 5px rgba(17, 17, 27, 0.55);
+    /* The other half of the padding trade — 10 + 5 + 5 at rest becomes
+       18 + 1 + 1 here, allocation 33 either way, so nothing in the pill moves
+       while the oval inflates 23 -> 31. */
+    margin: 2px 1px;
+    /* The arriving half of the asymmetry (see the shared chip rule above for
+       why this belongs on `:hover`): quick in, bouncy, so the outline feels
+       like it snapped across to the chip under the pointer and the slow
+       departure on the one you left reads as it having come FROM there. */
+    transition: background-color 140ms ease-out,
+                box-shadow       120ms ease-out,
+                margin           180ms cubic-bezier(0.34, 1.25, 0.64, 1),
+                padding          180ms cubic-bezier(0.34, 1.25, 0.64, 1);
+}
+
+/* ── Single-accent discipline ──────────────────────────────────────────────
+   Everything in the status cluster is plain @text. Colour is not decoration
+   here; it is reserved to MEAN something, so that a yellow or red module is
+   genuinely the only coloured thing in the bar and cannot be missed.
+
+   The accent (@blue) is spent in exactly three places and nowhere else:
+     · the focused workspace
+     · the clock
+     · the hover underline
+   The previous scheme gave every module its own hue (green cpu, mauve
+   memory, sapphire network, yellow backlight); it looked lively, but a red
+   battery warning had to compete with five other colours and lost. */
+
+/* ⚠ NEUTRAL, NOT @blue. The accent came off the focused workspace and the
+   hover cue (see @glass-tint), and leaving it on the clock would have made the
+   one remaining blue thing look like a leftover rather than a decision. Weight
+   and the centre position already make the clock findable; it does not need a
+   hue to do it. @blue is now unused by any resting state — it survives only as
+   a palette entry. */
+#clock { color: @text; font-weight: bold; }
+
+#cpu,
+#memory,
+#temperature,
+#network,
+#pulseaudio,
+#mpris,
+#custom-system,
+#idle_inhibitor {
+    color: @text;
+}
+
+/* Off / inactive states recede rather than recolour. */
 #network.disconnected,
-#pulseaudio.muted {
-    color: @surface1;
+#pulseaudio.muted,
+#idle_inhibitor {
+    color: @overlay;
+}
+
+/* ── Optical centring of overflowing icons ────────────────────────────────
+   Several Nerd Font icons are NOT centred in the cell they occupy, so the
+   glyph sits visibly off-centre inside its module — worst on the wifi ramp.
+   This is a font property, not a layout bug, and it is a direct consequence
+   of using the non-Mono IosevkaTerm build (chosen so icons are not clamped to
+   one cell — see the font notes in CLAUDE.md).
+
+   Measured from the installed font's own tables (advance vs ink bounding box,
+   in em):
+
+       glyph                 advance   ink     left bearing   overflow right
+       md-wifi_strength_*     0.500    0.970       0.000           0.470
+       md-bell / bell_badge   0.500    0.750       0.000           0.250
+       md-shield_lock         0.500    0.750       0.000           0.250
+       md-memory (handle)     0.500    0.750       0.000           0.250
+       md-battery_*           0.500    0.500       0.000           0.000  ✓
+       md-volume_*            0.500    0.376       0.062           0.000  ✓
+
+   Every one starts at the left edge of its cell (left bearing 0) and spills
+   over the RIGHT edge. Pango positions the 0.500em ADVANCE, not the ink, so
+   the visible mass ends up overflow/2 to the right of where the layout thinks
+   the centre is. Battery and volume are symmetric, which is exactly why those
+   two look right and wifi looks wrong.
+
+   The correction is padding, the only lever GTK3 gives us here: extra padding
+   on the right pulls the content box left by half the overflow. Values are
+   overflow/2 × 13px font-size, rounded to the pixel — wifi 0.235em ≈ 3px, the
+   0.250em group ≈ 1.5px → 2px.
+
+   ⚠ Adjust these if the font, its build (Mono vs non-Mono), or the font-size
+   changes — they are derived from all three. Re-measure with fontTools rather
+   than nudging by eye. */
+
+/* ── One box, one oval ─────────────────────────────────────────────────────
+   ⚠ PADDING NOW HAS EXACTLY ONE JOB: WHERE THE GLYPH SITS. IT MUST NOT BE
+   USED TO SPACE CHIPS APART. That is what `margin` is for, below.
+
+   The reason is the hover outline. It is an INSET ring, so it is drawn on the
+   chip's padding-box edge — which means padding stopped being invisible the
+   day the outline oval replaced the pill-growth cue. Every value in here is
+   now on screen, and the old scheme had padding doing two incompatible jobs
+   at once: centring the glyph AND evening the ink-to-ink gaps. Measured on the
+   live bar, that produced
+
+       chip             padding    min-width   outline oval   ink off-centre
+       battery            9 / 2        14         25 x 28          +3.0px
+       idle_inhibitor     9 / 13        —         29 x 28          +0.0px
+       network            8 / 11       20         39 x 28          +0.5px
+       pulseaudio        12 / 9        20         41 x 28          +2.5px
+       custom-notif       10 / 10      26         46 x 28          +1.0px
+
+   i.e. a 21px spread in oval width — the battery's ring was barely over half
+   the hub's — with the glyph sitting up to 3px right of the ring it is
+   supposed to be inside. Both defects are the same cause: the ring traces a
+   box that was never being shaped for the eye.
+
+   So the box is now uniform and the glyph moves inside it:
+
+     · `min-width: 13px` + a padding sum of `18px` on EVERY glyph chip
+       → a 31 x 28 oval, identical for all of them, whatever they print.
+     · the 18px is SPLIT per glyph by that glyph's own ink offset (table
+       above): shifting Npx of padding from left to right pulls the content
+       box Npx left without changing the total, so the ink lands on the ring's
+       centre line and the ring does not move.
+
+   ⚠ THE SUM MUST STAY 18. A chip whose padding does not add to 18, or that
+   sets its own min-width, gets an oval a different size from every other one
+   — which is the exact defect this replaced.
+
+   Measured after: oval width spread 0, ink centred to within ±0.5px —
+   confirmed twice, by ink bounding box and by luminance-weighted centroid,
+   which agree. The status pill is 24px narrower (198 -> 174).
+
+   Reference points for the 31px: the workspace chips' oval measures 25 x 28,
+   and the widest glyph here (the wifi fan, 0.970em ≈ 12.6px of ink) keeps
+   9.2px of air each side. */
+/* ⚠ `#mpris` IS DELIBERATELY NOT IN THIS LIST, even though it does get a hover
+   outline. It prints a track title, so its natural width always exceeds any
+   floor worth setting and it can never share the 31px oval — a text chip is
+   legitimately wider than a glyph chip. Adding it would also put a 31px floor
+   on a module that lives in `group/indicators`, and that pill is required to
+   collapse to nothing when its children are idle (see the `#indicators` note
+   above); waybar hides an empty-format module outright so it would probably be
+   harmless, but there is no reason to find out. `#privacy` is out for the same
+   reason — it renders its own icon row and has no hover rule at all. */
+#idle_inhibitor,
+#pulseaudio,
+#network,
+#battery,
+#custom-notification {
+    /* ⚠ 13, NOT 12, AND THE PARITY IS THE POINT. GTK centres the label in the
+       content box by an INTEGER offset, so with an odd gap between the box and
+       the glyph's 7px natural width it floors and the glyph lands half a pixel
+       left. Measured across all five chips at min-width 12: −0.51 · −0.11 ·
+       −0.74 · −0.53 · −1.14px, a bias in the same direction on every one, which
+       is the signature of a rounding rather than of a bad correction value.
+       13 − 7 = 6 divides evenly and it goes away. Keep (min-width − 7) even. */
+    min-width: 13px;
+    /* ⚠ 5px, PAIRED WITH THE HALVED PADDING BELOW — see the workspace section
+       for the mechanism. Allocation is min-width + padding-sum + margins, and
+       it is unchanged: 13 + 18 + 1 + 1 (before) = 13 + 10 + 5 + 5 (now) = 33.
+       So the pill is the same width, the chips sit in the same places, and the
+       ink-to-ink gaps are the same — the 8px simply moved from padding, where
+       it painted a resting box nobody sees, into margin, where the hover ring
+       can spend it. Measured: pill 173px in both schemes, every chip's ink
+       within 0.26px of where it was. */
+    margin: 4px 5px;
+}
+
+/* ── The per-glyph splits, at rest and on hover ────────────────────────────
+   Left pad = half the sum − offset, right pad = half the sum + offset, where
+   the offset is (ink centre − advance centre) × 13px from the table above,
+   rounded to the pixel.
+
+   ⚠ TWO SUMS NOW, AND BOTH MUST HOLD: 10 at rest, 18 on hover. The OFFSET is
+   identical in both, which is the point — shifting N px from left to right
+   pulls the content box N px left regardless of the total, so the glyph does
+   not move a pixel while the oval grows around it. Measured rest vs hover ink
+   drift across all five chips: +0.00 / +0.02 / −0.20 / +0.26 / −0.01 px.
+   The hover row is exactly the sum-18 split this file has always used, so the
+   hover oval is the same 31 × 28 at the same coordinates as before; all that
+   changed is that the chip now grows into it from 23 instead of starting
+   there. */
+#battery             { padding-left: 5px; padding-right:  5px; }  /* +0.00px — symmetric ink */
+#pulseaudio          { padding-left: 4px; padding-right:  6px; }  /* volume ramp, see below */
+#custom-notification { padding-left: 3px; padding-right:  7px; }  /* bell      +1.62px */
+#idle_inhibitor      { padding-left: 3px; padding-right:  7px; }  /* coffee    +2.16px */
+#network             { padding-left: 2px; padding-right:  8px; }  /* wifi fan  +3.05px */
+
+#battery:hover             { padding-left: 9px; padding-right:  9px; }
+#pulseaudio:hover          { padding-left: 8px; padding-right: 10px; }
+#custom-notification:hover { padding-left: 7px; padding-right: 11px; }
+#idle_inhibitor:hover      { padding-left: 7px; padding-right: 11px; }
+#network:hover             { padding-left: 6px; padding-right: 12px; }
+
+/* ⚠ The volume chip is the one that cannot be exact: its ink offset changes
+   with the level, because the ramp is three different glyphs —
+   low +0.00px · medium +0.40px · high/muted +1.62px. 1px is the compromise
+   (worst case 0.6px out at high). Do not "fix" it to 2px by looking at a
+   screenshot taken at full volume. */
+
+/* ⚠ NO `min-width` BELOW THIS LINE for a chip in the status pill. There used
+   to be an anti-reflow block here pinning battery/notification/network/
+   pulseaudio to 14/26/20/20px — four different floors, and therefore four
+   different oval widths. It is not needed any more: network, pulseaudio and
+   battery are all icon-only and every Nerd Font icon in this font has the same
+   0.500em advance, so those three cannot reflow at all whatever they display.
+   The uniform 13px floor above covers them.
+
+   The one real loser is `custom/notification`, whose format is `{icon}{}` — it
+   genuinely gets wider when a count appears, and the old 26px floor reserved
+   the room so the chip did not jump. It now jumps. That is accepted: the bell
+   simultaneously turns yellow and bold at that moment, so the width change
+   reads as part of one deliberate state change rather than a twitch, and it is
+   the last module in the pill, so nothing to its right moves. */
+
+/* ── Why the chip margins are all still 1px ────────────────────────────────
+   `margin` is the lever for inter-chip spacing now that padding is spoken for,
+   and it is the right one: it sits outside the padding box, so it moves chips
+   apart without touching the oval. It is deliberately NOT being used.
+
+   The gap the eye actually judges is ink-to-ink, and with uniform boxes and
+   centred glyphs it comes out at 23 / 21 / 24 / 24 px — a 3px spread, against
+   the 9px spread (22 · 27 · 25 · 31) that justified tuning this by hand in the
+   first place. Evening the last 3px is not worth it, because the volume glyph
+   moves the gaps by more than that on its own: the ramp is three glyphs whose
+   ink is 4.9 / 7.3 / 9.8px wide, so two of those four gaps swing ±2.4px with
+   nothing but the volume level. Tuning them to the pixel would be tuning to
+   one screenshot of one volume.
+
+   ⚠ If you do reach for it, use `margin-left`/`margin-right`. Never go back to
+   padding — that is the coupling this whole section exists to undo. */
+
+/* End clearance inside the pill is 5px each side (`#status` padding 4 + the
+   chip's own 1px margin) against 2px between chips, and measured symmetric:
+   pill interior 1736..1908, ovals 1741..1771 and 1873..1903. It looks tighter
+   than that at 6x magnification because the pill's 16px corner radius curves
+   away beside the end chips; it is not clipped. */
+
+/* ── Hover ─────────────────────────────────────────────────────────────────
+   ⚠ THE RULE THAT USED TO BE HERE IS DELETED, AND DELETING IT IS THE FIX.
+   It was the leftover of the inset hover underline (removed some time ago) and
+   carried two properties: a `box-shadow` rest value and — the damaging one — a
+   second `transition` list. Being a bare id selector appearing LATER in the
+   file than the shared chip rule, its `transition` overrode that rule's on
+   equal specificity, cutting these chips down to animating background-color
+   and box-shadow only. Padding and margin therefore snapped, which is why the
+   clock's expand had no motion in it at all. The measurement is with the
+   shared rule above.
+   Both properties now live there, once. ⚠ Do not reintroduce a `transition`
+   for these ids anywhere below that rule; if a chip needs different timing,
+   put it on that chip's `:hover` (which is higher specificity and is where the
+   arriving half of the asymmetry belongs anyway).
+
+   Same standing caveat as before on how the hover cue is built: `transform`
+   does not exist in GTK3, so the usual `scale()`/`translateY()` lift is
+   unavailable — and worse, a stray `transform:` invalidates the ENTIRE
+   stylesheet (see the swaync stylesheet header for the measurement). The lift
+   is a drop shadow plus a padding/margin trade instead. */
+
+/* ── Transient indicators ──────────────────────────────────────────────────
+   privacy renders its own icon row and takes no format string, so it is
+   styled purely here. Red is correct and deliberate: something is listening
+   to you or watching your screen. */
+#privacy {
+    padding: 0 6px;
+    color: @red;
+}
+
+#privacy-item.screenshare,
+#privacy-item.audio-in {
+    color: @red;
+}
+
+/* The VPN shield. Green because "up" is the reassuring state, and the module
+   is absent entirely when no tunnel exists — so this only ever renders as
+   good news. */
+/* The shield's ink overflows 0.250em, not the wifi ramp's 0.470em, so it needs
+   a smaller correction than the `#network` split gives it. id+class beats the
+   bare id, so this wins for the VPN instance only — and it keeps the 18px sum,
+   so the shield's oval matches every other chip's. ⚠ No `min-width` override:
+   it would take this one chip off the shared 30px box. */
+#network.vpn {
+    color: @green;
+    padding-left: 3px;   /* shield +1.62px, at the resting sum of 10 */
+    padding-right: 7px;
+}
+
+#network.vpn:hover {
+    padding-left: 7px;   /* same offset, at the hover sum of 18 */
+    padding-right: 11px;
+}
+
+#mpris {
+    color: @subtext;
+    font-style: italic;
+}
+
+#mpris.paused {
+    color: @overlay;
 }
 
 #temperature.critical {
@@ -194,7 +1086,53 @@ window#waybar.empty .modules-center {
     color: @yellow;
 }
 
-#battery                { color: @green; }
+/* Notification bell ----------------------------------------------------- */
+
+/* The class comes straight from swaync's `-swb` JSON, so these names are its
+   vocabulary, not ours: {dnd-,inhibited-,dnd-inhibited-,}{none,notification}.
+   Idle is deliberately the quietest thing in the bar — an indicator that is
+   always lit teaches you to stop seeing it, which defeats the point. */
+/* ⚠ NO `padding` HERE. This rule used to carry `padding: 0 10px`, and because
+   it is a bare id selector appearing LATER in the file than the optical
+   correction, the shorthand silently won on both sides — so the bell's
+   correction was dead code for as long as both existed and the glyph sat
+   off-centre with no sign of why. Same specificity, later wins; a shorthand
+   overrides the longhands. Padding for this chip lives with the other splits,
+   in one place. */
+#custom-notification {
+    color: @subtext;
+}
+
+/* Unread. Accent colour plus bold does the work — no blink. A permanently
+   animating widget in the bar is both distracting and a continuous
+   re-rasterisation cost (see the slider note below); battery-critical is the
+   one exception, because that one genuinely is an emergency. */
+#custom-notification.notification {
+    color: @yellow;
+    font-weight: bold;
+}
+
+/* DND, with and without a backlog. Muted rather than hidden: the whole reason
+   to show a DND state is so a quiet evening does not get mistaken for a broken
+   notification daemon. */
+#custom-notification.dnd-none,
+#custom-notification.dnd-notification,
+#custom-notification.dnd-inhibited-none,
+#custom-notification.dnd-inhibited-notification {
+    color: @overlay;
+    font-weight: normal;
+}
+
+/* An app has taken an inhibitor. Distinct from DND — this one is not something
+   owen chose, so it reads as a state to notice rather than a state to ignore. */
+#custom-notification.inhibited-none,
+#custom-notification.inhibited-notification {
+    color: @peach;
+}
+
+/* Neutral at rest; charging is the one "good news" colour worth spending,
+   because it answers a question you actually ask ("is it taking?"). */
+#battery                { color: @text; }
 #battery.charging       { color: @green; }
 #battery.warning:not(.charging)  { color: @yellow; }
 
@@ -250,6 +1188,25 @@ window#waybar.empty .modules-center {
 #custom-power:hover {
     color: @crust;
     background-color: @red;
+}
+
+/* Tooltips --------------------------------------------------------------- */
+
+/* Now load-bearing, not cosmetic. Stripping the percentages out of the bar
+   moved every exact value in here, so an unstyled tooltip — GTK's default
+   pale-grey box in the system font — would be the most-read and worst-looking
+   surface in the whole setup. Matches the pill: same fill, same hairline,
+   same radius family. */
+tooltip {
+    background-color: @pill;
+    border: 1px solid @pill-border;
+    border-radius: 12px;
+    padding: 2px;
+}
+
+tooltip label {
+    color: @text;
+    padding: 6px 8px;
 }
 
 /* Tray ------------------------------------------------------------------ */

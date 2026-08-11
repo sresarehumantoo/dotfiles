@@ -31,9 +31,15 @@ set $lock    swaylock -f -c 1e1e2e
 # family name), so `pango:Hack` silently fell through to the generic monospace.
 font pango:IosevkaTerm Nerd Font 10
 
-# Titlebars off. With a multi-monitor layout the focused border is the thing
-# you actually read to find focus, and the title is already in waybar's centre
-# pill. Revert with `normal 2`.
+# Titlebars off. Revert with `normal 2`.
+#
+# ⚠ THE WINDOW TITLE IS NOT DISPLAYED ANYWHERE ON THIS DESKTOP, and this comment
+# has now been wrong twice by claiming otherwise. It used to read "the title is
+# already in waybar's centre pill" — true when `modules-center` was
+# `["sway/window"]`, but the centre pill now holds the CLOCK
+# (config/waybar/config), so there is no title anywhere: not in a titlebar, not
+# in the bar. That is deliberate, not an oversight. To get it back, put
+# "sway/window" into modules-center and move the clock to modules-right.
 #
 # NOTE: tabbed ($mod+w) and stacking ($mod+s) layouts still draw titlebars
 # regardless of this setting — that is why the client.* titlebar background
@@ -41,11 +47,90 @@ font pango:IosevkaTerm Nerd Font 10
 default_border          pixel 2
 default_floating_border pixel 2
 
-# smart_gaps OFF, deliberately. It was `on`, which suppresses all gaps when a
-# workspace holds a single window — that would silently cancel the outer gap
-# below and let a lone window sit flush to the screen edge.
+# ⚠ THE FOCUSED BORDER IS HIDDEN WHEN A WORKSPACE HOLDS ONE WINDOW, and that is
+# a deliberate trade — read this before removing the line.
+#
+# What it fixes: with a single window the 2px client.focused border (#89b4fa,
+# plus the #f5e0dc indicator on the split edge) drew a bright blue frame around
+# the whole screen — 2876 border pixels along the top edge alone. Against the
+# swaync control centre, whose outer edge is deliberately square and quiet
+# (config/swaync/style.css), that frame was the loudest thing on screen and read
+# as an outline bolted onto the panel. Measured 2876 -> 0 with this line.
+#
+# Why `smart` and not `default_border none`: borders still appear the moment a
+# workspace holds 2+ windows, which is the case where they earn their keep by
+# showing which pane has focus. Nothing is lost while tiling.
+#
+# ⚠ WHAT IT COSTS, and this comment used to sit above `default_border` claiming
+# the opposite: on a MULTI-MONITOR layout with one window per output there is now
+# no border anywhere, so the focused border can no longer tell you which SCREEN
+# has focus. That cue is gone by choice — owen's call, chosen over both dimming
+# client.focused and dropping borders entirely. If it turns out to matter, the
+# non-destructive alternative is to keep this line off and instead recolour
+# client.focused's border+indicator to a dark surface tone (#313244), which
+# quiets the frame without hiding anything.
+#
+# ⚠ `--i3` MATTERS. Without it sway uses its own semantics for `smart`; the i3
+# flag is the "hide when only one window is visible" behaviour intended here.
+# `smart_no_gaps` is NOT the right value: it additionally requires gaps to be
+# zero, and `gaps inner 8` / `outer 4` below mean it would never trigger.
+hide_edge_borders --i3 smart
+
+# ⚠ smart_gaps IS OFF, AND THIS COMMENT HAS NOW ARGUED BOTH WAYS — do not read
+# an earlier revision as authority. It was OFF (gaps always), then ON ("alone =
+# full bleed"), and is OFF again as of 2026-08-09. The current intent is that a
+# lone window is framed exactly like a tiled one: same 10px gaps, same rounded
+# corners, so splitting a workspace does not restyle the window you were
+# already looking at.
+#
+# ⚠ THE "ALONE = FULL BLEED" SET IS DISSOLVED. Two of its three settings moved
+# together here; the third is deliberately left alone:
+#   · smart_gaps off             here                    — gaps always
+#   · smart_corner_radius disable  config/sway/sway-fx   — rounded always
+#   · hide_edge_borders --i3 smart  above  — LEFT ON, and it is not part of this
+#     any more. It drops the BORDER on a lone window, which is an independent
+#     aesthetic call owen already made (see its own comment); gaps do not
+#     re-justify a bright #89b4fa frame around a single window.
+#
+# smart_corner_radius had exactly one job — a window flush to the screen edge
+# cannot have rounded corners without cutting visible notches out of the display
+# corners. With gaps always on, nothing is ever flush, so the job is gone. Do
+# NOT re-enable it without also setting smart_gaps back on; alone it just
+# squares the corners of a window that has room to be round.
+#
+# `inverse_outer` is the other value worth knowing and is NOT what is wanted: it
+# applies outer gaps ONLY when a workspace has exactly one child, i.e. it would
+# give a lone window MORE gap than a tiled one.
 gaps inner 8
-gaps outer 4
+# ⚠ PER-EDGE, AND THE TOP IS NEGATIVE ON PURPOSE. Outer gaps are IN ADDITION to
+# inner, so the visible gap at an edge is inner + that edge's outer.
+#
+# The target is that every visible gap is the same 10px, including the one
+# between a window and the bar — and that spawning a second window does not
+# move anything. Before this:
+#
+#         left/right/bottom   12   (inner 8 + outer 4)
+#         window vs bar pill  22   (bar's own margin-bottom and the pill's
+#                                   CSS margin sit inside the exclusive zone,
+#                                   and the outer gap stacked on top of them)
+#         one window          10   (smart_gaps, flush to the zone)
+#
+# so the gap above a window JUMPED FROM 10 TO 22 the moment a second window
+# spawned, which is the "feels off when spawned" — and windows sat at x=12
+# while the bar's pills start at x=10, 2px out of line with them.
+#
+# outer 2 makes the three screen-edge gaps 10, which is exactly the bar's own
+# margin-left/right, so windows now line up with the pills above them.
+# top -8 cancels the inner gap at the top entirely, because the air there is
+# ALREADY provided by the bar's margin-bottom (see config/waybar/config) — the
+# outer gap was double-counting it. Windows now start at y=52 whether there is
+# one of them or nine.
+#
+# ⚠ These four are a set with waybar's `margin-bottom` and `margin-left/right`.
+# Change one and re-measure the others; the alignment is the point, not the
+# individual numbers.
+gaps outer 2
+gaps top -8
 smart_gaps off
 
 ### Colours ----------------------------------------------------------------
@@ -125,6 +210,16 @@ bindsym $mod+d      exec $menu
 #   tmux list-keys -T root | grep 'M-'
 bindsym Mod1+space  exec $menu
 bindsym $mod+e      exec nautilus
+# Close the focused window. $mod+Shift+q is the i3/sway default and stays bound
+# for muscle memory; $mod+q is the same command, one key shorter.
+#
+# ⚠ Focused, not hovered — and on this box those differ, because
+# `focus_follows_mouse no` above is deliberate. A keyboard binding cannot target
+# the hovered window: sway exposes no pointer coordinates over IPC, so there is
+# nothing for a helper to query. Mouse bindings are the exception (they act on
+# the container under the pointer), so hover-close, if ever wanted, is
+# `bindsym --whole-window $mod+button2 kill` beside `floating_modifier`.
+bindsym $mod+q       kill
 bindsym $mod+Shift+q kill
 
 ### Focus / movement -------------------------------------------------------
@@ -194,8 +289,33 @@ bindsym $mod+b           splith
 bindsym $mod+v           splitv
 bindsym $mod+s           layout stacking
 bindsym $mod+w           layout tabbed
-bindsym $mod+t           layout toggle split
+# ⚠ `split tabbed`, NOT bare `split`. `layout toggle` takes a LIST and cycles
+# through it; with only `split` it flips splith <-> splitv, which is a different
+# and much less useful thing than what this key looks like it should do. With
+# tabbed in the list, one key flips the focused container between the tiling you
+# built and one-window-fills-it, and back, with the arrangement intact.
+# This is the bar-preserving monocle: unlike $mod+m below it keeps waybar
+# visible, at the cost of the tab title row (which sway cannot hide — neither
+# `default_border none` nor `hide_edge_borders` touch it).
+bindsym $mod+t           layout toggle split tabbed
 bindsym $mod+f           fullscreen
+
+# dwm-style monocle for the focused workspace: the focused window fills the
+# screen and the focus keys cycle which one is showing, with the tiling
+# underneath left completely untouched. Per workspace, so ws1 can be in monocle
+# while ws2 is tiled.
+#
+# ⚠ THIS COVERS WAYBAR, and that is sway's layer ordering rather than a choice
+# here — the bar is `layer: top` and sway renders fullscreen surfaces above that
+# layer. Measured: a fullscreen window's rect is 0,120 1920x1200, the whole
+# output, against 10,172 for a tiled one. $mod+t above is the variant that keeps
+# the bar.
+#
+# ⚠ Absolute path for the same GDM/PATH reason as the brightness keys: sway is
+# started without a login shell, so ~/.local/bin is not on its PATH.
+# Why this needs a program at all — every focus command is a no-op while a
+# window is fullscreen — is measured and written up in config/sway/sway-monocle.
+bindsym $mod+m           exec $HOME/.local/bin/sway-monocle toggle
 bindsym $mod+Shift+space floating toggle
 bindsym $mod+space       focus mode_toggle
 bindsym $mod+a           focus parent
@@ -220,13 +340,45 @@ bindsym $mod+Shift+e exec swaynag -t warning \
     -m 'Exit sway?' -B 'Yes' 'swaymsg exit'
 bindsym $mod+Shift+x exec $lock
 
+### Notifications ---------------------------------------------------------
+# The keyboard route to swaync's control centre; the bell in waybar is the
+# pointer one (see "custom/notification" in config/waybar/config). Before these
+# two existed the panel had no opener at all, so a notification that timed out
+# was simply unrecoverable — the history was being kept and never shown.
+#
+# -sw ("skip wait") makes the client start swaync if it is not running rather
+# than blocking; without it this key does nothing at all on the rare occasion
+# the daemon has died, with no feedback.
+bindsym $mod+n       exec swaync-client -t -sw
+# Push the newest popup off screen without opening the panel — it stays in the
+# control centre, so this is "not now", not "delete". swaync has no hide-all,
+# only hide-latest, so repeated presses peel them off one at a time. Do NOT
+# reach for -C here: that is close-all, which drops them from the history too.
+bindsym $mod+Shift+n exec swaync-client --hide-latest -sw
+
 ### Media / laptop keys ---------------------------------------------------
-bindsym --locked XF86AudioRaiseVolume  exec wpctl set-volume  @DEFAULT_AUDIO_SINK@ 5%+
-bindsym --locked XF86AudioLowerVolume  exec wpctl set-volume  @DEFAULT_AUDIO_SINK@ 5%-
-bindsym --locked XF86AudioMute         exec wpctl set-mute    @DEFAULT_AUDIO_SINK@ toggle
-bindsym --locked XF86AudioMicMute      exec wpctl set-mute    @DEFAULT_AUDIO_SOURCE@ toggle
-bindsym --locked XF86MonBrightnessUp   exec brightnessctl set 5%+
-bindsym --locked XF86MonBrightnessDown exec brightnessctl set 5%-
+# ⚠ Each of these is written as `swayosd-client ... || <fallback>` on purpose.
+# swayosd draws the on-screen level overlay, and it is what makes the bar's
+# missing volume/brightness percentages a feature rather than a loss: the
+# number appears centre-screen exactly while you are changing it. But this repo
+# also configures machines that do not have it, so every key degrades to the
+# old direct command instead of silently doing nothing. Test the fallback by
+# temporarily renaming swayosd-client, NOT by trusting the `||`.
+#
+# ⚠ Do NOT drop the `sh -c`. sway execs the command through /bin/sh already,
+# but `||` inside a bindsym is parsed by sway's own tokenizer first; wrapping
+# it keeps the shell operator with the shell.
+bindsym --locked XF86AudioRaiseVolume  exec sh -c 'swayosd-client --output-volume raise  || wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+'
+bindsym --locked XF86AudioLowerVolume  exec sh -c 'swayosd-client --output-volume lower  || wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%-'
+bindsym --locked XF86AudioMute         exec sh -c 'swayosd-client --output-volume mute-toggle || wpctl set-mute @DEFAULT_AUDIO_SINK@ toggle'
+bindsym --locked XF86AudioMicMute      exec sh -c 'swayosd-client --input-volume mute-toggle  || wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle'
+# ⚠ Brightness does NOT go through swayosd-client directly, unlike volume.
+# swayosd 0.1.0 (Debian trixie) has no minimum and will drive the backlight to
+# 0 — a black screen you then have to fix by feel. sway-brightness owns both
+# the floor and the 0-100 user scale; see its header. Absolute path because GDM
+# starts sway without a login shell, so ~/.local/bin is not on PATH.
+bindsym --locked XF86MonBrightnessUp   exec $HOME/.local/bin/sway-brightness up
+bindsym --locked XF86MonBrightnessDown exec $HOME/.local/bin/sway-brightness down
 bindsym --locked XF86AudioPlay         exec playerctl play-pause
 bindsym --locked XF86AudioNext         exec playerctl next
 bindsym --locked XF86AudioPrev         exec playerctl previous
@@ -247,6 +399,18 @@ for_window [app_id="pavucontrol"]        floating enable
 for_window [app_id="sway-quickpanel"]    floating enable
 for_window [app_id="sway-quickpanel"]    border pixel 2
 for_window [app_id="sway-quickpanel"]    sticky enable
+# ⚠ sway-calendar DELIBERATELY HAS NO for_window RULES, and adding them is a
+# no-op rather than an error. It is a zwlr_layer_shell_v1 surface (like waybar
+# and swaync), not an xdg_toplevel, so it never appears in the window tree and no
+# `[app_id="sway-calendar"]` criteria can ever match it — floating/border/sticky
+# are all meaningless for it, and it gets no client.focused border at all.
+#
+# It began as a plain toplevel with those three rules, exactly like the
+# quickpanel above. The reason it moved: a Wayland client cannot position its own
+# toplevel, so sway placed it mid-screen and a `swaymsg move absolute position`
+# dragged it under the clock a frame later — VISIBLY. A layer surface takes its
+# position from the initial configure, so there is nothing to move. Full write-up
+# in docs/sway.md and the script's docstring.
 for_window [app_id="blueman-manager"]    floating enable
 for_window [app_id="nm-connection-editor"] floating enable
 
@@ -272,19 +436,108 @@ bindswitch --reload --locked lid:on exec $lock
 # in place, and only spawn one if none is running. Never kill-and-respawn.
 # (`||` and `>` below are handled by sh -c, not sway's parser.)
 exec_always pkill -SIGUSR2 -x waybar || waybar     # waybar reloads its config on SIGUSR2
+
+# SwayFX visual effects — blur, rounded corners, shadows, animations.
+#
+# ⚠ THE EFFECTS ARE NOT DIRECTIVES IN THIS FILE, AND MUST NOT BECOME ONE. This
+# config is shared by all three GDM sessions, and plain sway does not ignore an
+# unknown command — it fails the whole config load ("Error(s) loading config!",
+# exit 1) and greets you with a swaynag. The fallback session is the recovery
+# path; it must stay clean. The script applies everything over IPC and no-ops
+# silently when the compositor is not SwayFX. Full reasoning in its header.
+#
+# ⚠ Absolute via $HOME — GDM starts sway without a login shell, so ~/.local/bin
+# is not on the session PATH. Third time this repo has hit that.
+#
+# exec_always, deliberately: `swaymsg reload` resets runtime-applied effects
+# back to what this file says (i.e. none), so re-running here is what makes a
+# reload the correct way to re-apply after editing the script.
+exec_always $HOME/.local/bin/sway-fx
+# The animated workspace row behind waybar's left pill. Owns the single sway
+# subscription and feeds nine `tail -F` clients — see the header of
+# config/sway/sway-workspaces for why it is a server rather than nine
+# subscribers (27 processes on the dock, one per module per bar).
+#
+# ⚠ NO pgrep GUARD — `pgrep -f sway-workspaces` matches the `sh -c` running
+# this very line, the same self-match trap recorded at `exec autotiling` and
+# sway-calendar. The script guards itself with a pidfile and exits 0 if a live
+# server already owns the row, which is what makes it safe under exec_always
+# re-running on every `swaymsg reload`.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-workspaces" ] && "$HOME/.local/bin/sway-workspaces" &'
+
 # swaync, not mako: mako 1.10 has no fade/animation/opacity option of any kind,
 # so notifications could only blink out instantly. swaync animates them
 # (transition-time in config/swaync/config.json).
-# Same reload-else-launch shape as the waybar line above — if swaync-client
-# cannot reach a running daemon the reload fails and the `else` starts one.
-# ⚠ Written as if/then/else, NOT `A && B || swaync`: with that precedence a
+# ⚠ THE CONDITION IS `pgrep`, NOT THE RELOAD'S EXIT CODE. This line used to read
+#     if swaync-client --reload-config; then ... else swaync; fi
+# on the assumption that the reload FAILS when no daemon is running, so the
+# `else` would launch one. It does not fail — it BLOCKS, printing
+#     Could not connect to CC service. Will wait for connection...
+# and waits forever for a daemon that nothing is left to start. So on any
+# session where swaync was not already up, this line hung at login and swaync
+# never started at all: no control centre, and the waybar bell silently doing
+# nothing (its `-sw` gives up rather than launching — see config/waybar/config).
+# Observed live: the hung `swaync-client --reload-config` was still sitting
+# there 24 minutes into the session, sway's exec_always never having returned.
+#
+# Waiting is the documented default; `-sw`/`--skip-wait` is opt-out. So decide
+# on whether the process exists, exactly as the swayosd line below does, and
+# never on what the client returns.
+#
+# ⚠ `-sw` MUST FOLLOW THE ACTION FLAG, not precede it. swaync-client takes one
+# option: `swaync-client -sw --reload-config` prints its usage and exits **0**,
+# which looks like success and reloads nothing. `--reload-config -sw` is right.
+#
+# ⚠ Still if/then/else, NOT `A && B || swaync`: with that precedence a
 # successful --reload-config followed by a FAILED --reload-css (an invalid
 # stylesheet) falls through to `||` and spawns a SECOND daemon alongside the
-# running one. The daemon must be started only when the reload could not
-# reach one at all.
+# running one.
 # ⚠ mako is still INSTALLED as a fallback and its config is still managed. To
 # go back, swap this line for:  exec_always makoctl reload || mako
-exec_always sh -c 'if swaync-client --reload-config; then swaync-client --reload-css; else swaync; fi'
+exec_always sh -c 'command -v swaync >/dev/null 2>&1 || exit 0; if pgrep -x swaync >/dev/null 2>&1; then swaync-client --reload-config -sw && swaync-client --reload-css -sw; else swaync & fi'
+
+# swayosd — the on-screen volume/brightness/caps-lock overlay the media keys
+# above drive. Optional: absent binary means the keys fall back to wpctl and
+# brightnessctl, so this line no-ops rather than erroring.
+#
+# ⚠ Guarded with pgrep rather than the pkill-and-relaunch shape used for
+# waybar. This is exec_always, so it re-runs on every `swaymsg reload`, and
+# swayosd-server holds the layer-shell surface — restarting it on each reload
+# would flash the overlay away mid-use for no benefit. Start-if-absent is
+# enough because the server is stateless.
+exec_always sh -c 'command -v swayosd-server >/dev/null 2>&1 && ! pgrep -x swayosd-server >/dev/null && swayosd-server &'
+
+# sway-calendar as a RESIDENT SERVER, started hidden. Clicking the clock in
+# waybar signals it (SIGUSR1) to toggle, which costs ~65ms instead of the ~366ms
+# a fresh Python+GTK process needs — measured, and 260ms of that is fixed
+# interpreter and GTK init before any of the script's own code runs, so
+# spawn-per-click cannot be made to feel responsive.
+#
+# ⚠ `--anchor` MUST MATCH WHERE THE CLOCK IS in config/waybar/config, because the
+# SERVER owns the geometry now — the click path only delivers a signal and cannot
+# pass an anchor. Clock in modules-center -> `--anchor center`.
+#
+# ⚠ NO pgrep GUARD, deliberately, and do not add one. `pgrep -f sway-calendar`
+# would match the `sh -c` running this very line — the same self-match trap the
+# autotiling comment above records — so it could never fire. The script guards
+# itself instead: `--server` checks its own pidfile and declines to start a second
+# resident instance, which is what makes this safe under `exec_always` re-running
+# on every `swaymsg reload`. Absolute path for the same GDM/PATH reason as the
+# brightness keys.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-calendar" ] && "$HOME/.local/bin/sway-calendar" --server --anchor center &'
+
+# sway-monocle's resident half, bound to $mod+m above. It exists for the events
+# a keybinding cannot see: a window OPENED while monocle is on takes focus but
+# is not fullscreen, so it would appear behind the one that still is, and
+# CLOSING the visible window drops you back to the tiling underneath. The daemon
+# re-shows whatever sway settles focus on, which covers both.
+# ⚠ NO pgrep GUARD, for the same self-match reason as sway-calendar and
+# sway-workspaces above — `pgrep -f sway-monocle` matches this very `sh -c`.
+# `--server` checks its own pidfile and declines to start a second instance,
+# which is what makes this safe under `exec_always` on every reload.
+# ⚠ It also clears its state on startup, so a reload can never leave a
+# workspace marked monocle with nothing actually fullscreen.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-monocle" ] && "$HOME/.local/bin/sway-monocle" --server &'
 
 # Dynamic-tiling approximation over sway IPC — the mitigation for sway being
 # manual-tiling. Comment this out to judge plain sway.
@@ -319,6 +572,29 @@ exec blueman-applet
 # Hand the session env to the portals / systemd user units.
 exec systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
 exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway
+
+# Dark appearance for GTK4/libadwaita apps.
+#
+# ⚠ THIS IS THE HALF THAT config/gtk/*-settings.ini CANNOT DO, and both halves
+# are needed. libadwaita ignores settings.ini for light/dark entirely: it asks
+# the xdg-desktop-portal Settings interface for org.freedesktop.appearance
+# color-scheme. Under sway that interface is served by xdg-desktop-portal-gtk
+# (routed explicitly in config/sway/sway-portals.conf), and the GTK backend
+# answers it by reading exactly this GSettings key. So without this line a
+# libadwaita app opens light no matter what the ini files say. GTK3 apps are the
+# reverse case — they read the ini and ignore this. Hence one of each.
+#
+# ⚠ GSettings IS USER-GLOBAL, NOT SESSION-SCOPED — this is the one thing in this
+# file that outlives the sway session. It writes to dconf, so GNOME picks up the
+# same preference on the next login and stays dark until something changes it
+# back. That is a deliberate accepted side effect (a dark GNOME is wanted too),
+# but it does mean this is NOT of a piece with sway-portals.conf, which really is
+# sway-only. Undo with:
+#     gsettings set org.gnome.desktop.interface color-scheme 'default'
+#
+# exec_always, not exec: cheap, idempotent, and it re-asserts the value after
+# anything else (a GNOME login, a stray `gsettings reset`) has changed it.
+exec_always gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
 
 # swaybar is replaced by waybar; keep this empty block out of the config
 # rather than defining an unused `bar {}`.

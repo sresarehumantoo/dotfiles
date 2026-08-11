@@ -1,0 +1,119 @@
+--- a/src/server/osd_window.rs
++++ b/src/server/osd_window.rs
+@@ -20,6 +20,11 @@
+ 
+ const ICON_SIZE: i32 = 32;
+ 
++/// LOCAL DELTA: fade duration in milliseconds, each way. Short on purpose —
++/// this fires on every key repeat, so anything long enough to notice as an
++/// animation reads as lag on the brightness and volume keys.
++const FADE_MS: f64 = 110.0;
++
+ /// A window that our application can open that contains the main project view.
+ #[derive(Clone, Debug)]
+ pub struct SwayosdWindow {
+@@ -27,6 +32,9 @@
+ 	pub monitor: gdk::Monitor,
+ 	container: gtk::Box,
+ 	timeout_id: Rc<RefCell<Option<glib::SourceId>>>,
++	// LOCAL DELTA: handle for the in-flight opacity animation, so a new press
++	// arriving mid-fade can cancel it rather than fighting it.
++	fade_id: Rc<RefCell<Option<gtk::TickCallbackId>>>,
+ 
+ 	top_margin: f32,
+ }
+@@ -73,6 +81,7 @@
+ 			container,
+ 			monitor: monitor.clone(),
+ 			timeout_id: Rc::new(RefCell::new(None)),
++			fade_id: Rc::new(RefCell::new(None)),
+ 
+ 			top_margin: *top_margin,
+ 		};
+@@ -369,6 +378,63 @@
+ 		}
+ 	}
+ 
++	/// LOCAL DELTA: animate the window's opacity towards `to`, optionally
++	/// hiding it once it arrives. Upstream maps and unmaps the layer-shell
++	/// surface outright, so the overlay pops in and out; there is no fade,
++	/// transition or opacity anywhere in the widget.
++	///
++	/// A tick callback rather than a timer: it is driven by the frame clock, so
++	/// it runs at the monitor's refresh rate and stops cleanly when the surface
++	/// is not being drawn. Any in-flight fade is cancelled first, which is what
++	/// makes a key pressed during the fade-out snap back to full instead of
++	/// racing two animations.
++	fn fade(&self, to: f64, hide_after: bool) {
++		if let Some(id) = self.fade_id.take() {
++			id.remove();
++		}
++
++		let from = self.window.opacity();
++		if (from - to).abs() < 0.001 {
++			if hide_after {
++				self.window.hide();
++			}
++			return;
++		}
++
++		let start = match self.window.frame_clock() {
++			Some(clock) => clock.frame_time(),
++			// Not realised yet, so there is no clock to drive an animation.
++			None => {
++				self.window.set_opacity(to);
++				if hide_after {
++					self.window.hide();
++				}
++				return;
++			}
++		};
++
++		let id = self.window.add_tick_callback(clone!(
++			#[strong(rename_to = fade_id)]
++			self.fade_id,
++			move |win, clock| {
++				// frame_time() is microseconds.
++				let elapsed = (clock.frame_time() - start) as f64 / 1000.0;
++				let t = (elapsed / FADE_MS).clamp(0.0, 1.0);
++				win.set_opacity(from + (to - from) * t);
++
++				if t >= 1.0 {
++					if hide_after {
++						win.hide();
++					}
++					fade_id.replace(None);
++					return glib::ControlFlow::Break;
++				}
++				glib::ControlFlow::Continue
++			}
++		));
++		self.fade_id.replace(Some(id));
++	}
++
+ 	fn run_timeout(&self, duration: &u64) {
+ 		// Hide window after timeout
+ 		if let Some(timeout_id) = self.timeout_id.take() {
+@@ -380,13 +446,21 @@
+ 				#[strong(rename_to = this)]
+ 				self,
+ 				move || {
+-					this.window.hide();
++					// LOCAL DELTA: fade out, then hide.
++					this.fade(0.0, true);
+ 					this.timeout_id.replace(None);
+ 				}
+ 			),
+ 		)));
+ 
++		// LOCAL DELTA: start from transparent only when the overlay is not
++		// already up. While it is up, a repeat press must not restart the fade
++		// from zero — that would strobe the pill on every key repeat.
++		if !self.window.is_visible() {
++			self.window.set_opacity(0.0);
++		}
+ 		self.window.show();
++		self.fade(1.0, false);
+ 	}
+ 
+ 	fn build_icon_widget(&self, icon_name: &str) -> gtk::Image {

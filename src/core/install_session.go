@@ -54,6 +54,16 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 	installMu.Lock()
 	s := &InstallSession{}
 
+	// Published so a module can tell "you asked for me specifically" from
+	// "you asked for everything". Set here rather than in the CLI because
+	// this is the one path both the CLI and the MCP server go through, so
+	// the two cannot drift — the reason this session type exists at all.
+	//
+	// The sway module is the current consumer: installing a compositor and a
+	// bar is right when someone types `install sway`, and wrong to do
+	// silently to a WSL box or a server during `install all`.
+	InstallingAll = opt.All
+
 	if opt.All {
 		invoking := InvokingCloneDir()
 		switch {
@@ -114,6 +124,10 @@ func (s *InstallSession) Finish() {
 	}
 	s.finished = true
 	defer installMu.Unlock()
+	// Reset with the lock still held. Leaving it set would make the NEXT
+	// session inherit this one's answer — in a long-lived MCP process that
+	// is a real sequence, not a hypothetical one.
+	defer func() { InstallingAll = false }()
 
 	if s.doBackup {
 		if err := FinishBackup(); err != nil {

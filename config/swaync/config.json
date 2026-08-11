@@ -38,13 +38,75 @@
   "cssPriority": "user",
 
   "control-center-width": 460,
+  "//97": "⚠ control-center-height IS INERT while fit-to-screen is true above.",
+  "//98": "Measured at 300, 600 and 900 — the panel is 1130px every time",
+  "//99": "(y=61..1190), i.e. the output minus the margins. The 600 below",
+  "//100": "describes nothing; do not reason about the panel's extent from it.",
   "control-center-height": 600,
-  "control-center-margin-top": 8,
-  "control-center-margin-bottom": 8,
-  "control-center-margin-right": 8,
+  "//70": "THE MARGINS ALIGN THE PANEL WITH THE TILED WINDOW, edge for edge, so",
+  "//71": "the panel occupies exactly the band a window would. All derived — re-",
+  "//72": "derive them if waybar's geometry or the gaps in config/sway/config",
+  "//73": "change:",
+  "//74": "  margin-top 0    -> panel top y52 == the window's top edge. ZERO IS",
+  "//75": "                   CORRECT AND NOT AN OVERSIGHT: usable_area.y is",
+  "//76": "                   ALREADY 52, and a tiled window starts at exactly 52",
+  "//77": "                   too (gaps top -8 cancels inner 8). Any margin here",
+  "//78": "                   is pure surplus that drops the panel BELOW the",
+  "//79": "                   window it sits beside.",
+  "//80": "  margin-bottom 10 -> panel last row y1189 == the window's last row.",
+  "//81": "                   Matches the 10px screen-edge gap windows get.",
+  "//82": "  margin-right 10 -> right edge x1909 == the window's right edge, and",
+  "//83": "                   10 IS waybar's own margin-right. One shared inset.",
+  "//84": "⚠ THE OLD DERIVATION HERE WAS ARITHMETICALLY STALE AND IS WHY THE",
+  "//85": "PANEL SAT LOW. It read `panel top y = 47 + margin-top` (table: 0->47,",
+  "//86": "2->49 ... 14->61) and picked 5 to land on y52. The formula is really",
+  "//87": "`usable_area.y + margin-top`, and usable_area.y is 52 — waybar's",
+  "//88": "exclusive zone is height 40 + margin-top 6 + margin-BOTTOM 6, and the",
+  "//89": "margin-bottom was the term left out. So 5 landed the panel on y57, 5px",
+  "//90": "below the window, which is the visible defect. Same error, same cause,",
+  "//91": "in sway-calendar's GAP (was 6, also -> 0). Measure the zone, do not",
+  "//92": "recompute it from the bar's parts.",
+  "//82": "⚠ TWO EARLIER NOTES HERE WERE WRONG ABOUT THIS AND BOTH MISLED VIA A",
+  "//83": "BAD MEASUREMENT. One claimed 14 was a clamp point where the top edge",
+  "//84": "saturates at y58; y58 is really where sway draws the focused window's",
+  "//85": "client.focused border (46 + gaps outer 4 + gaps inner 8) and that row",
+  "//86": "never moves, so taking `topmost row that isn't background` as the",
+  "//87": "panel edge read 58 for every value. Identify the panel by COLOUR —",
+  "//88": "@panel over dark content reads (24,24,36) — and across a WIDE row",
+  "//89": "run, not one column: a single-column probe at x=1700 also produced a",
+  "//90": "fake clamp (6 and 8 both reading y60) later in this same work.",
+  "//91": "⚠ THE OTHER SAID 14 WAS REQUIRED, to keep the panel clear of those",
+  "//92": "border rows so the corner radius could not leak them. That constraint",
+  "//93": "IS GONE — style.css now squares all four corners, so there is no",
+  "//94": "cut-out and the panel simply covers the border uniformly. Covering it",
+  "//95": "is in fact BETTER: at margin-top 14 a bright blue line sat in the gap",
+  "//96": "between bar and panel (y58 reads 177 in blue); at 5 the panel covers",
+  "//97": "it and it reads 49. Corner leaks stay 0 at every margin tested.",
+  "//101": "⚠ STILL DO NOT REACH FOR THE MARGINS TO FIX A CORNER ARTIFACT while",
+  "//102": "any corner is rounded — @panel is 94% opaque and is what HIDES the",
+  "//103": "window border; moving the panel off it restores it to full strength.",
+  "//104": "With radius 18px, margin-right 14/16/20 took the corner from 11 to 60",
+  "//105": "cream pixels. Square the corner instead. Full write-up: the RESOLVED",
+  "//106": "section at the end of docs/sway.md.",
+  "control-center-margin-top": 0,
+  "control-center-margin-bottom": 10,
+  "control-center-margin-right": 10,
   "control-center-margin-left": 0,
 
-  "widgets": ["title", "dnd", "notifications"],
+  "//10": "Order is the on-screen order, top to bottom. `notifications` is",
+  "//11": "placed last deliberately — it is the only widget that grows, so",
+  "//12": "anything below it would be pushed off a full backlog.",
+  "widgets": [
+    "title",
+    "dnd",
+    "buttons-grid",
+    "volume",
+    "backlight",
+    "system-stats",
+    "mpris",
+    "inhibitors",
+    "notifications"
+  ],
   "widget-config": {
     "title": {
       "text": "Notifications",
@@ -53,6 +115,121 @@
     },
     "dnd": {
       "text": "Do not disturb"
+    },
+
+    "//13": "Every command here was checked against what is actually installed",
+    "//14": "on this box — pavucontrol, wlogout, swappy and hyprpicker are NOT,",
+    "//15": "so no button calls them. swaync runs these through `sh -c`, which",
+    "//16": "is why $(slurp), the pipe and $HOME all work.",
+    "//17": "The `swaync-client -cp` prefix closes the panel first: the control",
+    "//18": "centre is a layer-shell surface holding keyboard focus, so slurp's",
+    "//19": "region select and swaylock both come up underneath it otherwise.",
+    "buttons-grid": {
+      "actions": [
+        {
+          "label": "󰩭",
+          "command": "swaync-client -cp; sleep 0.2; grim -g \"$(slurp)\" - | wl-copy"
+        },
+        {
+          "label": "󰹑",
+          "command": "swaync-client -cp; sleep 0.2; grim - | wl-copy"
+        },
+        {
+          "label": "󰌾",
+          "command": "swaync-client -cp; swaylock -f -c 1e1e2e"
+        },
+        {
+          "label": "󰖩",
+          "command": "swaync-client -cp; nm-connection-editor"
+        },
+        {
+          "label": "󰂯",
+          "command": "swaync-client -cp; blueman-manager"
+        },
+        {
+          "label": "󰐥",
+          "command": "swaync-client -cp; $HOME/.local/bin/sway-powermenu"
+        }
+      ]
+    },
+
+    "//20": "These two sliders do NOT hit the bug that killed waybar's in-bar",
+    "//21": "sliders. That was waybar's ASlider calling set_value() on the very",
+    "//22": "widget under the pointer with no drag interlock (see the WHY THIS",
+    "//23": "EXISTS block in config/sway/sway-quickpanel). swaync drives a plain",
+    "//24": "GtkScale and does not write back mid-drag, so dragging is precise.",
+    "//25": "sway-quickpanel therefore still exists but is no longer the only",
+    "//26": "way to drag these — it stays because it is one keystroke away and",
+    "//27": "does not require opening a full panel.",
+    "volume": {
+      "label": "󰕾",
+      "//": "Per-app sliders are off: on this box the list is usually one",
+      "//1": "entry, and an empty section reads as a rendering fault.",
+      "show-per-app": false
+    },
+    "//32": "⚠ `min` IS THE WHOLE REASON THIS WIDGET IS SAFE TO ENABLE. Without",
+    "//33": "it swaync writes the raw sysfs percent straight through, so dragging",
+    "//34": "to the bottom takes the panel fully black — the one thing the floor",
+    "//35": "exists to prevent, and hard to undo when you cannot see the screen.",
+    "//36": "With it, `slider.set_range(min, 100)` makes the bottom of the track",
+    "//37": "unreachable below 5 — the SAME model sway-quickpanel uses (its scale",
+    "//38": "is also real units clamped at BRIGHTNESS_MIN, with the 0-100 user",
+    "//39": "scale applied only to the label). 5 must match BRIGHTNESS_MIN in",
+    "//40": "sway-quickpanel and FLOOR in sway-brightness — three copies, change",
+    "//41": "all three together or the slider and the keys disagree about the",
+    "//42": "bottom.",
+    "//43": "AND THE FALSE ZERO COMES FREE WITH IT — this was not obvious and is",
+    "//44": "worth not re-deriving. `min` moves the GtkAdjustment's LOWER bound,",
+    "//45": "not just a clamp on writes, and GtkScale places the handle at",
+    "//46": "(value - lower) / (upper - lower). So the track itself becomes the",
+    "//47": "user scale: hard left IS real 5%, hard right is 100%, linear between",
+    "//48": "— algebraically the same map as FLOOR + user*(100-FLOOR)/100 in",
+    "//49": "sway-brightness. Measured, not assumed: with the hardware forced to",
+    "//50": "3% the handle clamps to lower and lands at x=1501, the exact pixel",
+    "//51": "where the volume slider (range 0..100) sits at 0.",
+    "//52": "The one thing left un-remapped is the DRAG TOOLTIP, which prints the",
+    "//53": "real percent (5..100). Nothing else shows a number — the widget calls",
+    "//54": "set_draw_value(false).",
+    "//55": "⚠ DO NOT reach for a newer swaync for that tooltip. Upstream main is",
+    "//56": "identical here apart from the GTK4 port (append vs pack_start): same",
+    "//57": "`min`, same raw write, same real-percent tooltip. Fixing one tooltip",
+    "//58": "would mean forking Vala and carrying a build.",
+    "backlight": {
+      "label": "󰃠",
+      "device": "intel_backlight",
+      "min": 5
+    },
+
+    "//59": "⚠ `system-stats` IS NOT AN UPSTREAM WIDGET. It is a local delta,",
+    "//60": "carried as config/sway/swaync-system-stats.patch and rebuilt from",
+    "//61": "the Debian source — see docs/sway.md. swaync 0.11 has no widget",
+    "//62": "that can show a CHANGING value: `label` takes a static `text` and",
+    "//63": "there is no exec-and-refresh anywhere in the widget set, so the",
+    "//64": "cpu/memory/temperature readouts could not leave the status bar",
+    "//65": "without turning into stale text. If swaync is ever upgraded from",
+    "//66": "the Debian package, this widget disappears and swaync logs",
+    "//67": "\"Could not find widget\" — re-apply the patch or drop the entry",
+    "//68": "from the widgets list above.",
+    "//69": "Polling is tied to panel visibility, so a closed panel costs zero.",
+    "system-stats": {
+      "label": "System",
+      "interval": 2,
+      "critical-temperature": 85
+    },
+
+    "mpris": {
+      "image-size": 60,
+      "blur-image": false
+    },
+
+    "//28": "Shows apps that have suppressed notifications, with a way to clear",
+    "//29": "them. Nothing on this box registers one today, and swaync hides",
+    "//30": "the widget entirely when the list is empty — so it costs nothing",
+    "//31": "until the day something goes quiet and the reason is not obvious.",
+    "inhibitors": {
+      "text": "Inhibitors",
+      "button-text": "Clear all",
+      "clear-all-button": true
     }
   }
 }

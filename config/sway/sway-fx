@@ -1,0 +1,200 @@
+#!/bin/bash
+# sway-fx — apply the SwayFX visual effects, at runtime, only under SwayFX.
+# Managed by dfinstall (modules/sway.go), linked to ~/.local/bin/sway-fx.
+# Run from `exec_always` in config/sway/config.
+#
+# ############################################################################
+# #  WHY THIS IS A SCRIPT AND NOT LINES IN config/sway/config                #
+# #                                                                          #
+# #  The sway config is SHARED by three GDM sessions — SwayFX, Sway (0.19 /  #
+# #  DisplayLink) and trixie's Sway. Every directive below is unknown to     #
+# #  plain sway, and it does NOT ignore them: measured on /opt/sway-next,    #
+# #  `blur enable` gives                                                     #
+# #      [ERROR] Error on line 1 'blur enable': Unknown/invalid command      #
+# #  and the run ends with "Error(s) loading config!", exit 1 — i.e. a       #
+# #  swaynag "There are errors in your config file" on every login to the    #
+# #  fallback session. The fallback is the recovery path; greeting it with   #
+# #  an error banner is exactly wrong.                                       #
+# #                                                                          #
+# #  An `include` of a glob that matches nothing IS silent (measured: exit   #
+# #  0, no output), so a conditional include would work — but nothing can    #
+# #  populate the directory per-session without a wrapper, and the bare      #
+# #  "Sway" GDM entry has no wrapper to hook. Applying at runtime needs      #
+# #  neither: the directives are simply never sent.                          #
+# ############################################################################
+#
+# Tuning: edit, then `swaymsg reload` (exec_always re-runs this). Every value
+# here also applies live from a terminal — `swaymsg blur_passes 3` — which is
+# how these were chosen, and it costs nothing to try.
+set -uo pipefail
+
+# ── Is this SwayFX? ────────────────────────────────────────────────────────
+# `sway_original_version` is the tell: SwayFX reports its own version in
+# `human_readable` (0.6) and the sway it is based on separately. Plain sway has
+# no such key. Do NOT key on `variant`, which is the string "sway" on BOTH.
+if ! swaymsg -t get_version 2>/dev/null | grep -q '"sway_original_version"'; then
+    exit 0
+fi
+
+fx() {
+    # A rejected directive must not abort the rest — a future SwayFX may rename
+    # one, and losing every later effect to that would be silent and annoying.
+    swaymsg "$@" >/dev/null 2>&1 || echo "sway-fx: rejected: $*" >&2
+}
+
+# ── Windows ────────────────────────────────────────────────────────────────
+fx corner_radius 12
+# ⚠ DISABLED ON PURPOSE (2026-08-09), and it must stay in step with `smart_gaps`
+# in config/sway/config. `enable` squares the corners of a window that is alone
+# or tiled full — which was right only while `smart_gaps on` made such a window
+# flush to the screen edge, where rounded corners cut visible notches out of the
+# display corners. smart_gaps is now off, so nothing is ever flush and every
+# window keeps the radius. Re-enabling this without also re-enabling smart_gaps
+# just squares a window that has the room to be round.
+fx smart_corner_radius disable
+fx shadows enable
+fx shadow_blur_radius 20
+fx shadow_color '#00000066'
+
+# ⚠ NOT `default_dim_inactive`. Tried and rejected: this desktop hides the
+# focused border entirely (`hide_edge_borders --i3 smart`), so dimming would
+# become the ONLY focus cue — and it dims the terminal you are reading the
+# moment focus moves to a dialog. Left at 0; re-add per-window if ever wanted.
+
+# ── Blur ───────────────────────────────────────────────────────────────────
+# ⚠ THESE ARE GLOBAL. `layer_effects` can switch blur on or off per namespace
+# but CANNOT override strength — passes/radius/noise/brightness/contrast/
+# saturation are one setting for the whole compositor.
+fx blur enable
+fx blur_passes 2                   # 2/2 is the balanced setting; 3+ costs real GPU
+fx blur_radius 3
+fx blur_noise 0.02                 # kills banding on large flat pills
+fx blur_contrast 1.0
+
+# ⚠ blur_brightness MUST STAY AT 1.0. IT IS NOT A BRIGHTNESS DIAL YOU CAN
+# SPEND — ABOVE 1.0 IT MAKES THE BLUR REGION'S OWN BOUNDARY VISIBLE.
+#
+# The blur region is a RECTANGLE. It does not follow the pill's rounded corners,
+# and `blur_ignore_transparent` does not confine it. At 1.0 that is invisible,
+# because the blurred area and its surroundings are the same backdrop. Push
+# brightness up and the rectangle lights up as a grey block with square corners
+# sitting behind a rounded pill — the exact straight-edge-against-a-curve
+# mismatch this desktop has been burned by before.
+#
+# Measured on the bar, luminance of the strip just outside the pill minus bare
+# wallpaper:
+#     blur_brightness 1.0   ->   -2.8   (invisible)
+#     blur_brightness 1.1   ->  +16.3   (visible)
+#     blur_brightness 1.25  ->  +45.0   (a grey block)
+# Isolated by elimination: the halo survives `shadows disable` and
+# `corner_radius 0`, and vanishes only with `blur disable`.
+#
+# ⚠ HISTORY, so this is not "fixed" back: 1.25 was set to compensate for a
+# near-black wallpaper (13/255 under the bar) that left the pills nearly
+# invisible at 1.0. That trade is not available — it buys pill definition with a
+# visible rectangle. The correct fix was the WALLPAPER, and it was changed
+# (2026-08-08, ~57 luminance under the bar); the pills now tint to what is
+# behind them at 1.0, which is the effect that was wanted all along. If a dark
+# wallpaper ever comes back, lower the pill ALPHA in config/waybar/style.css —
+# never this. See ~/Pictures/wallpapers/README.md.
+#
+# Saturation is safe to spend: it scales colour rather than lifting the whole
+# region, so it cannot expose the boundary the way brightness does.
+fx blur_brightness 1.0
+fx blur_saturation 1.2
+
+# ⚠ blur_xray DELIBERATELY OFF. It makes blur sample only the wallpaper,
+# ignoring windows below — so a bar over a maximised terminal would show
+# blurred wallpaper it is not actually in front of. Off matches what macOS and
+# GNOME do: blur whatever is really underneath.
+fx blur_xray disable
+
+# ── Animations (new in SwayFX 0.6) ─────────────────────────────────────────
+# ⚠ ONE KNOB. There is no easing curve and no per-effect control — this single
+# duration drives open/close, move/resize AND workspace switching. Do not go
+# looking for a bezier. 250 is upstream's recommendation.
+fx animation_duration_ms 250
+
+# ── Layer surfaces ─────────────────────────────────────────────────────────
+# Namespaces read LIVE from `swaymsg -t get_outputs` under SwayFX (which gains
+# a `layer_shell_surfaces` array plain sway does not have), not guessed:
+#
+#   waybar · swaync-control-center · swaync-notification-window · launcher
+#   (fuzzel) · swayosd · sway-calendar · wallpaper (swaybg)
+#
+# ⚠ `wallpaper` is swaybg and must NEVER be blurred — it is what everything
+# else is sampling.
+#
+# ⚠ `sway-calendar` only reports that name because the script now sets it
+# explicitly. It used to come up as the generic `gtk-layer-shell`: its own
+# comment claimed sway derives a layer namespace from prgname, and that is
+# false — GtkLayerShell supplies its own default and never consults prgname.
+# `GtkLayerShell.set_namespace()` is what fixes it, and the two must stay in
+# step: rename it there and this rule silently stops matching, leaving the
+# calendar the one panel on the desktop with no blur.
+#
+# ⚠ Waybar TOOLTIPS are not covered by any of this. They are separate GTK
+# surfaces, not part of the `waybar` layer, so layer_effects cannot reach them
+# (upstream Waybar #3450, unanswered). Keep tooltip styling opaque.
+#
+# `blur_ignore_transparent` matters on waybar specifically: the bar window is
+# fully transparent between the three pills, and without it the compositor
+# blurs those empty gaps too — producing a faint full-width band where the
+# design calls for three separate floating islands.
+fx layer_effects '"waybar"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
+# ⚠ BLUR IS OFF FOR BOTH swaync SURFACES, DELIBERATELY — DO NOT "RESTORE" IT.
+# The blur writes OUTSIDE the panel's opaque region: with the control centre
+# open, text roughly 100px to its LEFT is visibly smeared, on a surface that is
+# much wider than the panel it draws (swaync's window/.background are already
+# `background: transparent`, so this is spill, not a stray background).
+# `blur_ignore_transparent` is on and does not confine it, and blur STRENGTH is
+# global — it cannot be softened for this namespace without softening waybar too.
+#
+# And it buys nothing: `@panel` in config/swaync/style.css is rgba(...,0.94), so
+# only 6% of the backdrop shows through the panel at all. Blur behind a 94%
+# opaque surface is imperceptible, while the spill beside it is not. If the panel
+# is ever made genuinely translucent, re-measure the spill before turning this
+# back on.
+# ⚠ SHADOWS ARE OFF FOR BOTH PANELS, AND corner_radius IS INERT ON BOTH — one
+# cause: SwayFX applies these to the layer SURFACE, and neither surface is the
+# size of the panel it draws. swaync's is much larger; sway-calendar's spans the
+# whole usable area so a click outside the panel can dismiss it.
+#
+# `corner_radius` therefore rounds something invisible (proven by elimination:
+# while the CSS said `border-radius: 0` the corners measured square with this
+# line active). Harmless, kept only so the namespace list reads uniformly.
+#
+# `shadows` was NOT harmless. It drew the shadow around the SURFACE, so it
+# landed as a ~10px FULL-WIDTH BAND under the bar, in the gap between waybar and
+# the window — nothing to do with the panel's own outline, and the giveaway was
+# that both panels darkened that band by the identical amount (-8.30 / -9.01 /
+# -5.94 across three regions) despite being completely different sizes. Off, it
+# is +0.00. The panels now cast their shadows from CSS, where the shape is the
+# actual panel: `.control-center` in config/swaync/style.css and `box.calendar`
+# in config/sway/sway-calendar.
+#
+# ⚠ Those CSS shadows include a 0-offset halo that is load-bearing, not
+# decoration — it dims the few pixels outside the rounded corners where a
+# cut-out would otherwise expose the focused window's border. Removing the
+# compositor shadow without adding it took the bottom-right corner from 0 leaked
+# pixels to 4. Do not trim it back to just the offset shadows.
+fx layer_effects '"swaync-control-center"' '"blur disable; corner_radius 12; shadows disable"'
+fx layer_effects '"swaync-notification-window"' '"blur disable; corner_radius 12; shadows enable"'
+fx layer_effects '"launcher"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
+fx layer_effects '"swayosd"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
+# ⚠ SAME AS swaync ABOVE — read that comment. This surface spans the whole usable
+# area, so `corner_radius` rounds the screen (invisible) and `shadows` drew a
+# full-width band under the bar rather than around the calendar. Both now come
+# from `box.calendar` in config/sway/sway-calendar.
+#
+# ⚠ BLUR IS OFF, AND IT HAD TO GO THE MOMENT THE PANEL GREW A CSS SHADOW. The
+# compositor blurs every not-fully-transparent pixel, so a soft `0 12px 36px`
+# shadow hands it a ~36px ring of barely-transparent pixels and the blur region
+# grows to the shadow's whole extent — measured: the wallpaper for ~40px around
+# the calendar went visibly out of focus, which the sharp-cornered version never
+# did. Same cause as the bar's pills (config/waybar/style.css) and swaync.
+# Nothing is lost: `box.calendar` is 0.94 opaque, so blur behind it was already
+# imperceptible — the identical argument that turned blur off for swaync. If the
+# panel is ever made genuinely translucent, re-measure the spill before turning
+# this back on.
+fx layer_effects '"sway-calendar"' '"blur disable; corner_radius 14; shadows disable"'

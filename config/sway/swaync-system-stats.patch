@@ -1,0 +1,397 @@
+diff --color -Naur '--exclude=build' '--exclude=.pc' '--exclude=debian' pristine/src/controlCenter/widgets/factory.vala sway-notification-center-0.11.0/src/controlCenter/widgets/factory.vala
+
+⚠ UPDATED: the widget now also shows BATTERY. The bar dropped its battery
+percentage (config/waybar/config), so this is where the number lives — the
+same "one predictable click away" rule the status readouts already follow.
+The glyph ramp here must stay in step with the bar's `format-icons`; the bar
+and the panel disagreeing about the same charge is worse than either choice.
+Auto-detection deliberately skips scope=Device supplies, because this box
+exposes a Logitech mouse as a second type=Battery.
+
+--- a/src/controlCenter/widgets/factory.vala
++++ b/src/controlCenter/widgets/factory.vala
+@@ -37,6 +37,10 @@
+             case "inhibitors":
+                 widget = new Inhibitors (suffix, swaync_daemon, noti_daemon);
+                 break;
++            // LOCAL DELTA — live cpu/memory/temperature readout.
++            case "system-stats":
++                widget = new SystemStats (suffix, swaync_daemon, noti_daemon);
++                break;
+             default:
+                 warning ("Could not find widget: \"%s\"!", key);
+                 return null;
+--- a/src/controlCenter/widgets/systemStats/systemStats.vala
++++ b/src/controlCenter/widgets/systemStats/systemStats.vala
+@@ -0,0 +1,359 @@
++using GLib;
++
++namespace SwayNotificationCenter.Widgets {
++    /**
++     * LOCAL DELTA — not upstream.
++     *
++     * A live CPU / memory / temperature readout for the control centre.
++     * Upstream has no widget that can show a changing value: `label` takes a
++     * static `text` string and nothing else, and there is no exec-and-refresh
++     * mechanism anywhere in the widget set. This exists so the hardware
++     * readouts can leave the status bar without becoming stale text.
++     *
++     * ⚠ POLLING IS TIED TO PANEL VISIBILITY. `on_cc_visibility_change` starts
++     * the timer when the control centre opens and removes it when it closes,
++     * so a closed panel costs nothing. This is the same contract the backlight
++     * widget uses for its sysfs monitor; a widget that polled unconditionally
++     * would burn a wakeup every interval for a surface nobody is looking at.
++     */
++    public class SystemStats : BaseWidget {
++        public override string widget_name {
++            get {
++                return "system-stats";
++            }
++        }
++
++        Gtk.Label label_widget = new Gtk.Label (null);
++        Gtk.Label cpu_label = new Gtk.Label (null);
++        Gtk.Label mem_label = new Gtk.Label (null);
++        Gtk.Label temp_label = new Gtk.Label (null);
++        Gtk.Label batt_label = new Gtk.Label (null);
++
++        uint timeout_id = 0;
++        int interval = 2;
++        int critical_temp = 85;
++        string temp_path = "";
++        string batt_path = "";
++
++        // Previous /proc/stat totals. CPU use is only meaningful as a delta
++        // between two samples -- the file holds cumulative jiffies since boot,
++        // so a single read reports the average since power-on, which barely
++        // moves and looks broken.
++        uint64 prev_idle = 0;
++        uint64 prev_total = 0;
++
++        public SystemStats (string suffix, SwayncDaemon swaync_daemon, NotiDaemon noti_daemon) {
++            base (suffix, swaync_daemon, noti_daemon);
++
++            string label_text = "System";
++            Json.Object ? config = get_config (this);
++            if (config != null) {
++                string ? l = get_prop<string> (config, "label");
++                if (l != null) label_text = l;
++
++                bool found;
++                int i = get_prop<int> (config, "interval", out found);
++                if (found && i > 0) interval = i;
++
++                int c = get_prop<int> (config, "critical-temperature", out found);
++                if (found && c > 0) critical_temp = c;
++
++                string ? tp = get_prop<string> (config, "temperature-path");
++                if (tp != null) temp_path = tp;
++
++                string ? bp = get_prop<string> (config, "battery-path");
++                if (bp != null) batt_path = bp;
++            }
++
++            if (temp_path.length == 0) temp_path = find_temp_path ();
++            if (batt_path.length == 0) batt_path = find_battery_path ();
++
++            label_widget.set_label (label_text);
++            label_widget.set_halign (Gtk.Align.START);
++
++            cpu_label.get_style_context ().add_class ("system-stats-cpu");
++            mem_label.get_style_context ().add_class ("system-stats-memory");
++            temp_label.get_style_context ().add_class ("system-stats-temperature");
++            batt_label.get_style_context ().add_class ("system-stats-battery");
++
++            Gtk.Box readouts = new Gtk.Box (Gtk.Orientation.HORIZONTAL, 12);
++            readouts.set_halign (Gtk.Align.END);
++            readouts.set_hexpand (true);
++            readouts.pack_start (cpu_label, false, false, 0);
++            readouts.pack_start (mem_label, false, false, 0);
++            if (temp_path.length > 0) readouts.pack_start (temp_label, false, false, 0);
++            if (batt_path.length > 0) readouts.pack_start (batt_label, false, false, 0);
++
++            add (label_widget);
++            pack_start (readouts, true, true, 0);
++
++            // Prime the CPU delta so the first visible sample is a real
++            // measurement rather than the since-boot average.
++            uint64 idle, total;
++            if (read_cpu (out idle, out total)) {
++                prev_idle = idle;
++                prev_total = total;
++            }
++            update ();
++
++            show_all ();
++        }
++
++        /**
++         * ⚠ Resolve the coretemp DEVICE directory, never /sys/class/hwmon.
++         * hwmonN numbering is assigned in probe order and shifts between boots,
++         * so a path captured once silently starts pointing at the wrong sensor
++         * -- or at nothing. config/waybar/config carries the same warning for
++         * the same reason. coretemp.0 has exactly one hwmon child, whose
++         * temp1_input is "Package id 0".
++         */
++        string find_temp_path () {
++            string base_dir = "/sys/devices/platform/coretemp.0/hwmon";
++            try {
++                Dir dir = Dir.open (base_dir);
++                string ? name;
++                while ((name = dir.read_name ()) != null) {
++                    string candidate = Path.build_filename (base_dir, name, "temp1_input");
++                    if (FileUtils.test (candidate, FileTest.EXISTS)) return candidate;
++                }
++            } catch (Error e) {
++                debug ("system-stats: no coretemp hwmon: %s", e.message);
++            }
++            return "";
++        }
++
++        /**
++         * ⚠ Pick a SYSTEM battery, never a device one. This box exposes two
++         * power supplies of type Battery: the laptop cell (scope absent or
++         * "System") and a Logitech mouse on a Powerplay mat (scope "Device",
++         * pinned near 80% forever). Auto-detection that takes the first
++         * type=Battery it finds can land on the mouse and report its charge as
++         * the laptop's -- config/waybar/config pins `bat` explicitly for the
++         * same reason.
++         */
++        string find_battery_path () {
++            string base_dir = "/sys/class/power_supply";
++            try {
++                Dir dir = Dir.open (base_dir);
++                string ? name;
++                while ((name = dir.read_name ()) != null) {
++                    string cand = Path.build_filename (base_dir, name);
++                    string t;
++                    if (!read_first_line (Path.build_filename (cand, "type"), out t)) continue;
++                    if (t.strip () != "Battery") continue;
++                    string scope;
++                    if (read_first_line (Path.build_filename (cand, "scope"), out scope)
++                        && scope.strip () == "Device") continue;
++                    if (!FileUtils.test (Path.build_filename (cand, "capacity"), FileTest.EXISTS)) continue;
++                    return cand;
++                }
++            } catch (Error e) {
++                debug ("system-stats: no battery: %s", e.message);
++            }
++            return "";
++        }
++
++        int battery_percent () {
++            string line;
++            if (!read_first_line (Path.build_filename (batt_path, "capacity"), out line)) return -1;
++            return int.parse (line.strip ());
++        }
++
++        bool battery_charging () {
++            string line;
++            if (!read_first_line (Path.build_filename (batt_path, "status"), out line)) return false;
++            string st = line.strip ();
++            return st == "Charging" || st == "Full";
++        }
++
++        unichar battery_icon (int pct, bool charging) {
++            if (charging) return ICON_BATT_CHARGING;
++            if (pct < 10) return ICON_BATT_OUTLINE;
++            if (pct > 90) return ICON_BATT_FULL;
++            // 10..90 -> one of nine glyphs, same ~9% buckets the bar uses.
++            int idx = (pct / 10) - 1;
++            if (idx < 0) idx = 0;
++            if (idx >= ICON_BATT.length) idx = ICON_BATT.length - 1;
++            return ICON_BATT[idx];
++        }
++
++        bool read_first_line (string path, out string line) {
++            line = "";
++            try {
++                string contents;
++                if (!FileUtils.get_contents (path, out contents)) return false;
++                string[] lines = contents.split ("\n");
++                if (lines.length == 0) return false;
++                line = lines[0];
++                return true;
++            } catch (Error e) {
++                return false;
++            }
++        }
++
++        bool read_cpu (out uint64 idle_out, out uint64 total_out) {
++            idle_out = 0;
++            total_out = 0;
++            string line;
++            if (!read_first_line ("/proc/stat", out line)) return false;
++            // "cpu  user nice system idle iowait irq softirq steal guest guest_nice"
++            string[] parts = Regex.split_simple ("\\s+", line.strip ());
++            if (parts.length < 5 || parts[0] != "cpu") return false;
++
++            uint64 total = 0;
++            uint64 idle = 0;
++            for (int i = 1; i < parts.length; i++) {
++                uint64 v = uint64.parse (parts[i]);
++                total += v;
++                // Fields 4 and 5 are idle and iowait; both count as not-busy.
++                if (i == 4 || i == 5) idle += v;
++            }
++            idle_out = idle;
++            total_out = total;
++            return true;
++        }
++
++        int cpu_percent () {
++            uint64 idle, total;
++            if (!read_cpu (out idle, out total)) return -1;
++
++            uint64 d_total = total - prev_total;
++            uint64 d_idle = idle - prev_idle;
++            prev_idle = idle;
++            prev_total = total;
++
++            if (d_total == 0) return -1;
++            double busy = ((double) (d_total - d_idle)) / ((double) d_total);
++            return (int) Math.round (busy * 100.0);
++        }
++
++        int mem_percent () {
++            string contents;
++            try {
++                if (!FileUtils.get_contents ("/proc/meminfo", out contents)) return -1;
++            } catch (Error e) {
++                return -1;
++            }
++            uint64 total = 0;
++            uint64 available = 0;
++            foreach (string line in contents.split ("\n")) {
++                if (line.has_prefix ("MemTotal:")) {
++                    total = uint64.parse (Regex.split_simple ("\\s+", line)[1]);
++                } else if (line.has_prefix ("MemAvailable:")) {
++                    // MemAvailable, not MemFree: free excludes reclaimable page
++                    // cache, so it reports a machine with a warm cache as
++                    // nearly full. MemAvailable is the kernel's own estimate of
++                    // what a new allocation could actually get, and is what
++                    // every sane monitor reports.
++                    available = uint64.parse (Regex.split_simple ("\\s+", line)[1]);
++                }
++                if (total > 0 && available > 0) break;
++            }
++            if (total == 0) return -1;
++            double used = ((double) (total - available)) / ((double) total);
++            return (int) Math.round (used * 100.0);
++        }
++
++        int temp_celsius () {
++            if (temp_path.length == 0) return -1000;
++            string line;
++            if (!read_first_line (temp_path, out line)) return -1000;
++            // hwmon reports millidegrees.
++            return (int) Math.round (double.parse (line.strip ()) / 1000.0);
++        }
++
++        /**
++         * ⚠ The icon glyphs are written as codepoints rather than pasted in.
++         * (The degree sign below is left literal -- it is Latin-1 and carries
++         * none of the risk described here.) Two reasons:
++         *
++         *  1. Vala has no `\U` escape (only `\u`, four hex digits), and every
++         *     one of these lives in Plane 15 above the BMP -- so a `\U000F0EE0`
++         *     is a compile error, which is how this was found.
++         *  2. This file ships as a *patch* applied with `patch(1)`. A diff
++         *     carrying raw Plane-15 PUA bytes is a good way to lose a glyph to
++         *     a re-encoding somewhere between here and the next rebuild.
++         *
++         * Names are from the Nerd Font post table and match the ones
++         * config/waybar/config used for the same readouts, so the panel and the
++         * bar cannot drift apart visually.
++         */
++        const unichar ICON_CPU = 0xF0EE0;         // md-cpu_64_bit
++        const unichar ICON_MEMORY = 0xF035B;      // md-memory
++        const unichar ICON_TEMP = 0xF050F;        // md-thermometer
++        const unichar ICON_TEMP_CRIT = 0xF0E01;   // md-thermometer_alert
++        // ⚠ The battery ramp must stay in step with config/waybar/config's
++        // format-icons — the bar and the panel showing different glyphs for the
++        // same charge is worse than either choice alone. Order is ascending:
++        // outline, 10..90, full. Charging has its own glyph and ignores the ramp.
++        const unichar ICON_BATT_OUTLINE = 0xF008E; // md-battery_outline
++        const unichar ICON_BATT_FULL = 0xF0079;    // md-battery
++        const unichar ICON_BATT_CHARGING = 0xF0084;// md-battery_charging
++        const unichar[] ICON_BATT = {
++            0xF007A, 0xF007B, 0xF007C, 0xF007D, 0xF007E,   // 10..50
++            0xF007F, 0xF0080, 0xF0081, 0xF0082             // 60..90
++        };
++
++        static string glyph (unichar c) {
++            StringBuilder sb = new StringBuilder ();
++            sb.append_unichar (c);
++            return sb.str;
++        }
++
++        bool update () {
++            int cpu = cpu_percent ();
++            cpu_label.set_label (cpu < 0
++                ? "%s  --".printf (glyph (ICON_CPU))
++                : "%s  %d%%".printf (glyph (ICON_CPU), cpu));
++
++            int mem = mem_percent ();
++            mem_label.set_label (mem < 0
++                ? "%s  --".printf (glyph (ICON_MEMORY))
++                : "%s  %d%%".printf (glyph (ICON_MEMORY), mem));
++
++            if (temp_path.length > 0) {
++                int t = temp_celsius ();
++                if (t <= -1000) {
++                    temp_label.set_label ("%s  --".printf (glyph (ICON_TEMP)));
++                } else {
++                    bool crit = t >= critical_temp;
++                    temp_label.set_label ("%s  %d°C".printf (
++                        glyph (crit ? ICON_TEMP_CRIT : ICON_TEMP), t));
++                    if (crit) {
++                        temp_label.get_style_context ().add_class ("critical");
++                    } else {
++                        temp_label.get_style_context ().remove_class ("critical");
++                    }
++                }
++            }
++            if (batt_path.length > 0) {
++                int b = battery_percent ();
++                if (b < 0) {
++                    batt_label.set_label ("%s  --".printf (glyph (ICON_BATT_OUTLINE)));
++                } else {
++                    bool chg = battery_charging ();
++                    batt_label.set_label ("%s  %d%%".printf (glyph (battery_icon (b, chg)), b));
++                    if (!chg && b <= 15) {
++                        batt_label.get_style_context ().add_class ("critical");
++                    } else {
++                        batt_label.get_style_context ().remove_class ("critical");
++                    }
++                }
++            }
++
++            return Source.CONTINUE;
++        }
++
++        public override void on_cc_visibility_change (bool value) {
++            if (value) {
++                update ();
++                if (timeout_id == 0) {
++                    timeout_id = Timeout.add_seconds (interval, update);
++                }
++            } else if (timeout_id != 0) {
++                Source.remove (timeout_id);
++                timeout_id = 0;
++            }
++        }
++    }
++}
+--- a/src/meson.build
++++ b/src/meson.build
+@@ -46,6 +46,9 @@
+   'controlCenter/widgets/backlight/backlightUtil.vala',
+   # Widget: Inhibitors
+   'controlCenter/widgets/inhibitors/inhibitors.vala',
++
++  # LOCAL DELTA — Widget: System stats (live cpu/memory/temperature)
++  'controlCenter/widgets/systemStats/systemStats.vala',
+ ]
+ 
+ app_sources = [
