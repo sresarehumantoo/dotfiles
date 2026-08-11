@@ -892,6 +892,39 @@ Two smaller facts worth keeping:
   already landed. Chained, the `floating disable` ran against the pre-focus state
   and left the window floating.
 
+### ⚠ Float the window being shown LAST — focus and paint order are separate
+
+`floating enable` **raises** the window it acts on. Floating the row in tree
+order therefore leaves the *last* window on top, and that raise happens after
+the correct window has already been focused — so focus and paint order
+disagree: the right window holds input focus while a different one covers the
+screen. Typing goes where you expect and the screen shows something else.
+
+Reported as "focused the terminal, pressed `$mod+m`, and firefox went monocle".
+The fix is ordering: float `shown` last so it is topmost by construction, before
+any placement or focus is attempted.
+
+> [!CAUTION]
+> **A test that asserts focus and geometry cannot see this.** The original suite
+> checked which window was focused and whether its rect filled the tiling area —
+> both were already correct — and never checked which window was on **top**,
+> which is the only thing visible. Assert the stacking order.
+
+> [!CAUTION]
+> **Two terminals do not reproduce it.** The symptom depends on the second
+> window being slower to settle, so it needs a real terminal+browser pair.
+
+Two things that will waste time when checking this by hand:
+
+- **sway sometimes wraps a floated window in a NEW floating container**, so a
+  workspace's `floating_nodes` holds wrapper ids rather than window ids.
+  Comparing those to a window id silently never matches — it reported a
+  correct case as broken. Walk into each floating node for the `pid`-bearing
+  child instead.
+- **Luminance will not tell a dark terminal from a dark browser.** Measured 38.1
+  against 39.8 mean on the two states, i.e. indistinguishable. Identify the
+  visible window from the tree, not from a screenshot.
+
 ### The keys are shadowed at runtime, not routed through the script
 
 sway accepts `bindsym` and `unbindsym` over IPC (both return success), so
