@@ -457,8 +457,19 @@ def enable(ws_name):
     rect = workspace_rect(ws_name)
     order = [n["id"] for n in wins]
     shown = next((n["id"] for n in wins if n.get("focused")), order[0])
+    # ⚠ FLOAT THE ONE BEING SHOWN *LAST*, AND THE ORDER IS THE WHOLE BUG.
+    # `floating enable` raises the window it acts on, so floating the row in
+    # tree order leaves the LAST window on top — and it is raised after `show()`
+    # has already focused the right one. Focus and paint order then disagree:
+    # the correct window has input focus while a different one covers the
+    # screen. Reported as "focused the terminal, pressed $mod+m, and firefox
+    # went monocle", and invisible to a test that only asserts which window is
+    # focused (which is what the first one did). Floating `shown` last makes it
+    # topmost by construction, before any placement or focus is attempted.
     for cid in order:
-        float_over(ws_name, cid, rect)
+        if cid != shown:
+            float_over(ws_name, cid, rect)
+    float_over(ws_name, shown, rect)
     state[ws_name] = {"order": order, "shown": shown}
     write_state(state)
     install_bindings()
