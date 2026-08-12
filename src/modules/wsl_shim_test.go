@@ -33,7 +33,7 @@ func newFakeWindows(t *testing.T, exes map[string]string) string {
 		// ⚠ The fake target must NOT start with the bytes "MZ". This box (and
 		// any Debian with wine installed) registers a binfmt_misc handler on
 		// magic 4d5a, so an MZ-prefixed file handed to exec() is routed to
-		// run-detectors/wine — which hung this test for 150s before it was
+		// run-detectors/wine, which hung this test for 150s before it was
 		// killed. A plain shell script both avoids that and lets the exec check
 		// below actually prove argument forwarding.
 		body := "#!/bin/sh\necho \"fake " + name + " args: $*\"\n"
@@ -82,7 +82,7 @@ func TestWinBinaryResolvesThroughWslpath(t *testing.T) {
 		t.Errorf("winBinary(cmd.exe) = %q, want %q", got, want)
 	}
 
-	// powershell.exe is NOT in System32 — resolving it proves the search walks
+	// powershell.exe is NOT in System32; resolving it proves the search walks
 	// past the first directory rather than giving up.
 	got = winBinary("powershell.exe")
 	want = filepath.Join(mnt, "Windows", "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
@@ -246,7 +246,7 @@ func TestGhosttyShaderOverrideRespectsDryRun(t *testing.T) {
 }
 
 // With no wslpath and no Windows tree, nothing should be written and nothing
-// should panic — this is the every-non-WSL-machine case.
+// should panic. This is the every-non-WSL-machine case.
 func TestWinShimsNoopWithoutWindows(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

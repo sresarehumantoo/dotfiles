@@ -8,7 +8,7 @@ import (
 )
 
 // The template must never carry sizing of its own. It used to hardcode
-// memory=10GB / processors=8 — one developer's desktop, copied verbatim onto
+// memory=10GB / processors=8, one developer's desktop, copied verbatim onto
 // whatever host ran the installer. This test fails against that old file.
 func TestWslconfigTemplateHasNoHardcodedSizing(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "config", "wsl", "wslconfig"))
@@ -28,7 +28,7 @@ func TestWslconfigTemplateHasNoHardcodedSizing(t *testing.T) {
 		}
 		for _, key := range []string{"memory=", "processors=", "swap="} {
 			if strings.HasPrefix(trimmed, key) {
-				t.Errorf("template hardcodes %q (%q) — sizing must come from the host", key, trimmed)
+				t.Errorf("template hardcodes %q (%q); sizing must come from the host", key, trimmed)
 			}
 		}
 	}
@@ -39,7 +39,7 @@ func TestWslconfigTemplateHasNoHardcodedSizing(t *testing.T) {
 // ⚠ This is the test that matters, and its absence let a real bug ship. The
 // header prose mentioned the @HOST_SIZING@ token by name; substitution is a
 // plain ReplaceAll, so the multi-line, non-comment-prefixed sizing block was
-// injected into the middle of the top comment as well — emitting bare
+// injected into the middle of the top comment as well, emitting bare
 // `memory=`/`swap=`/`processors=` keys ABOVE the [wsl2] header, in no section,
 // plus a mangled `processors=16 line`. The earlier tests missed it because one
 // skips comment lines and the other used a toy inline template.
@@ -201,8 +201,8 @@ func TestWslConfTemplateHasNoHardcodedUser(t *testing.T) {
 	}
 	tmpl := string(data)
 
-	// Exactly once. Substitution is a plain ReplaceAll, so a second mention —
-	// e.g. naming the token in a nearby comment — is rewritten too, leaving the
+	// Exactly once. Substitution is a plain ReplaceAll, so a second mention
+	// (e.g. naming the token in a nearby comment) is rewritten too, leaving the
 	// rendered file with a prose line that contradicts itself. Comment lines are
 	// skipped by the hardcoded-username loop below, so only this catches it.
 	if n := strings.Count(tmpl, "@DEFAULT_USER@"); n != 1 {

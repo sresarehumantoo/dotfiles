@@ -44,7 +44,7 @@ import (
 // file lands outside the repo, which is what we want for machine-local state.
 const ghosttyLocalFile = "ghostty.local"
 
-const shaderManagedHeader = "# Managed by dfinstall — `ghostty-shader` toggles this file."
+const shaderManagedHeader = "# Managed by dfinstall. `ghostty-shader` toggles this file."
 
 func ghosttyLocalPath() string {
 	return core.XDGTarget("ghostty", ghosttyLocalFile)
@@ -108,10 +108,10 @@ func writeGhosttyShaderOverride(enabled bool) error {
 	b.WriteString("# so it is applied AFTER everything else and wins.\n\n")
 	if enabled {
 		b.WriteString("# Cursor trail left ON for this machine.\n")
-		b.WriteString("# (Nothing to override — the main config already enables it.)\n")
+		b.WriteString("# (Nothing to override; the main config already enables it.)\n")
 	} else {
 		b.WriteString("# Cursor trail OFF for this machine.\n")
-		b.WriteString("# An EMPTY value clears the whole list — `custom-shader` is a repeatable\n")
+		b.WriteString("# An EMPTY value clears the whole list. `custom-shader` is a repeatable\n")
 		b.WriteString("# option, so assigning a path here would ADD a second shader instead of\n")
 		b.WriteString("# replacing it. Verified with `ghostty +show-config`.\n")
 		b.WriteString("custom-shader = \n")
@@ -131,7 +131,7 @@ func ghosttyShaderEnabled() bool {
 
 // configureGhosttyShader asks the user what to do about the cursor trail, once.
 //
-// Only ever runs on WSL. It does not touch the shared ghostty config — the
+// Only ever runs on WSL. It does not touch the shared ghostty config; the
 // answer goes to the machine-local override, so a laptop on llvmpipe and a
 // desktop with a working GPU can disagree while sharing one repo.
 func configureGhosttyShader(ctx context.Context) {
@@ -175,7 +175,7 @@ func configureGhosttyShader(ctx context.Context) {
 	fmt.Println("  ────────────────────────────────────")
 	fmt.Printf("  Renderer: %s\n", renderer)
 	if !certain {
-		fmt.Println("  (guessed from the DRI render node — install mesa-utils for a definitive answer)")
+		fmt.Println("  (guessed from the DRI render node; install mesa-utils for a definitive answer)")
 	}
 	fmt.Println()
 	if software {
@@ -183,7 +183,7 @@ func configureGhosttyShader(ctx context.Context) {
 		fmt.Println("    Measured on an idle window with nothing typed:")
 		fmt.Println("      software GL, trail on ....... ~760-800% CPU  (≈8 cores)")
 		fmt.Println("      software GL, trail off ......    0.0% CPU")
-		fmt.Println("    Turning the animation off does not help — it still costs ~67%,")
+		fmt.Println("    Turning the animation off does not help; it still costs ~67%,")
 		fmt.Println("    because the blinking cursor forces a full-screen redraw twice a second.")
 	} else {
 		fmt.Println("  A GPU renderer was detected, so the trail should cost ~15% of one core.")
@@ -203,7 +203,7 @@ func configureGhosttyShader(ctx context.Context) {
 		),
 	)
 	if err := form.Run(); err != nil {
-		core.Warn("no choice made — leaving Ghostty config untouched")
+		core.Warn("no choice made, leaving Ghostty config untouched")
 		return
 	}
 

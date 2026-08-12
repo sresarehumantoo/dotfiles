@@ -5,7 +5,7 @@
 # swap derived from the *Windows host* this is being installed on.
 #
 # ⚠ Do NOT name that placeholder token anywhere in this prose. Substitution is
-# a plain ReplaceAll, so a second mention is expanded too — and because the
+# a plain ReplaceAll, so a second mention is expanded too, and because the
 # replacement is multi-line and NOT comment-prefixed, it injects bare
 # `memory=`/`swap=`/`processors=` keys above the [wsl2] header, where they sit
 # in no section at all. That shipped once; the test now renders this real file
@@ -13,7 +13,7 @@
 #
 # Do not put sizing keys here
 # by hand: this file is shared by every machine that checks out the repo, and
-# it used to carry `memory=10GB` / `processors=8` verbatim — numbers from one
+# it used to carry `memory=10GB` / `processors=8` verbatim: numbers from one
 # developer's desktop, copied unchanged onto whatever box ran the installer.
 # On a smaller host that over-allocates the VM; `processors` above the host's
 # logical CPU count is meaningless.
@@ -28,8 +28,8 @@
 # This is the single biggest *perceived* smoothness win available here and it
 # costs nothing while the VM is idle-but-reclaimed (see autoMemoryReclaim
 # below). At the default, closing every terminal for a minute tears the VM
-# down, so the next launch pays a full cold boot — systemd, the sysctl drop-in,
-# the whole distro init — before the shell appears. Windows 11 only; on Windows
+# down, so the next launch pays a full cold boot (systemd, the sysctl drop-in,
+# the whole distro init) before the shell appears. Windows 11 only; on Windows
 # 10 the key is ignored, which is harmless.
 vmIdleTimeout=28800000
 
@@ -44,11 +44,11 @@ networkingMode=mirrored
 # firewall, dnsTunneling and autoProxy all default to true and are therefore
 # NOT restated here. They were, for a long time, which made four lines of this
 # file read as deliberate tuning while changing nothing. If you ever want to
-# *disable* one, add it explicitly with =false — that is a real change.
+# *disable* one, add it explicitly with =false; that is a real change.
 
 [experimental]
 # ⚠ `gradual`, NOT the `dropCache` this file used to set. dropCache is already
-# the documented default, so that line changed nothing — and it is the wrong
+# the documented default, so that line changed nothing, and it is the wrong
 # choice here regardless: it reclaims the page cache *immediately*, which
 # directly fights `vm.vfs_cache_pressure=50` in 99-wsl-sysctl.conf (that value
 # exists to *retain* dentries and inodes). Every drop means the next git

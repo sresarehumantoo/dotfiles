@@ -11,7 +11,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 #
 # ⚠ The include path resolves next to the SYMLINK (~/.config/ghostty/), not next
 # to the config's target in the dotfiles repo. Verified by placing a different
-# override in each location — the ~/.config copy won. That is deliberate: the
+# override in each location; the ~/.config copy won. That is deliberate: the
 # right answer differs per machine, and the repo is shared.
 #
 # Why this exists: with no GPU behind it the trail is ruinous. Measured on an
@@ -25,7 +25,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 # second and each redraw runs the shader.
 
 LOCAL_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/ghostty.local"
-MANAGED_HEADER="# Managed by dfinstall — \`ghostty-shader\` toggles this file."
+MANAGED_HEADER="# Managed by dfinstall. \`ghostty-shader\` toggles this file."
 
 usage() {
     header "ghostty-shader"
@@ -67,7 +67,7 @@ detect_renderer() {
     if [[ -e /dev/dri/renderD128 ]]; then
         RENDERER="/dev/dri/renderD128 present (renderer name unknown)"
     else
-        RENDERER="no /dev/dri/renderD128 — no GPU render node"
+        RENDERER="no /dev/dri/renderD128: no GPU render node"
     fi
 }
 
@@ -88,10 +88,10 @@ write_override() {
         echo ""
         if [[ "$enabled" == "true" ]]; then
             echo "# Cursor trail left ON for this machine."
-            echo "# (Nothing to override — the main config already enables it.)"
+            echo "# (Nothing to override; the main config already enables it.)"
         else
             echo "# Cursor trail OFF for this machine."
-            echo "# An EMPTY value clears the whole list — \`custom-shader\` is a repeatable"
+            echo "# An EMPTY value clears the whole list. \`custom-shader\` is a repeatable"
             echo "# option, so assigning a path here would ADD a second shader instead of"
             echo "# replacing it. Verified with \`ghostty +show-config\`."
             echo "custom-shader = "
@@ -118,7 +118,7 @@ verify() {
     else
         info "ghostty +show-config: shader is NOT set"
     fi
-    warn "Restart Ghostty fully — a config reload does not recompute this."
+    warn "Restart Ghostty fully; a config reload does not recompute this."
 }
 
 main() {
@@ -156,20 +156,20 @@ main() {
             info "Renderer: $RENDERER"
             if renderer_is_software; then
                 write_override false
-                ok "Software rendering detected — cursor trail disabled."
+                ok "Software rendering detected, cursor trail disabled."
             else
                 write_override true
-                ok "GPU rendering detected — cursor trail enabled."
+                ok "GPU rendering detected, cursor trail enabled."
             fi
             verify
             ;;
         reset)
             if [[ -f "$LOCAL_FILE" ]]; then
                 if ! grep -qF "$MANAGED_HEADER" "$LOCAL_FILE"; then
-                    die "$LOCAL_FILE was not written by dfinstall — remove it yourself."
+                    die "$LOCAL_FILE was not written by dfinstall. Remove it yourself."
                 fi
                 rm -f "$LOCAL_FILE"
-                ok "Override removed — the shared ghostty config now applies."
+                ok "Override removed; the shared ghostty config now applies."
             else
                 info "No override in place; nothing to do."
             fi

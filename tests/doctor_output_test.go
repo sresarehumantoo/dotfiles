@@ -12,7 +12,7 @@ import (
 
 // captureStdout runs fn with os.Stdout redirected to a pipe and returns what
 // was written. core.emit writes via fmt.Printf, so swapping os.Stdout catches
-// it — there is no cached writer to work around.
+// it; there is no cached writer to work around.
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -101,6 +101,6 @@ func TestRunDoctorSameChecksQuietAndVerbose(t *testing.T) {
 		t.Fatalf("expected check lines in both (quiet=%d verbose=%d)", q, v)
 	}
 	if q != v {
-		t.Errorf("quiet showed %d check lines, verbose showed %d — they must agree", q, v)
+		t.Errorf("quiet showed %d check lines, verbose showed %d; they must agree", q, v)
 	}
 }
