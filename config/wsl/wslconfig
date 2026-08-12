@@ -1,14 +1,56 @@
+# Installed to C:\Users\<you>\.wslconfig by `dfinstall install wsl`.
+#
+# ⚠ THIS FILE IS A TEMPLATE, NOT THE FINAL ARTIFACT. The @HOST_SIZING@ line
+# below is replaced at install time with memory/processors/swap derived from
+# the *Windows host* this is being installed on. Do not put sizing keys here
+# by hand: this file is shared by every machine that checks out the repo, and
+# it used to carry `memory=10GB` / `processors=8` verbatim — numbers from one
+# developer's desktop, copied unchanged onto whatever box ran the installer.
+# On a smaller host that over-allocates the VM; `processors` above the host's
+# logical CPU count is meaningless.
+#
+# Sizing is deliberately omitted rather than guessed when detection fails, so
+# the worst case is "WSL's own defaults apply", never "wrong numbers applied".
+
 [wsl2]
-memory=10GB
-processors=8
-swap=4GB
-dnsTunneling=true
-localhostForwarding=true
+@HOST_SIZING@
+
+# Keep the VM alive for 8 hours of idleness instead of the default 60 seconds.
+# This is the single biggest *perceived* smoothness win available here and it
+# costs nothing while the VM is idle-but-reclaimed (see autoMemoryReclaim
+# below). At the default, closing every terminal for a minute tears the VM
+# down, so the next launch pays a full cold boot — systemd, the sysctl drop-in,
+# the whole distro init — before the shell appears. Windows 11 only; on Windows
+# 10 the key is ignored, which is harmless.
+vmIdleTimeout=28800000
+
+# Networking. mirrored gives the VM the host's interfaces, which is what makes
+# localhost, VPNs and inbound connections behave like a native Linux box.
 networkingMode=mirrored
-firewall=true
-autoProxy=true
+
+# ⚠ NO `localhostForwarding` KEY HERE ON PURPOSE. Microsoft's own reference
+# states it is "ignored when networkingMode=mirrored", so the `=true` this file
+# used to carry did precisely nothing. Leaving it in implied a working setting.
+
+# firewall, dnsTunneling and autoProxy all default to true and are therefore
+# NOT restated here. They were, for a long time, which made four lines of this
+# file read as deliberate tuning while changing nothing. If you ever want to
+# *disable* one, add it explicitly with =false — that is a real change.
 
 [experimental]
-autoMemoryReclaim=dropcache
+# ⚠ `gradual`, NOT the `dropCache` this file used to set. dropCache is already
+# the documented default, so that line changed nothing — and it is the wrong
+# choice here regardless: it reclaims the page cache *immediately*, which
+# directly fights `vm.vfs_cache_pressure=50` in 99-wsl-sysctl.conf (that value
+# exists to *retain* dentries and inodes). Every drop means the next git
+# operation, node_modules walk or file re-read goes back to disk. `gradual`
+# reclaims slowly instead, which is what "smooth" actually wants.
+autoMemoryReclaim=gradual
+
+# Newly created VHDs are sparse, so the disk image can give space back.
+# Not a default (default is false), so this line is doing real work.
 sparseVhd=true
+
+# Only applies because dnsTunneling is on (by default). Tolerates DNS records
+# WSL cannot parse rather than failing the whole query. Default is false.
 bestEffortDnsParsing=true

@@ -567,6 +567,62 @@ the profile cannot be resolved, it warns and falls back to `$HOME`.
 
 ---
 
+## ghostty-shader
+
+Enables or disables Ghostty's cursor-trail shader **for the current machine
+only**, without touching the shared `config/ghostty/config`.
+
+```
+ghostty-shader status    # current setting + detected GL renderer
+ghostty-shader on        # force the trail on
+ghostty-shader off       # force the trail off
+ghostty-shader auto      # decide from the detected renderer
+ghostty-shader reset     # drop the override, inherit the shared config
+```
+
+It writes `~/.config/ghostty/ghostty.local`, which the main config pulls in as
+its last directive with `config-file = ?ghostty.local`. Includes load *after*
+the file that declares them, so the override wins; the `?` makes it optional, so
+`reset` (deleting the file) cleanly reverts.
+
+**Why this exists.** With no GPU behind it the trail is ruinously expensive.
+Measured on Ghostty 1.2.0, idle window, nothing typed, 10s samples, comparing
+hardware GL against `LIBGL_ALWAYS_SOFTWARE=1`:
+
+| config | renderer | idle CPU |
+|---|---|---|
+| no shader | software | 0.0% |
+| no shader | GPU | 0.5% |
+| shader, `animation = always` | GPU | 15.6% |
+| shader, `animation = false` | software | 66.9% |
+| shader, `animation = always` | software | 762-790% |
+| shader, `animation = true` (focused) | software | 806% |
+
+Software rasterisation is common under WSLg when Mesa's d3d12 backend does not
+bind (microsoft/wslg#1129, #996, #1470).
+
+Two traps in those numbers:
+
+- **Turning only the animation off is not a fix.** It still costs ~67% of a
+  core, because `cursor-style-blink = true` forces a redraw twice a second and
+  every redraw is a full-screen shader pass. The only effective lever is
+  removing the shader.
+- **`always` vs `true` barely differ.** A focused window pays the same either
+  way, so do not "optimise" this by switching animation modes.
+
+Renderer detection prefers `glxinfo`/`eglinfo` and says so when it has them.
+Without mesa-utils it falls back to the presence of `/dev/dri/renderD128`, whose
+absence is the documented signature of WSLg failing to bring up d3d12 — that is
+strong evidence of software rendering, but its presence is not proof of the
+reverse, and the output labels the guess as a guess.
+
+`status` and every mutating action re-read `ghostty +show-config`, so what is
+reported is what Ghostty actually resolved rather than what was written. A full
+Ghostty restart is required — a config reload rebuilds the font grid but does
+not recompute cell size or icon constraints, and does not restore a default.
+
+---
+
 ## Script Conventions
 
 All devtools scripts follow these rules (from CLAUDE.md):
