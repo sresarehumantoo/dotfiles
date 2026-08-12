@@ -34,6 +34,71 @@ func TestWslconfigTemplateHasNoHardcodedSizing(t *testing.T) {
 	}
 }
 
+// Render the REAL template and assert the result is well-formed INI.
+//
+// ⚠ This is the test that matters, and its absence let a real bug ship. The
+// header prose mentioned the @HOST_SIZING@ token by name; substitution is a
+// plain ReplaceAll, so the multi-line, non-comment-prefixed sizing block was
+// injected into the middle of the top comment as well — emitting bare
+// `memory=`/`swap=`/`processors=` keys ABOVE the [wsl2] header, in no section,
+// plus a mangled `processors=16 line`. The earlier tests missed it because one
+// skips comment lines and the other used a toy inline template.
+func TestRenderedWslconfigIsWellFormed(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "wsl", "wslconfig"))
+	if err != nil {
+		t.Fatalf("reading template: %v", err)
+	}
+	tmpl := string(data)
+
+	if n := strings.Count(tmpl, "@HOST_SIZING@"); n != 1 {
+		t.Fatalf("expected exactly 1 @HOST_SIZING@ placeholder, found %d", n)
+	}
+
+	for _, specs := range []hostSpecs{
+		{logicalCPUs: 16, memBytes: 32 * gib},
+		{}, // detection failed
+	} {
+		rendered := renderWslconfig(tmpl, specs)
+
+		if strings.Contains(rendered, "@HOST_SIZING@") {
+			t.Error("placeholder survived substitution")
+		}
+
+		section := ""
+		seen := map[string]int{}
+		for i, line := range strings.Split(rendered, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+				section = trimmed
+				continue
+			}
+			if section == "" {
+				t.Errorf("specs=%+v: key outside any section at line %d: %q", specs, i+1, trimmed)
+				continue
+			}
+			key, _, ok := strings.Cut(trimmed, "=")
+			if !ok {
+				t.Errorf("specs=%+v: line %d is neither a section, comment, nor key=value: %q", specs, i+1, trimmed)
+				continue
+			}
+			key = strings.TrimSpace(key)
+			if strings.ContainsAny(key, " \t") {
+				t.Errorf("specs=%+v: malformed key at line %d: %q", specs, i+1, trimmed)
+			}
+			seen[section+"/"+key]++
+		}
+
+		for k, n := range seen {
+			if n > 1 {
+				t.Errorf("specs=%+v: %s declared %d times", specs, k, n)
+			}
+		}
+	}
+}
+
 // localhostForwarding is documented as ignored under networkingMode=mirrored,
 // which this config sets. Keeping it implied a setting that does nothing.
 func TestWslconfigTemplateOmitsIgnoredKeys(t *testing.T) {
@@ -123,6 +188,85 @@ func TestRenderWslconfigSubstitutesPlaceholder(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// /etc/wsl.conf's `[user] default=` decides which account WSL logs into, so a
+// literal username shipped to another host names a user that may not exist
+// there. This test fails against the old file, which had `default=owen`.
+func TestWslConfTemplateHasNoHardcodedUser(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "config", "wsl", "wsl.conf"))
+	if err != nil {
+		t.Fatalf("reading template: %v", err)
+	}
+	tmpl := string(data)
+
+	// Exactly once. Substitution is a plain ReplaceAll, so a second mention —
+	// e.g. naming the token in a nearby comment — is rewritten too, leaving the
+	// rendered file with a prose line that contradicts itself. Comment lines are
+	// skipped by the hardcoded-username loop below, so only this catches it.
+	if n := strings.Count(tmpl, "@DEFAULT_USER@"); n != 1 {
+		t.Fatalf("expected exactly 1 @DEFAULT_USER@ placeholder, found %d", n)
+	}
+	for _, line := range strings.Split(tmpl, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "#") || trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "default=") {
+			t.Errorf("template hardcodes a username: %q", trimmed)
+		}
+	}
+}
+
+func TestRenderWslConfContent(t *testing.T) {
+	const tmpl = "[user]\n@DEFAULT_USER@\n\n[time]\nuseWindowsTimezone=true\n"
+
+	got := renderWslConfContent(tmpl, "alice")
+	if !strings.Contains(got, "default=alice") {
+		t.Errorf("username not substituted:\n%s", got)
+	}
+	if strings.Contains(got, "@DEFAULT_USER@") {
+		t.Error("placeholder survived substitution")
+	}
+
+	// Unknown user must OMIT the key, not guess one. WSL then falls back to the
+	// distro's initial user, which is correct; a wrong name is not recoverable
+	// without editing /etc by hand.
+	got = renderWslConfContent(tmpl, "")
+	if strings.Contains(got, "@DEFAULT_USER@") {
+		t.Error("placeholder survived substitution for the empty case")
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "default=") {
+			t.Errorf("emitted a default= key with no known user: %q", line)
+		}
+	}
+}
+
+// The rendered file is what lands on disk, so Status and doctor must compare
+// against the rendered form. Comparing the raw template would never match and
+// would report permanent, unfixable drift on a healthy machine.
+func TestRenderedWslConfLeavesNoPlaceholders(t *testing.T) {
+	rendered, err := renderedWslConf()
+	if err != nil {
+		t.Fatalf("renderedWslConf: %v", err)
+	}
+	if len(rendered) == 0 {
+		t.Fatal("rendered wsl.conf is empty")
+	}
+	if strings.Contains(string(rendered), "@") &&
+		strings.Contains(string(rendered), "@DEFAULT_USER@") {
+		t.Errorf("rendered output still contains a placeholder:\n%s", rendered)
+	}
+}
+
+func TestCurrentUsernameNeverReturnsRoot(t *testing.T) {
+	// dfinstall refuses to run as root, so a "root" answer here would mean the
+	// probe picked up a sudo artefact and would write the wrong login user.
+	t.Setenv("USER", "root")
+	if got := currentUsername(); got == "root" {
+		t.Error("currentUsername() returned root")
 	}
 }
 

@@ -1,8 +1,17 @@
 # Installed to C:\Users\<you>\.wslconfig by `dfinstall install wsl`.
 #
-# ⚠ THIS FILE IS A TEMPLATE, NOT THE FINAL ARTIFACT. The @HOST_SIZING@ line
-# below is replaced at install time with memory/processors/swap derived from
-# the *Windows host* this is being installed on. Do not put sizing keys here
+# ⚠ THIS FILE IS A TEMPLATE, NOT THE FINAL ARTIFACT. The placeholder line at
+# the top of [wsl2] below is replaced at install time with memory/processors/
+# swap derived from the *Windows host* this is being installed on.
+#
+# ⚠ Do NOT name that placeholder token anywhere in this prose. Substitution is
+# a plain ReplaceAll, so a second mention is expanded too — and because the
+# replacement is multi-line and NOT comment-prefixed, it injects bare
+# `memory=`/`swap=`/`processors=` keys above the [wsl2] header, where they sit
+# in no section at all. That shipped once; the test now renders this real file
+# and rejects any key that appears before a section header.
+#
+# Do not put sizing keys here
 # by hand: this file is shared by every machine that checks out the repo, and
 # it used to carry `memory=10GB` / `processors=8` verbatim — numbers from one
 # developer's desktop, copied unchanged onto whatever box ran the installer.

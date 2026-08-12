@@ -64,9 +64,17 @@ func installWslConf(ctx context.Context) bool {
 		return false
 	}
 
-	srcData, err := os.ReadFile(wslConf)
+	// Rendered, not copied: the template carries @DEFAULT_USER@ rather than a
+	// literal username. renderedWslConf is the single source of truth that
+	// Status and the doctor check also use.
+	srcData, err := renderedWslConf()
 	if err != nil {
 		return false
+	}
+	if user := currentUsername(); user != "" {
+		core.Info("wsl.conf default user: %s", user)
+	} else {
+		core.Warn("Could not determine the installing user — /etc/wsl.conf will omit `default=`")
 	}
 
 	dstPath := "/etc/wsl.conf"
@@ -83,9 +91,32 @@ func installWslConf(ctx context.Context) bool {
 		}
 	}
 
-	if err := sudoCopy(ctx, wslConf, dstPath); err != nil {
+	// The rendered content differs from the file on disk, so this cannot be a
+	// plain `sudo cp` of the template. Stage it and move it into place.
+	staged, err := os.CreateTemp("", "wsl.conf-*")
+	if err != nil {
+		core.Warn("could not stage %s: %v", dstPath, err)
+		return false
+	}
+	defer os.Remove(staged.Name())
+	if _, err := staged.Write(srcData); err != nil {
+		staged.Close()
+		core.Warn("could not stage %s: %v", dstPath, err)
+		return false
+	}
+	if err := staged.Close(); err != nil {
+		core.Warn("could not stage %s: %v", dstPath, err)
+		return false
+	}
+
+	if err := sudoCopy(ctx, staged.Name(), dstPath); err != nil {
 		core.Warn("failed to install %s: %v", dstPath, err)
 		return false
+	}
+	// CreateTemp makes the file 0600 and owned by the installing user; /etc/wsl.conf
+	// is read by WSL as root before login and must be world-readable.
+	if err := sudoRun(ctx, "chmod", "0644", dstPath); err != nil {
+		core.Warn("could not chmod %s: %v", dstPath, err)
 	}
 	core.Ok("/etc/wsl.conf installed")
 	return true
@@ -287,10 +318,11 @@ func (WslModule) Status() core.ModuleStatus {
 		return s
 	}
 
-	// Check /etc/wsl.conf
-	wslConf := core.ConfigPath("wsl", "wsl.conf")
-	if _, err := os.Stat(wslConf); err == nil {
-		if core.FilesMatch(wslConf, "/etc/wsl.conf") {
+	// Check /etc/wsl.conf. ⚠ Must compare against the RENDERED template, not
+	// the template itself — the raw file contains @DEFAULT_USER@ and would
+	// never match an installed copy, reporting permanent unfixable drift.
+	if _, err := os.Stat(core.ConfigPath("wsl", "wsl.conf")); err == nil {
+		if wslConfState() == "ok" {
 			s.Linked++
 		} else {
 			s.Missing++

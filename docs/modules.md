@@ -510,7 +510,29 @@ kernel resolves a link before matching MZ magic, and the resolved absolute path
 stays readable in the file. They carry a managed-header marker; anything in
 `~/.local/bin` without it is left alone by both install and uninstall.
 
-### .wslconfig is rendered, not copied
+### Both WSL config files are rendered, not copied
+
+`config/wsl/wsl.conf` carries a `@DEFAULT_USER@` placeholder rather than a literal
+`[user] default=owen`. That key decides which account WSL logs into, so shipping
+one machine's username to another host names a user that may not exist there —
+the same bug class as the sizing below, with worse consequences. It is filled from
+the account running the installer, and **omitted entirely** if that cannot be
+determined (WSL then falls back to the distro's initial user, which is correct).
+
+⚠ **`renderedWslConf()` is the single source of truth**, and `Status`, `doctor`
+and `install` all go through it. Comparing the raw template against the installed
+file — which `core.FilesMatch`/`checkFileMatch` do — can never match once the
+template holds a placeholder, so each would report permanent, unfixable drift on
+a healthy machine. `checkFileMatch` is only valid for sources installed verbatim.
+
+⚠ **Never name a placeholder token in a template's own prose.** Substitution is a
+plain `ReplaceAll`, so a second mention is expanded too. In `wslconfig` that
+shipped a real bug: the replacement is multi-line and not comment-prefixed, so it
+injected bare `memory=`/`swap=`/`processors=` keys above the `[wsl2]` header where
+they sit in no section at all. `TestRenderedWslconfigIsWellFormed` renders the real
+file and rejects any key before a section header.
+
+### .wslconfig sizing
 
 `config/wsl/wslconfig` is a **template**. The `@HOST_SIZING@` line is replaced at
 install time with `memory`/`swap`/`processors` derived from the Windows host —

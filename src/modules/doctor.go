@@ -86,10 +86,11 @@ func RunDoctorChecks() []DoctorResult {
 			struct {
 				name  string
 				check func() string
-			}{"wsl.conf", checkFileMatch(
-				core.ConfigPath("wsl", "wsl.conf"),
-				"/etc/wsl.conf",
-			)},
+				// ⚠ Not checkFileMatch: the wsl.conf template holds @DEFAULT_USER@
+				// and never matches the installed file byte-for-byte. Derive from
+				// the module's own renderer instead of restating the comparison —
+				// same lesson as checkFonts below.
+			}{"wsl.conf", checkWslConf()},
 			struct {
 				name  string
 				check func() string
@@ -148,18 +149,26 @@ func RunDoctor() {
 	fmt.Println("Running health checks...")
 	fmt.Println()
 
+	// ⚠ core.Status/AlwaysWarn, NOT core.Ok/core.Warn. Printing the results IS
+	// this command's entire purpose, so its output must not respect the log
+	// level: Ok is suppressed below LogVerbose and Warn is buffered until a
+	// FlushWarnings that RunDoctor never called. The effect was that plain
+	// `dfinstall doctor` printed its header and nothing else — every check,
+	// pass or fail, silently discarded — and only `doctor -v` worked. Measured
+	// before the fix: 10 lines vs 34 with -v, identical under a pty, so this
+	// was never a TTY-detection issue.
 	allOk := true
 	for _, r := range RunDoctorChecks() {
 		if r.OK {
 			if r.Detail != "" {
-				core.Ok("%s: %s", r.Name, r.Detail)
+				core.Status("%s: %s", r.Name, r.Detail)
 			} else {
-				core.Ok("%s", r.Name)
+				core.Status("%s", r.Name)
 			}
 		} else {
-			core.Warn("%s — %s", r.Name, r.Detail)
+			core.AlwaysWarn("%s — %s", r.Name, r.Detail)
 			for _, e := range r.Extra {
-				core.Warn("    %s", e)
+				core.AlwaysWarn("    %s", e)
 			}
 			allOk = false
 		}
@@ -167,9 +176,9 @@ func RunDoctor() {
 
 	fmt.Println()
 	if allOk {
-		core.Ok("All checks passed!")
+		core.Status("All checks passed!")
 	} else {
-		core.Warn("Some checks failed. Run 'dfinstall install all' to fix.")
+		core.AlwaysWarn("Some checks failed. Run 'dfinstall install all' to fix.")
 	}
 }
 
@@ -221,7 +230,26 @@ func checkLink(src, dst string) func() string {
 	}
 }
 
+// checkWslConf derives from the wsl module's renderer rather than diffing the
+// raw template, which contains an unsubstituted @DEFAULT_USER@ placeholder.
+func checkWslConf() func() string {
+	return func() string {
+		switch wslConfState() {
+		case "ok":
+			return ""
+		case "outdated":
+			return "outdated"
+		default:
+			return "not found"
+		}
+	}
+}
+
 // checkFileMatch verifies dst exists and has identical content to src (by hash).
+//
+// ⚠ Only valid for sources installed VERBATIM. Anything rendered from a
+// template (wsl.conf) must derive from the module's own renderer instead —
+// hashing the template would never match and would report permanent drift.
 func checkFileMatch(src, dst string) func() string {
 	return func() string {
 		if _, err := os.Stat(dst); os.IsNotExist(err) {

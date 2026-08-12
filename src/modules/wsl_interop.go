@@ -1,9 +1,11 @@
 package modules
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -352,4 +354,70 @@ func renderHostSizing(s hostSpecs) string {
 // renderWslconfig substitutes the host sizing placeholder in the template.
 func renderWslconfig(template string, s hostSpecs) string {
 	return strings.ReplaceAll(template, "@HOST_SIZING@", renderHostSizing(s))
+}
+
+// ── /etc/wsl.conf rendering ───────────────────────────────────────────────
+
+// currentUsername returns the account the installer is running as, or "".
+//
+// dfinstall refuses to run as root, so this is the real interactive user
+// rather than a sudo artefact. $USER is checked first because it survives a
+// container or minimal image where the passwd lookup can fail.
+func currentUsername() string {
+	if u := strings.TrimSpace(os.Getenv("USER")); u != "" && u != "root" {
+		return u
+	}
+	if u, err := user.Current(); err == nil {
+		name := strings.TrimSpace(u.Username)
+		if name != "" && name != "root" {
+			return name
+		}
+	}
+	return ""
+}
+
+// renderWslConfContent substitutes @DEFAULT_USER@ in the /etc/wsl.conf template.
+//
+// An empty username omits the key entirely rather than guessing — same policy
+// as the host sizing, and for the same reason: a wrong value here is worse than
+// no value, since WSL falls back to the distro's initial user on its own.
+func renderWslConfContent(template, username string) string {
+	replacement := "# default= omitted: could not determine the installing user."
+	if username != "" {
+		replacement = "default=" + username
+	}
+	return strings.ReplaceAll(template, "@DEFAULT_USER@", replacement)
+}
+
+// renderedWslConf reads the template and renders it for this machine.
+//
+// ⚠ This is the SINGLE source of truth for what /etc/wsl.conf should contain.
+// Install, Status and the doctor check all go through it. Comparing the raw
+// template against the installed file — which is what Status and doctor used to
+// do — now always mismatches, so each would report permanent, unfixable drift
+// on a correctly installed machine. Exactly the failure mode the fonts module's
+// doctor check had: a report that restates instead of deriving.
+func renderedWslConf() ([]byte, error) {
+	data, err := os.ReadFile(core.ConfigPath("wsl", "wsl.conf"))
+	if err != nil {
+		return nil, err
+	}
+	return []byte(renderWslConfContent(string(data), currentUsername())), nil
+}
+
+// wslConfState reports how /etc/wsl.conf compares to what we would install:
+// "ok", "outdated", or "missing".
+func wslConfState() string {
+	want, err := renderedWslConf()
+	if err != nil {
+		return "missing"
+	}
+	got, err := os.ReadFile("/etc/wsl.conf")
+	if err != nil {
+		return "missing"
+	}
+	if bytes.Equal(want, got) {
+		return "ok"
+	}
+	return "outdated"
 }
