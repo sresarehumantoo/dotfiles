@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // The template must never carry sizing of its own. It used to hardcode
@@ -248,6 +250,26 @@ func TestRenderWslConfContent(t *testing.T) {
 // against the rendered form. Comparing the raw template would never match and
 // would report permanent, unfixable drift on a healthy machine.
 func TestRenderedWslConfLeavesNoPlaceholders(t *testing.T) {
+	// ⚠ $DOTFILES must be pinned. renderedWslConf goes through
+	// core.ConfigPath -> core.DotfilesDir, which resolves $DOTFILES, then the
+	// canonical pointer, then the build-time -ldflags path, then the cwd.
+	// `go test` sets no ldflags and runs with cwd = this package directory, so
+	// on a machine with no canonical pointer it looked for
+	// src/modules/config/wsl/wsl.conf and failed. It passed on a developer box
+	// purely because the canonical pointer happened to be set — a green local
+	// run that went red in CI. Pin it rather than depend on ambient state.
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolving repo root: %v", err)
+	}
+	// Registered BEFORE t.Setenv on purpose: cleanups run LIFO, so this must be
+	// queued first to run AFTER Setenv restores the old value. The other order
+	// clears the cache while DOTFILES is still set, then leaves a stale cached
+	// path behind for every later test in the package.
+	t.Cleanup(core.ResetDotfilesDir)
+	t.Setenv("DOTFILES", root)
+	core.ResetDotfilesDir()
+
 	rendered, err := renderedWslConf()
 	if err != nil {
 		t.Fatalf("renderedWslConf: %v", err)

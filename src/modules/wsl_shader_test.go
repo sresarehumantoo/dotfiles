@@ -17,12 +17,30 @@ import (
 // drifted header means each tool stops recognizing the other's file and quietly
 // leaves it behind. Same hazard as a second copy of the toolkit artifact map.
 func TestGhosttyOverrideMatchesShellScript(t *testing.T) {
+	// ⚠ $DOTFILES must be pinned, and the script must NOT be behind a Skip.
+	// core.ConfigPath resolves $DOTFILES, then the canonical pointer, then the
+	// build-time -ldflags path, then the cwd. `go test` sets no ldflags and CI
+	// has no canonical pointer, so this resolved to src/modules/config/... and
+	// the old t.Skipf turned the whole guard into a silent no-op in exactly the
+	// environment meant to enforce it. A missing script is a failure, not a skip.
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("resolving repo root: %v", err)
+	}
+	// Registered BEFORE t.Setenv on purpose: cleanups run LIFO, so this must be
+	// queued first to run AFTER Setenv restores the old value. The other order
+	// clears the cache while DOTFILES is still set, then leaves a stale cached
+	// path behind for every later test in the package.
+	t.Cleanup(core.ResetDotfilesDir)
+	t.Setenv("DOTFILES", root)
+	core.ResetDotfilesDir()
+
 	script := core.ConfigPath("devtools", "ghostty-shader")
 	if _, err := os.Stat(script); err != nil {
-		t.Skipf("script not found: %v", err)
+		t.Fatalf("script not found at %s: %v", script, err)
 	}
 	if _, err := exec.LookPath("bash"); err != nil {
-		t.Skip("bash not available")
+		t.Skip("bash not available") // genuinely environmental
 	}
 
 	for _, tc := range []struct {
