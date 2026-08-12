@@ -207,7 +207,7 @@ In default (quiet) mode, the CLI shows a spinner. `Info`/`Ok` calls are suppress
 
 ### External Commands
 
-**Never `exec.Command`** — every subprocess must be cancellable, so it takes a
+**Never `exec.Command`** — every subprocess must be cancelable, so it takes a
 `context.Context`. `go vet` won't catch a new one, so this is on you.
 
 Beyond cancellation, prefer the wrappers in `src/modules/packages.go` —
@@ -259,7 +259,7 @@ Tests live in two places, deliberately:
 Notable coverage: module registration order, symlink create/unlink/dry-run,
 backup and restore round-trips, config load/save integrity (including refusing
 to overwrite an unreadable config), registry validation as a security boundary,
-`LinkSet` behaviour and the Status/Links agreement, status and diff rendering,
+`LinkSet` behavior and the Status/Links agreement, status and diff rendering,
 spinner concurrency, and GitHub release asset selection from a fixture.
 
 ```bash

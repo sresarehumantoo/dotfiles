@@ -77,7 +77,7 @@ fx blur_contrast 1.0
 # The blur region is a RECTANGLE. It does not follow the pill's rounded corners,
 # and `blur_ignore_transparent` does not confine it. At 1.0 that is invisible,
 # because the blurred area and its surroundings are the same backdrop. Push
-# brightness up and the rectangle lights up as a grey block with square corners
+# brightness up and the rectangle lights up as a gray block with square corners
 # sitting behind a rounded pill — the exact straight-edge-against-a-curve
 # mismatch this desktop has been burned by before.
 #
@@ -85,7 +85,7 @@ fx blur_contrast 1.0
 # wallpaper:
 #     blur_brightness 1.0   ->   -2.8   (invisible)
 #     blur_brightness 1.1   ->  +16.3   (visible)
-#     blur_brightness 1.25  ->  +45.0   (a grey block)
+#     blur_brightness 1.25  ->  +45.0   (a gray block)
 # Isolated by elimination: the halo survives `shadows disable` and
 # `corner_radius 0`, and vanishes only with `blur disable`.
 #
@@ -98,13 +98,13 @@ fx blur_contrast 1.0
 # wallpaper ever comes back, lower the pill ALPHA in config/waybar/style.css —
 # never this. See ~/Pictures/wallpapers/README.md.
 #
-# Saturation is safe to spend: it scales colour rather than lifting the whole
+# Saturation is safe to spend: it scales color rather than lifting the whole
 # region, so it cannot expose the boundary the way brightness does.
 fx blur_brightness 1.0
 fx blur_saturation 1.2
 
 # ⚠ blur_xray DELIBERATELY OFF. It makes blur sample only the wallpaper,
-# ignoring windows below — so a bar over a maximised terminal would show
+# ignoring windows below — so a bar over a maximized terminal would show
 # blurred wallpaper it is not actually in front of. Off matches what macOS and
 # GNOME do: blur whatever is really underneath.
 fx blur_xray disable
@@ -143,7 +143,7 @@ fx animation_duration_ms 250
 # design calls for three separate floating islands.
 fx layer_effects '"waybar"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
 # ⚠ BLUR IS OFF FOR BOTH swaync SURFACES, DELIBERATELY — DO NOT "RESTORE" IT.
-# The blur writes OUTSIDE the panel's opaque region: with the control centre
+# The blur writes OUTSIDE the panel's opaque region: with the control center
 # open, text roughly 100px to its LEFT is visibly smeared, on a surface that is
 # much wider than the panel it draws (swaync's window/.background are already
 # `background: transparent`, so this is spill, not a stray background).

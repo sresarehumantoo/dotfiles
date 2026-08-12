@@ -120,7 +120,7 @@ func detectVirtDMI() VirtType {
 }
 
 // ParseDMIVendor maps DMI vendor/product strings to a VirtType. Returns
-// VirtNone when nothing virtualization-related is recognised. Exported for
+// VirtNone when nothing virtualization-related is recognized. Exported for
 // testing.
 func ParseDMIVendor(vendor, product string) VirtType {
 	v := strings.ToLower(vendor)

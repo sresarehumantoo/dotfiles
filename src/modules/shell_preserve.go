@@ -86,7 +86,7 @@ var iniSectionLine = regexp.MustCompile(`^\[[a-zA-Z0-9][a-zA-Z0-9 _.-]*\]\s*$`)
 // looksSourceable does a best-effort content sniff to decide whether a file
 // could plausibly be sourced by a POSIX shell. Returns false for binary files,
 // INI files (e.g. .dmrc), and XML files. Default-accepts on read errors so we
-// fall back to the user's judgement in the menu.
+// fall back to the user's judgment in the menu.
 func looksSourceable(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -285,7 +285,7 @@ func RunPreserveMenu(files []DiscoveredFile) (preserved, dismissed []string, err
 
 	if err := form.Run(); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
-			core.PrintHint("Selection cancelled — no custom files will be sourced")
+			core.PrintHint("Selection canceled — no custom files will be sourced")
 			// Treat all as dismissed so we don't re-prompt
 			for _, f := range files {
 				dismissed = append(dismissed, f.RelPath)

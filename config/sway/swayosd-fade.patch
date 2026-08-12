@@ -41,7 +41,7 @@
 +	///
 +	/// A tick callback rather than a timer: it is driven by the frame clock, so
 +	/// it runs at the monitor's refresh rate and stops cleanly when the surface
-+	/// is not being drawn. Any in-flight fade is cancelled first, which is what
++	/// is not being drawn. Any in-flight fade is canceled first, which is what
 +	/// makes a key pressed during the fade-out snap back to full instead of
 +	/// racing two animations.
 +	fn fade(&self, to: f64, hide_after: bool) {

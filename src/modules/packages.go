@@ -15,7 +15,7 @@ import (
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
-// aptUpdateAttempts and aptUpdateBackoff control retry behaviour for
+// aptUpdateAttempts and aptUpdateBackoff control retry behavior for
 // `<apt> update`. Mirror failures and DNS hiccups during fresh provisioning
 // (especially WSL) are usually transient.
 var (

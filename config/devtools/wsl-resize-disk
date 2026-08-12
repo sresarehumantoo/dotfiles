@@ -146,7 +146,7 @@ if $COMPACT_MODE && $DANGEROUS_MODE; then
     header "Generating DANGEROUS compaction script"
     warn "This script compacts in-place with NO backup."
     warn "If interrupted, you may lose your distro."
-    confirm "Generate the dangerous compaction script?" || { info "Cancelled."; exit 0; }
+    confirm "Generate the dangerous compaction script?" || { info "Canceled."; exit 0; }
 
     read -r -d '' bat_content <<BAT || true
 @echo off
@@ -173,7 +173,7 @@ echo    %EXPORT_FILE%
 echo.
 set /p CONFIRM=Type YES to continue (anything else cancels):
 if /i not "%CONFIRM%"=="YES" (
-    echo Cancelled.
+    echo Canceled.
     pause
     exit /b 0
 )
@@ -313,7 +313,7 @@ echo.
 set /p CONFIRM=Replace original image with compacted version? (y/N):
 if /i not "%CONFIRM%"=="y" (
     echo.
-    echo Cancelled. Cleaning up temp files...
+    echo Canceled. Cleaning up temp files...
     wsl --unregister wslcompact >nul 2>&1
     rmdir /s /q "%TMPDIR%"
     pause

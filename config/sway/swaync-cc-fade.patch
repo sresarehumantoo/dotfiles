@@ -4,7 +4,7 @@
          private double scroll_animation_progress = 1.0;
          private Animation ? scroll_animation;
  
-+        // LOCAL DELTA — control centre open/close fade.
++        // LOCAL DELTA — control center open/close fade.
 +        //
 +        // Upstream maps and unmaps this window outright, so the whole panel
 +        // appears and vanishes between two frames. Everything needed to do it

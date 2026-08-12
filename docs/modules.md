@@ -265,6 +265,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `tmux-restore` | Toggle tmux session auto-restore (continuum + resurrect) on/off |
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
+| `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
 
 `tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
 
@@ -393,7 +394,7 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 | tmux-yank | Clipboard copy from copy mode |
 | tmux-logging | Pane logging, screen capture, history save (`~/.local/share/tmux/logs/`) |
 
-**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar. Two rounded pills — the left holds a badge and the window list, the right holds every readout — on a transparent strip, with one accent colour used only where something is active. The left badge is a literal glyph in `tmux.conf` (U+F120, a terminal prompt); it was previously a distro icon read from `~/.config/dfinstall/distro-icon`, and `writeDistroIcon()` still writes that file but nothing reads it.
+**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar. Two rounded pills — the left holds a badge and the window list, the right holds every readout — on a transparent strip, with one accent color used only where something is active. The left badge is a literal glyph in `tmux.conf` (U+F120, a terminal prompt); it was previously a distro icon read from `~/.config/dfinstall/distro-icon`, and `writeDistroIcon()` still writes that file but nothing reads it.
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 
@@ -455,7 +456,7 @@ Symlinks `config/htop/htoprc` to `$XDG_CONFIG_HOME/htop/htoprc`.
 
 ## wsl
 
-**File:** `modules/wsl.go`
+**File:** `modules/wsl.go`, `modules/wsl_interop.go`, `modules/wsl_shader.go`
 
 WSL-specific setup. Skips entirely on non-WSL systems.
 
@@ -464,14 +465,88 @@ WSL-specific setup. Skips entirely on non-WSL systems.
 | Task | Target | Method |
 |------|--------|--------|
 | wsl.conf | `/etc/wsl.conf` | sudo copy (hash-checked) |
-| sysctl | `/etc/sysctl.d/99-wsl.conf` | sudo copy (hash-checked), applied with `sysctl -p` |
-| .wslconfig | `C:\Users\<user>\.wslconfig` | copy via Windows interop |
+| sysctl | `/etc/sysctl.d/99-wsl.conf` | sudo copy (hash-checked) |
+| Windows exe shims | `~/.local/bin/<name>.exe` | generated `exec` wrappers |
+| .wslconfig | `C:\Users\<user>\.wslconfig` | rendered from template + host specs |
 | Windows home link | `~/owen` -> `/mnt/c/Users/owen` | symlink |
-| Git fsmonitor | global git config | `git config --global` |
+| Git untracked cache | global git config | `git config --global` |
+| Ghostty shader choice | `~/.config/ghostty/ghostty.local` | prompt (interactive) |
 
-Uses `cmd.exe` and `wslpath` for Windows path resolution. Prompts the user to restart WSL (`wsl --shutdown`) after changes.
+**Status:** wsl.conf, sysctl conf, Windows home symlink, and the shims (counted only
+against binaries this host actually has, so a missing `pwsh.exe` is not drift).
+Reports "not WSL" on non-WSL systems.
 
-**Status:** Checks wsl.conf, sysctl conf, and Windows home symlink. Reports "not WSL" on non-WSL systems.
+**Uninstall:** removes the shims and the shader override. It deliberately leaves
+`/etc/wsl.conf` and the sysctl drop-in alone — removing those needs sudo and would
+change how the distro boots, which is not what uninstalling a dotfiles module implies.
+The `.bak` files written on install are the way back.
+
+### The Windows PATH is off, and that is load-bearing
+
+`config/wsl/wsl.conf` sets `appendWindowsPath=false`. The default merges 15-40
+`/mnt/c` directories into `$PATH`, every one of them drvfs/9p, i.e. a host round
+trip per `stat()`. With `zsh-syntax-highlighting` doing a command lookup per word
+as you type and `zsh-autosuggestions` searching per keystroke, that cost lands
+directly on typing latency.
+
+Three consequences to know before touching any of this:
+
+- **Nothing is added back to `$PATH`.** Instead, `install wsl` writes `exec`
+  wrappers into `~/.local/bin`, which is already on PATH and on ext4 — so command
+  lookup never touches 9p at all. That is faster than re-adding even two or three
+  System32 directories.
+- **`hasInterop()` must not use `exec.LookPath("cmd.exe")`.** With the Windows
+  PATH gone that lookup fails on a healthy machine, and the old code read the
+  failure as "interop is off", silently skipping `.wslconfig` and the home symlink
+  forever. It now checks the `binfmt_misc` handler (both `WSLInterop` and
+  `WSLInterop-late` — newer builds use the latter) plus `cmd.exe` on disk.
+- **Everything Windows-facing resolves through `wslpath`**, which is a native
+  Linux ELF inside the distro and needs no interop of its own. That is what breaks
+  the chicken-and-egg where the module turning the PATH off needed the PATH to run.
+  It also handles a non-`C:` system drive and a non-default automount root.
+
+Shims are wrapper scripts rather than symlinks so they do not depend on how the
+kernel resolves a link before matching MZ magic, and the resolved absolute path
+stays readable in the file. They carry a managed-header marker; anything in
+`~/.local/bin` without it is left alone by both install and uninstall.
+
+### Both WSL config files are rendered, not copied
+
+`config/wsl/wsl.conf` carries a `@DEFAULT_USER@` placeholder rather than a literal
+`[user] default=owen`. That key decides which account WSL logs into, so shipping
+one machine's username to another host names a user that may not exist there —
+the same bug class as the sizing below, with worse consequences. It is filled from
+the account running the installer, and **omitted entirely** if that cannot be
+determined (WSL then falls back to the distro's initial user, which is correct).
+
+⚠ **`renderedWslConf()` is the single source of truth**, and `Status`, `doctor`
+and `install` all go through it. Comparing the raw template against the installed
+file — which `core.FilesMatch`/`checkFileMatch` do — can never match once the
+template holds a placeholder, so each would report permanent, unfixable drift on
+a healthy machine. `checkFileMatch` is only valid for sources installed verbatim.
+
+⚠ **Never name a placeholder token in a template's own prose.** Substitution is a
+plain `ReplaceAll`, so a second mention is expanded too. In `wslconfig` that
+shipped a real bug: the replacement is multi-line and not comment-prefixed, so it
+injected bare `memory=`/`swap=`/`processors=` keys above the `[wsl2]` header where
+they sit in no section at all. `TestRenderedWslconfigIsWellFormed` renders the real
+file and rejects any key before a section header.
+
+### .wslconfig sizing
+
+`config/wsl/wslconfig` is a **template**. The `@HOST_SIZING@` line is replaced at
+install time with `memory`/`swap`/`processors` derived from the Windows host —
+CPU count from `cmd.exe /C echo %NUMBER_OF_PROCESSORS%` (an env var, so it is
+cheap) and RAM from a PowerShell `Get-CimInstance` call. Reading `nproc` or
+`/proc/meminfo` inside WSL would be circular: those already reflect the
+`.wslconfig` being written.
+
+Policy is half the host's RAM clamped to [2, 24] GB, swap at a quarter of that,
+and all logical CPUs. **A failed probe omits the key rather than guessing**, so
+the worst case is "WSL's own defaults apply". The file previously hardcoded
+`memory=10GB` / `processors=8` — one developer's desktop, copied verbatim onto
+whatever machine ran the installer. `wsl_interop_test.go` guards against that
+returning.
 
 ---
 

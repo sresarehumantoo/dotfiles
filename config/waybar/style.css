@@ -1,6 +1,6 @@
 /* waybar — managed by dfinstall (modules/sway.go), linked to ~/.config/waybar/style.css
  *
- * Catppuccin Mocha, matching the swaylock colour in config/sway/config (1e1e2e).
+ * Catppuccin Mocha, matching the swaylock color in config/sway/config (1e1e2e).
  * Reload after editing:  pkill -SIGUSR2 waybar
  *
  * Layout: "floating islands". window#waybar is fully transparent; the three
@@ -42,11 +42,11 @@
              tinted: the bar surface now carries part of the "this is dark
              glass" job, so the pills no longer have to do all of it alone.
    ⚠ DARKENING IS NEARLY FREE, WHICH IS NOT OBVIOUS. Going 0.50 -> 0.82 moves
-   pill luminance 48.7 -> 21.6 but colour retention only 0.56 -> 0.51, because
+   pill luminance 48.7 -> 21.6 but color retention only 0.56 -> 0.51, because
    `blur_saturation` in sway-fx preserves hue independently of luminance. So a
    darker tint buys a lot of legibility (empty-digit ink +34 -> +55 over its own
    backdrop) at almost no cost to the tint itself. 0.72 is the point where the
-   chips are crisp and the wallpaper still clearly colours the glass; 0.82 is
+   chips are crisp and the wallpaper still clearly colors the glass; 0.82 is
    available if a busier wallpaper needs it.
    Legibility is not the cap either way — the focused numeral measures +193.
    ⚠ Change the wallpaper and re-judge this together with `.empty`'s opacity
@@ -54,7 +54,7 @@
    ~/Pictures/wallpapers/README.md for the criterion that picks a wallpaper. */
 @define-color pill        rgba(11, 11, 17, 0.60);
 @define-color pill-border rgba(69, 71, 90, 0.55);
-@define-color pill-hover  rgba(205, 214, 244, 0.07);   /* a veil on the glass, not a grey fill */
+@define-color pill-hover  rgba(205, 214, 244, 0.07);   /* a veil on the glass, not a gray fill */
 
 /* The lit top edge of each pill. A single hairline lighter than the fill is
    what makes a flat rounded rectangle read as a raised piece of glass rather
@@ -88,7 +88,7 @@
 @define-color glass-edge  rgba(205, 214, 244, 0.30);
 @define-color glass-veil  rgba(205, 214, 244, 0.07);
 
-/* GTK3 has alpha()/shade() as first-class colour functions (verified against
+/* GTK3 has alpha()/shade() as first-class color functions (verified against
    the real CSS engine — unlike `filter` and `text-transform`, which it
    rejects outright). Prefer them over hand-mixed rgba() literals so a palette
    change propagates instead of needing every constant recomputed. */
@@ -168,7 +168,7 @@ window#waybar {
        detached from the screen edge. */
     margin: 3px 0;
     /* ⚠ WITHOUT THIS THE PILLS ARE DIFFERENT HEIGHTS, and it is not subtle:
-       measured 34 / 34 / 28px for left / centre / right.
+       measured 34 / 34 / 28px for left / center / right.
        `.modules-left` and `.modules-center` are direct children of the bar, so
        GTK stretches them to the full 40px exclusive zone minus their margin.
        `#status` and `#indicators` are GROUPS nested inside `.modules-right`,
@@ -198,7 +198,7 @@ window#waybar {
     box-shadow: 0 1px 2px rgba(17, 17, 27, 0.50);
 }
 
-/* ⚠ INERT AS LONG AS THE CENTRE MODULE IS THE CLOCK. `.empty` is set by
+/* ⚠ INERT AS LONG AS THE CENTER MODULE IS THE CLOCK. `.empty` is set by
    `sway/window` when it has no title to show, and that module is no longer in
    `modules-center` (config/waybar/config) — the clock is, and a clock is never
    empty. Kept, not deleted: it is one array entry to put sway/window back, and
@@ -276,7 +276,7 @@ window#waybar.empty .modules-center {
 /* ⚠ NINE SEPARATE WIDGETS, and every rule here has to be repeated across all
    nine ids — GTK3 CSS has no nesting and no `:is()`, so there is no shorter
    way to say it. These were `#workspaces button` until the row needed a
-   travelling highlight; config/sway/sway-workspaces explains why the built-in
+   traveling highlight; config/sway/sway-workspaces explains why the built-in
    module could not provide one. Keeping them as real widgets is what preserves
    the rounded chip and the per-digit click.
    The classes come from the server's JSON, so the vocabulary is its:
@@ -289,7 +289,7 @@ window#waybar.empty .modules-center {
    the scheme was still wrong to use, for a reason no single-chip measurement
    can show — sweeping the pointer ALONG the row is the normal way to use it,
    and a row of boxes each part-way through its own inflate/deflate reads as
-   glitching rather than as a highlight travelling. The 2px boundary band
+   glitching rather than as a highlight traveling. The 2px boundary band
    documented below (where both neighbours are lit at once and trade the
    pointer) is what made it unfixable: with a size change attached, that trade
    is two chips visibly oscillating; with only a ring, it is two rings.
@@ -335,9 +335,9 @@ window#waybar.empty .modules-center {
    occluded to the RIGHT but not to the LEFT: waybar gives each module its own
    GdkWindow, later siblings stack above earlier ones, so a chip paints over
    its left neighbour and is painted over by its right one. The result is a
-   ring that is cut off down one side and sits off-centre from its own digit.
+   ring that is cut off down one side and sits off-center from its own digit.
    Measured live at 14/-3, which predicts a 35px box:
-       ws5 hovered   ring x 142..173 = 32px   (digit centre 159, ring centre 157.5)
+       ws5 hovered   ring x 142..173 = 32px   (digit center 159, ring center 157.5)
        ws9 hovered   ring x 258..289 = 32px   (clipped at allocation end 289)
    ws9 has nothing to its right and was clipped anyway, so this is the widget's
    own clip rectangle, not a neighbour drawing over it. Both stopped exactly at
@@ -373,7 +373,7 @@ window#waybar.empty .modules-center {
        the style being animated TOWARDS, exactly as web CSS does — so this rule
        governs hover-OUT and the `:hover` rule below governs hover-IN. That
        asymmetry is deliberate and it is what sells the outline as one object
-       travelling along the row: the ring is quick to arrive and slower to let
+       traveling along the row: the ring is quick to arrive and slower to let
        go, so sweeping the pointer across leaves the chip behind still lit as
        the next one lights up.
        Verified offscreen by sampling the rendered ring's alpha over time with
@@ -607,7 +607,7 @@ window#waybar.empty .modules-center {
        pigment PLUS edge, hover is edge ALONE. That is what makes one of them
        permanent and the other visibly temporary.
        The ring itself is INSTANT and carries no size — that is what makes a
-       sweep along the row read as one outline travelling. */
+       sweep along the row read as one outline traveling. */
     box-shadow: inset 0 0 0 1px @glass-edge;
     /* ── ⚠ THE BLOOM IS DWELL-GATED, AND THE DELAY IS THE ENTIRE MECHANISM ───
        12 / 0 paints 31px — the allocation exactly, so it still moves no
@@ -658,7 +658,7 @@ window#waybar.empty .modules-center {
 
 /* Right-hand modules ---------------------------------------------------- */
 
-/* One uniform chip; the accent lives in the text colour, not the background. */
+/* One uniform chip; the accent lives in the text color, not the background. */
 #idle_inhibitor,
 #pulseaudio,
 #backlight,
@@ -739,7 +739,7 @@ window#waybar.empty .modules-center {
 /* ⚠ THE CLOCK IS THE ONE CHIP THAT GROWS, AND WHAT GROWS IS THE PILL ITSELF —
    NOT AN OVAL INSIDE IT. It is alone in `modules-center`, and a pill hugs its
    contents, so its padding is the only padding in the bar that moves a pill:
-   measured offscreen, pill 63 -> 71px, growing symmetrically about the centre
+   measured offscreen, pill 63 -> 71px, growing symmetrically about the center
    (x 118 -> 114). That is the entire hover state.
 
    ⚠ NO INSET RING AND NO DROP SHADOW HERE, DELIBERATELY, AND THEY GO TOGETHER.
@@ -777,7 +777,7 @@ window#waybar.empty .modules-center {
        position inside it are not set here — they come from the uniform-box
        block further down ("One box, one oval"). Read that before changing any
        chip's padding or min-width. Measured: 31px wide on all five status
-       chips, glyphs centred to within ±0.5px.
+       chips, glyphs centerd to within ±0.5px.
        ⚠ THE RING IS INSTANT AND CARRIES NO SIZE. The chip is already the size
        the ring wants, so hovering lights an outline where there was none and
        moves nothing. It used to grow 23 -> 31 to get there, which looked good
@@ -823,7 +823,7 @@ window#waybar.empty .modules-center {
    across one box while each margin sweeps −1. So for most of the animation the
    rounded pair does not cancel, the allocation transiently gains a pixel, and
    because `.modules-right` is packed at the END of the bar that pixel moves
-   EVERYTHING to its left. Measured mid-bloom, glyph centres in the right
+   EVERYTHING to its left. Measured mid-bloom, glyph centers in the right
    cluster: `1711.5 · 1756.5 · 1787.0 · 1821.5` at rest and settled, but
    `1710.5 · 1755.5 · 1786.0 · 1820.5` and then `1709.5 · 1754.5 · 1785.0`
    part-way through — a 2px lurch and snap back, on every chip the pointer
@@ -854,9 +854,9 @@ window#waybar.empty .modules-center {
 #network.vpn:hover         { padding-left:  8px; padding-right: 12px; margin: 2px 0; }
 
 /* ── Single-accent discipline ──────────────────────────────────────────────
-   Everything in the status cluster is plain @text. Colour is not decoration
+   Everything in the status cluster is plain @text. Color is not decoration
    here; it is reserved to MEAN something, so that a yellow or red module is
-   genuinely the only coloured thing in the bar and cannot be missed.
+   genuinely the only colored thing in the bar and cannot be missed.
 
    The accent (@blue) is spent in exactly three places and nowhere else:
      · the focused workspace
@@ -864,12 +864,12 @@ window#waybar.empty .modules-center {
      · the hover underline
    The previous scheme gave every module its own hue (green cpu, mauve
    memory, sapphire network, yellow backlight); it looked lively, but a red
-   battery warning had to compete with five other colours and lost. */
+   battery warning had to compete with five other colors and lost. */
 
 /* ⚠ NEUTRAL, NOT @blue. The accent came off the focused workspace and the
    hover cue (see @glass-tint), and leaving it on the clock would have made the
    one remaining blue thing look like a leftover rather than a decision. Weight
-   and the centre position already make the clock findable; it does not need a
+   and the center position already make the clock findable; it does not need a
    hue to do it. @blue is now unused by any resting state — it survives only as
    a palette entry. */
 #clock { color: @text; font-weight: bold; }
@@ -885,7 +885,7 @@ window#waybar.empty .modules-center {
     color: @text;
 }
 
-/* Off / inactive states recede rather than recolour. */
+/* Off / inactive states recede rather than recolor. */
 #network.disconnected,
 #pulseaudio.muted,
 #idle_inhibitor {
@@ -893,8 +893,8 @@ window#waybar.empty .modules-center {
 }
 
 /* ── Optical centring of overflowing icons ────────────────────────────────
-   Several Nerd Font icons are NOT centred in the cell they occupy, so the
-   glyph sits visibly off-centre inside its module — worst on the wifi ramp.
+   Several Nerd Font icons are NOT centerd in the cell they occupy, so the
+   glyph sits visibly off-center inside its module — worst on the wifi ramp.
    This is a font property, not a layout bug, and it is a direct consequence
    of using the non-Mono IosevkaTerm build (chosen so icons are not clamped to
    one cell — see the font notes in CLAUDE.md).
@@ -913,7 +913,7 @@ window#waybar.empty .modules-center {
    Every one starts at the left edge of its cell (left bearing 0) and spills
    over the RIGHT edge. Pango positions the 0.500em ADVANCE, not the ink, so
    the visible mass ends up overflow/2 to the right of where the layout thinks
-   the centre is. Battery and volume are symmetric, which is exactly why those
+   the center is. Battery and volume are symmetric, which is exactly why those
    two look right and wifi looks wrong.
 
    The correction is padding, the only lever GTK3 gives us here: extra padding
@@ -936,7 +936,7 @@ window#waybar.empty .modules-center {
    at once: centring the glyph AND evening the ink-to-ink gaps. Measured on the
    live bar, that produced
 
-       chip             padding    min-width   outline oval   ink off-centre
+       chip             padding    min-width   outline oval   ink off-center
        battery            9 / 2        14         25 x 28          +3.0px
        idle_inhibitor     9 / 13        —         29 x 28          +0.0px
        network            8 / 11       20         39 x 28          +0.5px
@@ -959,7 +959,7 @@ window#waybar.empty .modules-center {
      · the 18px is SPLIT per glyph by that glyph's own ink offset (table
        above): shifting Npx of padding from left to right pulls the content
        box Npx left without changing the total, so the ink lands on the ring's
-       centre line and the ring does not move.
+       center line and the ring does not move.
 
    ⚠ THE SUM MUST STAY 18. A chip whose padding does not add to 18, or that
    sets its own min-width, gets an oval a different size from every other one
@@ -967,7 +967,7 @@ window#waybar.empty .modules-center {
    side of every one of them, so the sum is 20 there and they stay uniform at
    their other size (33 × 28); it does NOT touch min-width.
 
-   Measured after: oval width spread 0, ink centred to within ±0.5px —
+   Measured after: oval width spread 0, ink centerd to within ±0.5px —
    confirmed twice, by ink bounding box and by luminance-weighted centroid,
    which agree. The status pill is 24px narrower (198 -> 174).
 
@@ -988,7 +988,7 @@ window#waybar.empty .modules-center {
 #network,
 #battery,
 #custom-notification {
-    /* ⚠ 13, NOT 12, AND THE PARITY IS THE POINT. GTK centres the label in the
+    /* ⚠ 13, NOT 12, AND THE PARITY IS THE POINT. GTK centers the label in the
        content box by an INTEGER offset, so with an odd gap between the box and
        the glyph's 7px natural width it floors and the glyph lands half a pixel
        left. Measured across all five chips at min-width 12: −0.51 · −0.11 ·
@@ -1008,7 +1008,7 @@ window#waybar.empty .modules-center {
 
 /* ── The per-glyph splits ──────────────────────────────────────────────────
    Left pad = half the sum − offset, right pad = half the sum + offset, where
-   the offset is (ink centre − advance centre) × 13px from the table above,
+   the offset is (ink center − advance center) × 13px from the table above,
    rounded to the pixel.
 
    ⚠ ONE SUM, 18, IN EVERY STATE. There was briefly a second set of splits on
@@ -1054,7 +1054,7 @@ window#waybar.empty .modules-center {
    apart without touching the oval. It is deliberately NOT being used.
 
    The gap the eye actually judges is ink-to-ink, and with uniform boxes and
-   centred glyphs it comes out at 23 / 21 / 24 / 24 px — a 3px spread, against
+   centerd glyphs it comes out at 23 / 21 / 24 / 24 px — a 3px spread, against
    the 9px spread (22 · 27 · 25 · 31) that justified tuning this by hand in the
    first place. Evening the last 3px is not worth it, because the volume glyph
    moves the gaps by more than that on its own: the ramp is three glyphs whose
@@ -1150,16 +1150,16 @@ window#waybar.empty .modules-center {
    it is a bare id selector appearing LATER in the file than the optical
    correction, the shorthand silently won on both sides — so the bell's
    correction was dead code for as long as both existed and the glyph sat
-   off-centre with no sign of why. Same specificity, later wins; a shorthand
+   off-center with no sign of why. Same specificity, later wins; a shorthand
    overrides the longhands. Padding for this chip lives with the other splits,
    in one place. */
 #custom-notification {
     color: @subtext;
 }
 
-/* Unread. Accent colour plus bold does the work — no blink. A permanently
+/* Unread. Accent color plus bold does the work — no blink. A permanently
    animating widget in the bar is both distracting and a continuous
-   re-rasterisation cost (see the slider note below); battery-critical is the
+   re-rasterization cost (see the slider note below); battery-critical is the
    one exception, because that one genuinely is an emergency. */
 #custom-notification.notification {
     color: @yellow;
@@ -1184,7 +1184,7 @@ window#waybar.empty .modules-center {
     color: @peach;
 }
 
-/* Neutral at rest; charging is the one "good news" colour worth spending,
+/* Neutral at rest; charging is the one "good news" color worth spending,
    because it answers a question you actually ask ("is it taking?"). */
 #battery                { color: @text; }
 #battery.charging       { color: @green; }
@@ -1229,7 +1229,7 @@ window#waybar.empty .modules-center {
    made precise enough to daily-drive; dragging moved to sway-quickpanel.
    Rationale in config/sway/sway-quickpanel. One lesson from that work is
    worth keeping even though the rules are gone: never put a box-shadow on a
-   widget that redraws continuously — re-rasterising it every frame was the
+   widget that redraws continuously — re-rasterizing it every frame was the
    single biggest source of the slider lagging the cursor. */
 
 /* Session button -------------------------------------------------------- */
@@ -1248,7 +1248,7 @@ window#waybar.empty .modules-center {
 
 /* Now load-bearing, not cosmetic. Stripping the percentages out of the bar
    moved every exact value in here, so an unstyled tooltip — GTK's default
-   pale-grey box in the system font — would be the most-read and worst-looking
+   pale-gray box in the system font — would be the most-read and worst-looking
    surface in the whole setup. Matches the pill: same fill, same hairline,
    same radius family. */
 tooltip {

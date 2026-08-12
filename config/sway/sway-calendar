@@ -42,7 +42,7 @@ resolves margins against the usable area, so waybar's exclusive zone is honoured
 for free).
 
 `--anchor left|center|right` picks the horizontal edge and must match where the
-clock sits in waybar's module lists (centre today).
+clock sits in waybar's module lists (center today).
 
 TOGGLE — clicking the clock again closes it. That needs an explicit
 single-instance check, because waybar's own surface takes no keyboard focus, so
@@ -78,7 +78,7 @@ import sys
 
 # ── The resident-server fast path ──────────────────────────────────────────────
 # Everything down to `import gi` deliberately runs BEFORE GTK is imported, and the
-# ordering is the entire optimisation. Measured cost of a cold start, from exec to
+# ordering is the entire optimization. Measured cost of a cold start, from exec to
 # first pixel:
 #
 #     python interpreter up    35 ms
@@ -137,7 +137,7 @@ def client_fast_path(argv):
     the helpers above `import gi` achieves nothing on its own — module-level
     imports run at exec time, before main() is ever entered, so a client that
     reached this logic from inside main() would already have paid the full 260ms
-    GTK import. That was the first version of this optimisation and it measured
+    GTK import. That was the first version of this optimization and it measured
     ~280ms per click, i.e. no better than spawning a fresh calendar.
     """
     if any(a in ("-h", "--help") for a in argv):
@@ -219,7 +219,7 @@ FOCUS_ARM_MS = 500
 #
 # Alignment does not suffer: Cantarell carries `tnum` (verified in its GSUB), so
 # the digits are tabular and the columns line up despite the face being
-# proportional. Each cell is also a fixed-width button with centred text, so
+# proportional. Each cell is also a fixed-width button with centerd text, so
 # glyph advance is not load-bearing anyway.
 #
 # ⚠ GTK3 CSS FONT-FEATURE SYNTAX IS NOT THE WEB'S. Measured against the real
@@ -452,7 +452,7 @@ class Calendar(Gtk.Window):
             lab.get_style_context().add_class("weekday")
             self.grid.attach(lab, col, 0, 1, 1)
 
-        # Day buttons are created once and relabelled on every redraw; rebuilding
+        # Day buttons are created once and relabeled on every redraw; rebuilding
         # 42 widgets per flip would show as a visible hitch.
         self.cells = []
         for row in range(WEEKS):

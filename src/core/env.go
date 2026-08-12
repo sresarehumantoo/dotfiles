@@ -306,7 +306,7 @@ func DisableReadonly(ctx context.Context) error {
 // EnableReadonly re-enables the SteamOS readonly filesystem.
 //
 // It deliberately detaches from the caller's context: this runs as deferred
-// cleanup, and a cancelled ctx (Ctrl-C mid-install) must not stop us restoring
+// cleanup, and a canceled ctx (Ctrl-C mid-install) must not stop us restoring
 // the filesystem state we changed.
 func EnableReadonly(ctx context.Context) error {
 	if err := setSteamOSReadonly(context.WithoutCancel(ctx), "enable"); err != nil {

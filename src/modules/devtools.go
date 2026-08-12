@@ -25,6 +25,7 @@ var devtoolsScripts = []string{
 	"tmux-restore",
 	"demorec",
 	"wsl-ffmpeg",
+	"ghostty-shader",
 }
 
 func (DevtoolsModule) Links() core.LinkSet {

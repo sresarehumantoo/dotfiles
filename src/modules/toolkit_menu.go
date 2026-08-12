@@ -127,7 +127,7 @@ func RunToolkitMenu(ctx context.Context) ([]string, error) {
 
 		if err := catForm.Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
-				core.PrintHint("Selection cancelled — keeping existing config")
+				core.PrintHint("Selection canceled — keeping existing config")
 				return core.Cfg.ToolkitTools, nil
 			}
 			return nil, fmt.Errorf("category menu: %w", err)

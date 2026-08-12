@@ -3,7 +3,7 @@
  *
  * The on-screen overlay for volume / brightness / caps-lock, shown while the
  * XF86 media keys are held (see config/sway/config). It exists so the status
- * bar does not have to carry those numbers: the value appears centre-screen at
+ * bar does not have to carry those numbers: the value appears center-screen at
  * the moment you change it, and nowhere else.
  *
  * Reload after editing:  pkill -x swayosd-server   (sway's exec_always restarts
@@ -38,9 +38,9 @@
 /* Why this file exists at all: upstream's default is
  *     background: alpha(@theme_bg_color, 0.8);
  * which resolves against the SYSTEM GTK theme. That theme is light here, so
- * the overlay rendered as a pale grey pill with a dark icon over a Catppuccin
+ * the overlay rendered as a pale gray pill with a dark icon over a Catppuccin
  * Mocha desktop — the single most jarring surface in the session. Naming the
- * colours explicitly decouples the overlay from the GTK theme entirely. */
+ * colors explicitly decouples the overlay from the GTK theme entirely. */
 window#osd {
     padding: 12px 20px;
     border-radius: 999px;
@@ -71,7 +71,7 @@ window#osd label {
    ⚠ Do NOT "fix" the width here with `min-width` instead. That was tried and
    does not work: min-width is a floor, not a cap, so it pads `0%` up but lets
    `100%` take its larger natural width — measured, the pill's left edge locked
-   but the right edge still travelled 11px. Only equal-width text equalises it.
+   but the right edge still traveled 11px. Only equal-width text equalises it.
 
    GTK4 drops an unsupported property and keeps the rest of the block, so these
    are safe on a build that lacks them. */

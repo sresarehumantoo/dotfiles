@@ -131,7 +131,7 @@ On the **first** `install` run — when no `.config.yaml` exists yet — dfinsta
 > [!IMPORTANT]
 > A **failed** first run stays a first run. If any module errors, the config isn't written, so the automatic backup is still armed next time. `--dry-run` never consumes the first run either.
 
-Override the default behaviour with any of:
+Override the default behavior with any of:
 
 - **`--backup`** — always snapshot, whatever the config says
 - **`skip_backup: false`** in `.config.yaml` — snapshot on every install
@@ -183,7 +183,7 @@ Modules run in this order — dependencies first:
 | 11 | **nvim** | Neovim config with Lazy.nvim + headless sync |
 | 12 | **windev** | _Opt-in._ Windows cross-dev toolchains + `winbuild` — see [docs](docs/windev.md) |
 | 13 | **tmux** | Tmux config (Alt+A prefix, vi mode, custom theme) |
-| 14 | **konsole** | Konsole profile and colour scheme |
+| 14 | **konsole** | Konsole profile and color scheme |
 | 15 | **ghostty** | Ghostty terminal config |
 | 16 | **sway** | Sway + waybar + swaync desktop — see [docs](docs/sway.md). No-ops without `sway` |
 | 17 | **htop** | htop config |

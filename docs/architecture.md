@@ -71,10 +71,10 @@ type ModuleStatus struct {
 }
 ```
 
-`Install` takes a context so a long install can be cancelled — the CLI binds it
+`Install` takes a context so a long install can be canceled — the CLI binds it
 to SIGINT, the MCP server to the per-request context. **Modules must pass it
 down to every subprocess they spawn.** `Status` deliberately takes none: it is a
-fast synchronous read for display, and anything slow enough to need cancelling
+fast synchronous read for display, and anything slow enough to need canceling
 doesn't belong in it.
 
 ### Optional Interfaces
@@ -482,7 +482,7 @@ Individual failures are warned but don't stop the restore. A summary error is re
 
 `core/exec.go` defines the deadlines; `modules/packages.go` provides the wrappers.
 
-The rule is that **every** subprocess is cancellable: `src/` contains no
+The rule is that **every** subprocess is cancelable: `src/` contains no
 `exec.Command` calls at all, only `exec.CommandContext`, so a Ctrl-C (or an MCP
 request cancellation) tears down whatever is running. The three wrappers below
 are how a command *additionally* gets a deadline.
@@ -505,7 +505,7 @@ teeing. Building an `exec.Cmd` by hand loses all of that.
 ### Direct `exec.CommandContext` call sites
 
 A handful of short-lived local commands still call `exec.CommandContext`
-directly. They inherit the caller's context (so they remain cancellable) but get
+directly. They inherit the caller's context (so they remain cancelable) but get
 **no** timeout of their own:
 
 | Site | Command |
