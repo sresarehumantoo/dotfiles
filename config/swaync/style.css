@@ -3,7 +3,7 @@
  *
  * Reload after editing:  swaync-client --reload-css
  *
- * Catppuccin Mocha, matching config/waybar/style.css and the client.* colours
+ * Catppuccin Mocha, matching config/waybar/style.css and the client.* colors
  * in config/sway/config — keep all three in step.
  *
  * ⚠ GTK3 CSS (swaync 0.11 links libgtk-3), the same dialect as the waybar
@@ -27,7 +27,7 @@
  * a differential GtkCssProvider test (a rule before the bad property lost its
  * effect too), and live, by appending a `transform:` to this file — swaync
  * answered `CSS reload success: false` and rendered in raw Adwaita: wrong
- * font, white sliders, no rounding, no colour.
+ * font, white sliders, no rounding, no color.
  *
  * The failure is therefore LOUD, not subtle — if this panel ever looks like a
  * stock GTK dialog, suspect a typo here before anything else. It also means
@@ -50,7 +50,7 @@
 @define-color overlay  #6c7086;
 /* ⚠ @blue is no longer used by any RESTING state here, matching the bar —
    the accent came off every idle surface so a genuinely urgent one is the
-   only coloured thing on screen. Kept as a palette entry only. */
+   only colored thing on screen. Kept as a palette entry only. */
 @define-color blue     #89b4fa;
 @define-color sapphire #74c7ec;
 @define-color green    #a6e3a1;
@@ -69,10 +69,10 @@
    designed. The waybar values are the reference; these are the same pigments
    at the opacities a large surface needs.
 
-   The palette is a DARK PIGMENT plus a lit edge, not a grey fill — Apple's
+   The palette is a DARK PIGMENT plus a lit edge, not a gray fill — Apple's
    Liquid Glass rule that a tint modulates the material rather than filling the
    shape, and that where a tint muddies the scene you lower saturation and let
-   edge cues carry it. The old values here were a blue-grey wash (@surface0 at
+   edge cues carry it. The old values here were a blue-gray wash (@surface0 at
    0.42), which is exactly the saturated fill that rule warns against. */
 /* ⚠ 0.94, NOT the bar's 0.60 — and the difference is not an oversight. The bar
    is genuinely blurred, so a low alpha reads as glass; this panel is NOT
@@ -147,7 +147,7 @@ button {
     border-top-color: @glass-edge;
     /* ⚠ Was `border: 2px solid @blue` — a full accent ring on every
        notification. It made routine messages shout as loudly as critical ones,
-       which is the opposite of what an urgency colour is for. The accent now
+       which is the opposite of what an urgency color is for. The accent now
        lives in the app name and in the left edge, and the ring is reserved for
        .critical. */
     border-radius: 14px;
@@ -172,7 +172,7 @@ button {
     background: transparent;
 }
 
-/* The app that sent it. Small, wide-tracked and accent-coloured — this is the
+/* The app that sent it. Small, wide-tracked and accent-colored — this is the
    line that tells you at a glance whether to care, so it reads as a label
    rather than as part of the message.
    ⚠ Wanted `text-transform: uppercase` here; GTK3 has no such property (it is
@@ -267,7 +267,7 @@ button {
     color: @subtext;
 }
 
-/* Critical: the one case that gets a full ring plus a coloured wash. These do
+/* Critical: the one case that gets a full ring plus a colored wash. These do
    not time out (timeout-critical: 0 in config.json), so they will sit on
    screen until dismissed — they should look like they mean it. */
 .notification.critical {
@@ -284,7 +284,7 @@ button {
     color: @red;
 }
 
-/* Control centre --------------------------------------------------------- */
+/* Control center --------------------------------------------------------- */
 
 /* ⚠ THESE CORNERS WERE SQUARE FOR A REASON, AND THE REASON EXPIRED. Rounded
    again 2026-08-09 at 16px, to match fuzzel's `radius=16`, the waybar pills and
@@ -656,8 +656,8 @@ scrollbar slider:hover {
     min-height: 14px;
     /* ⚠ NO box-shadow on these two. This is the one widget in this file that
        redraws continuously — it is repainted on every value-changed while
-       being dragged — and a shadow on a continuously re-rasterised widget is
-       precisely what made the old waybar slider lag the cursor. Colour
+       being dragged — and a shadow on a continuously re-rasterized widget is
+       precisely what made the old waybar slider lag the cursor. Color
        transitions are cheap; shadows are not. */
     transition: background-color 150ms ease, border-color 150ms ease;
 }
@@ -741,7 +741,7 @@ scrollbar slider:hover {
     color: @crust;
 }
 
-/* The full-screen surface behind the control centre when
+/* The full-screen surface behind the control center when
    layer-shell-cover-screen is on. Must stay fully transparent — anything else
    dims the whole desktop. */
 .blank-window {

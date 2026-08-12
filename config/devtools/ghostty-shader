@@ -1,0 +1,186 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+# Toggle Ghostty's cursor-trail shader per machine.
+#
+# Writes ~/.config/ghostty/ghostty.local, which the main ghostty config pulls in
+# with `config-file = ?ghostty.local` as its last directive. Includes load after
+# everything else, so this file wins; the `?` makes it optional, so deleting it
+# reverts to whatever the shared config says.
+#
+# ⚠ The include path resolves next to the SYMLINK (~/.config/ghostty/), not next
+# to the config's target in the dotfiles repo. Verified by placing a different
+# override in each location; the ~/.config copy won. That is deliberate: the
+# right answer differs per machine, and the repo is shared.
+#
+# Why this exists: with no GPU behind it the trail is ruinous. Measured on an
+# idle window, nothing typed, Ghostty 1.2.0, 10s samples:
+#     hardware GL,  trail on ........  15.6% CPU
+#     software GL,  trail on ........   ~760-800% CPU  (about 8 cores)
+#     software GL,  trail off .......    0.0% CPU
+# Software rasterization is common under WSLg when Mesa's d3d12 backend does
+# not bind. Note that turning only the *animation* off is not a fix: it still
+# costs ~67%, because a blinking cursor forces a full-screen redraw twice a
+# second and each redraw runs the shader.
+
+LOCAL_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty/ghostty.local"
+MANAGED_HEADER="# Managed by dfinstall. \`ghostty-shader\` toggles this file."
+
+usage() {
+    header "ghostty-shader"
+    echo "Enable or disable Ghostty's cursor-trail shader on this machine."
+    echo ""
+    echo "Usage:"
+    echo "  ghostty-shader status     Show the current setting and renderer"
+    echo "  ghostty-shader on         Force the trail on"
+    echo "  ghostty-shader off        Force the trail off"
+    echo "  ghostty-shader auto       Decide from the detected renderer"
+    echo "  ghostty-shader reset      Remove the override (use the shared config)"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help                Show this help"
+    echo ""
+    echo "File: $LOCAL_FILE"
+}
+
+# Print the GL renderer string, or a guess when mesa-utils is absent.
+# Sets RENDERER and RENDERER_CERTAIN.
+detect_renderer() {
+    RENDERER=""
+    RENDERER_CERTAIN=false
+
+    local tool
+    for tool in glxinfo eglinfo; do
+        command -v "$tool" >/dev/null 2>&1 || continue
+        # Some of these exit non-zero without a display; take what we can get.
+        RENDERER="$("$tool" -B 2>/dev/null | grep -i -m1 'renderer' || true)"
+        if [[ -n "$RENDERER" ]]; then
+            RENDERER_CERTAIN=true
+            return
+        fi
+    done
+
+    # Fallback: absence of a DRI render node is the documented signature of
+    # WSLg failing to bring up d3d12 (microsoft/wslg#1470). Absence is strong
+    # evidence of software rendering; presence is not proof of the reverse.
+    if [[ -e /dev/dri/renderD128 ]]; then
+        RENDERER="/dev/dri/renderD128 present (renderer name unknown)"
+    else
+        RENDERER="no /dev/dri/renderD128: no GPU render node"
+    fi
+}
+
+renderer_is_software() {
+    case "${RENDERER,,}" in
+        *llvmpipe*|*softpipe*|*swrast*|*"no /dev/dri"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+write_override() {
+    local enabled="$1"
+    mkdir -p "$(dirname "$LOCAL_FILE")"
+    {
+        echo "$MANAGED_HEADER"
+        echo "# Loaded via \`config-file = ?ghostty.local\` at the end of the main config,"
+        echo "# so it is applied AFTER everything else and wins."
+        echo ""
+        if [[ "$enabled" == "true" ]]; then
+            echo "# Cursor trail left ON for this machine."
+            echo "# (Nothing to override; the main config already enables it.)"
+        else
+            echo "# Cursor trail OFF for this machine."
+            echo "# An EMPTY value clears the whole list. \`custom-shader\` is a repeatable"
+            echo "# option, so assigning a path here would ADD a second shader instead of"
+            echo "# replacing it. Verified with \`ghostty +show-config\`."
+            echo "custom-shader = "
+            echo "custom-shader-animation = false"
+        fi
+    } > "$LOCAL_FILE"
+}
+
+current_state() {
+    if [[ ! -f "$LOCAL_FILE" ]]; then
+        echo "inherited"
+    elif grep -q '^custom-shader = $' "$LOCAL_FILE"; then
+        echo "off"
+    else
+        echo "on"
+    fi
+}
+
+# Confirm what Ghostty actually resolved, rather than trusting the file we wrote.
+verify() {
+    command -v ghostty >/dev/null 2>&1 || return 0
+    if ghostty +show-config 2>/dev/null | grep -q '^custom-shader = '; then
+        info "ghostty +show-config: shader IS set"
+    else
+        info "ghostty +show-config: shader is NOT set"
+    fi
+    warn "Restart Ghostty fully; a config reload does not recompute this."
+}
+
+main() {
+    local action="${1:-status}"
+    case "$action" in
+        -h|--help) usage; exit 0 ;;
+        status)
+            header "ghostty-shader"
+            detect_renderer
+            echo "  Setting:   $(current_state)"
+            echo "  Renderer:  $RENDERER"
+            if ! $RENDERER_CERTAIN; then
+                echo "             (guessed; install mesa-utils for a definitive answer)"
+            fi
+            if renderer_is_software && [[ "$(current_state)" != "off" ]]; then
+                echo ""
+                warn "Software rendering with the trail enabled costs ~760-800% CPU at idle."
+                warn "Run: ghostty-shader off"
+            fi
+            echo ""
+            verify
+            ;;
+        on)
+            write_override true
+            ok "Cursor trail enabled for this machine."
+            verify
+            ;;
+        off)
+            write_override false
+            ok "Cursor trail disabled for this machine."
+            verify
+            ;;
+        auto)
+            detect_renderer
+            info "Renderer: $RENDERER"
+            if renderer_is_software; then
+                write_override false
+                ok "Software rendering detected, cursor trail disabled."
+            else
+                write_override true
+                ok "GPU rendering detected, cursor trail enabled."
+            fi
+            verify
+            ;;
+        reset)
+            if [[ -f "$LOCAL_FILE" ]]; then
+                if ! grep -qF "$MANAGED_HEADER" "$LOCAL_FILE"; then
+                    die "$LOCAL_FILE was not written by dfinstall. Remove it yourself."
+                fi
+                rm -f "$LOCAL_FILE"
+                ok "Override removed; the shared ghostty config now applies."
+            else
+                info "No override in place; nothing to do."
+            fi
+            verify
+            ;;
+        *)
+            err "Unknown action: $action"
+            usage
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

@@ -71,7 +71,7 @@
   "//84": "saturates at y58; y58 is really where sway draws the focused window's",
   "//85": "client.focused border (46 + gaps outer 4 + gaps inner 8) and that row",
   "//86": "never moves, so taking `topmost row that isn't background` as the",
-  "//87": "panel edge read 58 for every value. Identify the panel by COLOUR —",
+  "//87": "panel edge read 58 for every value. Identify the panel by COLOR —",
   "//88": "@panel over dark content reads (24,24,36) — and across a WIDE row",
   "//89": "run, not one column: a single-column probe at x=1700 also produced a",
   "//90": "fake clamp (6 and 8 both reading y60) later in this same work.",
@@ -122,7 +122,7 @@
     "//15": "so no button calls them. swaync runs these through `sh -c`, which",
     "//16": "is why $(slurp), the pipe and $HOME all work.",
     "//17": "The `swaync-client -cp` prefix closes the panel first: the control",
-    "//18": "centre is a layer-shell surface holding keyboard focus, so slurp's",
+    "//18": "center is a layer-shell surface holding keyboard focus, so slurp's",
     "//19": "region select and swaylock both come up underneath it otherwise.",
     "buttons-grid": {
       "actions": [

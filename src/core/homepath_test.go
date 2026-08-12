@@ -20,7 +20,7 @@ func TestHomeTarget_EmptyRatherThanRelative(t *testing.T) {
 		t.Errorf("HomeTarget with no $HOME = %q, want \"\" (a relative path here would target the CWD)", got)
 	}
 
-	// Sanity: this is what the old behaviour produced.
+	// Sanity: this is what the old behavior produced.
 	if rel := filepath.Join("", ".oh-my-zsh"); filepath.IsAbs(rel) {
 		t.Fatal("premise wrong: Join with an empty home is absolute")
 	}

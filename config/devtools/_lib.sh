@@ -36,7 +36,11 @@ step()   { printf "${_DIM}  …${_RESET} %s\n" "$*"; }
 
 # ── Guard helpers ────────────────────────────────────────────────
 require_wsl() {
-    [[ -f /proc/sys/fs/binfmt_misc/WSLInterop ]] || die "Not running inside WSL."
+    # Both names matter: newer WSL builds register the interop handler as
+    # WSLInterop-late instead of WSLInterop, and checking only the old name
+    # made every WSL-only script refuse to run on a current install.
+    [[ -f /proc/sys/fs/binfmt_misc/WSLInterop || -f /proc/sys/fs/binfmt_misc/WSLInterop-late ]] \
+        || die "Not running inside WSL."
 }
 
 require_cmd() {

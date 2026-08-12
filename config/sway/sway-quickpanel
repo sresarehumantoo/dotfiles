@@ -80,7 +80,7 @@ box.panel { padding: 14px 16px; }
 label.row { color: #a6adc8; font-family: "IosevkaTerm Nerd Font", monospace; font-size: 13px; }
 label.value { color: #cdd6f4; font-family: "IosevkaTerm Nerd Font", monospace; font-size: 13px; }
 scale trough { min-height: 14px; border-radius: 7px; background-color: #313244; }
-/* No box-shadow on the handle: GTK re-rasterises a shadow every frame the
+/* No box-shadow on the handle: GTK re-rasterizes a shadow every frame the
    widget is redrawn, which during a scrub is every frame. */
 scale slider {
     min-width: 16px; min-height: 16px; border-radius: 50%;
@@ -242,7 +242,7 @@ def set_brightness(pct):
 
 
 class Row:
-    """One labelled slider with coalesced writes."""
+    """One labeled slider with coalesced writes."""
 
     def __init__(self, icon, name, style, lo, hi, getter, setter, to_display=None):
         self.setter = setter

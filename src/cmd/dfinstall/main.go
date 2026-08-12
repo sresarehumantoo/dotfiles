@@ -363,7 +363,7 @@ func main() {
 
 	rootCmd.AddCommand(installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd, uninstallCmd, diffCmd, registryCmd)
 
-	// Bind the command tree to a context cancelled on SIGINT/SIGTERM, so a
+	// Bind the command tree to a context canceled on SIGINT/SIGTERM, so a
 	// Ctrl-C during a long apt or cargo run tears the child process down
 	// instead of leaving it orphaned. A second signal restores the default
 	// handler and kills us outright.

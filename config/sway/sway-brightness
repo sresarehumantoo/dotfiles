@@ -73,7 +73,7 @@ usable=$((100 - FLOOR))
 # write access) and the user in `video`; Debian's brightnessctl ships no such
 # rule. Without it the write fails with EACCES and we fall back to
 # brightnessctl, which is slower but correct — so a box without the rule
-# degrades in feel, never in behaviour.
+# degrades in feel, never in behavior.
 BL=""
 BL_MAX=""
 for _d in /sys/class/backlight/*; do
@@ -212,7 +212,7 @@ show_osd() {
 }
 
 # ⚠ THE USER VALUE IS REMEMBERED, NOT RE-DERIVED. This is the whole reason the
-# state file exists, and it fixes a real bug rather than being an optimisation.
+# state file exists, and it fixes a real bug rather than being an optimization.
 #
 # The two scales are integer maths and are NOT mutual inverses. Deriving the
 # user value from the hardware every press creates fixed points where a step

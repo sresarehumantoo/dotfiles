@@ -155,3 +155,25 @@ scrollback-limit = 10000
 # `animation = always` stops the effect freezing when the window loses focus.
 custom-shader = shaders/cursor_warp.glsl
 custom-shader-animation = always
+
+# ── Machine-local overrides, loaded LAST so they win ──────────────────────────
+# The `?` prefix means "silently skip if absent", so this is a no-op on every
+# machine that has not written one (verified: `ghostty +validate-config` exits 0
+# with the file missing).
+#
+# ⚠ THE PATH RESOLVES NEXT TO THE SYMLINK, NOT NEXT TO THIS FILE IN THE REPO —
+# i.e. ~/.config/ghostty/ghostty.local, not <repo>/config/ghostty/ghostty.local.
+# That is the opposite of `custom-shader` above, which resolves through the
+# symlink into the repo (see CLAUDE.md). Measured both ways by putting a
+# different override in each location and reading `ghostty +show-config`: the
+# ~/.config copy won and the repo copy was ignored entirely. Do not "fix" this
+# by making it absolute — landing outside the repo is exactly what we want,
+# since the choice below is per-machine and this file is shared.
+#
+# Written by `dfinstall install wsl` and toggled by the `ghostty-shader` script.
+# It exists because the cursor trail above costs ~760-800% CPU at idle when
+# there is no GPU behind it (measured; common on WSLg, where Mesa falls back to
+# llvmpipe). To clear the shader it assigns an EMPTY value — `custom-shader` is
+# a repeatable option, so assigning a path would append a second shader rather
+# than replace this one.
+config-file = ?ghostty.local
