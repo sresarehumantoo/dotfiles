@@ -35,15 +35,15 @@ font pango:IosevkaTerm Nerd Font 10
 #
 # ⚠ THE WINDOW TITLE IS NOT DISPLAYED ANYWHERE ON THIS DESKTOP, and this comment
 # has now been wrong twice by claiming otherwise. It used to read "the title is
-# already in waybar's centre pill" — true when `modules-center` was
-# `["sway/window"]`, but the centre pill now holds the CLOCK
+# already in waybar's center pill" — true when `modules-center` was
+# `["sway/window"]`, but the center pill now holds the CLOCK
 # (config/waybar/config), so there is no title anywhere: not in a titlebar, not
 # in the bar. That is deliberate, not an oversight. To get it back, put
 # "sway/window" into modules-center and move the clock to modules-right.
 #
 # NOTE: tabbed ($mod+w) and stacking ($mod+s) layouts still draw titlebars
 # regardless of this setting — that is why the client.* titlebar background
-# and text colours below still matter.
+# and text colors below still matter.
 default_border          pixel 2
 default_floating_border pixel 2
 
@@ -53,7 +53,7 @@ default_floating_border pixel 2
 # What it fixes: with a single window the 2px client.focused border (#89b4fa,
 # plus the #f5e0dc indicator on the split edge) drew a bright blue frame around
 # the whole screen — 2876 border pixels along the top edge alone. Against the
-# swaync control centre, whose outer edge is deliberately square and quiet
+# swaync control center, whose outer edge is deliberately square and quiet
 # (config/swaync/style.css), that frame was the loudest thing on screen and read
 # as an outline bolted onto the panel. Measured 2876 -> 0 with this line.
 #
@@ -66,12 +66,12 @@ default_floating_border pixel 2
 # no border anywhere, so the focused border can no longer tell you which SCREEN
 # has focus. That cue is gone by choice — owen's call, chosen over both dimming
 # client.focused and dropping borders entirely. If it turns out to matter, the
-# non-destructive alternative is to keep this line off and instead recolour
+# non-destructive alternative is to keep this line off and instead recolor
 # client.focused's border+indicator to a dark surface tone (#313244), which
 # quiets the frame without hiding anything.
 #
 # ⚠ `--i3` MATTERS. Without it sway uses its own semantics for `smart`; the i3
-# flag is the "hide when only one window is visible" behaviour intended here.
+# flag is the "hide when only one window is visible" behavior intended here.
 # `smart_no_gaps` is NOT the right value: it additionally requires gaps to be
 # zero, and `gaps inner 8` / `outer 4` below mean it would never trigger.
 hide_edge_borders --i3 smart
@@ -133,15 +133,15 @@ gaps outer 2
 gaps top -8
 smart_gaps off
 
-### Colours ----------------------------------------------------------------
+### Colors ----------------------------------------------------------------
 # Catppuccin Mocha, the same palette as config/waybar/style.css — keep the two
 # in step. Before this the config set no client.* directives at all, so sway
-# fell back to its stock #4c7899/#285577 blue-grey, which is what made the
+# fell back to its stock #4c7899/#285577 blue-gray, which is what made the
 # borders clash with the bar.
 #
 # Dark titlebars with the accent carried by the border and the title text,
 # mirroring the bar's "accent text on dark" treatment rather than filling the
-# titlebar with colour.
+# titlebar with color.
 #
 #                       border   background text     indicator child_border
 client.focused          #89b4fa  #181825    #89b4fa  #f5e0dc   #89b4fa
@@ -153,7 +153,7 @@ client.background       #1e1e2e
 
 # $HOME rather than a literal path: sway expands it here, and `sway --validate`
 # genuinely checks the file exists, so a broken path fails loudly at validate
-# time rather than silently leaving you on the default grey.
+# time rather than silently leaving you on the default gray.
 output * bg $HOME/.config/background fill
 
 ### Outputs ----------------------------------------------------------------
@@ -341,7 +341,7 @@ bindsym $mod+Shift+e exec swaynag -t warning \
 bindsym $mod+Shift+x exec $lock
 
 ### Notifications ---------------------------------------------------------
-# The keyboard route to swaync's control centre; the bell in waybar is the
+# The keyboard route to swaync's control center; the bell in waybar is the
 # pointer one (see "custom/notification" in config/waybar/config). Before these
 # two existed the panel had no opener at all, so a notification that timed out
 # was simply unrecoverable — the history was being kept and never shown.
@@ -351,7 +351,7 @@ bindsym $mod+Shift+x exec $lock
 # the daemon has died, with no feedback.
 bindsym $mod+n       exec swaync-client -t -sw
 # Push the newest popup off screen without opening the panel — it stays in the
-# control centre, so this is "not now", not "delete". swaync has no hide-all,
+# control center, so this is "not now", not "delete". swaync has no hide-all,
 # only hide-latest, so repeated presses peel them off one at a time. Do NOT
 # reach for -C here: that is close-all, which drops them from the history too.
 bindsym $mod+Shift+n exec swaync-client --hide-latest -sw
@@ -360,7 +360,7 @@ bindsym $mod+Shift+n exec swaync-client --hide-latest -sw
 # ⚠ Each of these is written as `swayosd-client ... || <fallback>` on purpose.
 # swayosd draws the on-screen level overlay, and it is what makes the bar's
 # missing volume/brightness percentages a feature rather than a loss: the
-# number appears centre-screen exactly while you are changing it. But this repo
+# number appears center-screen exactly while you are changing it. But this repo
 # also configures machines that do not have it, so every key degrades to the
 # old direct command instead of silently doing nothing. Test the fallback by
 # temporarily renaming swayosd-client, NOT by trusting the `||`.
@@ -475,7 +475,7 @@ exec_always sh -c '[ -x "$HOME/.local/bin/sway-workspaces" ] && "$HOME/.local/bi
 #     Could not connect to CC service. Will wait for connection...
 # and waits forever for a daemon that nothing is left to start. So on any
 # session where swaync was not already up, this line hung at login and swaync
-# never started at all: no control centre, and the waybar bell silently doing
+# never started at all: no control center, and the waybar bell silently doing
 # nothing (its `-sw` gives up rather than launching — see config/waybar/config).
 # Observed live: the hung `swaync-client --reload-config` was still sitting
 # there 24 minutes into the session, sway's exec_always never having returned.

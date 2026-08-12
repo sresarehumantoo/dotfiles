@@ -57,7 +57,7 @@ func newFakeWindows(t *testing.T, exes map[string]string) string {
 
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	// winToLinux memoises; a stale entry from another test would poison this one.
+	// winToLinux memoizes; a stale entry from another test would poison this one.
 	winPathCacheMu.Lock()
 	winPathCache = map[string]string{}
 	winPathCacheMu.Unlock()

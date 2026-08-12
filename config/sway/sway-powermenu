@@ -14,7 +14,7 @@
 set -eu
 
 # Keep in step with `set $lock` in config/sway/config — same flags, same
-# colour. There is no way to read a sway variable from outside sway, so this
+# color. There is no way to read a sway variable from outside sway, so this
 # is a deliberate duplicate rather than an oversight.
 LOCK='swaylock -f -c 1e1e2e'
 

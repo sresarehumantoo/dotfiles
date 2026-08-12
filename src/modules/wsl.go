@@ -167,7 +167,7 @@ func installSysctl(ctx context.Context) {
 // form here used to make Status() and doctor report "could not resolve Windows
 // home" on a completely healthy machine.
 //
-// Memoised: Install, Status and doctor each call this, and every miss is a
+// Memoized: Install, Status and doctor each call this, and every miss is a
 // Windows process launch.
 var (
 	winHomeOnce   sync.Once
@@ -283,14 +283,14 @@ func linkWinHome() {
 //	fatal: fsmonitor--daemon not supported on this platform
 //
 // git silently ignores the setting rather than erroring, which is exactly why
-// it survived: it looked like a working optimisation in every `git config -l`.
+// it survived: it looked like a working optimization in every `git config -l`.
 // core.untrackedcache is the one that is real on Linux and does help.
 func configureGitCache(ctx context.Context) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return
 	}
 	// Clear the dead setting if a previous install wrote it, so the config
-	// stops advertising an optimisation that never ran. Unset returns non-zero
+	// stops advertising an optimization that never ran. Unset returns non-zero
 	// when the key is absent, which is the normal case — not an error.
 	_ = exec.CommandContext(ctx, "git", "config", "--global", "--unset", "core.fsmonitor").Run()
 

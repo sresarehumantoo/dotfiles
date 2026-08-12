@@ -407,7 +407,7 @@ before `render` touches it. Two flags matter and are easy to get backwards —
 `-r` forces a *constant* framerate by duplicating frames, which throws that
 saving away, so demorec passes `-B` (the framerate hint that preserves VFR)
 instead. wf-recorder also has **no cursor option at all**, so `--no-cursor` is
-warned about rather than honoured there, and it finalises on **SIGINT** while
+warned about rather than honoured there, and it finalizes on **SIGINT** while
 ignoring SIGTERM — hence the per-backend stop signal recorded in the session
 file.
 
@@ -424,7 +424,7 @@ no desktop output to grab. The window is composited by DWM on the Windows side,
 which is the only place it can be seen. `render` is a plain file-to-file
 transcode, so Linux ffmpeg handles it on both platforms.
 
-Two behaviours that are easy to get wrong and are deliberate here:
+Two behaviors that are easy to get wrong and are deliberate here:
 
 - **GNOME kills a screencast the instant the calling D-Bus connection drops**
   (`Fatal error while recording: Sender has vanished`). A one-shot `gdbus call`
@@ -432,7 +432,7 @@ Two behaviours that are easy to get wrong and are deliberate here:
   an `ftyp` box. `start` therefore leaves a small Python holder running for the
   duration, and `stop` signals it.
 - **WSL capture takes seconds to actually begin.** Launching a Windows process
-  through interop, initialising D3D11 and acquiring the Desktop Duplication
+  through interop, initializing D3D11 and acquiring the Desktop Duplication
   interface all cost real time, and a freshly downloaded `ffmpeg.exe` may also
   be scanned by Defender on first run. `start` therefore waits until ffmpeg has
   genuinely written to the output before reporting `Recording`, and prints how
@@ -463,7 +463,7 @@ Two behaviours that are easy to get wrong and are deliberate here:
   it can be retried, rather than stranding a live recording with no state.
 - **The WSL muxer is fragmented** (`+frag_keyframe+empty_moov`) so a hard kill
   still yields a playable file instead of one with no `moov` atom. GNOME's own
-  pipeline does the same (`fragment-mode=first-moov-then-finalise`), so both
+  pipeline does the same (`fragment-mode=first-moov-then-finalize`), so both
   backends behave alike on an unclean stop. ffmpeg is therefore run with
   `-nostdin` and simply signalled, rather than being sent `q` down a FIFO: a
   FIFO would have to be held open by a shell that exits the moment `start`
@@ -556,14 +556,14 @@ written across that bridge is slow enough to drop frames or fail outright. If
 the profile cannot be resolved, it warns and falls back to `$HOME`.
 
 > The WSL backend is **untested** — written from the `ddagrab` docs and interop
-> behaviour, but never exercised on a real WSL box. Verify before relying on it.
+> behavior, but never exercised on a real WSL box. Verify before relying on it.
 >
 > The wlroots backend has **not been run in a real wlroots session** either, but
 > less of it is guesswork: the argument vector was executed against the real
 > wf-recorder binary (0.5.0), which accepted every flag and the geometry string
 > and failed only at `wlr-screencopy`, and the start-failure path, backend
 > detection, missing-binary message and cursor warning were all driven on GNOME.
-> What remains unverified is a successful recording and the SIGINT finalise.
+> What remains unverified is a successful recording and the SIGINT finalize.
 
 ---
 
@@ -598,7 +598,7 @@ hardware GL against `LIBGL_ALWAYS_SOFTWARE=1`:
 | shader, `animation = always` | software | 762-790% |
 | shader, `animation = true` (focused) | software | 806% |
 
-Software rasterisation is common under WSLg when Mesa's d3d12 backend does not
+Software rasterization is common under WSLg when Mesa's d3d12 backend does not
 bind (microsoft/wslg#1129, #996, #1470).
 
 Two traps in those numbers:
@@ -608,7 +608,7 @@ Two traps in those numbers:
   every redraw is a full-screen shader pass. The only effective lever is
   removing the shader.
 - **`always` vs `true` barely differ.** A focused window pays the same either
-  way, so do not "optimise" this by switching animation modes.
+  way, so do not "optimize" this by switching animation modes.
 
 Renderer detection prefers `glxinfo`/`eglinfo` and says so when it has them.
 Without mesa-utils it falls back to the presence of `/dev/dri/renderD128`, whose

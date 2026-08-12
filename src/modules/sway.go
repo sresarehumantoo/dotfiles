@@ -26,7 +26,7 @@ func (SwayModule) Links() core.LinkSet {
 		{Src: core.ConfigPath("swaync", "config.json"), Dst: core.XDGTarget("swaync", "config.json")},
 		{Src: core.ConfigPath("swaync", "style.css"), Dst: core.XDGTarget("swaync", "style.css")},
 		{Src: core.ConfigPath("mako", "config"), Dst: core.XDGTarget("mako", "config")},
-		// swayosd's overlay. Linked because its upstream default colours come
+		// swayosd's overlay. Linked because its upstream default colors come
 		// from the system GTK theme, which renders a light pill on this dark
 		// desktop. ⚠ That file is GTK4 CSS, unlike every other stylesheet this
 		// module links — see its header before editing.
@@ -58,7 +58,7 @@ func (SwayModule) Links() core.LinkSet {
 		// Volume + brightness panel behind the waybar volume/brightness
 		// readouts. Same reason for living in ~/.local/bin.
 		{Src: core.ConfigPath("sway", "sway-quickpanel"), Dst: core.HomeTarget(".local", "bin", "sway-quickpanel")},
-		// Month calendar behind the clock (waybar's centre module). A real
+		// Month calendar behind the clock (waybar's center module). A real
 		// window, not a tooltip: waybar's clock renders {calendar} only in its
 		// tooltip, which is hover-only and cannot be browsed.
 		{Src: core.ConfigPath("sway", "sway-calendar"), Dst: core.HomeTarget(".local", "bin", "sway-calendar")},
@@ -73,7 +73,7 @@ func (SwayModule) Links() core.LinkSet {
 		{Src: core.ConfigPath("sway", "sway-fx"), Dst: core.HomeTarget(".local", "bin", "sway-fx")},
 		// The animated 1-9 workspace row. A resident server feeding nine
 		// `tail -F` clients, one per waybar module — waybar's own
-		// sway/workspaces cannot render a travelling highlight, because it
+		// sway/workspaces cannot render a traveling highlight, because it
 		// derives every button's class from sway state and an intermediate
 		// workspace is never "anything".
 		{Src: core.ConfigPath("sway", "sway-workspaces"), Dst: core.HomeTarget(".local", "bin", "sway-workspaces")},

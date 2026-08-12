@@ -19,7 +19,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 #     hardware GL,  trail on ........  15.6% CPU
 #     software GL,  trail on ........   ~760-800% CPU  (about 8 cores)
 #     software GL,  trail off .......    0.0% CPU
-# Software rasterisation is common under WSLg when Mesa's d3d12 backend does
+# Software rasterization is common under WSLg when Mesa's d3d12 backend does
 # not bind. Note that turning only the *animation* off is not a fix: it still
 # costs ~67%, because a blinking cursor forces a full-screen redraw twice a
 # second and each redraw runs the shader.

@@ -402,7 +402,7 @@ start_wlroots() {
         exit 1
     fi
 
-    # SIGINT, not SIGTERM: wf-recorder finalises the file on interrupt.
+    # SIGINT, not SIGTERM: wf-recorder finalizes the file on interrupt.
     printf 'backend=wlroots\npid=%s\nfile=%s\nsignal=INT\n' "$pid" "$out" >"$STATE_FILE"
     ok "Recording — $out"
     info "Stop with: demorec stop"
@@ -446,7 +446,7 @@ start_gnome() {
     info "Stop with: demorec stop"
 }
 
-# NOTE: untested. Written from the ddagrab docs and WSL interop behaviour, but
+# NOTE: untested. Written from the ddagrab docs and WSL interop behavior, but
 # not exercised on a real WSL box — verify before trusting it.
 start_wsl() {
     local base="$1"
@@ -488,7 +488,7 @@ start_wsl() {
         -y "$winout" >"$LOG_FILE" 2>&1 &
     local pid=$!
 
-    # Launching a Windows process, initialising D3D11 and acquiring the Desktop
+    # Launching a Windows process, initializing D3D11 and acquiring the Desktop
     # Duplication interface all take real time — several seconds is normal, and
     # a freshly downloaded ffmpeg.exe may also be scanned by Defender on first
     # run. Rather than sleeping a fixed interval and claiming success, wait
@@ -605,7 +605,7 @@ cmd_stop() {
     t_stop="$(date +%s.%N)"
     [[ -n "$started" ]] && ELAPSED="$(awk -v s="$started" -v n="$t_stop" \
         'BEGIN{ printf "%.3f", n - s }')"
-    # wf-recorder finalises on SIGINT and ignores SIGTERM, so the signal is a
+    # wf-recorder finalizes on SIGINT and ignores SIGTERM, so the signal is a
     # property of the backend rather than a constant.
     signal="$(sed -n 's/^signal=//p' "$STATE_FILE")"
     signal="${signal:-TERM}"

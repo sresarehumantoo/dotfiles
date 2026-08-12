@@ -58,7 +58,7 @@ var winShimNames = []string{
 	"winget.exe",
 }
 
-// winPathCache memoises wslpath translations. resolveWinHome is called from
+// winPathCache memoizes wslpath translations. resolveWinHome is called from
 // Install, Status *and* doctor, each of which used to spawn its own cmd.exe;
 // on WSL that is a Windows process launch each time.
 var (
@@ -361,7 +361,7 @@ func renderWslconfig(template string, s hostSpecs) string {
 // currentUsername returns the account the installer is running as, or "".
 //
 // dfinstall refuses to run as root, so this is the real interactive user
-// rather than a sudo artefact. $USER is checked first because it survives a
+// rather than a sudo artifact. $USER is checked first because it survives a
 // container or minimal image where the passwd lookup can fail.
 func currentUsername() string {
 	if u := strings.TrimSpace(os.Getenv("USER")); u != "" && u != "root" {

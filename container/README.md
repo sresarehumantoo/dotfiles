@@ -104,7 +104,7 @@ self-skip anyway (`DetectVirt()` reports `docker`).
 `/home/owen` is built during `docker build`, then moved to `/opt/skel`. The
 entrypoint copies it into the (empty) named volume on first boot and stamps
 `~/.box-seeded`. Docker's native "copy image content into an empty volume"
-behaviour would half-do this, but it is silent, does not apply to bind mounts,
+behavior would half-do this, but it is silent, does not apply to bind mounts,
 and offers no deliberate re-seed.
 
 **Consequence:** anything the image installs *into `$HOME`* — including
@@ -240,7 +240,7 @@ failure, then populated on retry" — and reports:
 > the first attempt for non-elevated users.
 
 **The test above ran as `Administrator` on Server Core, i.e. always elevated.**
-So the read-only behaviour is most likely an artifact of the test account rather
+So the read-only behavior is most likely an artifact of the test account rather
 than a property of this design.
 
 Systematically ruled out along the way:

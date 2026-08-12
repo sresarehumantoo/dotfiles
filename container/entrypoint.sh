@@ -16,7 +16,7 @@ log() { printf '[box] %s\n' "$*"; }
 # ── Seed the home volume ─────────────────────────────────────────
 # A fresh named volume mounts empty over /home/<user>, masking the home the
 # image built. Copy it in once and stamp it. Docker's own "copy image content
-# into an empty volume" behaviour would half-do this, but it is silent, does
+# into an empty volume" behavior would half-do this, but it is silent, does
 # not apply to bind mounts, and gives no way to re-seed deliberately.
 if [[ ! -e "$SEED_STAMP" ]]; then
     if [[ -d "$SKEL_DIR" ]]; then

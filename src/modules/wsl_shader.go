@@ -32,7 +32,7 @@ import (
 //     second and every redraw is a full-screen shader pass. The only effective
 //     lever is removing the shader.
 //   - `always` vs `true` barely differ; a focused window pays the same either
-//     way. Do not "optimise" this by switching animation modes.
+//     way. Do not "optimize" this by switching animation modes.
 //
 // So on WSL the shader is a question to ask, not a default to impose.
 
@@ -50,7 +50,7 @@ func ghosttyLocalPath() string {
 	return core.XDGTarget("ghostty", ghosttyLocalFile)
 }
 
-// rendererIsSoftware reports whether OpenGL is being software-rasterised, plus
+// rendererIsSoftware reports whether OpenGL is being software-rasterized, plus
 // a human-readable renderer name.
 //
 // Detection is best-effort and says so: glxinfo/eglinfo are authoritative but

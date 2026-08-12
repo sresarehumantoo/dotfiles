@@ -78,7 +78,7 @@ func TestFetchRegistry_CancellableWhileServerHangs(t *testing.T) {
 	select {
 	case err := <-done:
 		if err == nil {
-			t.Fatal("expected an error when the context is cancelled")
+			t.Fatal("expected an error when the context is canceled")
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("FetchRegistry ignored context cancellation and hung")

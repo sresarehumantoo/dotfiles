@@ -263,7 +263,7 @@ func TestRenderedWslConfLeavesNoPlaceholders(t *testing.T) {
 
 func TestCurrentUsernameNeverReturnsRoot(t *testing.T) {
 	// dfinstall refuses to run as root, so a "root" answer here would mean the
-	// probe picked up a sudo artefact and would write the wrong login user.
+	// probe picked up a sudo artifact and would write the wrong login user.
 	t.Setenv("USER", "root")
 	if got := currentUsername(); got == "root" {
 		t.Error("currentUsername() returned root")

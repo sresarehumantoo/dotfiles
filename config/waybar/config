@@ -41,7 +41,7 @@
     // a layer surface's position must count it.
     //
     // ⚠ Changing this MOVES EVERY WINDOW DOWN. Keep it in step with margin-top
-    // rather than tuning it alone, or the bar drifts off-centre in its own zone.
+    // rather than tuning it alone, or the bar drifts off-center in its own zone.
     "margin-bottom": 6,
     "margin-left": 10,
     "margin-right": 10,
@@ -56,14 +56,14 @@
     "modules-left":   ["custom/ws1", "custom/ws2", "custom/ws3", "custom/ws4",
                        "custom/ws5", "custom/ws6", "custom/ws7", "custom/ws8",
                        "custom/ws9", "sway/mode"],
-    // ⚠ THE CLOCK IS THE CENTRE MODULE, and `sway/window` is GONE — the window
+    // ⚠ THE CLOCK IS THE CENTER MODULE, and `sway/window` is GONE — the window
     // title is no longer displayed anywhere on this desktop. That is the point
-    // (a centred clock, macOS/GNOME-style) but it has one consequence worth
+    // (a centerd clock, macOS/GNOME-style) but it has one consequence worth
     // knowing: `default_border`'s comment in config/sway/config used to justify
-    // titlebars-off with "the title is already in waybar's centre pill", and
+    // titlebars-off with "the title is already in waybar's center pill", and
     // that is no longer true. It has been corrected there.
     // To get the title back, put "sway/window" in this array — it takes the
-    // centre pill and the clock has to move back to modules-right.
+    // center pill and the clock has to move back to modules-right.
     "modules-center": ["clock"],
     // No "tray" — see the tray block below for why.
     //
@@ -75,7 +75,7 @@
     // live in tooltips and the sliders live in the swaync panel behind them.
     // ⚠ `custom/notification` IS THE LAST ENTRY ON PURPOSE — it is the control
     // hub, and the hub belongs at the corner. This follows macOS, where the
-    // Control Centre glyph sits hard right and everything that is an action
+    // Control Center glyph sits hard right and everything that is an action
     // rather than a readout lives behind it. `custom/power` used to hold that
     // corner; the session actions it opened are already in the swaync panel's
     // buttons-grid, so the bar entry was a second door to the same room.
@@ -121,7 +121,7 @@
     // the note on modules-right ordering above). Folding it into this pill is
     // deliberate and matches GNOME, where the quick-settings button *is* the
     // status cluster rather than a separate glyph beside it; every module in
-    // here already left-clicks to the same control centre.
+    // here already left-clicks to the same control center.
     "group/status": {
         "orientation": "horizontal",
         "modules": ["idle_inhibitor", "pulseaudio", "network", "battery", "custom/notification"]
@@ -276,7 +276,7 @@
     // affected by the waybar bug — it drives a plain GtkScale and does not
     // write back to the widget you are holding.
     // Do not re-add in-bar sliders without re-reading that note first.
-    // ⚠ ONE DESTINATION: EVERY STATUS READOUT LEFT-CLICKS TO THE CONTROL CENTRE.
+    // ⚠ ONE DESTINATION: EVERY STATUS READOUT LEFT-CLICKS TO THE CONTROL CENTER.
     // `pulseaudio`, `network`, `battery` and `custom/notification` all run
     // `swaync-client -t -sw` on a plain left click. Keep it that way when adding a
     // readout — an inconsistent cluster is worse than any individual choice here,
@@ -297,7 +297,7 @@
         //
         // Icon only. The percentage is gone from the bar on purpose: a volume
         // number is only meaningful in the moment you are changing it, and in
-        // that moment swayosd puts it centre-screen where you are already
+        // that moment swayosd puts it center-screen where you are already
         // looking. At rest the useful signal is muted-or-not, which the glyph
         // carries. Same reasoning GNOME and macOS apply to their status areas.
         "format": "{icon}",
@@ -381,7 +381,7 @@
         "tooltip-format-wifi": "<b>{essid}</b>\n{ipaddr}/{cidr} on {ifname}\n{signaldBm} dBm  ·  {frequency} GHz",
         "tooltip-format-ethernet": "<b>{ifname}</b>\n{ipaddr}/{cidr}",
         "tooltip-format-disconnected": "Offline",
-        // Left-click opens the control centre, like every other status readout in
+        // Left-click opens the control center, like every other status readout in
         // this cluster — see the "one destination" note above `pulseaudio`.
         "on-click": "swaync-client -t -sw",
         // ⚠ nm-connection-editor MOVED HERE FROM on-click, it was not dropped.
@@ -490,7 +490,7 @@
         "bat": "CMB0",
         "adapter": "ADP0",
         "states": { "warning": 25, "critical": 10 },
-        // ⚠ ICON ONLY — the percentage moved to the control centre (swaync's
+        // ⚠ ICON ONLY — the percentage moved to the control center (swaync's
         // system-stats widget). Same reasoning as volume and brightness: a
         // number you are not currently changing is noise in the bar, and the
         // exact value is one predictable click away. It is also still in the
@@ -517,14 +517,14 @@
         ],
         // Carries the number the bar no longer shows.
         "tooltip-format": "{capacity}%  ·  {timeTo}  ·  {power:0.1f}W",
-        // Left-click opens the control centre — see the "one destination" note
+        // Left-click opens the control center — see the "one destination" note
         // above `pulseaudio`. This module had no click action at all before, so
         // nothing is displaced.
         "on-click": "swaync-client -t -sw"
     },
 
     // The bell. Before this existed there was no way to reach swaync's control
-    // centre at all — no bar affordance and no keybind — so notifications that
+    // center at all — no bar affordance and no keybind — so notifications that
     // timed out were simply gone. $mod+n in config/sway/config is the keyboard
     // route; this is the pointer one.
     //
@@ -558,7 +558,7 @@
         // "notifications" when it became the last entry on the bar: behind it
         // are the volume and brightness sliders, the session actions, and the
         // notification list. md-tune (two horizontal sliders) is the same
-        // shorthand macOS uses for Control Centre, and it describes what is
+        // shorthand macOS uses for Control Center, and it describes what is
         // actually behind the icon; a bell described one of four things.
         //
         // Unread count still reads out — `format` is `{icon}{}` and the sed
@@ -586,12 +586,12 @@
         // Useless content would be harmless if it stayed inside the bar, but a
         // GTK tooltip is its own surface and is NOT confined to waybar's 40px
         // height: this one renders at x≈1855-1910, y≈46-93, i.e. straight over
-        // the control centre's top-right corner, covering part of "Clear all".
+        // the control center's top-right corner, covering part of "Clear all".
         // Its rounded corners against the panel's edge is exactly the "two
         // corners that don't line up" artifact.
         //
         // And it is not an edge case — it is the DEFAULT view of the panel.
-        // Opening the control centre by clicking this button leaves the pointer
+        // Opening the control center by clicking this button leaves the pointer
         // parked on it, so the tooltip is on screen every single time the panel
         // is opened by hand. It only disappears if you open via `$mod+n` or move
         // the mouse afterwards, which is why screenshots taken with the cursor
@@ -637,7 +637,7 @@
         "spacing": 8
     },
 
-    // Centre module (see `modules-center`). Left-click opens sway-calendar.
+    // Center module (see `modules-center`). Left-click opens sway-calendar.
     "clock": {
         "format": "󰅐  {:%a %d %b  %H:%M}",
 

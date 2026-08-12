@@ -30,14 +30,14 @@ exposes a Logitech mouse as a second type=Battery.
 +    /**
 +     * LOCAL DELTA — not upstream.
 +     *
-+     * A live CPU / memory / temperature readout for the control centre.
++     * A live CPU / memory / temperature readout for the control center.
 +     * Upstream has no widget that can show a changing value: `label` takes a
 +     * static `text` string and nothing else, and there is no exec-and-refresh
 +     * mechanism anywhere in the widget set. This exists so the hardware
 +     * readouts can leave the status bar without becoming stale text.
 +     *
 +     * ⚠ POLLING IS TIED TO PANEL VISIBILITY. `on_cc_visibility_change` starts
-+     * the timer when the control centre opens and removes it when it closes,
++     * the timer when the control center opens and removes it when it closes,
 +     * so a closed panel costs nothing. This is the same contract the backlight
 +     * widget uses for its sysfs monitor; a widget that polled unconditionally
 +     * would burn a wakeup every interval for a surface nobody is looking at.

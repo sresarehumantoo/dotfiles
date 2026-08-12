@@ -31,7 +31,7 @@ button that no-ops. So the dependency set is declared as data in
 | Bar / notifications | `waybar` `sway-notification-center` `mako-notifier` | the bar; the panel and bell; the documented fallback daemon |
 | Status-area features | `swayosd` `pavucontrol` `playerctl` `pipewire-pulse` `wireplumber` | the on-screen volume/brightness overlay, the mixer on right-click, the mpris module and media keys |
 | Screenshots | `grim` `slurp` `wl-clipboard` | `Print` / `Shift+Print` and the panel's two capture buttons |
-| Applets | `network-manager-gnome` `blueman` | **right**-clicking the network module (left-click opens the control centre); Bluetooth pairing. nm-applet is also NetworkManager's secret agent, so without it wifi password prompts never appear |
+| Applets | `network-manager-gnome` `blueman` | **right**-clicking the network module (left-click opens the control center); Bluetooth pairing. nm-applet is also NetworkManager's secret agent, so without it wifi password prompts never appear |
 | Calendar | `gir1.2-gtklayershell-0.1` | `sway-calendar` dies on import — and since waybar launches it from a click, the clock just silently does nothing |
 
 Two deliberate omissions: **no terminal** (`set $term ghostty`, which has its own
@@ -169,8 +169,8 @@ Notifications and media:
 
 | Key | Action |
 |---|---|
-| `$mod+n` | Toggle the swaync control centre |
-| click the clock | Open the month calendar (`sway-calendar`) — see *The clock is the centre module* |
+| `$mod+n` | Toggle the swaync control center |
+| click the clock | Open the month calendar (`sway-calendar`) — see *The clock is the center module* |
 | `$mod+Shift+n` | Push the newest popup off screen (`--hide-latest`; it stays in history) |
 | `XF86Audio{Raise,Lower}Volume` | Volume ±, with the swayosd overlay |
 | `XF86AudioMute` / `XF86AudioMicMute` | Mute sink / source |
@@ -222,7 +222,7 @@ re-adding percentages, note what each removal bought:
 
 - **Brightness has no module at all.** It has no meaningful at-rest state —
   nobody needs telling the screen is on — and the value only matters while you
-  are changing it, which is when swayosd puts it centre-screen. Set it
+  are changing it, which is when swayosd puts it center-screen. Set it
   deliberately from the swaync panel's slider.
 - **Volume is icon-only.** Same reasoning; the glyph still carries muted-or-not,
   which is the part you read at a glance.
@@ -231,11 +231,11 @@ re-adding percentages, note what each removal bought:
 - **Battery keeps its percentage**, and the clock keeps the date. These are read
   at rest rather than adjusted, so a number earns its place.
 
-Colour is reserved to *mean* something: yellow and red are left free for warning
+Color is reserved to *mean* something: yellow and red are left free for warning
 and critical states, and nothing at rest competes with them — the focused
 workspace and the hover ring are a dark pigment plus a lit edge rather than a
 hue (see *Selection and hover*), and the clock is plain `@text`. An earlier scheme gave every module its own hue, and a red
-battery warning had to compete with five other colours.
+battery warning had to compete with five other colors.
 
 Modules that hide themselves entirely when idle: `privacy` (mic/camera/
 screenshare), `mpris`, and `network#vpn`. An indicator that is always lit is one
@@ -271,7 +271,7 @@ so user `0` is a real `5%` — dim but visibly lit. Both paths implement it:
 Two implementation notes worth keeping:
 
 - **The user value is remembered in a state file, never re-derived per press.**
-  This is not an optimisation; deriving it caused a real bug where **brightness
+  This is not an optimization; deriving it caused a real bug where **brightness
   could not be taken below 91% at all**. The two scales are integer maths and
   are not mutual inverses, so they have fixed points:
 
@@ -368,7 +368,7 @@ re-applied.
 |---|---|---|
 | `config/sway/swayosd-fade.patch` | SwayOSD v0.3.2 | fade in/out for the OSD overlay |
 | `config/sway/swaync-system-stats.patch` | swaync 0.11.0 | the `system-stats` widget (cpu / memory / temperature / **battery**) |
-| `config/sway/swaync-cc-fade.patch` | swaync 0.11.0 | fade in/out for the control centre |
+| `config/sway/swaync-cc-fade.patch` | swaync 0.11.0 | fade in/out for the control center |
 
 All three were verified to apply cleanly to a pristine upstream tree, and the
 two swaync patches touch disjoint files so their order does not matter.
@@ -458,7 +458,7 @@ It reuses the stable `/sys/devices/platform/coretemp.0/hwmon` path rather than
 > `glyph(unichar)` helper, which also keeps the patch file free of raw Plane-15
 > bytes that a re-encoding could eat.
 
-**The control-centre fade** reuses swaync's own `Animation` class (frame-clock
+**The control-center fade** reuses swaync's own `Animation` class (frame-clock
 driven, has easing, and no-ops when `gtk-enable-animations` is off, so it honours
 the accessibility setting for free). 180ms of `ease_out_cubic` rather than the
 400ms `ANIMATION_DURATION` — this fires every time the panel opens, and 400ms
@@ -648,11 +648,11 @@ the right way to re-apply after editing. Every value also applies live —
 > renders what is behind it. The strip under the bar on the wallpaper in place
 > 2026-08-08 measures **13/255 mean luminance — 5%**, effectively black, and at
 > `blur_brightness 1.0` the pills were nearly invisible. 1.25 lifts them to a
-> readable frosted grey.
+> readable frosted gray.
 >
 > That is **compensation for a dark backdrop, not the intended look.** Proven by
-> temporarily swapping in a colourful wallpaper: at 1.0 the same settings make
-> each pill tint to the colour behind it, which is the whole point of the
+> temporarily swapping in a colorful wallpaper: at 1.0 the same settings make
+> each pill tint to the color behind it, which is the whole point of the
 > effect. **If the wallpaper changes, re-judge `blur_brightness`/`blur_saturation`
 > first and expect to drop them.**
 >
@@ -662,7 +662,7 @@ the right way to re-apply after editing. Every value also applies live —
 > Change both together or neither.
 
 Two settings deliberately **not** taken: `blur_xray` (it blurs only the
-wallpaper, so a bar over a maximised terminal would blur something it is not in
+wallpaper, so a bar over a maximized terminal would blur something it is not in
 front of — off matches macOS and GNOME) and `default_dim_inactive` (this desktop
 hides the focused border, so dimming would become the only focus cue *and* would
 dim the terminal you are reading the moment a dialog takes focus).
@@ -676,7 +676,7 @@ gaps too — a faint full-width band where the design calls for three islands.
 **The blur region is a rectangle.** It does not follow a pill's rounded corners,
 and `blur_ignore_transparent` does not confine it. At `blur_brightness 1.0` that
 costs nothing — the blurred area and its surroundings are the same backdrop, so
-the boundary is invisible. Push it above 1.0 and the rectangle lights up: a grey
+the boundary is invisible. Push it above 1.0 and the rectangle lights up: a gray
 block with **square corners sitting behind a rounded pill**, which is the
 straight-edge-against-a-curve mismatch this desktop has been burned by before.
 
@@ -686,7 +686,7 @@ Luminance of the strip just outside the pill, minus bare wallpaper:
 |---|---|
 | 1.0 | **−2.8** (invisible) |
 | 1.1 | +16.3 |
-| 1.25 | **+45.0** (a grey block on every pill) |
+| 1.25 | **+45.0** (a gray block on every pill) |
 
 Isolated by elimination: the halo survives `shadows disable` and
 `corner_radius 0`, and disappears only under `blur disable`.
@@ -719,7 +719,7 @@ Isolated by elimination: the halo survives `shadows disable` and
 
 This was briefly set to 1.25 to compensate for a near-black wallpaper. **That
 trade is not available** — it buys pill definition with a visible rectangle.
-Saturation *is* safe to spend: it scales colour rather than lifting the region.
+Saturation *is* safe to spend: it scales color rather than lifting the region.
 
 > [!NOTE]
 > **The wallpaper was the fix, and it was applied.** The old one measured
@@ -951,7 +951,7 @@ for monocle on this box: measured at workspace level with a nested tree it showe
 ## The workspace row is nine custom modules, not `sway/workspaces`
 
 `config/sway/sway-workspaces` + `custom/ws1..ws9`. Added when the row needed a
-**travelling highlight**: jumping 9 → 1 sweeps back through 8,7,6…2 before
+**traveling highlight**: jumping 9 → 1 sweeps back through 8,7,6…2 before
 landing, without visiting those workspaces.
 
 **Why the built-in module could not do it.** `sway/workspaces` derives every
@@ -1063,7 +1063,7 @@ of them or nine.
 ### The three things that were wrong, none of which the raw numbers showed
 
 **The pills were different heights.** Measured 34 / 34 / **28** for left /
-centre / right, with the right one also sitting 3 px lower. `.modules-left` and
+center / right, with the right one also sitting 3 px lower. `.modules-left` and
 `.modules-center` are direct children of the bar so GTK stretches them to the
 full zone; `#status` and `#indicators` are **groups** nested inside
 `.modules-right`, and a group hugs its children instead. Fixed with `min-height`
@@ -1135,7 +1135,7 @@ measured.
 
 ## Hover: what each surface does, and what GTK3 makes impossible
 
-Two different behaviours, chosen by how many things share the pill:
+Two different behaviors, chosen by how many things share the pill:
 
 | pill | on hover |
 |---|---|
@@ -1146,7 +1146,7 @@ The split is the point. Growing a chip grows its pill, because a pill hugs its
 contents — legible when the chip *is* the pill's only content, and meaningless
 in a nine-item row where the chip is a fraction of what you see. Measured:
 workspace and status pills do not move a pixel in any hover state, clock pill
-`168 → 176` (`876..1043` → `872..1047`, symmetric about the centre).
+`168 → 176` (`876..1043` → `872..1047`, symmetric about the center).
 
 ### ⚠ The expand is DWELL-GATED, and the `transition-delay` is the whole mechanism
 
@@ -1156,7 +1156,7 @@ its own margin so the row did not reflow. Every measurement behind that scheme
 was right and it still looked wrong in use, for a reason no single-chip
 measurement can show: **sweeping the pointer along the row is the ordinary way
 to use it**, and a row of boxes each part-way through its own inflate/deflate
-reads as the bar glitching rather than as a highlight travelling. Landing on one
+reads as the bar glitching rather than as a highlight traveling. Landing on one
 chip looked good; passing over nine did not.
 
 CSS cannot tell arriving at a chip from passing over it — which is why the
@@ -1218,7 +1218,7 @@ same at allocation 33 (`min-width 13 + padding sum 18 + margin 1` at rest,
 > bar, that pixel moves everything to its left: the cluster visibly shook as the
 > pointer passed through it.
 >
-> Measured, glyph centres in the right cluster while one chip bloomed:
+> Measured, glyph centers in the right cluster while one chip bloomed:
 > ```
 > rest / settled   1711.5  1756.5  1787.0  1821.5
 > mid-bloom        1710.5  1755.5  1786.0  1820.5     (−1)
@@ -1288,10 +1288,10 @@ It is back at 28 once you settle.
 > than the allocation, which lays out fine, but waybar gives each module its own
 > `GdkWindow` and later siblings stack above earlier ones. So a chip paints over
 > its left neighbour and is painted over by its right one: the ring comes out
-> cut off down one side and off-centre from its own digit. Measured at
+> cut off down one side and off-center from its own digit. Measured at
 > `padding 14 / margin -3`, which predicts a 35px box:
 > ```
-> ws5 hovered   ring x 142..173 = 32px   digit centre 159, ring centre 157.5
+> ws5 hovered   ring x 142..173 = 32px   digit center 159, ring center 157.5
 > ws9 hovered   ring x 258..289 = 32px   clipped at allocation end 289
 > ```
 > ws9 has nothing to its right and was clipped anyway, so this is the widget's
@@ -1337,7 +1337,7 @@ move it with. What is available is timing, and it is enough:
 
 The ring is therefore quick to arrive (120ms) and slower to let go (150ms), so
 sweeping the pointer along a row leaves the chip behind still lit as the next
-one lights up, which reads as one outline travelling rather than as several
+one lights up, which reads as one outline traveling rather than as several
 fading in and out. Verified offscreen by sampling the rendered ring's alpha over
 time at in=100ms / out=400ms: entering reached full at ~150ms, leaving decayed
 `255 → 191 → 126 → 62 → 0` across ~400ms.
@@ -1447,7 +1447,7 @@ pill even though it can no longer leak blur.
 > **The pill CONTAINERS never receive `:hover`.** `.modules-left:hover`,
 > `.modules-center:hover` and friends match nothing — they are `GtkBox`es and a
 > `GtkBox` has no event window, so GTK never puts them in the prelight state.
-> Measured both ways: a background colour on `.modules-center:hover` produced
+> Measured both ways: a background color on `.modules-center:hover` produced
 > **0** changed pixels, while the same property on the child painted the whole
 > pill. Grow the child, never the container. (Same fact that makes a click on
 > `sway-calendar`'s padding arrive at the toplevel.)
@@ -1455,7 +1455,7 @@ pill even though it can no longer leak blur.
 > [!CAUTION]
 > **`background-color: transparent` does NOT remove the theme's hover
 > highlight — `background-image: none` is the one that matters.** The GTK theme
-> paints its prelight with a background *image* gradient, so setting the colour
+> paints its prelight with a background *image* gradient, so setting the color
 > transparent removes nothing visible; the chip still lit up by **+27**
 > luminance. `config/swaync/style.css` already recorded this for Adwaita's
 > buttons and it applies to waybar's chips too. This cost several rounds,
@@ -1474,7 +1474,7 @@ pill even though it can no longer leak blur.
 
 ## The battery lives in two places, on purpose
 
-The bar shows **only a glyph**; the percentage is in the control centre. Same
+The bar shows **only a glyph**; the percentage is in the control center. Same
 rule as volume and brightness — a number you are not currently changing is
 noise in the bar, and the exact value is one predictable click away. It is
 also in the bar's tooltip (capacity · time-to · watts).
@@ -1512,12 +1512,12 @@ defaulted to 60s, which meant plugging in took up to a minute to show.
 
 ## The glass tint, and where the accent went
 
-**Four surfaces share one material now**: the bar, the swaync control centre,
+**Four surfaces share one material now**: the bar, the swaync control center,
 `sway-calendar` and the fuzzel launcher. They are all a dark pigment
 (`#11111b`) plus a lit hairline, and **none of them carries an accent hue in a
-resting state**. Before this the panel was on blue-grey `@surface0` tiles, the
+resting state**. Before this the panel was on blue-gray `@surface0` tiles, the
 calendar on a flat `#1e1e2e` with a solid `#89b4fa` "today", and fuzzel on
-Catppuccin surfaces with a blue match colour — three different materials
+Catppuccin surfaces with a blue match color — three different materials
 sitting next to each other.
 
 **As of 2026-08-09 they also share one corner radius: 16px.** fuzzel's
@@ -1596,7 +1596,7 @@ stopped firing. Both are now 16px, so the family is consistent in pigment, edge
 
 > [!NOTE]
 > **Darkening the pill is nearly free, which is not obvious.** Across
-> 0.50 → 0.82 the pill's luminance moves 48.7 → 21.6 while colour retention
+> 0.50 → 0.82 the pill's luminance moves 48.7 → 21.6 while color retention
 > only moves 0.56 → 0.51, because `blur_saturation` preserves hue independently
 > of luminance. So the smoked-glass look costs almost none of the tint and buys
 > a lot of legibility. What matters is not the pill's absolute darkness but its
@@ -1605,7 +1605,7 @@ stopped firing. Both are now 16px, so the family is consistent in pigment, edge
 
 
 The selected and hover states are a **dark pigment plus a lit edge**, not a
-colour fill. Apple's Liquid Glass guidance is that a tint modulates the
+color fill. Apple's Liquid Glass guidance is that a tint modulates the
 *material* rather than filling the shape, and that where a tint muddies the
 scene you lower saturation and **let edge cues carry the material**. A saturated
 fill is the specific thing it warns against — and the old sapphire→blue gradient
@@ -1625,7 +1625,7 @@ as a leftover rather than a decision. **Urgent deliberately keeps its saturated
 fill**: drain that too and nothing in the bar can interrupt.
 
 ⚠ **Even chip spacing needs measuring, not eyeballing.** The optical corrections
-centre each glyph *within its own chip*, but the gap you see is ink-to-ink and
+center each glyph *within its own chip*, but the gap you see is ink-to-ink and
 every glyph's side bearing differs — nominally identical padding measured
 **22 / 27 / 25 / 31 px**. Two rounds against the ink-span script brought it to
 **29 / 29 / 29 / 31**.
@@ -1645,7 +1645,7 @@ spacing; `margin` is.
 > different `min-width` floors left over from an anti-reflow pass. Measured on
 > the live bar:
 >
-> | chip | padding | min-width | oval | ink off-centre |
+> | chip | padding | min-width | oval | ink off-center |
 > |---|---|---|---|---|
 > | `battery` | 9 / 2 | 14 | **25 × 28** | +3.0px |
 > | `idle_inhibitor` | 9 / 13 | — | **29 × 28** | +0.0px |
@@ -1666,17 +1666,17 @@ The fix is to decouple the box from the glyph:
   the splits in one place; see the shake caution in *Hover*.
 - the 18px is **split** per glyph by that glyph's own ink offset. Moving *N*px
   of padding from left to right pulls the content box *N*px left without
-  changing the total, so the ink lands on the ring's centre line and the ring
+  changing the total, so the ink lands on the ring's center line and the ring
   does not move.
 - **`margin`** — outside the padding box, so it cannot touch the oval — is now
   the only lever for inter-chip spacing.
 
-Result: oval width spread **0px**, ink centred to within **±0.5px** (confirmed
+Result: oval width spread **0px**, ink centerd to within **±0.5px** (confirmed
 twice, by ink bounding box and by luminance-weighted centroid, which agree). The
 status pill is **24px narrower** (198 → 174).
 
 > [!WARNING]
-> **13, not 12 — and the parity is the point.** GTK centres the label in the
+> **13, not 12 — and the parity is the point.** GTK centers the label in the
 > content box by an **integer** offset, so with an odd gap between the box and
 > the glyph's 7px natural width it floors, and the glyph lands half a pixel
 > left. At `min-width: 12px` all five chips measured
@@ -1687,14 +1687,14 @@ status pill is **24px narrower** (198 → 174).
 
 > [!CAUTION]
 > **A shorthand later in the file silently beat the longhand correction.**
-> `#custom-notification` carried `padding: 0 10px` in its colour rule, ~100
+> `#custom-notification` carried `padding: 0 10px` in its color rule, ~100
 > lines below its `padding-left`/`padding-right` correction. Same specificity,
 > later wins, and a shorthand overrides both longhands — so the bell's optical
 > correction was dead code for as long as both existed, with nothing on screen
-> to say why the glyph sat off-centre. One chip, one place for its padding.
+> to say why the glyph sat off-center. One chip, one place for its padding.
 
 **The chip margins are deliberately all still 1px.** With uniform boxes and
-centred glyphs the ink-to-ink gaps come out at **23 / 21 / 24 / 24 px** — a 3px
+centerd glyphs the ink-to-ink gaps come out at **23 / 21 / 24 / 24 px** — a 3px
 spread against the 9px that justified hand-tuning them in the first place, and
 not worth closing: the volume ramp is three glyphs whose ink is **4.9 / 7.3 /
 9.8px** wide, so two of those four gaps swing **±2.4px** with nothing but the
@@ -1801,7 +1801,7 @@ coordinates while `swaymsg seat seat0 cursor set` takes **output-relative** ones
 on a multi-head layout those differ by the output's origin, which is an easy hour
 to lose.
 
-## The clock is the centre module, and the calendar is a real window
+## The clock is the center module, and the calendar is a real window
 
 The clock sits in waybar's **`modules-center`**, where `sway/window` used to be.
 Consequence, stated plainly because it has already misled two comments in
@@ -1844,7 +1844,7 @@ the surface already exists.
 `zwlr_layer_shell_v1` expresses position as anchors and margins that the
 compositor applies in the **initial configure**, so the first frame is already in
 place. It is what waybar and swaync themselves use. Verified top edge y=**52** —
-the same row as the control centre, so the two line up when both are open.
+the same row as the control center, so the two line up when both are open.
 
 It also deletes a pile of incidental machinery: no `for_window` rules, no `app_id`
 criteria, no IPC round-trip, no retry loop, no output arithmetic, and no
@@ -1857,7 +1857,7 @@ set_layer(OVERLAY)          # not TOP — that is waybar's layer; stacking would
 set_keyboard_mode(ON_DEMAND)  # not EXCLUSIVE, which would steal every key in the session
 set_exclusive_zone(0)         # not -1: 0 respects waybar's zone, -1 slides under the bar
 set_anchor(TOP, True); set_margin(TOP, GAP)
-# anchoring NEITHER left nor right is what centres it; there is no "centre" anchor
+# anchoring NEITHER left nor right is what centers it; there is no "center" anchor
 ```
 
 `GAP` is **0** because a layer surface's margins resolve against the **usable
@@ -1897,7 +1897,7 @@ Measured cold start of the one-shot version, exec to first pixel:
 | first draw | **366 ms** |
 
 **~260ms of that is fixed Python+GTK init that runs before any of the script's own
-code**, so there was nothing in the calendar to optimise — a spawn-per-click design
+code**, so there was nothing in the calendar to optimize — a spawn-per-click design
 sits permanently past the ~300ms where a click starts feeling sluggish. The window
 is therefore built once by a resident server (autostarted from
 `config/sway/config`, the same shape as `swayosd-server`) and a click just signals
@@ -1908,7 +1908,7 @@ Measured after: **~58-65ms** per click, and the server costs ~55 MB RSS resident
 > [!CAUTION]
 > **The client path must not import GTK, and defining helpers above `import gi`
 > does not achieve that.** Module-level imports run at exec time, before `main()`
-> is entered — so the first version of this optimisation put the dispatch inside
+> is entered — so the first version of this optimization put the dispatch inside
 > `main()` and measured **~280ms per click**, i.e. no better than spawning a fresh
 > calendar. The dispatch itself has to run at module level, above the import:
 >
@@ -2093,7 +2093,7 @@ surface and overlapped the swaync panel, exactly as `custom/notification`'s did.
 > `Could not connect to CC service. Will wait for connection...` and waits
 > forever, so the `else` is unreachable and **swaync never starts at all** —
 > observed still hung 24 minutes into a fresh session. Symptom: the control
-> centre "stops opening" and the waybar bell does nothing, silently.
+> center "stops opening" and the waybar bell does nothing, silently.
 >
 > The condition must be `pgrep`, never the client's exit code:
 >
@@ -2132,7 +2132,7 @@ via `exec_always`:
 systemctl --user mask waybar.service mako.service swaync.service
 ```
 
-## One destination: every status readout left-clicks to the control centre
+## One destination: every status readout left-clicks to the control center
 
 `pulseaudio`, `network`, `battery` and `custom/notification` all run
 `swaync-client -t -sw` on a plain left click. That is a rule, not four independent
@@ -2148,10 +2148,10 @@ to that tool from the bar:
 
 | module | left | middle | right |
 |---|---|---|---|
-| `pulseaudio` | control centre | `sway-quickpanel` | `pavucontrol` |
-| `network` | control centre | — | `nm-connection-editor` |
-| `battery` | control centre | — | — |
-| `custom/notification` | control centre | — | DND toggle |
+| `pulseaudio` | control center | `sway-quickpanel` | `pavucontrol` |
+| `network` | control center | — | `nm-connection-editor` |
+| `battery` | control center | — | — |
+| `custom/notification` | control center | — | DND toggle |
 | `clock` | `sway-calendar` | — | — |
 
 Two things not to undo by accident:
@@ -2163,7 +2163,7 @@ Two things not to undo by accident:
   from the `exec nm-applet` line in `config/sway/config`.
 - **`idle_inhibitor` is deliberately exempt.** It is not a readout; it toggles a
   Wayland object it holds on waybar's own surface (see the `modules-right`
-  comment), so sending it to the control centre would break the one thing it does.
+  comment), so sending it to the control center would break the one thing it does.
 
 `battery` had no click action at all before, so nothing was displaced there.
 
@@ -2171,7 +2171,7 @@ Two things not to undo by accident:
 
 `custom/notification` is the **last** entry in `modules-right` and its glyph is
 `md-tune` (U+F062E, two horizontal sliders) — the same shorthand macOS uses for
-Control Centre. It stopped being "notifications" when it took the corner: behind
+Control Center. It stopped being "notifications" when it took the corner: behind
 it are the volume and brightness sliders, the system readouts, the session
 actions and the notification list. DND swaps to `md-weather_night` (U+F0594),
 the crescent macOS uses for Focus. Unread count still reads out via `{icon}{}`.
@@ -2240,11 +2240,11 @@ time, and waybar then falls back to rendering the module's *own label* — so th
 tooltip was a rounded box containing nothing but a copy of the md-tune glyph you
 were already pointing at. A GTK tooltip is its own surface and is **not** confined
 to waybar's 40px height: this one drew at x≈1855-1910, **y≈46-93**, straight over
-the control centre's top-right corner and part of "Clear all". Its rounded corners
+the control center's top-right corner and part of "Clear all". Its rounded corners
 meeting the panel's edge is precisely the "two corners that don't line up" look.
 
 And it was not an edge case — **it was the default view of the panel.** Opening
-the control centre by clicking that button leaves the pointer parked on it, so the
+the control center by clicking that button leaves the pointer parked on it, so the
 tooltip was on screen *every time the panel was opened by hand*. It vanished only
 when opening via `$mod+n` or after moving the mouse, which is exactly what every
 diagnostic screenshot did — which is why the region kept measuring clean while
@@ -2281,11 +2281,11 @@ The focused window's 2px `client.focused` border therefore occupies rows
   It does not clamp at all. Measured: 0→47, 2→49, 4→51, 6→53, 8→55, 10→57,
   14→61 — exactly linear. The old measurement was reading **the window's border
   row at y=58**, which never moves, so every margin value looked the same.
-  ⚠ **Identify the panel by its colour** (`@panel` over dark content reads
+  ⚠ **Identify the panel by its color** (`@panel` over dark content reads
   `(24,24,36)`) **and across a wide row run, not one column.** A single-column
   probe at x=1700 manufactured a *second* fake clamp later in this same work
   (margins 6 and 8 both reporting y=60) — the row-wide test
-  (`>300 panel-coloured px across x=1500..1900`) is what gave the clean line
+  (`>300 panel-colored px across x=1500..1900`) is what gave the clean line
   above. Two different bad measurements, same wrong conclusion.
 - ❌ *"At margin 8 the panel intruded into waybar's exclusive zone."* At 8 the
   panel top is y=55, well *below* the boundary at 46.
@@ -2446,7 +2446,7 @@ you which *screen* has focus. Chosen knowingly over the two alternatives below.
 
 Levers **not** taken, in case the call is ever revisited:
 
-- **Dim the border instead of hiding it** — recolour `client.focused`'s border
+- **Dim the border instead of hiding it** — recolor `client.focused`'s border
   and indicator to a dark surface tone (`#313244`). Quiets the frame without
   hiding anything, so the multi-monitor focus cue survives. This is the
   non-destructive fallback if losing that cue turns out to matter.

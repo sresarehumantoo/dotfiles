@@ -13,7 +13,7 @@ setopt SHARE_HISTORY
 # including WSL's, which is why this is safe to set unconditionally here.
 setopt HIST_FCNTL_LOCK
 
-# ⚠ HISTSIZE/SAVEHIST are deliberately unbounded and are NOT to be "optimised"
+# ⚠ HISTSIZE/SAVEHIST are deliberately unbounded and are NOT to be "optimized"
 # down. The startup cost of reading a large history is real but it is a chosen
 # trade; the thing that actually made it hurt on WSL was `autoMemoryReclaim`
 # dropping the page cache out from under the file on every reclaim, which is

@@ -16,7 +16,7 @@ default-timeout=5000
 ignore-timeout=0
 
 ### Appearance -------------------------------------------------------------
-# Catppuccin Mocha, matching config/waybar/style.css and the client.* colours
+# Catppuccin Mocha, matching config/waybar/style.css and the client.* colors
 # in config/sway/config — keep the three in step. The alpha on the background
 # mirrors the bar's translucent pills.
 font=IosevkaTerm Nerd Font 10
