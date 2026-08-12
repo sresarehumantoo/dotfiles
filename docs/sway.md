@@ -231,9 +231,10 @@ re-adding percentages, note what each removal bought:
 - **Battery keeps its percentage**, and the clock keeps the date. These are read
   at rest rather than adjusted, so a number earns its place.
 
-Colour is reserved to *mean* something: the accent marks the focused workspace,
-the clock and the hover underline, and yellow/red are left free for warning and
-critical states. An earlier scheme gave every module its own hue, and a red
+Colour is reserved to *mean* something: yellow and red are left free for warning
+and critical states, and nothing at rest competes with them — the focused
+workspace and the hover ring are a dark pigment plus a lit edge rather than a
+hue (see *Selection and hover*), and the clock is plain `@text`. An earlier scheme gave every module its own hue, and a red
 battery warning had to compete with five other colours.
 
 Modules that hide themselves entirely when idle: `privacy` (mic/camera/
@@ -1138,52 +1139,148 @@ Two different behaviours, chosen by how many things share the pill:
 
 | pill | on hover |
 |---|---|
-| clock (alone in its pill) | the chip grows into an outline oval and the **pill grows with it**, ~4px a side, plus a drop shadow — the "raise" |
-| workspaces, status (many items) | the hovered **item** expands into an outline oval, +4px taller; the pill does not move at all |
+| clock (alone in its pill) | the **pill itself** grows, 4px a side. No oval inside it, no shadow |
+| workspaces, status (many items) | the hovered item's **outline ring lights immediately** at the size the chip already is; nothing moves. **Stay on it ~200ms and it blooms** +2px wide, +4px tall — still moving no neighbour |
 
 The split is the point. Growing a chip grows its pill, because a pill hugs its
-contents — correct when the chip *is* the pill's only content, and wrong in a
-nine-item row, where it would make the whole pill breathe and shove every chip
-right of the pointer. Measured: workspace and status pills do not move a pixel
-in any hover state, clock pill `~171 → ~180`.
+contents — legible when the chip *is* the pill's only content, and meaningless
+in a nine-item row where the chip is a fraction of what you see. Measured:
+workspace and status pills do not move a pixel in any hover state, clock pill
+`168 → 176` (`876..1043` → `872..1047`, symmetric about the centre).
 
-### The expand is a padding/margin trade, and the sum is the invariant
+### ⚠ The expand is DWELL-GATED, and the `transition-delay` is the whole mechanism
 
-A chip *can* grow without reflowing its row. Two boxes matter and they are not
-the same box:
+The chips used to inflate the moment the pointer touched them: a workspace chip
+went 15 → 29px painted, a status chip 23 → 31, each paying for the growth out of
+its own margin so the row did not reflow. Every measurement behind that scheme
+was right and it still looked wrong in use, for a reason no single-chip
+measurement can show: **sweeping the pointer along the row is the ordinary way
+to use it**, and a row of boxes each part-way through its own inflate/deflate
+reads as the bar glitching rather than as a highlight travelling. Landing on one
+chip looked good; passing over nine did not.
+
+CSS cannot tell arriving at a chip from passing over it — which is why the
+obvious fixes (shorter durations, monotonic easings, removing the bounce) only
+ever changed how violent the thrash looked. **A `transition-delay` can tell them
+apart**, because a transition that has not started has nothing to animate back:
+leave inside the delay window and the property never moves at all. So the delay
+goes on `padding`/`margin`/`min-width` and *not* on the ring:
+
+- **ring** — instant, both directions (120ms in / 150ms out). It is the
+  acknowledgement, and delaying it would make the bar feel unresponsive.
+- **size** — 100ms, after a **100ms** delay. It is the reward for stopping, and
+  it is deliberately quicker than the wait in front of it: the dwell is what
+  makes the bloom deliberate, so the bloom itself does not also need to be slow.
+  The shrink on the way out stays at 150ms with no delay — see the asymmetry
+  note below.
+
+The two numbers were walked down from `160ms / 200ms`, each verified against
+both cases that matter — a pass-through must not bloom, a settle must:
 
 ```
-painted box = 2*padding + ink          <- what the inset ring traces
-allocation  = painted box + 2*margin   <- what the row spends on the chip
+gate     brief pass   settled     panning, lit regions (pan speed)
+200ms    29 × 24      31 × 28     all 29px  (~30ms/chip)
+150ms    29 × 24      31 × 28     all 29px  (~30ms/chip)
+100ms    29 × 24      31 × 28     all 29px  at 8ms, 59ms and 109ms/chip
 ```
 
-Hold `padding + margin` constant and the allocation never changes, so growth is
-paid for out of the **gap** rather than out of the row. The workspace chips run
-at `padding + margin = 12`, i.e. allocation 31 in every state:
+⚠ **The gate must outlast the pointer's dwell per chip in a normal sweep, and
+that is a property of the hand rather than of the CSS.** The only evidence a
+value is still safe is a measured pan in which every lit region is still the
+resting width — so re-run the sweep before shortening it again, at more than one
+speed. At 100ms there is real margin: a deliberate 109ms/chip pan still bloomed
+nothing, because the pointer has to hold ONE chip for the whole window, not
+merely cross the row slowly.
 
-| state | padding | margin | painted |
+Pan across the row and nothing changes size anywhere. Settle, and the chip under
+the pointer blooms.
+
+| workspace state | padding | margin | painted |
 |---|---|---|---|
-| rest | 4 | 8 | 15 |
+| rest, `.focused`, `.urgent` | 11 | 1 | **29** |
+| `:hover`, settled | 12 | 0 | **31** |
 | `.trail` | 8 | 4 | 23 |
-| `.focused`, `.urgent`, `:hover` | 11 | 1 | **29** |
-| `.focused:hover`, `.urgent:hover` | 12 | 0 | 31 |
 
-Hover and focused land on the same 29px, which is the whole point — the outline
-that appears under the pointer is recognisably the *same object* that lives on
-the focused workspace, so moving the pointer along the row reads as the outline
-travelling. The status cluster does the same thing with its own constant
-(padding sum 10 → 18, margin 5 → 1, allocation 33 throughout), so its resting
-box is 23 and its hover oval is the same **31 × 28** it has always been.
+`padding + margin = 12` throughout, so the allocation is 31 for all nine chips
+in every state and no bloom can move a neighbour. The status cluster does the
+same at allocation 33 (`min-width 13 + padding sum 18 + margin 1` at rest,
+`min-width 15 + margin 0` settled).
 
-Measured live, ring centred on its own digit to 0.0px and neighbours frozen:
+> [!CAUTION]
+> **⚠ TWO PROPERTIES THAT COMPENSATE EACH OTHER MUST CHANGE BY THE SAME AMOUNT
+> PER SIDE, OR THE PILL SHAKES.** The status bloom was first written as
+> `min-width: 13 → 15` against `margin: 1 → 0`: algebraically exact
+> (`13 + 18 + 1 + 1 = 15 + 18 + 0 + 0 = 33`) and wrong in motion. **GTK rounds
+> each animated length to an integer independently**, and those two sweep at
+> different rates — +2 across one box against −1 on each of two margins — so for
+> most of the animation the rounded pair does not cancel and the allocation
+> transiently gains a pixel. Because `.modules-right` is packed at the END of the
+> bar, that pixel moves everything to its left: the cluster visibly shook as the
+> pointer passed through it.
+>
+> Measured, glyph centres in the right cluster while one chip bloomed:
+> ```
+> rest / settled   1711.5  1756.5  1787.0  1821.5
+> mid-bloom        1710.5  1755.5  1786.0  1820.5     (−1)
+> mid-bloom        1709.5  1754.5  1785.0             (−2)
+> ```
+> Chips to the **right** of the hovered one never moved — the tell for a
+> right-aligned container, not a mis-set width.
+>
+> The fix is the pairing the workspace row already used and which measures
+> stable: **padding against margin, +1 / −1 per side.** That does mean the
+> per-glyph splits are duplicated on `:hover` — accepted, under one rule: **each
+> hover row is its resting row + 1px on each side**, nothing else, so the sum is
+> 20 and the offset is unchanged. Re-measured at ten sample times across the
+> animation and on two pan speeds: **drift 0.0px on every chip**.
+>
+> ⚠ The resting `min-width: 13px` stays as it is, and `(min-width − 7)` must stay
+> **even** — 12 made GTK's integer label centring floor, dropping every glyph
+> half a pixel left.
+
+⚠ **The resting box is no longer invisible.** It is the box the ring traces the
+moment you hover, so a chip whose resting padding differs from its neighbours'
+has a differently-sized oval — the "One box, one oval" discipline now applies to
+the *resting* values, not just the hover ones.
+
+Measured live, pointer walked in (an absolute warp fires no motion event and
+therefore no `:hover`), grabbed at 50ms and at 2s:
 
 ```
-ws2 hovered   ring x  47..75   w=29 h=28   centre 61.0  (digit centre 61.0)
-ws5 hovered   ring x 140..168  w=29 h=28   centre 154.0 (digit centre 154.0)
-ws9 hovered   ring x 264..292  w=29 h=28   centre 278.0 (digit centre 278.0)
-ws1 focused+hovered  x 15..45  w=31 h=28   centre 30.0
-battery hovered      x 1840..1870  w=31 h=28
+                     brief pass                 settled 2s
+ws5 hovered          x 140..168  29 x 24        x 139..169  31 x 28
+battery hovered      x 1840..1870 31 x 24       x 1839..1871 33 x 28
+ws1 focused, resting x  16..44   29 x 24        (same object as the ws ring)
+ws1 focused + hovered                           NO CHANGED PIXELS AT ALL
+clock hovered        pill 168 -> 176, no ring, no shadow
 ```
+
+Both blooms are symmetric (+1px each side, +2px each end) and the whole-bar diff
+touches only those columns — hovering `ws5` changes `x 139..169` and nothing
+else in the bar, settled or not. Mid-sweep across all nine chips, the lit
+regions measure **29px**, i.e. the gate holds: no chip in a sweep ever grows.
+
+⚠ The unlit ring is 4px shorter than the old always-expanded one (`31 × 28` →
+`31 × 24`), since that height was the margin the old hover spent unconditionally.
+It is back at 28 once you settle.
+
+> [!CAUTION]
+> **`#id:hover` and `#id.focused` are the same specificity, so hovering the
+> focused workspace was silently REMOVING its fill.** Both are (1 id, 1
+> class-or-pseudo); GTK3 breaks the tie by source order like CSS does, and the
+> generic `:hover` rule is later in the file, so its `background-color:
+> transparent` beat `.focused`'s pigment: the current workspace went to
+> ring-only while the pointer sat on it, i.e. hovering it made it look *less*
+> selected. The same tie took the red gradient and the crust text off
+> `.urgent:hover` — the one chip in the bar whose entire job is to be
+> impossible to miss.
+>
+> This was always true; the size change masked it, since something visible
+> happened either way. Removing the size change would have left it as the whole
+> effect. `.focused:hover` and `.urgent:hover` now restate their own fill (1 id
+> + 2, which wins outright) and set no geometry — ⚠ **do not delete them for
+> "setting nothing but what the base state already sets".** Verified: hovering
+> the focused chip now changes zero pixels.
 
 > [!CAUTION]
 > **Margin must never go negative, and the reason is not layout — the overflow
@@ -1238,13 +1335,20 @@ move it with. What is available is timing, and it is enough:
 > as web CSS does. So the base rule governs hover-**out** and the `:hover` rule
 > governs hover-**in**.
 
-The ring is therefore quick to arrive (180ms, with the bounce) and monotonic
-on the way out (150ms), so sweeping the pointer along a row leaves the chip
-behind still lit as the next one lights up, which reads as one outline
-travelling rather than as several fading in and out. Verified offscreen by
-sampling the rendered ring's alpha over time at in=100ms / out=400ms: entering
-reached full at ~150ms, leaving decayed `255 → 191 → 126 → 62 → 0` across
-~400ms.
+The ring is therefore quick to arrive (120ms) and slower to let go (150ms), so
+sweeping the pointer along a row leaves the chip behind still lit as the next
+one lights up, which reads as one outline travelling rather than as several
+fading in and out. Verified offscreen by sampling the rendered ring's alpha over
+time at in=100ms / out=400ms: entering reached full at ~150ms, leaving decayed
+`255 → 191 → 126 → 62 → 0` across ~400ms.
+
+Both halves of the *ring* are pure cross-fades — `box-shadow` and `color`, no
+length — so the sweep case has no easing curve left to get wrong. The bloom is
+the only length still animated on these chips, and it runs on a plain
+`ease-out`: its target painted box **is** the allocation (31 on the workspaces,
+33 on the status chips), so an overshoot has nowhere to go and would be clipped
+on the right. The overshooting bezier survives only on the clock, which has no
+neighbours and no allocation to clip against.
 
 > [!CAUTION]
 > **The exit must be monotonic, and its duration is a budget rather than a
@@ -1262,16 +1366,20 @@ reached full at ~150ms, leaving decayed `255 → 191 → 126 → 62 → 0` acros
 > and the boundary case below.
 
 > [!CAUTION]
-> **The bounce's overshoot has a hard ceiling, and it is the allocation.** Peak
-> painted box is `15 + 14 * peak`, and anything over 31 is clipped on the right
-> — the same cliff the negative-margin caution describes, reached by a different
-> route. Budget: `peak ≤ 1.143`.
+> **An overshooting easing on a SIZE has a hard ceiling, and it is the
+> allocation.** This is why the dwell bloom uses a plain `ease-out`: it lands
+> *on* the allocation, so any overshoot at all is clipped on the right — the
+> same cliff the negative-margin caution describes, reached by a different
+> route. When hover inflated from 15px the peak painted box was `15 + 14 * peak`
+> and the budget was `peak ≤ 1.143`:
 > ```
 > cubic-bezier(0.34, 1.56, 0.64, 1)   peak 1.098  ->  30.4px   fits, but only just
-> cubic-bezier(0.34, 1.25, 0.64, 1)   peak 1.020  ->  29.3px   <- this
+> cubic-bezier(0.34, 1.25, 0.64, 1)   peak 1.020  ->  29.3px   <- what shipped
 > ```
-> 1.56 is also violent when re-triggered every few milliseconds at a chip
-> boundary. Recompute the peak before raising it.
+> 1.56 was also violent when re-triggered every few milliseconds at a chip
+> boundary — which was the first hint that the *ungated* size change was the
+> problem, not its tuning. The clock's pill growth keeps the 1.25 curve; it is
+> one object with no neighbours and no allocation to clip against.
 
 ### ⚠ A 2px band at every chip boundary lights both neighbours, and no CSS fixes it
 
@@ -1291,16 +1399,36 @@ causes it: **the event region is the full allocation regardless of the CSS
 margin** — verified, `x=50` hovers `ws2` cleanly and settles at 29px even though
 its resting painted box is only `54..68`. Transition duration does not touch it
 either (110ms and 150ms exits measured the same spread, 21px on the thrashing
-chip). GTK3 CSS has no hysteresis to add, and `transition-delay` would trade the
-boundary case straight back for the sweep case, since it cannot tell a
-re-entry from a pass-through.
+chip). GTK3 CSS has no hysteresis to add.
 
 What the timing *does* control is how violent the trade looks, which is the
 reason the exit is monotonic and short. Anything claiming to have fixed this
 should be checked against the map above.
 
-The lift under the clock and the status chips is a drop shadow, since
-`translateY` does not exist here. It is safe now in a way it would not have
+⚠ **This paragraph used to dismiss `transition-delay` here — "it would trade the
+boundary case straight back for the sweep case, since it cannot tell a re-entry
+from a pass-through" — and that was wrong twice over.** It does not need to tell
+them apart: a delay makes *both* cases free, because neither holds the hover
+state long enough to start the transition. And it costs the sweep case nothing,
+because the delay is on the size only and the ring is what a sweep is for. That
+one sentence is what kept the dwell gate from being tried for as long as it was.
+
+⚠ **What the band costs is now much smaller.** The `~26px, oscillating` above is
+what two chips trading the pointer looked like while an ungated size was
+attached. Re-measured after the gate, walking the pointer to `x=75` and to
+`x=76` and holding: **one chip lit, stable at 31px, over independent 2s and 3s
+dwells** — no second ring and no oscillation in the captures. Two chips may well
+still be trading the pointer underneath; what reaches the screen no longer says
+so. Re-map it before believing any claim that the band itself is gone.
+
+The lift under the status chips is a drop shadow, since `translateY` does not
+exist here. ⚠ **The clock does not get one, and that is not an oversight.** A
+non-inset shadow on a chip paints a dark oval just inside its pill — on a chip
+that shares a pill with eight others that reads as picking one of them out, and
+on the chip that *is* the pill it reads as a second pill nested 4px inside the
+first. The clock's inset ring was removed for exactly that (it looked like an
+inner pill, which it was); removing only the ring and keeping the shadow draws
+the same nested shape in shadow instead of in light. Both or neither there. It is safe now in a way it would not have
 been before `window#waybar` was tinted: the compositor's blur region is every
 non-transparent pixel, the whole bar strip is already in it, and the shadow
 falls well inside the strip — measured vertical extent y 12..39 against a pill
@@ -1532,7 +1660,10 @@ spacing; `margin` is.
 The fix is to decouple the box from the glyph:
 
 - **`min-width: 13px` + a padding sum of `18px` on every glyph chip** → a
-  uniform **31 × 28** oval, whatever the chip prints.
+  uniform **31 × 24** oval, whatever the chip prints — and **33 × 28** once the
+  dwell bloom fires, which adds 1px to each side (sum 20, same offsets). ⚠ The
+  bloom deliberately does **not** grow `min-width`, even though that would keep
+  the splits in one place; see the shake caution in *Hover*.
 - the 18px is **split** per glyph by that glyph's own ink offset. Moving *N*px
   of padding from left to right pulls the content box *N*px left without
   changing the total, so the ink lands on the ring's centre line and the ring
