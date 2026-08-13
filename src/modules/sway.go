@@ -84,12 +84,19 @@ func (SwayModule) Links() core.LinkSet {
 		// no-op while a window is fullscreen. Measured, and written up in the
 		// script.
 		{Src: core.ConfigPath("sway", "sway-monocle"), Dst: core.HomeTarget(".local", "bin", "sway-monocle")},
+
+		// The session's StatusNotifierWatcher, so the bar can carry a tray at
+		// all. waybar 0.12.0 cannot drop an individual item and nm-applet
+		// publishes a permanently-Active one it must keep publishing (it is
+		// NetworkManager's secret agent), so the filtering happens one layer
+		// down, in the broker both of them talk to.
+		{Src: core.ConfigPath("sway", "sway-tray-filter"), Dst: core.HomeTarget(".local", "bin", "sway-tray-filter")},
 	}
 }
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle"}
+var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle", "sway-tray-filter"}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //
@@ -148,6 +155,15 @@ var swayPackages = []string{
 	// to go: the clock would simply do nothing. See swayPkgGlobs — this one ships
 	// no binary, so it cannot be probed on PATH like everything else here.
 	"gir1.2-gtklayershell-0.1",
+
+	// PyGObject itself. Three helpers here are Python + GLib — sway-calendar,
+	// and now sway-tray-filter, which is a pure D-Bus service and needs only
+	// Gio/GLib (no GTK, no typelib beyond what this package carries). It went
+	// undeclared for a long time because Debian pulls it in behind almost any
+	// desktop package, so it is always already there and its absence would
+	// present as a helper that silently does nothing. Also globbed below: it
+	// ships no binary either.
+	"python3-gi",
 }
 
 // swayPkgGlobs covers packages that ship NO binary, where the PATH probe below
@@ -162,6 +178,12 @@ var swayPkgGlobs = map[string][]string{
 	"gir1.2-gtklayershell-0.1": {
 		"/usr/lib/*/girepository-1.0/GtkLayerShell-0.1.typelib",
 		"/usr/lib/girepository-1.0/GtkLayerShell-0.1.typelib",
+	},
+	// Debian puts PyGObject in dist-packages, Arch and most others in
+	// site-packages under a versioned python3.N directory.
+	"python3-gi": {
+		"/usr/lib/python3/dist-packages/gi/__init__.py",
+		"/usr/lib/python3*/site-packages/gi/__init__.py",
 	},
 }
 

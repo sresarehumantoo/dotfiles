@@ -1,0 +1,313 @@
+#!/usr/bin/env python3
+"""sway-tray-filter -- the session's StatusNotifierWatcher, minus nm-applet.
+
+Managed by dfinstall (modules/sway.go), linked to ~/.local/bin/sway-tray-filter.
+Runs from `exec_always` in config/sway/config, before waybar needs it.
+
+############################################################################
+#  WHY THIS EXISTS -- i.e. why waybar's own `tray` module is not enough     #
+#                                                                          #
+#  The bar had NO tray at all for a long time, and the reason was a single  #
+#  unfilterable icon. nm-applet publishes a StatusNotifierItem whose        #
+#  Status is `Active` -- always, measured:                                  #
+#                                                                          #
+#      Id 'nm-applet'  Status 'Active'  IconName 'nm-signal-75'            #
+#                                                                          #
+#  and it does so with `--indicator` dropped AND with                       #
+#  `gsettings set org.gnome.nm-applet show-applet false` (both retested     #
+#  2026-08-12; neither suppresses it). It cannot simply be stopped either:  #
+#  nm-applet is NetworkManager's SECRET AGENT here, the thing that prompts  #
+#  for a wifi password on a new network, and it does that whether or not    #
+#  an icon is on screen. So the process has to keep running.                #
+#                                                                          #
+#  waybar 0.12.0's tray has no way to drop one item: `man waybar-tray`      #
+#  lists only icon-size, spacing, show-passive-items, reverse-direction,    #
+#  expand and on-update. The `ignore-list` people remember belongs to       #
+#  wlr/taskbar, not to tray. show-passive-items does not help either --     #
+#  the item is Active, not Passive.                                         #
+#                                                                          #
+#  The cost of that was not cosmetic. With no tray, an app that hides       #
+#  itself on close is STRANDED: Discord's close button leaves zero windows  #
+#  and a live process (measured -- `swaymsg '[app_id="discord"] kill'`      #
+#  then an empty tree), and the only way back was `pkill discord`.          #
+#  Calling `Activate` on its item -- which is what a tray left-click does   #
+#  -- restored the window instantly. The tray is the entire recovery path.  #
+############################################################################
+
+############################################################################
+#  HOW IT WORKS, AND WHY WAYBAR PLAYS ALONG                                #
+#                                                                          #
+#  The tray protocol has three roles: ITEMS (apps), a HOST (the thing that  #
+#  draws them -- waybar) and a WATCHER, a single session-wide broker owning #
+#  the bus name org.kde.StatusNotifierWatcher. waybar ships a watcher and   #
+#  uses it only if nothing else has claimed the name; ⚠ MEASURED, it does   #
+#  NOT insist on being the watcher. With this script holding the name,      #
+#  waybar came up and registered against it as a plain host                 #
+#  (RegisterStatusNotifierHost -> /StatusNotifierHost/0) and drew whatever  #
+#  list it was handed. So the filtering happens here and waybar is stock.   #
+############################################################################
+
+############################################################################
+#  ⚠ THE NAME FLAGS ARE LOAD-BEARING: REPLACE_EXISTING, NOT ALLOW_REPLACE  #
+#                                                                          #
+#  sway forks its `exec` lines asynchronously, so there is no way to make   #
+#  this script reach the bus before waybar does. That race is dissolved     #
+#  rather than won: waybar requests the watcher name WITH                   #
+#  ALLOW_REPLACEMENT (measured -- requesting it here with REPLACE_EXISTING  #
+#  against a running waybar returned PRIMARY_OWNER, i.e. the steal          #
+#  succeeded), so this script can take the name back at any point and       #
+#  waybar re-syncs from the new owner. Start order stops mattering.         #
+#                                                                          #
+#  ⚠ Do NOT add ALLOW_REPLACEMENT here. It is what would let a restarted    #
+#  waybar take the name back off us and silently restore nm-applet's icon.  #
+#  Not requesting it also makes a second copy of this script harmless:      #
+#  the bus puts it IN_QUEUE, it sees it is not the owner and exits 0,       #
+#  which is what makes `exec_always` safe with no pidfile (same outcome as  #
+#  the pidfile guards in sway-calendar and sway-workspaces, for free).      #
+#                                                                          #
+#  The failure mode is deliberately soft: if this process dies, waybar's    #
+#  own queued request makes it the owner again, and the tray comes back     #
+#  UNFILTERED rather than not at all.                                       #
+############################################################################
+"""
+
+import argparse
+import os
+import sys
+
+import gi  # noqa: F401  (installs the gi.repository importer)
+from gi.repository import Gio, GLib
+
+WATCHER_NAME = "org.kde.StatusNotifierWatcher"
+WATCHER_PATH = "/StatusNotifierWatcher"
+WATCHER_IFACE = "org.kde.StatusNotifierWatcher"
+ITEM_IFACE = "org.kde.StatusNotifierItem"
+
+# Matched against each item's own `Id` property, case-insensitively. Run with
+# -v to see the Id of everything that registers, which is how you find the
+# string to put here.
+DEFAULT_IGNORE = ("nm-applet",)
+
+# The spec's watcher interface, in full. Items and hosts both introspect this,
+# so trimming it is not safe even for members this script treats as no-ops.
+WATCHER_XML = """
+<node>
+  <interface name="org.kde.StatusNotifierWatcher">
+    <method name="RegisterStatusNotifierItem">
+      <arg type="s" direction="in" name="service"/>
+    </method>
+    <method name="RegisterStatusNotifierHost">
+      <arg type="s" direction="in" name="service"/>
+    </method>
+    <property name="RegisteredStatusNotifierItems" type="as" access="read"/>
+    <property name="IsStatusNotifierHostRegistered" type="b" access="read"/>
+    <property name="ProtocolVersion" type="i" access="read"/>
+    <signal name="StatusNotifierItemRegistered">
+      <arg type="s" name="service"/>
+    </signal>
+    <signal name="StatusNotifierItemUnregistered">
+      <arg type="s" name="service"/>
+    </signal>
+    <signal name="StatusNotifierHostRegistered"/>
+    <signal name="StatusNotifierHostUnregistered"/>
+  </interface>
+</node>
+"""
+
+
+class Watcher:
+    def __init__(self, ignore, verbose=False):
+        self.ignore = {i.lower() for i in ignore}
+        self.verbose = verbose
+        self.conn = None
+        self.items = []          # canonical service strings, in register order
+        self.by_bus = {}         # bus name -> set of canonical services
+        self.watch_ids = {}      # bus name -> Gio name-watch id
+        self.loop = GLib.MainLoop()
+
+    # -- logging ---------------------------------------------------------
+    def log(self, msg):
+        if self.verbose:
+            print(f"sway-tray-filter: {msg}", file=sys.stderr, flush=True)
+
+    def warn(self, msg):
+        print(f"sway-tray-filter: {msg}", file=sys.stderr, flush=True)
+
+    # -- service string handling ------------------------------------------
+    @staticmethod
+    def split(service, sender):
+        """Return (bus, object path, canonical) for a registration.
+
+        Clients register in three different shapes and all three are seen in
+        practice on this box: nm-applet sends "bus/object/path"
+        (":1.18/org/ayatana/NotificationItem/nm_applet"), Discord/Electron
+        sends a bare bus name (":1.752", implying /StatusNotifierItem), and
+        the spec also allows a bare object path, which is only meaningful
+        together with the sender's unique name.
+        """
+        if service.startswith("/"):
+            return sender, service, sender + service
+        if "/" in service:
+            bus, path = service.split("/", 1)
+            return bus, "/" + path, service
+        return service, "/StatusNotifierItem", service
+
+    # -- item lifetime -----------------------------------------------------
+    def consider(self, canonical, bus, path, tries=0):
+        """Ask the item for its Id, then keep or drop it.
+
+        Deliberately asynchronous: RegisterStatusNotifierItem has already been
+        answered by the time this runs, so a slow or wedged item delays only
+        its own icon rather than blocking the bus call it arrived on.
+        """
+        def done(conn, res):
+            try:
+                item_id = conn.call_finish(res).unpack()[0]
+            except GLib.Error as err:
+                # Some items expose their properties a beat after registering.
+                if tries < 1:
+                    def retry():
+                        self.consider(canonical, bus, path, tries + 1)
+                        return False
+                    GLib.timeout_add(500, retry)
+                    return
+                # ⚠ FAIL OPEN. An unreadable Id means we cannot tell whether
+                # this is the one item we mean to hide, and showing an extra
+                # icon is a blemish while hiding a real app's only route back
+                # on screen is a trap. Keep it.
+                self.warn(f"{canonical}: no Id ({err.message.strip()}) -- keeping")
+                self.add(canonical, bus)
+                return
+
+            if item_id.lower() in self.ignore:
+                self.log(f"drop {canonical} (Id {item_id!r})")
+                return
+            self.log(f"keep {canonical} (Id {item_id!r})")
+            self.add(canonical, bus)
+
+        self.conn.call(bus, path, "org.freedesktop.DBus.Properties", "Get",
+                       GLib.Variant("(ss)", (ITEM_IFACE, "Id")),
+                       GLib.VariantType("(v)"), Gio.DBusCallFlags.NONE,
+                       3000, None, done)
+
+    def add(self, canonical, bus):
+        if canonical in self.items:
+            return
+        self.items.append(canonical)
+        self.by_bus.setdefault(bus, set()).add(canonical)
+        if bus not in self.watch_ids:
+            # One watch per bus name, not per item: an app may publish more
+            # than one item, and they all die together with their connection.
+            self.watch_ids[bus] = Gio.bus_watch_name_on_connection(
+                self.conn, bus, Gio.BusNameWatcherFlags.NONE, None,
+                lambda *_a: self.bus_vanished(bus))
+        self.emit("StatusNotifierItemRegistered", GLib.Variant("(s)", (canonical,)))
+
+    def bus_vanished(self, bus):
+        for canonical in sorted(self.by_bus.pop(bus, ())):
+            if canonical in self.items:
+                self.items.remove(canonical)
+                self.log(f"gone {canonical}")
+                self.emit("StatusNotifierItemUnregistered",
+                          GLib.Variant("(s)", (canonical,)))
+        wid = self.watch_ids.pop(bus, None)
+        if wid is not None:
+            Gio.bus_unwatch_name(wid)
+
+    def emit(self, signal, params=None):
+        self.conn.emit_signal(None, WATCHER_PATH, WATCHER_IFACE, signal, params)
+
+    # -- D-Bus object ------------------------------------------------------
+    def on_call(self, _conn, sender, _path, _iface, method, params, invocation):
+        if method == "RegisterStatusNotifierItem":
+            service = params.unpack()[0]
+            bus, path, canonical = self.split(service, sender)
+            invocation.return_value(None)
+            self.consider(canonical, bus, path)
+        elif method == "RegisterStatusNotifierHost":
+            self.log(f"host {params.unpack()[0]} (from {sender})")
+            invocation.return_value(None)
+            self.emit("StatusNotifierHostRegistered")
+        else:
+            invocation.return_dbus_error(
+                "org.freedesktop.DBus.Error.UnknownMethod",
+                f"no such method {method}")
+
+    def on_get(self, _conn, _sender, _path, _iface, prop):
+        if prop == "RegisteredStatusNotifierItems":
+            return GLib.Variant("as", self.items)
+        if prop == "IsStatusNotifierHostRegistered":
+            # ⚠ UNCONDITIONALLY TRUE, AND NOT AN OVERSIGHT. Chromium (so every
+            # Electron app, so Discord) reads this before creating its tray
+            # icon and falls back to the X11 XEmbed protocol when it is false
+            # -- and there is no XEmbed tray under sway, so a truthful `false`
+            # during the gap before waybar registers would cost the icon
+            # entirely, silently. Nothing consults this to decide whether to
+            # DRAW, only whether it is worth publishing, so the lie is free.
+            return GLib.Variant("b", True)
+        if prop == "ProtocolVersion":
+            return GLib.Variant("i", 0)
+        return None
+
+    # -- lifecycle ---------------------------------------------------------
+    def acquired(self, *_a):
+        self.log(f"owning {WATCHER_NAME}")
+        # Anything that registered with the previous owner is not ours yet.
+        # Clients watch this name and re-register when it changes hands (both
+        # libayatana-appindicator and Chromium do), and this signal is the
+        # nudge for any that only watch the signal.
+        self.emit("StatusNotifierHostRegistered")
+
+    def lost(self, *_a):
+        # Either a second copy of this script started (it cannot steal the
+        # name -- see the header -- so this is the "already running" exit), or
+        # something forced us off it. Either way there is one watcher and it
+        # is not us; leaving is correct and lets waybar's queued request take
+        # over, so the tray degrades to unfiltered rather than to nothing.
+        self.warn(f"{WATCHER_NAME} is owned by someone else -- exiting")
+        self.loop.quit()
+
+    def run(self):
+        self.conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+        node = Gio.DBusNodeInfo.new_for_xml(WATCHER_XML)
+        self.conn.register_object(WATCHER_PATH, node.interfaces[0],
+                                  self.on_call, self.on_get, None)
+        Gio.bus_own_name_on_connection(
+            self.conn, WATCHER_NAME,
+            # See the header block: REPLACE_EXISTING and deliberately NOT
+            # ALLOW_REPLACEMENT.
+            Gio.BusNameOwnerFlags.REPLACE,
+            self.acquired, self.lost)
+        # SIGTERM and SIGINT through GLib rather than `signal`, so the loop
+        # actually unwinds instead of the handler firing between iterations.
+        for signum in (2, 15):  # SIGINT, SIGTERM
+            GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signum, self.on_signal)
+        self.loop.run()
+
+    def on_signal(self):
+        self.loop.quit()
+        return False
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog="sway-tray-filter",
+        description="StatusNotifierWatcher for sway that hides chosen tray "
+                    "items from waybar.",
+        epilog="Default hidden Id(s): " + ", ".join(DEFAULT_IGNORE))
+    ap.add_argument("--ignore", action="append", metavar="ID",
+                    help="hide the item with this StatusNotifierItem Id "
+                         "(repeatable; REPLACES the default list when given)")
+    ap.add_argument("-v", "--verbose", action="store_true",
+                    help="log every item's Id and whether it was kept")
+    args = ap.parse_args()
+
+    if not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+        print("sway-tray-filter: no session bus", file=sys.stderr)
+        return 1
+    Watcher(args.ignore or DEFAULT_IGNORE, args.verbose).run()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

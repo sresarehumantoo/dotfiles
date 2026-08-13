@@ -1265,5 +1265,75 @@ tooltip label {
 
 /* Tray ------------------------------------------------------------------ */
 
-#tray > .passive        { -gtk-icon-effect: dim; }
-#tray > .needs-attention { -gtk-icon-effect: highlight; }
+/* ⚠ THE ONLY WIDGETS IN THIS BAR WHOSE ARTWORK IS NOT OURS. Everything else is
+   a Nerd Font glyph sized by the cell; these are app-supplied logos, usually
+   delivered as a raw pixmap rather than a themed icon name (Discord's IconName
+   property errors outright — only IconPixmap answers), so they arrive in full
+   color at whatever `icon-size` the jsonc asks for. There is no lever to
+   desaturate or symbolize them: GTK3 offers `-gtk-icon-effect: dim|highlight`
+   and nothing else. Treat them as guests — give them a well-shaped box and do
+   not try to restyle the contents.
+
+   The tray only ever appears here because sway-tray-filter hides nm-applet's
+   permanent item; see the tray block in config/waybar/config. */
+
+/* ⚠ THE ONLY GEOMETRY CSS OWNS HERE. THE GAP BETWEEN ICONS IS `spacing` IN THE
+   JSONC, AND NOTHING IN THIS FILE CAN CHANGE IT.
+   waybar wraps each tray item in a `GtkEventBox`, which ignores the CSS box
+   model when it asks for its size: measured, `padding` and `min-width` on
+   `#tray > *` move NOTHING (min-width 26 on an 18px logo left the pitch at 26,
+   i.e. icon-size + spacing, exactly as before). `margin` and every paint
+   property do work, which is why the ring below is a box-shadow. That is also
+   why the ring hugs the logo rather than standing off it — there is no way to
+   inset the icon inside its own box, and a non-inset shadow would be clipped at
+   the item's allocation (waybar gives each one its own GdkWindow).
+   So the tuning that is left is: `icon-size` + `spacing` in the jsonc, and this
+   padding on the container. At icon-size 18 / spacing 14 the icons sit on a
+   32.0px pitch, and privacy -> the first icon is 32.0 as well — matching the
+   32.5-33.5 the status chips measure, so the whole right side keeps one rhythm.
+   ⚠ The shared chip rule further up ALSO matches `#tray` and gives it 0 9px,
+   which is written for a single centerd glyph and put ~44px around one 18px
+   logo. Hence 5.
+   ⚠ Do NOT add a `transition` here — the shared chip rule declares the only one
+   these boxes get, and a second at equal specificity later in the file wins on
+   source order and silently drops half the list (see the note there). */
+#tray {
+    padding: 0 5px;
+}
+
+/* Each item is its own widget and IS reachable — measured, `#tray > *`,
+   `#tray > .active` and `#tray > *:hover` all match. Note that is NOT true of
+   the pill containers elsewhere in this file, which never receive `:hover` at
+   all, so do not generalize either way from one to the other.
+   Ring only, no bloom: verified that hovering one icon changes its ink from 16
+   to 18px and leaves every pitch on the row at 32.0, i.e. nothing moves. A size
+   change on one icon would shove its neighbours sideways, which is the
+   bar-glitching effect the status chips were rebuilt to avoid. */
+#tray > * {
+    border-radius: 9px;
+    box-shadow: inset 0 0 0 1px transparent;
+    transition: box-shadow 150ms ease-out;   /* slow half: hover-OUT */
+}
+
+#tray > *:hover {
+    box-shadow: inset 0 0 0 1px @glass-edge;
+    transition: box-shadow 120ms ease-out;   /* fast half: hover-IN */
+}
+
+/* NeedsAttention is the one tray state that means something on this desktop —
+   it is how an app says "there is a ping here" (Discord sets it for unread
+   mentions). `-gtk-icon-effect: highlight` alone was the old treatment and it
+   is far too quiet to interrupt: it brightens a logo that is already bright.
+   A red ring borrows the bar's existing urgent language (`.urgent` on the
+   workspace chips) without touching the app's own artwork. */
+#tray > .needs-attention {
+    box-shadow: inset 0 0 0 1px @red;
+}
+
+/* Unreachable at the current settings, and kept deliberately: waybar's
+   `show-passive-items` defaults to false, so an item that sets Status=Passive
+   is not drawn at all rather than drawn dimmed. This is what it would look
+   like if that were ever turned on. */
+#tray > .passive {
+    -gtk-icon-effect: dim;
+}

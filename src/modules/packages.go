@@ -55,6 +55,7 @@ var pacmanNames = map[string]string{
 	"build-essential":         "base-devel",
 	"golang":                  "go",
 	"python3-pip":             "python-pip",
+	"python3-gi":              "python-gobject",
 	"locales":                 "", // glibc provides locales on Arch
 	"python3-venv":            "", // part of python on Arch
 	"pipx":                    "python-pipx",

@@ -65,7 +65,7 @@
     // To get the title back, put "sway/window" in this array — it takes the
     // center pill and the clock has to move back to modules-right.
     "modules-center": ["clock"],
-    // No "tray" — see the tray block below for why.
+    // "tray" is in `group/indicators`, not here — see the tray block below.
     //
     // Right-hand order follows the GNOME/macOS status-area model rather than a
     // dashboard: TRANSIENT indicators first (privacy, media, idle, VPN — each
@@ -104,13 +104,20 @@
     // TRANSIENT. Every module here hides itself completely when it has nothing
     // to say, so this pill is absent from the bar most of the time and appears
     // only when something is actually happening — a mic is live, media is
-    // playing, a tunnel is up. That is why it is a separate surface: a pill
-    // that comes and goes cannot share a background with one that must not.
+    // playing, a tunnel is up, an app has parked itself in the tray. That is
+    // why it is a separate surface: a pill that comes and goes cannot share a
+    // background with one that must not.
     // ⚠ Do not put an always-visible module in here. It would pin the pill open
     // permanently and collapse the distinction this group exists to draw.
+    //
+    // `tray` qualifies, but only because sway-tray-filter hides the one item
+    // that would otherwise always be there (nm-applet — see the tray block
+    // below). Measured with an empty registry: waybar's tray widget takes zero
+    // width and this whole pill paints **0 pixels**, so it really does vanish;
+    // with one item registered it fills the pill edge to edge.
     "group/indicators": {
         "orientation": "horizontal",
-        "modules": ["privacy", "mpris", "network#vpn"]
+        "modules": ["privacy", "mpris", "network#vpn", "tray"]
     },
 
     // PERSISTENT. The status cluster plus the control hub — always present, and
@@ -619,22 +626,50 @@
         "on-click-right": "swaync-client -d -sw"
     },
 
-    // ⚠ Deliberately NOT in modules-right. The only thing that ever registered
-    // here was nm-applet's signal-bars icon, which duplicated the network
-    // module's own essid + strength readout. waybar's tray cannot filter
-    // individual items (ignore-list belongs to wlr/taskbar, not tray), and
-    // nm-applet publishes its StatusNotifier item as Active regardless of
-    // --indicator or `org.gnome.nm-applet show-applet` — both tested — so
-    // dropping the whole module was the only way.
+    // ⚠ THIS MODULE ONLY WORKS BECAUSE OF config/sway/sway-tray-filter, AND
+    // WITHOUT IT THE BAR GROWS A PERMANENT DUPLICATE NETWORK ICON.
     //
-    // Consequence: no app can show a tray icon here. If something that needs
-    // one turns up (Slack, Syncthing, Discord…), put "tray" back in
-    // modules-right; nm-applet's duplicate icon comes back with it.
-    // blueman-applet never registered an item, so nothing is lost there — it
-    // still runs and still handles pairing.
+    // This entry was defined-but-unused for a long time, because the only
+    // thing that ever registered was nm-applet's signal-bars icon, duplicating
+    // the `network` module's own essid + strength readout. It cannot be
+    // filtered here: waybar 0.12.0's tray takes only icon-size, spacing,
+    // show-passive-items, reverse-direction, expand and on-update (`man
+    // waybar-tray`) — the `ignore-list` people remember belongs to
+    // wlr/taskbar. And it cannot be suppressed at the source either: measured
+    // 2026-08-12, nm-applet publishes `Id 'nm-applet' Status 'Active'` with
+    // --indicator dropped AND with `org.gnome.nm-applet show-applet false`.
+    // So the item is dropped one layer down, by owning the session's
+    // StatusNotifierWatcher; read that script's header for how and why.
+    //
+    // ⚠ WHAT THE MISSING TRAY ACTUALLY COST — this is not about tidiness.
+    // An app that hides itself on close is STRANDED without one. Measured on
+    // Discord: its close button leaves ZERO windows and a live process, and
+    // `Activate` on its tray item (what a left-click does) is the only thing
+    // that brings the window back. sway cannot help — the client unmapped its
+    // own toplevel, so there is nothing left in the tree to address.
+    //
+    // ⚠ AND THE WATCHER MUST EXIST BEFORE THE APP STARTS. Measured both ways:
+    // an already-registered Discord re-registers happily when the watcher
+    // changes hands (so restarting the filter is safe), but a Discord LAUNCHED
+    // while no watcher owns the name never gets an icon at all, however long
+    // it runs — Chromium decides once at tray-icon creation and falls back to
+    // X11 XEmbed, which does not exist under sway. libayatana clients
+    // (nm-applet) do not have this problem. Hence the filter is autostarted
+    // from config/sway/config, not started on demand.
+    //
+    // LAST IN `group/indicators`, deliberately: modules-right is right-aligned,
+    // so the further right a widget sits the less it moves. App icons are aim
+    // targets, and leaving them left of `mpris` would shuffle them sideways
+    // every time a track title changed.
+    //
+    // blueman-applet registers no item at all (also measured), so it is absent
+    // here and nothing is lost — it still runs and still handles pairing.
     "tray": {
+        // Fits the 24px painted chip inside the 32px pill with room to spare;
+        // these are app logos rather than font glyphs, so they are the one
+        // thing in this bar that is not sized by the Nerd Font cell.
         "icon-size": 18,
-        "spacing": 8
+        "spacing": 14
     },
 
     // Center module (see `modules-center`). Left-click opens sway-calendar.
