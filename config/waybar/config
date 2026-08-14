@@ -665,11 +665,18 @@
     // blueman-applet registers no item at all (also measured), so it is absent
     // here and nothing is lost — it still runs and still handles pairing.
     "tray": {
-        // Fits the 24px painted chip inside the 32px pill with room to spare;
-        // these are app logos rather than font glyphs, so they are the one
+        // ⚠ THESE TWO ARE HALF OF A SET WITH `#tray > * > *` IN style.css, AND
+        // TUNING EITHER ALONE PUTS THE ROW OFF THE BAR'S RHYTHM.
+        // Each item's painted box is icon-size + that rule's padding (18 + 14 =
+        // 32px, against the status chips' 31), and `spacing` is added on top of
+        // it, so the pitch is 33 — the same 32.5-33.5 the status cluster sits
+        // on. `spacing` was 14 while the box was still bare 18px; left at 14
+        // once the padding existed it would give a 46px pitch.
+        //
+        // These are app logos rather than font glyphs, so they are the one
         // thing in this bar that is not sized by the Nerd Font cell.
         "icon-size": 18,
-        "spacing": 14
+        "spacing": 1
     },
 
     // Center module (see `modules-center`). Left-click opens sway-calendar.

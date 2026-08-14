@@ -353,24 +353,40 @@ are aim targets that should not shuffle sideways every time an `mpris` track
 title changes.
 
 > [!WARNING]
-> **`padding` and `min-width` on `#tray > *` are inert.** waybar wraps each item
-> in a `GtkEventBox`, which ignores the CSS box model when it asks for its size —
-> measured, `min-width: 26px` on an 18px logo left the pitch at 26 (icon-size +
-> spacing), unchanged. `margin` and every *paint* property do work. So the gap
-> between icons is `spacing` in the jsonc and nothing in the stylesheet can
-> change it, and the hover ring necessarily hugs the logo rather than standing
-> off it (a non-inset shadow would be clipped at the item's own allocation, since
-> waybar gives each one its own `GdkWindow`).
+> **Padding goes on the item's *child*, not on the item — and the difference is
+> the whole shape of the hover ring.** waybar wraps each item in a `GtkEventBox`,
+> and an EventBox ignores the CSS box model when it asks for its size: measured,
+> `padding` **and** `min-width` on `#tray > *` move nothing at all (`min-width:
+> 26px` against an 18px logo left the pitch at icon-size + spacing, unchanged).
+> The obvious conclusion — that the box is therefore stuck at the icon's size —
+> is **wrong**: padding on the child inside it (`#tray > * > *`) *is* honored and
+> the EventBox grows with it. That is the only way to get air between the logo
+> and the ring. A non-inset shadow is not an alternative: waybar gives each item
+> its own `GdkWindow`, so anything drawn outside the allocation is clipped.
 
-What is left to tune is `icon-size` + `spacing` in the jsonc, and `padding` on
-the `#tray` container. At **18 / 14** the icons sit on a **32.0px pitch** and
-`privacy` → the first icon is 32.0 as well, matching the 32.5–33.5 the status
-chips measure, so the whole right side keeps one rhythm. Hovering an icon lights
-a hairline ring and moves nothing (ink 16 → 18px, every pitch still 32.0) —
-ring only, no dwell bloom, because a size change on one icon would shove its
-neighbours. `needs-attention` gets a red ring borrowing the workspace chips'
-urgent language; `-gtk-icon-effect: highlight` was the old treatment and is far
-too quiet to interrupt, since it brightens a logo that is already bright.
+The symptom of getting that wrong is specific and worth recognizing: **the ring
+collapses to a narrow tall oval that clips the logo's sides**, against the
+generous rounded rect every module chip lights. It reads as a radius problem and
+is not one.
+
+Settled geometry, all measured: `icon-size 18` + `padding: 0 7px` on the child
+puts each item at **32px**, one pixel off the status chips' 31, so the two rings
+read as the same object; `spacing: 1` then gives a **33.0px pitch**, matching the
+status cluster's 32.5–33.5 exactly. `#tray` itself takes `padding: 0`, overriding
+the shared chip rule's `0 9px` — once each item carries its own 7px that is pure
+surplus at the ends of the row, and it had pushed the gap between the last module
+chip and the first icon to 39px against everything else's 33 (0 brings it to
+34.0). Radius is **12**, matching the chips; at 9 it read as a tighter, different
+shape beside them.
+
+Hovering lights a hairline ring and moves nothing — **ring only, no dwell
+bloom**. Now that padding here is live that is a rule rather than a limitation:
+the icons are a row, and growing one would shove its neighbours, which is the
+bar-glitching effect the status chips were rebuilt to avoid (their bloom is
+affordable only because it comes out of a margin they already reserve).
+`needs-attention` gets a red ring borrowing the workspace chips' urgent language;
+`-gtk-icon-effect: highlight` was the old treatment and is far too quiet to
+interrupt, since it brightens a logo that is already bright.
 
 These are the only widgets in the bar whose artwork is not ours — app-supplied
 logos, usually a raw pixmap rather than a themed icon name (Discord's `IconName`
