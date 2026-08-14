@@ -488,6 +488,68 @@ def disable(ws_name):
         remove_bindings()
 
 
+# ⚠ ONE ATTEMPT PER DISTINCT TARGET, AND THIS BOUND IS NOT OPTIONAL.
+# reconcile() runs off events that a `place()` can itself provoke, so without a
+# memo a window that CANNOT reach the area — an XWayland client with size hints,
+# a dialog with a max size, and monocle floats every window on the workspace
+# including those — would be re-placed on every event for the life of the
+# session. Keyed by con_id, holding the last target we asked for; a new target
+# (the area really moved) clears the entry and earns a fresh attempt.
+_asked = {}
+
+
+def reconcile(ws_name, entry):
+    """Re-place the shown window if the tiling area moved under it.
+
+    ⚠ WHY THIS EXISTS: geometry is applied LAZILY, in show(), against the
+    workspace rect at that moment (see show()'s header for why placing the
+    whole stack up front cannot work). That is correct until the area changes
+    while monocle is already on, because nothing re-measures until the next
+    show() — the window then sits at a stale size and reads as "the bar is
+    pushing windows down". Observed for real: a workspace whose windows were
+    80px short and 80px low, long after the surface that had reserved that
+    space was gone.
+
+    Two triggers, and they are not interchangeable:
+      - An output change (dock plugged, resolution changed) DOES emit an IPC
+        event, and the serve() loop reconciles every workspace in state on it.
+      - A layer surface changing its exclusive zone — waybar restarting taller,
+        a panel appearing — emits NOTHING. There is no event to subscribe to,
+        so that case is caught opportunistically on the next event of any kind.
+        ⚠ "Any kind" means a real one: focusing the window that already has
+        focus emits nothing at all, so a hand-run `swaymsg [con_id=…] focus`
+        aimed at the shown window is not a way to trigger this. Anything that
+        actually changes something is (switching windows, a new window, a
+        workspace switch), which is why this is invisible in normal use.
+
+    ⚠ Only the SHOWN window is corrected, deliberately. The rest are behind it
+    and their sizes are unobservable, exactly as show() argues; each is placed
+    against the current area when it is next shown.
+    """
+    cid = entry.get("shown")
+    if not cid:
+        return False
+    rect = workspace_rect(ws_name)
+    if not rect:
+        return False
+    want = (rect["x"], rect["y"], rect["width"], rect["height"])
+    got = next((n for n in all_windows_on(ws_name) if n["id"] == cid), None)
+    if not got:
+        _asked.pop(cid, None)   # it closed; do not keep a memo for a dead id
+        return False
+    r = got["rect"]
+    if (r["x"], r["y"], r["width"], r["height"]) == want:
+        # Agreed, so forget any earlier failure: if this window is ever short
+        # again it is a new problem and deserves a fresh attempt.
+        _asked.pop(cid, None)
+        return False
+    if _asked.get(cid) == want:
+        return False
+    _asked[cid] = want
+    place(cid, rect)
+    return True
+
+
 def live_order(ws_name, order):
     """`order` minus anything that has since closed, plus anything new, in order.
 
@@ -592,8 +654,13 @@ def serve():
     signal.signal(signal.SIGTERM, bye)
     signal.signal(signal.SIGINT, bye)
 
+    # ⚠ `output` IS IN HERE FOR GEOMETRY, NOT FOR WINDOWS. Plugging or
+    # unplugging the dock, or a mode change, moves the tiling area under a
+    # workspace that is already in monocle, and nothing else would notice — see
+    # reconcile(). sway emits this event with change "unspecified", which no
+    # window or workspace event uses, so it is safe to dispatch on that alone.
     sub = subprocess.Popen(
-        ["swaymsg", "-t", "subscribe", "-m", '["window", "workspace"]'],
+        ["swaymsg", "-t", "subscribe", "-m", '["window", "workspace", "output"]'],
         stdout=subprocess.PIPE, text=True)
 
     for line in sub.stdout:
@@ -606,6 +673,17 @@ def serve():
             continue
 
         change = evt.get("change")
+
+        # ⚠ AN OUTPUT EVENT IS HANDLED FOR EVERY WORKSPACE IN STATE, NOT THE
+        # FOCUSED ONE. A dock plug moves the tiling area on every output at
+        # once, and a workspace you are not looking at would otherwise keep its
+        # stale geometry until you switched to it and cycled — which is exactly
+        # the bug that reads as the bar pushing windows down.
+        if change == "unspecified":
+            for ws_name, entry in read_state().items():
+                reconcile(ws_name, entry)
+            continue
+
         if change not in ("new", "close", "move", "focus"):
             continue
 
@@ -616,6 +694,13 @@ def serve():
         entry = state.get(ws)
         if not entry:
             continue
+
+        # The no-event case: a layer surface's exclusive zone can change with
+        # nothing to subscribe to, so the stale area is caught here, on whatever
+        # the user does next. reconcile() is a no-op once the rects agree, and
+        # it will not re-attempt a target it has already failed, so this cannot
+        # turn a resize the client refuses into a loop.
+        reconcile(ws, entry)
 
         order = live_order(ws, entry.get("order", []))
 

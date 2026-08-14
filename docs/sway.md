@@ -1019,6 +1019,48 @@ bounded read-back check because the very first show still races the float pass.
 Measured after: every cycle step exact at `10,172 1900x1138`, order preserved,
 nothing left floating.
 
+#### ⚠ Lazy geometry goes stale when the area moves, and that reads as a bar bug
+
+Lazy is right, but it has one failure mode: if the tiling area changes **while
+monocle is already on**, nothing re-measures until the next `show()`, so the
+window keeps a size that no longer fits. Seen for real — a workspace whose
+windows sat 80px short and 80px low, long after the surface that had reserved
+that space was gone. It presents as *"the bar is pushing windows down"*, and the
+bar is not involved at all: the workspace rect was correct throughout.
+
+`reconcile()` closes it, from two triggers that are **not** interchangeable:
+
+- **An output change** — dock plugged or unplugged, mode changed — does emit an
+  IPC event (`output`, always `change: "unspecified"`, which no window or
+  workspace event uses). The server reconciles **every workspace in state** on
+  it, not just the focused one: a dock plug moves the area on every output at
+  once, and a workspace you are not looking at would otherwise keep its stale
+  geometry until you switched to it and cycled.
+- **A layer surface changing its exclusive zone** — waybar restarting taller, a
+  panel appearing — emits **nothing**. There is no event to subscribe to, so
+  this case is caught opportunistically on the next event of any kind.
+  ⚠ "Any kind" means a real one: re-focusing the window that already has focus
+  emits nothing, so `swaymsg [con_id=…] focus` at the shown window is not a way
+  to trigger it. Anything that actually changes something is.
+
+Two properties that keep it safe:
+
+- **Only the shown window is corrected**, deliberately — the rest are behind it
+  and unobservable, exactly as the lazy argument says, and each is placed
+  against the current area when next shown (verified: a stale window cycled to
+  comes back exact).
+- **One attempt per distinct target.** `reconcile()` runs off events a `place()`
+  can itself provoke, so a window that *cannot* reach the area — an XWayland
+  client with size hints, a dialog with a max size, and monocle floats every
+  window on the workspace including those — would otherwise be re-placed on
+  every event forever. A memo keyed by con_id holds the last target asked for
+  and is cleared the moment the rects agree.
+
+Measured, one window event after a 40px zone change: old code `h=1138` against
+an `h=1098` area, forever; new code `1138 -> 1098`, and `1098 -> 1138` when the
+zone went away. The output-event path was confirmed on its own, with no window
+event in play at all.
+
 Two smaller facts worth keeping:
 
 - **`floating enable` + `resize` + `move` must be ONE chained message.** Issued
