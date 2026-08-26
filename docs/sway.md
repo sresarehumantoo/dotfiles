@@ -1754,9 +1754,31 @@ stopped firing. Both are now 16px, so the family is consistent in pigment, edge
 > visibly out of focus. Nothing is lost at 0.94 opacity; this is the same trade
 > already made for swaync, and the same mechanism as the bar's pills.
 >
-> `swaync-notification-window` is **not** affected — its surface is sized to the
-> notification, measured −0.00, so it keeps `shadows enable`. The bug is
-> specifically a surface-much-larger-than-panel one.
+> ⚠ **`swaync-notification-window` HAS THE SAME BUG, and this section said the
+> opposite for months.** The old claim — surface sized to the notification,
+> measured −0.00, so it keeps `shadows enable` — rested on a measurement that
+> answered a *different* question. It looked for the full-width band under the
+> bar that the other two panels drew, and this surface is far too small to reach
+> that band; −0.00 there says nothing about the surface's own outline. **A
+> surface-shaped artifact does not have to be full-width to be one.**
+>
+> The surface is `notification-window-width` = **400px**; the bubble is **380**,
+> inset by `.notification`'s own `margin: 8px 10px 0 10px`. So the compositor
+> traced a rounded rect **10px wider on the left and 8px taller** than the
+> bubble, at **radius 12** against the bubble's **14** — a ghost outline with a
+> transparent gap between it and the thing it was supposed to be attached to.
+> That is exactly how it reads on screen: *an outline larger than the bubble.*
+>
+> Measured on a live notification (surface `400x81` at `1520,52` output-local,
+> compositor shadow on vs off, baseline retaken in the same run): the halo
+> darkened **x1505..1520 by up to −7.4** luminance while the bubble's own left
+> edge is at **x1530**, and reached **14px above** the surface top.
+>
+> `shadows disable` there too. The CSS pair on `.notification` then carries the
+> lift, and it being clipped at the surface edge does not matter: the step across
+> the clip measures **1.1** luminance (−1.13 just inside, 0.00 just outside),
+> and the shadow rises to **−2.3** where it meets the bubble, which is where a
+> shadow should be strongest anyway.
 
 ### The layers, and why the numbers differ
 

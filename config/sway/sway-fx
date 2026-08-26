@@ -179,7 +179,31 @@ fx layer_effects '"waybar"' '"blur enable; blur_ignore_transparent enable; corne
 # compositor shadow without adding it took the bottom-right corner from 0 leaked
 # pixels to 4. Do not trim it back to just the offset shadows.
 fx layer_effects '"swaync-control-center"' '"blur disable; corner_radius 12; shadows disable"'
-fx layer_effects '"swaync-notification-window"' '"blur disable; corner_radius 12; shadows enable"'
+# ⚠ SHADOWS ARE OFF HERE TOO, AND THE OLD NOTE CLAIMING THIS SURFACE IS "SIZED
+# TO THE NOTIFICATION" WAS WRONG — it is the same surface-larger-than-the-thing
+# bug as the two panels above, just small enough to have been missed.
+#
+# The surface is `notification-window-width` = 400px wide; the bubble is 380 and
+# inset by `.notification`'s own `margin: 8px 10px 0 10px` in
+# config/swaync/style.css. So the compositor drew its shadow around a rounded
+# rect 10px wider on the left and 8px taller than the bubble, at radius 12
+# against the bubble's 14 — a ghost outline with a transparent gap between it
+# and the bubble it was meant to sit under. Measured on a live notification
+# (surface 400x81 at 1520,52 output-local): the halo darkened x1505..1520 by up
+# to -7.4 luminance, while the bubble's own left edge is at 1530, and reached
+# 14px above the surface top.
+#
+# ⚠ The earlier "-0.00, not affected" measurement was not wrong, it answered a
+# different question: it looked for the full-width band under the BAR that the
+# control center and calendar drew, and this surface is far too small to reach
+# that band. A surface-shaped artifact does not have to be full-width to be one.
+#
+# With shadows off the CSS pair on `.notification` carries the lift. It IS
+# clipped at the surface edge, and that is fine: the step across the clip
+# measures 1.1 luminance (-1.13 just inside, 0.00 just outside), i.e. invisible,
+# and the shadow rises to -2.3 where it meets the bubble, which is where a
+# shadow is supposed to be strongest.
+fx layer_effects '"swaync-notification-window"' '"blur disable; corner_radius 12; shadows disable"'
 fx layer_effects '"launcher"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
 fx layer_effects '"swayosd"' '"blur enable; blur_ignore_transparent enable; corner_radius 16; shadows enable"'
 # ⚠ SAME AS swaync ABOVE — read that comment. This surface spans the whole usable
