@@ -33,6 +33,7 @@ button that no-ops. So the dependency set is declared as data in
 | Screenshots | `grim` `slurp` `wl-clipboard` | `Print` / `Shift+Print` and the panel's two capture buttons |
 | Applets | `network-manager-gnome` `blueman` | **right**-clicking the network module (left-click opens the control center); Bluetooth pairing. nm-applet is also NetworkManager's secret agent, so without it wifi password prompts never appear |
 | Calendar | `gir1.2-gtklayershell-0.1` | `sway-calendar` dies on import — and since waybar launches it from a click, the clock just silently does nothing |
+| Python helpers | `python3-gi` | `sway-calendar` and `sway-tray-filter` both die on import. The tray one takes the whole tray with it, so every app that hides itself on close becomes unreachable |
 
 Two deliberate omissions: **no terminal** (`set $term ghostty`, which has its own
 module and is not an apt package on Debian), and **no fonts** (the `fonts` module
@@ -52,12 +53,14 @@ sway                   9        0  1 package(s) missing: pavucontrol
 ```
 
 > [!NOTE]
-> **`gir1.2-gtklayershell-0.1` is the one entry that is not probed on `PATH`.** It
-> ships a GObject-introspection typelib and no binary, so `exec.LookPath` would
-> report it missing forever and `install sway` would reinstall it on every run.
-> `swayPkgGlobs` in `src/modules/sway.go` checks for the typelib file instead,
-> globbing both Debian's multiarch directory and the plain one so the pattern is
-> not host-specific. Adding another binary-less package means adding a glob there.
+> **`gir1.2-gtklayershell-0.1` and `python3-gi` are the entries that are not probed
+> on `PATH`.** They ship a GObject-introspection typelib and a Python package
+> respectively, and no binary, so `exec.LookPath` would report them missing forever
+> and `install sway` would reinstall them on every run. `swayPkgGlobs` in
+> `src/modules/sway.go` checks for a marker file instead — for the typelib, globbing
+> both Debian's multiarch directory and the plain one; for PyGObject, both Debian's
+> `dist-packages` and everyone else's `site-packages`. Adding another binary-less
+> package means adding a glob there.
 
 ## What gets linked
 
@@ -238,8 +241,158 @@ hue (see *Selection and hover*), and the clock is plain `@text`. An earlier sche
 battery warning had to compete with five other colors.
 
 Modules that hide themselves entirely when idle: `privacy` (mic/camera/
-screenshare), `mpris`, and `network#vpn`. An indicator that is always lit is one
-you stop seeing.
+screenshare), `mpris`, `network#vpn`, and `tray`. An indicator that is always lit
+is one you stop seeing.
+
+## The tray, and the broker that makes it possible
+
+For a long time this bar had **no tray at all**, and the write-up in
+`config/waybar/config` defended that as a taste decision. It was not: it was one
+unfilterable icon, and the cost was much larger than the icon.
+
+### What the missing tray actually cost
+
+An app that hides itself on close is **stranded** without a tray. Measured on
+Discord: its close button (`swaymsg '[app_id="discord"] kill'`, which is what the
+titlebar X sends) leaves **zero windows and a live process**. sway cannot help —
+the client unmapped its own toplevel, so there is nothing left in the tree for
+any `swaymsg` criteria to address, and no scratchpad trick reaches it. Calling
+`Activate` on its `StatusNotifierItem` — exactly what a tray left-click does —
+brought the window straight back. So the tray is not decoration here; it is the
+**entire recovery path** for Discord, Steam and KeePassXC.
+
+### Why the icon could not just be filtered
+
+`nm-applet` publishes an item that is always `Active`:
+
+```
+Id 'nm-applet'   Status 'Active'   Category 'SystemServices'   IconName 'nm-signal-75'
+```
+
+and it does so with `--indicator` dropped **and** with
+`gsettings set org.gnome.nm-applet show-applet false` — both retested 2026-08-12,
+neither suppresses it. It also cannot simply be stopped: nm-applet is
+NetworkManager's **secret agent** on this box, the thing that prompts for a wifi
+password on a new network, and it does that over D-Bus whether or not an icon is
+on screen. And waybar cannot drop it either — `man waybar-tray` (0.12.0) lists
+only `icon-size`, `spacing`, `show-passive-items`, `reverse-direction`, `expand`
+and `on-update`. The `ignore-list` people remember belongs to `wlr/taskbar`.
+`show-passive-items` is no help against an item that is `Active`.
+
+Which left it duplicating the `network` module's own essid + strength readout,
+permanently, in a bar that had every other number deliberately removed.
+
+### `sway-tray-filter`: own the watcher, not the bar
+
+The tray protocol has three roles: **items** (apps), a **host** (waybar, which
+draws them) and a **watcher**, a single session-wide broker owning the bus name
+`org.kde.StatusNotifierWatcher`. `config/sway/sway-tray-filter` is that watcher,
+minus nm-applet. waybar is stock.
+
+> [!IMPORTANT]
+> **waybar does not insist on being the watcher, and this was measured, not
+> assumed.** With the script holding the name, waybar came up and registered
+> against it as a plain host (`RegisterStatusNotifierHost` → `/StatusNotifierHost/0`)
+> and drew whatever list it was handed.
+
+**The name flags are load-bearing.** sway forks its `exec` lines asynchronously,
+so there is no way to make the script reach the bus before waybar. That race is
+dissolved rather than won: waybar requests the name **with `ALLOW_REPLACEMENT`**
+(measured — requesting it with `REPLACE_EXISTING` against a running waybar
+returned `PRIMARY_OWNER`, i.e. the steal succeeded), so the script can take it
+back at any point and waybar re-syncs from the new owner.
+
+> [!WARNING]
+> **Do not add `ALLOW_REPLACEMENT` to `sway-tray-filter`.** It is what would let a
+> restarted waybar take the name back and silently restore nm-applet's icon. Not
+> requesting it also makes a second copy harmless: the bus puts it `IN_QUEUE`, it
+> sees it is not the owner and exits 0 — which is what makes `exec_always` safe
+> with no pidfile, the same outcome as the pidfile guards in `sway-calendar` and
+> `sway-workspaces`, for free. The failure mode is deliberately soft: if the
+> process dies, waybar's own queued request makes it owner again and the tray
+> comes back **unfiltered** rather than not at all.
+
+### ⚠ The watcher must exist before the app starts
+
+Measured in both directions:
+
+- An app **already registered** re-registers happily when the watcher changes
+  hands. Restarting the filter is safe; icons come back within a second.
+- An app **launched while no watcher owns the name** never gets an icon at all,
+  however long it runs. Chromium — so every Electron app, so Discord — decides
+  once at tray-icon creation and falls back to X11 XEmbed, which does not exist
+  under sway. libayatana clients (nm-applet) do not have this problem and retry.
+
+Nothing reports this; the icon is simply absent. Hence the filter is autostarted
+from `config/sway/config` rather than started on demand, and hence
+`IsStatusNotifierHostRegistered` is answered **`true` unconditionally** — a
+truthful `false` during the gap before waybar registers would cost the icon
+entirely, and nothing consults that property to decide whether to *draw*, only
+whether publishing is worth it.
+
+To see what is registered and what was dropped:
+
+```
+sway-tray-filter -v                     # logs every item's Id and the decision
+busctl --user get-property org.kde.StatusNotifierWatcher \
+    /StatusNotifierWatcher org.kde.StatusNotifierWatcher RegisteredStatusNotifierItems
+```
+
+`--ignore ID` (repeatable) replaces the default list, which is just `nm-applet`.
+`blueman-applet` registers no item at all — also measured — so it was never in
+the tray and nothing changed for it.
+
+### Where it sits, and what CSS can and cannot do to it
+
+The tray is **last in `group/indicators`**, the self-hiding pill. It qualifies
+for that group only because the filter removes the one item that would otherwise
+always be there: measured with an empty registry, waybar's tray widget takes zero
+width and the whole pill paints **0 pixels**. Last, because `modules-right` is
+right-aligned — the further right a widget sits the less it moves, and app icons
+are aim targets that should not shuffle sideways every time an `mpris` track
+title changes.
+
+> [!WARNING]
+> **Padding goes on the item's *child*, not on the item — and the difference is
+> the whole shape of the hover ring.** waybar wraps each item in a `GtkEventBox`,
+> and an EventBox ignores the CSS box model when it asks for its size: measured,
+> `padding` **and** `min-width` on `#tray > *` move nothing at all (`min-width:
+> 26px` against an 18px logo left the pitch at icon-size + spacing, unchanged).
+> The obvious conclusion — that the box is therefore stuck at the icon's size —
+> is **wrong**: padding on the child inside it (`#tray > * > *`) *is* honored and
+> the EventBox grows with it. That is the only way to get air between the logo
+> and the ring. A non-inset shadow is not an alternative: waybar gives each item
+> its own `GdkWindow`, so anything drawn outside the allocation is clipped.
+
+The symptom of getting that wrong is specific and worth recognizing: **the ring
+collapses to a narrow tall oval that clips the logo's sides**, against the
+generous rounded rect every module chip lights. It reads as a radius problem and
+is not one.
+
+Settled geometry, all measured: `icon-size 18` + `padding: 0 7px` on the child
+puts each item at **32px**, one pixel off the status chips' 31, so the two rings
+read as the same object; `spacing: 1` then gives a **33.0px pitch**, matching the
+status cluster's 32.5–33.5 exactly. `#tray` itself takes `padding: 0`, overriding
+the shared chip rule's `0 9px` — once each item carries its own 7px that is pure
+surplus at the ends of the row, and it had pushed the gap between the last module
+chip and the first icon to 39px against everything else's 33 (0 brings it to
+34.0). Radius is **12**, matching the chips; at 9 it read as a tighter, different
+shape beside them.
+
+Hovering lights a hairline ring and moves nothing — **ring only, no dwell
+bloom**. Now that padding here is live that is a rule rather than a limitation:
+the icons are a row, and growing one would shove its neighbours, which is the
+bar-glitching effect the status chips were rebuilt to avoid (their bloom is
+affordable only because it comes out of a margin they already reserve).
+`needs-attention` gets a red ring borrowing the workspace chips' urgent language;
+`-gtk-icon-effect: highlight` was the old treatment and is far too quiet to
+interrupt, since it brightens a logo that is already bright.
+
+These are the only widgets in the bar whose artwork is not ours — app-supplied
+logos, usually a raw pixmap rather than a themed icon name (Discord's `IconName`
+property errors outright; only `IconPixmap` answers). There is no lever to
+desaturate or symbolize them: GTK3 offers `-gtk-icon-effect: dim|highlight` and
+nothing else.
 
 ## Brightness has a floor, and lies about it
 
@@ -881,6 +1034,48 @@ visible at a time, so the others' sizes are not observable — geometry is appli
 bounded read-back check because the very first show still races the float pass.
 Measured after: every cycle step exact at `10,172 1900x1138`, order preserved,
 nothing left floating.
+
+#### ⚠ Lazy geometry goes stale when the area moves, and that reads as a bar bug
+
+Lazy is right, but it has one failure mode: if the tiling area changes **while
+monocle is already on**, nothing re-measures until the next `show()`, so the
+window keeps a size that no longer fits. Seen for real — a workspace whose
+windows sat 80px short and 80px low, long after the surface that had reserved
+that space was gone. It presents as *"the bar is pushing windows down"*, and the
+bar is not involved at all: the workspace rect was correct throughout.
+
+`reconcile()` closes it, from two triggers that are **not** interchangeable:
+
+- **An output change** — dock plugged or unplugged, mode changed — does emit an
+  IPC event (`output`, always `change: "unspecified"`, which no window or
+  workspace event uses). The server reconciles **every workspace in state** on
+  it, not just the focused one: a dock plug moves the area on every output at
+  once, and a workspace you are not looking at would otherwise keep its stale
+  geometry until you switched to it and cycled.
+- **A layer surface changing its exclusive zone** — waybar restarting taller, a
+  panel appearing — emits **nothing**. There is no event to subscribe to, so
+  this case is caught opportunistically on the next event of any kind.
+  ⚠ "Any kind" means a real one: re-focusing the window that already has focus
+  emits nothing, so `swaymsg [con_id=…] focus` at the shown window is not a way
+  to trigger it. Anything that actually changes something is.
+
+Two properties that keep it safe:
+
+- **Only the shown window is corrected**, deliberately — the rest are behind it
+  and unobservable, exactly as the lazy argument says, and each is placed
+  against the current area when next shown (verified: a stale window cycled to
+  comes back exact).
+- **One attempt per distinct target.** `reconcile()` runs off events a `place()`
+  can itself provoke, so a window that *cannot* reach the area — an XWayland
+  client with size hints, a dialog with a max size, and monocle floats every
+  window on the workspace including those — would otherwise be re-placed on
+  every event forever. A memo keyed by con_id holds the last target asked for
+  and is cleared the moment the rects agree.
+
+Measured, one window event after a 40px zone change: old code `h=1138` against
+an `h=1098` area, forever; new code `1138 -> 1098`, and `1098 -> 1138` when the
+zone went away. The output-event path was confirmed on its own, with no window
+event in play at all.
 
 Two smaller facts worth keeping:
 
