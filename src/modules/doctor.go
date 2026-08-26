@@ -1,10 +1,12 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -125,6 +127,13 @@ func RunDoctorChecks() []DoctorResult {
 		}
 	}
 
+	// %USERPROFILE%\.wslconfig. Its own result block rather than a row in the
+	// checks table above, because the useful part of the report is WHICH keys
+	// differ, and a table row carries no Extra lines.
+	if core.IsWSL() {
+		results = append(results, wslconfigDoctorResult())
+	}
+
 	// Managed symlinks should all point at one (canonical) dotfiles clone.
 	if d := core.DetectLinkDrift(); d.Split() {
 		extra := make([]string, 0, len(d.Roots)+1)
@@ -141,7 +150,145 @@ func RunDoctorChecks() []DoctorResult {
 		results = append(results, DoctorResult{Name: "dotfiles clones", OK: true, Detail: "single source"})
 	}
 
+	// Is the canonical clone itself current? Nothing else here can answer it.
+	if r := cloneFreshness(core.DotfilesDir()); r != nil {
+		results = append(results, *r)
+	}
+
 	return results
+}
+
+// wslconfigDoctorResult reads the live state and renders it.
+func wslconfigDoctorResult() DoctorResult {
+	return renderWslconfigResult(wslconfigState())
+}
+
+// renderWslconfigResult turns a report into the doctor row. Split from the IO
+// so every branch, including the wording of the remediation, is testable
+// without a Windows host — which this repo has never had one of.
+func renderWslconfigResult(rep wslconfigReport) DoctorResult {
+	const name = ".wslconfig"
+	switch rep.State {
+	case "ok":
+		return DoctorResult{Name: name, OK: true, Detail: "matches this repo"}
+	case "missing":
+		return DoctorResult{Name: name, OK: false, Detail: "not installed in the Windows home",
+			Extra: []string{"run 'dfinstall install wsl'"}}
+	case "outdated":
+		extra := append(append([]string{}, rep.Drift...),
+			"run 'dfinstall install wsl' to restore them (the current file is kept as .wslconfig.bak)",
+			"then 'wsl --shutdown' from PowerShell for it to take effect")
+		return DoctorResult{Name: name, OK: false,
+			Detail: fmt.Sprintf("%d key(s) differ from what this repo declares", len(rep.Drift)),
+			Extra:  extra}
+	default:
+		return DoctorResult{Name: name, OK: false, Detail: rep.Why}
+	}
+}
+
+// cloneFreshness reports whether the canonical dotfiles clone holds work that
+// exists nowhere else. Returns nil when the question does not apply.
+//
+// ⚠ THIS IS THE ONLY CHECK HERE THAT ASKS A GIT QUESTION, AND IT EXISTS
+// BECAUSE THE SYMLINK MODEL MAKES IT THE REAL ONE. Every managed config is a
+// symlink into the clone, so the live file IS the git worktree: editing
+// ~/.zshrc dirties the repo, and "is this host in sync" cannot be answered by
+// comparing files — they can never differ. Only git knows.
+//
+// ⚠ IT NEVER FAILS, ON PURPOSE. A dirty or ahead clone is the normal state of
+// a machine someone is working on, and doctor's footer tells the user to run
+// `dfinstall install all`, which cannot fix either one and would be actively
+// wrong advice. So this reports, it does not judge. Flip the OK below if that
+// ever stops being wanted.
+//
+// ⚠ NO FETCH. The counts come from the last fetch, which makes this free,
+// offline-safe and unable to hang on an ssh-agent prompt — at the cost of the
+// "behind" number being as stale as the remote-tracking ref. Said so in the
+// detail line rather than hidden.
+func cloneFreshness(dir string) *DoctorResult {
+	if dir == "" {
+		return nil
+	}
+	// A worktree carries .git as a FILE, so stat rather than checking IsDir.
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return nil // a tarball or a copied tree: nothing to be in sync with
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		return nil
+	}
+
+	git := func(args ...string) (string, bool) {
+		// context.Background: doctor has no context to inherit, and every call
+		// here is a local git read guarded by runProbe's own timeout.
+		out, err := runProbe(context.Background(), "git", append([]string{"-C", dir}, args...)...)
+		if err != nil {
+			return "", false
+		}
+		return strings.TrimSpace(string(out)), true
+	}
+
+	branch, ok := git("rev-parse", "--abbrev-ref", "HEAD")
+	if !ok {
+		return nil // not a working checkout after all
+	}
+
+	var notes []string
+	if out, ok := git("status", "--porcelain"); ok && out != "" {
+		notes = append(notes, fmt.Sprintf("%d uncommitted", len(strings.Split(out, "\n"))))
+	}
+
+	upstream, hasUpstream := git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	switch {
+	case !hasUpstream:
+		notes = append(notes, "no upstream to compare against")
+	default:
+		counts, ok := git("rev-list", "--left-right", "--count", "@{u}...HEAD")
+		behind, ahead, parsed := 0, 0, false
+		if ok {
+			behind, ahead, parsed = parseAheadBehind(counts)
+		}
+		switch {
+		case !parsed:
+			notes = append(notes, "could not compare with "+upstream)
+		case ahead == 0 && behind == 0:
+			// Said even when the worktree is dirty: "3 uncommitted" alone
+			// leaves open whether the committed history is shared, which is
+			// the other half of the question being asked.
+			notes = append(notes, "level with "+upstream)
+		default:
+			if ahead > 0 {
+				notes = append(notes, fmt.Sprintf("%d unpushed to %s", ahead, upstream))
+			}
+			if behind > 0 {
+				notes = append(notes, fmt.Sprintf("%d behind %s as of the last fetch", behind, upstream))
+			}
+		}
+	}
+
+	if len(notes) == 1 && strings.HasPrefix(notes[0], "level with") {
+		return &DoctorResult{Name: "clone freshness", OK: true,
+			Detail: fmt.Sprintf("%s — clean, %s", branch, notes[0])}
+	}
+	return &DoctorResult{Name: "clone freshness", OK: true,
+		Detail: fmt.Sprintf("%s — %s", branch, strings.Join(notes, ", "))}
+}
+
+// parseAheadBehind reads `git rev-list --left-right --count @{u}...HEAD`,
+// which prints behind and ahead separated by a tab, in that order.
+func parseAheadBehind(out string) (behind, ahead int, ok bool) {
+	fields := strings.Fields(out)
+	if len(fields) != 2 {
+		return 0, 0, false
+	}
+	b, err := strconv.Atoi(fields[0])
+	if err != nil {
+		return 0, 0, false
+	}
+	a, err := strconv.Atoi(fields[1])
+	if err != nil {
+		return 0, 0, false
+	}
+	return b, a, true
 }
 
 // RunDoctor prints the health-check results for the CLI `doctor` command.

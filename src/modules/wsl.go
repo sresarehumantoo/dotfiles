@@ -339,6 +339,17 @@ func (WslModule) Status() core.ModuleStatus {
 		}
 	}
 
+	// Check %USERPROFILE%\.wslconfig. Counted only when the comparison could
+	// actually be made: with no Windows home resolvable there is nothing to
+	// compare against, and reporting that as drift would be a permanent
+	// unfixable row on a host where interop is simply off.
+	switch wslconfigState().State {
+	case "ok":
+		s.Linked++
+	case "outdated", "missing":
+		s.Missing++
+	}
+
 	// Check Windows home symlink
 	if wslWinHome := resolveWinHome(); wslWinHome != "" {
 		winUser := filepath.Base(wslWinHome)

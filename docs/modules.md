@@ -532,6 +532,43 @@ injected bare `memory=`/`swap=`/`processors=` keys above the `[wsl2]` header whe
 they sit in no section at all. `TestRenderedWslconfigIsWellFormed` renders the real
 file and rejects any key before a section header.
 
+### What the installed `.wslconfig` is compared against
+
+⚠ **This file used to be checked by nothing.** `installWslconfig` wrote it and
+forgot it: `Status()` and `doctor` both covered `/etc/wsl.conf`, the sysctl
+drop-in, the Windows-home link and the shims, but never this — so a Windows-side
+tool resetting a key was silent and permanent until the next `install wsl`. It is
+also the file most exposed to being rewritten from outside, since it lives in the
+Windows home rather than the distro.
+
+⚠ **The comparison is by KEY, never byte-for-byte.** Two things rule the obvious
+implementations out: the template holds `@HOST_SIZING@`, so comparing against it
+raw reports permanent unfixable drift (the `checkFileMatch` trap above), and
+comparing against a *fresh render* would have to run the PowerShell/`cmd.exe`
+host probe — which `Status()` must not do, being a fast synchronous read with no
+context to cancel.
+
+So `wslconfigDrift(template, installed)` reports on exactly the keys the template
+declares, matching section and key case-insensitively:
+
+- **sizing is never compared.** `memory`/`swap`/`processors` reach the file only
+  through the placeholder, so they are absent from the template's key set. That
+  is deliberate: they are host-derived, and a hand-tuned `memory=` is the owner's
+  call, not drift.
+- **keys the file has and the template does not are ignored.** The host sizing
+  arrives that way, and beyond that the file is the user's to extend. This
+  reports only on what the repo claims to own.
+
+`TestWslconfigDrift_OurOwnRenderIsClean` is the guard that matters: a file this
+repo rendered itself must report no drift, and the test also asserts that a byte
+comparison *would* have differed — so the reason the code is shaped this way is
+checked, not just asserted in a comment.
+
+`doctor` names each drifted key and follows with the two-step remediation:
+`dfinstall install wsl` (which keeps the current file as `.wslconfig.bak`), then
+`wsl --shutdown` from PowerShell. Forgetting the second step reads as "the fix
+did not work".
+
 ### .wslconfig sizing
 
 `config/wsl/wslconfig` is a **template**. The `@HOST_SIZING@` line is replaced at
