@@ -159,7 +159,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `uninstall <module\|all>` | Remove symlinks created by dfinstall |
 | `diff` | Show drift between config and filesystem |
 | `status` | Print table of link counts per module |
-| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL, alias collisions) |
+| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) |
 | `restore [timestamp]` | Restore files from a backup snapshot |
 | `root` | Symlink configs into `/root/` via sudo |
 | `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
@@ -331,6 +331,47 @@ For an `install all`, `core.BeginInstall` (`core/install_session.go`) calls `Ado
 | `LinkDrift.SortedRoots()` | Clone roots in stable order for display |
 
 `doctor` and `diff` call `DetectLinkDrift()` and warn (listing each root, marking the canonical one) when `Split()` is true, pointing the user at `dfinstall install all` to consolidate.
+
+## Is this host in sync?
+
+Worth stating plainly, because the answer differs by tier and only one tier is a
+`dfinstall` question at all.
+
+| tier | what | can it drift? | who notices |
+|---|---|---|---|
+| **symlinks** (nearly everything) | `~/.zshrc` → `<clone>/config/shell/zshrc` | **no** — same inode | `diff`/`doctor`, link shape + clone drift |
+| **rendered copies** (wsl only) | `/etc/wsl.conf`, `/etc/sysctl.d/99-wsl.conf`, `%USERPROFILE%\.wslconfig` | **yes, both directions** | `Status()` + `doctor`, per file |
+| **machine state** | per-distro sparse mode, pending `wsl --shutdown` | **yes** | nobody — outside this tool's reach |
+
+The first row is why there is no "sync" command: there is nothing to sync. The
+live config **is** the git worktree, so editing `~/.zshrc` dirties the clone, and
+two files that are the same inode can never disagree. That makes *"is this host
+in sync"* a **git** question rather than a filesystem one.
+
+`cloneFreshness()` in `modules/doctor.go` answers it, and its two design rules
+are both deliberate:
+
+- **It never fails a run.** A dirty or ahead clone is the normal state of a
+  machine someone is working on, and `doctor`'s footer tells the user to run
+  `dfinstall install all` — which cannot fix either one and would be actively
+  wrong advice. So it reports, it does not judge.
+- **It never fetches.** The ahead/behind counts come from the last fetch, which
+  makes the check free, offline-safe, and unable to hang waiting on an ssh-agent.
+  The cost is that "behind" is as stale as the remote-tracking ref, which the
+  detail line says out loud rather than hiding.
+
+It returns `nil` — no row at all — when the dotfiles root is not a git checkout,
+so a tarball install is not nagged about a question that does not apply to it.
+
+⚠ Its detail line is its **entire** output, since it never fails. The MCP doctor
+renderer originally printed only `ok  <name>` for passing rows and so dropped it
+silently while the CLI showed it; both surfaces now print the detail.
+
+The second row is the WSL exception and is covered in `docs/modules.md`. Note
+that none of those three copies goes through the backup manifest: `BackupFile`
+is called only from `core.LinkFile`, so `dfinstall restore` cannot roll a copied
+file back. `wsl.conf` and `.wslconfig` leave a `.bak` sibling; the sysctl
+drop-in leaves nothing.
 
 ## File Hashing
 

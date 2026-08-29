@@ -162,3 +162,44 @@ func TestPkgFilePresentDecidesOnDisk(t *testing.T) {
 		}
 	}
 }
+
+// A symlink inherits its target's mode, so a helper script that is not
+// executable AT THE SOURCE lands in ~/.local/bin unrunnable — and sway execs
+// these from `exec_always` lines and keybindings, where the failure is silent:
+// a key that does nothing, or in sway-tray-filter's case a tray that never
+// appears. `swayScripts` is the list Install() chmods before linking, so an
+// entry missing from it is exactly that bug. This asserts the two halves agree.
+func TestSwayScriptsCoverEveryLinkedScript(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot locate source file")
+	}
+	repo := filepath.Join(filepath.Dir(thisFile), "..", "..")
+
+	declared := map[string]bool{}
+	for _, name := range swayScripts {
+		declared[name] = true
+		// The chmod in Install() targets config/sway/<name>; a name that is not
+		// a file there makes it a no-op that warns on every install.
+		if _, err := os.Stat(filepath.Join(repo, "config", "sway", name)); err != nil {
+			t.Errorf("swayScripts lists %q but config/sway/%s does not exist: %v", name, name, err)
+		}
+	}
+
+	// Anything this module links INTO ~/.local/bin from config/sway must be in
+	// that list. This is the direction that catches a newly added helper.
+	for _, link := range (SwayModule{}).Links() {
+		if !strings.Contains(link.Dst, filepath.Join(".local", "bin")) {
+			continue
+		}
+		if !strings.Contains(link.Src, filepath.Join("config", "sway")+string(filepath.Separator)) {
+			continue
+		}
+		name := filepath.Base(link.Src)
+		if !declared[name] {
+			t.Errorf("config/sway/%s is linked into ~/.local/bin but is missing from "+
+				"swayScripts, so Install() never chmods it — the symlink inherits the "+
+				"source mode and sway would run an unexecutable file, silently", name)
+		}
+	}
+}

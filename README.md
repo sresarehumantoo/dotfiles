@@ -87,7 +87,7 @@ make install
 |---------|--------------|
 | `dfinstall status` | Link status for every module |
 | `dfinstall diff` | Drift between config and filesystem |
-| `dfinstall doctor` | Environment health checks |
+| `dfinstall doctor` | Environment health checks, plus whether the clone itself is clean, pushed and level with its upstream |
 | `dfinstall --version` | Version stamped in at build time |
 
 **Backups**

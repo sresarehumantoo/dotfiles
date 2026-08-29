@@ -275,7 +275,15 @@ func handleDoctor(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult
 	allOk := true
 	for _, r := range modules.RunDoctorChecks() {
 		if r.OK {
-			fmt.Fprintf(&b, "  ok  %s\n", r.Name)
+			// ⚠ The detail is printed on PASSING rows too, exactly as the CLI
+			// does. Not cosmetic: "clone freshness" never fails by design, so
+			// its detail IS its entire output — dropping it here made the
+			// check invisible through this surface while the CLI showed it.
+			if r.Detail != "" {
+				fmt.Fprintf(&b, "  ok  %s: %s\n", r.Name, r.Detail)
+			} else {
+				fmt.Fprintf(&b, "  ok  %s\n", r.Name)
+			}
 		} else {
 			fmt.Fprintf(&b, "  FAIL  %s - %s\n", r.Name, r.Detail)
 			for _, e := range r.Extra {

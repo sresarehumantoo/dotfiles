@@ -556,17 +556,44 @@ exec autotiling
 # No lxpolkit fallback — a fallback to an uninstalled binary just masks a failure.
 exec /usr/libexec/polkit-mate-authentication-agent-1
 
+# The tray broker. ⚠ START IT EARLY AND DO NOT MAKE IT CONDITIONAL.
+#
+# This owns the session's org.kde.StatusNotifierWatcher and hands waybar the
+# item list minus nm-applet's permanently-Active network icon, which is the
+# only reason the bar can carry a tray at all. Its own header has the full
+# reasoning; two things matter at this level:
+#
+# ⚠ THE WATCHER MUST EXIST BEFORE A TRAY APP STARTS, and "before" means
+# before the app, not before waybar. Measured: an app already registered
+# re-registers happily when the watcher changes hands, but Chromium (so every
+# Electron app, so Discord) decides ONCE at tray-icon creation — launched with
+# no watcher on the bus it falls back to X11 XEmbed, which does not exist here,
+# and never gets an icon however long it runs. Nothing reports this; the icon
+# is simply absent.
+#
+# ⚠ NO pgrep GUARD, and none is needed — the same self-match trap as
+# sway-calendar and sway-workspaces applies, and here the D-Bus name IS the
+# guard: a second copy cannot take the name (it deliberately does not ask for
+# ALLOW_REPLACEMENT), sees that it is not the owner and exits 0. That is what
+# makes this safe under exec_always. It is exec_always rather than exec so a
+# `swaymsg reload` revives it if it ever died.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-tray-filter" ] && "$HOME/.local/bin/sway-tray-filter" &'
+
 # Tray applets.
 #
-# Keep this exec even though waybar no longer shows a tray (see the "tray"
-# block in config/waybar/config). nm-applet's real job here is being
-# NetworkManager's secret agent — the thing that prompts for a wifi password
-# when you join a new network — which it does over D-Bus with or without a
-# visible icon. Removing the line would silently stop those prompts.
+# ⚠ nm-applet's icon is HIDDEN by sway-tray-filter above, and this line still
+# has to stay. Its real job here is being NetworkManager's secret agent — the
+# thing that prompts for a wifi password when you join a new network — which it
+# does over D-Bus with or without a visible icon. Removing the line would
+# silently stop those prompts. Do not "simplify" the filter away by killing
+# this instead.
 # Note that neither dropping --indicator nor
 # `gsettings set org.gnome.nm-applet show-applet false` suppresses its
-# StatusNotifier item; both still register it as Active.
+# StatusNotifier item; both still register it as Active (retested 2026-08-12).
 exec nm-applet --indicator
+# blueman-applet registers no StatusNotifier item at all, so it has never been
+# in the tray and nothing changed for it — it still runs and still handles
+# pairing, and blueman-manager is reached from the swaync panel.
 exec blueman-applet
 
 # Hand the session env to the portals / systemd user units.

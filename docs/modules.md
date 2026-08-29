@@ -165,8 +165,33 @@ version-blind and also true of a copy hand-installed anywhere else.
 displaces — a `.bak` in a font directory is still a live font, since fontconfig
 identifies files by content rather than extension.
 
-**Status:** counts the vendored links; reports a missing or stale download, and
-any legacy artifacts still to clean, in the INFO column.
+**Unmanaged copies:** a copy of a managed family living outside
+`$XDG_DATA_HOME/fonts/<dir>/` is a duplicate face, and `fontNotes()` reports it
+so both `status` and `doctor` see it.
+
+⚠ **Install warns about this exactly once, and that was not enough.** The
+install-time warning sits in a branch reached only while the managed copy is
+absent, so once it installs one, nothing looks again. Measured on a real machine:
+`status` and `doctor` both showed a clean fonts row while fontconfig was
+resolving **eight** copies of the family — four managed, four hand-installed,
+byte-identical. A report that goes green while the condition persists is the same
+failure the fonts doctor check was rewritten to fix.
+
+⚠ **It cannot be `fc-list -q <family>`**, which is what install uses. That asks
+"does this family exist anywhere", and once a managed copy exists the answer is
+always yes — it can never see a duplicate. The question is about *paths*, so the
+check lists them (`fc-list <family> file`) and filters out the managed directory.
+Missing `fc-list` returns nothing rather than a guess.
+
+⚠ Two measured details hold it together: the family match is **exact**, so
+`IosevkaTerm Nerd Font` does not pull in `IosevkaTerm Nerd Font Mono` (a box
+keeping the Mono build beside this one is not nagged about a duplicate that is
+not one); and the managed-prefix test includes the separator, or a sibling
+directory whose name merely starts with the managed one — `IosevkaTermPropo`
+beside `IosevkaTerm` — reads as managed and its faces are never reported.
+
+**Status:** counts the vendored links; reports a missing or stale download, any
+unmanaged copies, and any legacy artifacts still to clean, in the INFO column.
 
 ---
 
@@ -531,6 +556,43 @@ shipped a real bug: the replacement is multi-line and not comment-prefixed, so i
 injected bare `memory=`/`swap=`/`processors=` keys above the `[wsl2]` header where
 they sit in no section at all. `TestRenderedWslconfigIsWellFormed` renders the real
 file and rejects any key before a section header.
+
+### What the installed `.wslconfig` is compared against
+
+⚠ **This file used to be checked by nothing.** `installWslconfig` wrote it and
+forgot it: `Status()` and `doctor` both covered `/etc/wsl.conf`, the sysctl
+drop-in, the Windows-home link and the shims, but never this — so a Windows-side
+tool resetting a key was silent and permanent until the next `install wsl`. It is
+also the file most exposed to being rewritten from outside, since it lives in the
+Windows home rather than the distro.
+
+⚠ **The comparison is by KEY, never byte-for-byte.** Two things rule the obvious
+implementations out: the template holds `@HOST_SIZING@`, so comparing against it
+raw reports permanent unfixable drift (the `checkFileMatch` trap above), and
+comparing against a *fresh render* would have to run the PowerShell/`cmd.exe`
+host probe — which `Status()` must not do, being a fast synchronous read with no
+context to cancel.
+
+So `wslconfigDrift(template, installed)` reports on exactly the keys the template
+declares, matching section and key case-insensitively:
+
+- **sizing is never compared.** `memory`/`swap`/`processors` reach the file only
+  through the placeholder, so they are absent from the template's key set. That
+  is deliberate: they are host-derived, and a hand-tuned `memory=` is the owner's
+  call, not drift.
+- **keys the file has and the template does not are ignored.** The host sizing
+  arrives that way, and beyond that the file is the user's to extend. This
+  reports only on what the repo claims to own.
+
+`TestWslconfigDrift_OurOwnRenderIsClean` is the guard that matters: a file this
+repo rendered itself must report no drift, and the test also asserts that a byte
+comparison *would* have differed — so the reason the code is shaped this way is
+checked, not just asserted in a comment.
+
+`doctor` names each drifted key and follows with the two-step remediation:
+`dfinstall install wsl` (which keeps the current file as `.wslconfig.bak`), then
+`wsl --shutdown` from PowerShell. Forgetting the second step reads as "the fix
+did not work".
 
 ### .wslconfig sizing
 

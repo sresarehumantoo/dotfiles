@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -420,4 +421,110 @@ func wslConfState() string {
 		return "ok"
 	}
 	return "outdated"
+}
+
+// ── %USERPROFILE%\.wslconfig state ────────────────────────────────────────
+
+// wslconfigReport is how the installed .wslconfig compares to what this repo
+// declares.
+type wslconfigReport struct {
+	State string   // "ok", "outdated", "missing", "unknown"
+	Why   string   // why the comparison could not be made, when State == "unknown"
+	Drift []string // one line per key that differs, when State == "outdated"
+}
+
+// wslconfigState compares %USERPROFILE%\.wslconfig against the template.
+//
+// ⚠ THIS FILE IS THE ONE MOST EXPOSED TO BEING REWRITTEN FROM OUTSIDE, AND IT
+// USED TO BE CHECKED BY NOTHING. installWslconfig wrote it and forgot it:
+// Status() and doctor both covered /etc/wsl.conf, the sysctl drop-in, the
+// Windows-home link and the shims, but never this — so a Windows-side tool
+// resetting a key was silent and permanent until the next `install wsl`.
+//
+// ⚠ COMPARED BY KEY, NEVER BYTE-FOR-BYTE. The template holds @HOST_SIZING@ and
+// is rendered per host, so a byte comparison against the raw template reports
+// permanent unfixable drift, and a comparison against a fresh render would
+// have to run the PowerShell/cmd.exe host probe — which Status() must not do,
+// since it is a fast synchronous read with no context to cancel. Comparing the
+// keys the template DECLARES sidesteps both: the sizing keys come only from
+// the placeholder, so they are absent from the template's key set and are
+// never compared. That is deliberate, not an oversight — memory/swap/
+// processors are host-derived, and a hand-tuned `memory=` is the owner's call.
+//
+// Same lesson as checkWslConf and checkFonts: derive the report from the thing
+// that produces the file, do not restate it.
+func wslconfigState() wslconfigReport {
+	tmpl, err := os.ReadFile(core.ConfigPath("wsl", "wslconfig"))
+	if err != nil {
+		return wslconfigReport{State: "unknown", Why: "the wslconfig template is not readable in this checkout"}
+	}
+	winHome := resolveWinHome()
+	if winHome == "" {
+		return wslconfigReport{State: "unknown", Why: "could not resolve the Windows home"}
+	}
+	got, err := os.ReadFile(winHome + "/.wslconfig")
+	if err != nil {
+		return wslconfigReport{State: "missing"}
+	}
+	if drift := wslconfigDrift(string(tmpl), string(got)); len(drift) > 0 {
+		return wslconfigReport{State: "outdated", Drift: drift}
+	}
+	return wslconfigReport{State: "ok"}
+}
+
+// wslconfigDrift returns one line per key the template declares that the
+// installed file does not carry with the same value. Pure, so the comparison
+// is testable without a Windows host.
+//
+// Keys the installed file has and the template does not are NOT reported: the
+// host sizing lands there legitimately, and beyond that the file is the user's
+// to extend. This reports only on what this repo claims to own.
+func wslconfigDrift(template, installed string) []string {
+	want := parseWslconfigKeys(strings.ReplaceAll(template, "@HOST_SIZING@", ""))
+	have := parseWslconfigKeys(installed)
+
+	drift := make([]string, 0, len(want))
+	for key, wantVal := range want {
+		haveVal, ok := have[key]
+		if !ok {
+			drift = append(drift, fmt.Sprintf("%s is missing (want %s)", key, wantVal))
+			continue
+		}
+		if !strings.EqualFold(haveVal, wantVal) {
+			drift = append(drift, fmt.Sprintf("%s=%s (want %s)", key, haveVal, wantVal))
+		}
+	}
+	sort.Strings(drift)
+	return drift
+}
+
+// parseWslconfigKeys flattens an ini-shaped file to "section.key" -> value.
+//
+// Keys are lowercased because a rewrite from another tool may not preserve the
+// camelCase this repo writes, and WSL itself does not care. Values are kept as
+// written and compared case-insensitively by the caller, so `TRUE` and `true`
+// do not read as drift.
+func parseWslconfigKeys(data string) map[string]string {
+	keys := map[string]string{}
+	section := ""
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section = strings.ToLower(strings.TrimSpace(line[1 : len(line)-1]))
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		k = strings.ToLower(strings.TrimSpace(k))
+		if k == "" {
+			continue
+		}
+		keys[section+"."+k] = strings.TrimSpace(v)
+	}
+	return keys
 }
