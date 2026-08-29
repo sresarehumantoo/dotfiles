@@ -951,20 +951,44 @@ and corrected the calendar:
 > call and the rule in `sway-fx` must stay in step, or the calendar silently
 > becomes the one panel with no blur.
 
-### The go/no-go: DisplayLink
+### DisplayLink — RESOLVED, the dock works under SwayFX
 
-`/opt/sway-next` exists **because** trixie's wlroots 0.18 cannot drive the
-DisplayLink dock, and 0.19 turned that abort into a fallback. SwayFX 0.6 moves
-to wlroots **0.20**, which nothing here has ever run.
+> [!NOTE]
+> **This section used to be the project's open go/no-go. It is settled: the dock
+> drives a display under SwayFX 0.6 / wlroots 0.20.1, in daily use.** Measured on
+> a live session 2026-08-29:
+>
+> ```
+> card0 driver=i915      card1 driver=evdi      card2 driver=evdi
+> card1-DVI-I-1  status=connected      <- the DisplayLink panel
+> ```
+>
+> `swaymsg -t get_outputs` showed three active outputs: `eDP-1` (1920x1200,
+> internal), `HDMI-A-1` (2560x1440, on card0/i915, direct) and **`DVI-I-1`
+> (1920x1080, AOC 27G2G8) on card1, which is `evdi`** — so that one is going
+> through DisplayLink. `evdi` is loaded, `/sys/devices/evdi` exists, and
+> `displaylink-driver` is active.
+>
+> ⚠ It was also a **hot-plug**, not a boot-with-dock: an earlier `get_outputs`
+> in the same session listed `eDP-1` alone, so the dock was attached to a
+> running compositor and picked up. That is the stronger result of the two.
+>
+> ⚠ **Identify the DisplayLink output by its DRM card's driver, not by its
+> connector name.** `DVI-I-1` looks like an ordinary connector, and `HDMI-A-1`
+> looks like it might be the dock; the driver mapping is what actually settles
+> it. `for c in /sys/class/drm/card*; do basename "$(readlink -f $c/device/driver)"; done`.
 
-The fix is present — `backend/drm/backend.c:182` in the 0.20.1 source, and the
-string `falling back to scanning out from primary GPU` is in the built
-`libwlroots-0.20.so`. That is necessary, not sufficient.
+Kept for the record, since it explains why `/opt/sway-next` exists: trixie's
+wlroots 0.18 could not drive the dock, 0.19 turned that abort into a fallback,
+and SwayFX 0.6 moves to wlroots **0.20**. The fix is at `backend/drm/backend.c:182`
+in the 0.20.1 source, and the string `falling back to scanning out from primary
+GPU` is in the built `libwlroots-0.20.so`. That was necessary but not sufficient,
+which is why it needed a real docked session to close.
 
-**Test docked, and from a bare VT** (`~/projects/sway-migration/test-displaylink.sh`
-is the existing harness). If 0.20 regresses DisplayLink, the fallbacks are
-SwayFX 0.5.3 on the proven wlroots 0.19.3 — all the glass, no animations — or
-nothing. Recovery from a bad login is always: pick **Sway (0.19 / DisplayLink)**.
+If the dock ever regresses, the fallbacks remain: SwayFX 0.5.3 on the proven
+wlroots 0.19.3 (all the glass, no animations), or picking **Sway (0.19 /
+DisplayLink)** at GDM. `~/projects/sway-migration/test-displaylink.sh` is the
+harness.
 
 ## Monocle: `$mod+m`, and why it is not `fullscreen`
 
