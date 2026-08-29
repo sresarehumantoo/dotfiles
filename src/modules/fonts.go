@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -235,8 +236,81 @@ func fontNotes() []string {
 			notes = append(notes, fmt.Sprintf("%s is %s, want %s",
 				f.family, tagOrUnknown(tag), nerdFontsTag))
 		}
+		// Independent of the above: a copy outside the managed directory is a
+		// duplicate face whether or not the managed one is present and current.
+		if extra := unmanagedFontCopies(f); len(extra) > 0 {
+			notes = append(notes, fmt.Sprintf("%d unmanaged file(s) for %s outside %s",
+				len(extra), f.family, core.XDGDataTarget("fonts", f.dir)))
+		}
 	}
 	return notes
+}
+
+// unmanagedFontCopies lists files fontconfig resolves for a family that sit
+// outside the directory this module owns.
+//
+// ⚠ THE INSTALL-TIME WARNING WAS NOT ENOUGH, AND THE GAP WENT GREEN. Install
+// says "installed outside ... and unmanaged" exactly once, in a branch reached
+// only while the managed copy is absent. After it installs one, nothing looks
+// again — so `status` and `doctor` both reported a clean fonts row on a machine
+// where fontconfig was resolving EIGHT copies of the family (four managed, four
+// hand-installed, identical bytes). A report that goes green while the
+// condition persists is the same failure the fonts doctor check was rewritten
+// to fix; this closes it at the one place both surfaces read from.
+//
+// ⚠ NOT `fc-list -q <family>`, which is what install uses. That answers "does
+// this family exist anywhere", and once a managed copy exists the answer is
+// always yes — it cannot see a duplicate. The question here is about PATHS, so
+// it has to list them and filter.
+//
+// A missing fc-list returns nil rather than a guess: silence beats a false
+// report, and reading "absent" from a missing tool is the exact bug that made
+// the old gate re-download 28 MB on every run.
+//
+// ⚠ Scoping comes from the fc-list ARGUMENT, and it was measured rather than
+// assumed: `fc-list "IosevkaTerm Nerd Font"` matches that family EXACTLY and
+// does not pull in "IosevkaTerm Nerd Font Mono", which is a separate family. If
+// it over-matched, every box keeping the Mono build beside this one would be
+// nagged forever about a duplicate that is not one.
+func unmanagedFontCopies(f downloadedFont) []string {
+	managed := core.XDGDataTarget("fonts", f.dir)
+	if managed == "" {
+		return nil
+	}
+	if _, err := exec.LookPath("fc-list"); err != nil {
+		return nil
+	}
+	// context.Background: Status() is a fast synchronous read with no context
+	// to inherit, the same shared-probe case as resolveWinHome in the wsl
+	// module. runProbe still carries ProbeTimeout.
+	out, err := runProbe(context.Background(), "fc-list", f.family, "file")
+	if err != nil {
+		return nil
+	}
+	return unmanagedPaths(string(out), managed)
+}
+
+// unmanagedPaths filters `fc-list <family> file` output down to the paths
+// outside managedDir. Split out so the filtering is testable without
+// fontconfig, and because the prefix test below has a classic bug in it.
+func unmanagedPaths(fcListOutput, managedDir string) []string {
+	var extra []string
+	for _, line := range strings.Split(fcListOutput, "\n") {
+		// fc-list prints "<path>: " for the `file` property.
+		path := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), ":"))
+		if path == "" {
+			continue
+		}
+		// ⚠ The separator is load-bearing. Without it a sibling directory whose
+		// name merely starts with the managed one — IosevkaTermPropo beside
+		// IosevkaTerm — reads as managed and its faces are never reported.
+		if strings.HasPrefix(path, managedDir+string(os.PathSeparator)) {
+			continue
+		}
+		extra = append(extra, path)
+	}
+	sort.Strings(extra)
+	return extra
 }
 
 // legacyGlob matches every face the pre-IosevkaTerm module could have put in the

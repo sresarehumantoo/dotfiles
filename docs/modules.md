@@ -165,8 +165,33 @@ version-blind and also true of a copy hand-installed anywhere else.
 displaces — a `.bak` in a font directory is still a live font, since fontconfig
 identifies files by content rather than extension.
 
-**Status:** counts the vendored links; reports a missing or stale download, and
-any legacy artifacts still to clean, in the INFO column.
+**Unmanaged copies:** a copy of a managed family living outside
+`$XDG_DATA_HOME/fonts/<dir>/` is a duplicate face, and `fontNotes()` reports it
+so both `status` and `doctor` see it.
+
+⚠ **Install warns about this exactly once, and that was not enough.** The
+install-time warning sits in a branch reached only while the managed copy is
+absent, so once it installs one, nothing looks again. Measured on a real machine:
+`status` and `doctor` both showed a clean fonts row while fontconfig was
+resolving **eight** copies of the family — four managed, four hand-installed,
+byte-identical. A report that goes green while the condition persists is the same
+failure the fonts doctor check was rewritten to fix.
+
+⚠ **It cannot be `fc-list -q <family>`**, which is what install uses. That asks
+"does this family exist anywhere", and once a managed copy exists the answer is
+always yes — it can never see a duplicate. The question is about *paths*, so the
+check lists them (`fc-list <family> file`) and filters out the managed directory.
+Missing `fc-list` returns nothing rather than a guess.
+
+⚠ Two measured details hold it together: the family match is **exact**, so
+`IosevkaTerm Nerd Font` does not pull in `IosevkaTerm Nerd Font Mono` (a box
+keeping the Mono build beside this one is not nagged about a duplicate that is
+not one); and the managed-prefix test includes the separator, or a sibling
+directory whose name merely starts with the managed one — `IosevkaTermPropo`
+beside `IosevkaTerm` — reads as managed and its faces are never reported.
+
+**Status:** counts the vendored links; reports a missing or stale download, any
+unmanaged copies, and any legacy artifacts still to clean, in the INFO column.
 
 ---
 
