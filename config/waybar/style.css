@@ -1226,8 +1226,8 @@ window#waybar.empty .modules-center {
 
 /* Removed along with the group/volume + group/brightness drawers.
    waybar's ASlider writes back to the handle you are dragging and cannot be
-   made precise enough to daily-drive; dragging moved to sway-quickpanel.
-   Rationale in config/sway/sway-quickpanel. One lesson from that work is
+   made precise enough to daily-drive; dragging moved to sway-controlcenter.
+   Rationale in config/sway/sway-controlcenter. One lesson from that work is
    worth keeping even though the rules are gone: never put a box-shadow on a
    widget that redraws continuously — re-rasterizing it every frame was the
    single biggest source of the slider lagging the cursor. */

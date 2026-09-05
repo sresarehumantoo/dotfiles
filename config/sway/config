@@ -365,7 +365,7 @@ bindsym $mod+Shift+n exec swaync-client --hide-latest -sw
 # ⚠ NOT $mod+n, which is already the control center directly above. `i` for
 # internet; it was the free key with any mnemonic at all.
 # ⚠ Absolute path, for the GDM/PATH reason recorded on the brightness keys.
-bindsym $mod+i       exec $HOME/.local/bin/sway-network
+bindsym $mod+i       exec $HOME/.local/bin/sway-controlcenter
 
 ### Media / laptop keys ---------------------------------------------------
 # ⚠ Each of these is written as `swayosd-client ... || <fallback>` on purpose.
@@ -404,13 +404,7 @@ for_window [window_role="dialog"]        floating enable
 for_window [window_role="pop-up"]        floating enable
 for_window [window_type="dialog"]        floating enable
 for_window [app_id="pavucontrol"]        floating enable
-# Volume + brightness quick panel, opened by left-clicking those readouts in
-# waybar. It replaces waybar's own in-bar sliders, which were unusable — see
-# the WHY THIS EXISTS block in config/sway/sway-quickpanel.
-for_window [app_id="sway-quickpanel"]    floating enable
-for_window [app_id="sway-quickpanel"]    border pixel 2
-for_window [app_id="sway-quickpanel"]    sticky enable
-# ⚠ sway-calendar DELIBERATELY HAS NO for_window RULES, and adding them is a
+# ⚠ sway-controlcenter AND sway-calendar DELIBERATELY HAVE NO for_window RULES, and adding them is a
 # no-op rather than an error. It is a zwlr_layer_shell_v1 surface (like waybar
 # and swaync), not an xdg_toplevel, so it never appears in the window tree and no
 # `[app_id="sway-calendar"]` criteria can ever match it — floating/border/sticky
@@ -562,7 +556,7 @@ exec_always sh -c '[ -x "$HOME/.local/bin/sway-calendar" ] && "$HOME/.local/bin/
 # workspace marked monocle with nothing actually fullscreen.
 exec_always sh -c '[ -x "$HOME/.local/bin/sway-monocle" ] && "$HOME/.local/bin/sway-monocle" --server &'
 
-# sway-network as a RESIDENT SERVER, started hidden — the wifi picker behind the
+# sway-controlcenter as a RESIDENT SERVER, started hidden — the wifi picker behind the
 # bar's network glyph (middle click) and $mod+i. Same argument as sway-calendar
 # (measured: its client path and this one both cost ~90ms against a ~300ms GTK
 # import, so neither can be spawn-per-click), plus one of its own that the
@@ -577,11 +571,11 @@ exec_always sh -c '[ -x "$HOME/.local/bin/sway-monocle" ] && "$HOME/.local/bin/s
 # `--anchor right`.
 #
 # ⚠ NO pgrep GUARD, for the same self-match reason as sway-calendar,
-# sway-workspaces and sway-monocle above — `pgrep -f sway-network` matches the
+# sway-workspaces and sway-monocle above — `pgrep -f sway-controlcenter` matches the
 # `sh -c` running this very line. The script guards itself: `--server` checks its
 # own pidfile and declines to become a second resident instance, which is what
 # makes this safe under `exec_always` on every `swaymsg reload`.
-exec_always sh -c '[ -x "$HOME/.local/bin/sway-network" ] && "$HOME/.local/bin/sway-network" --server --anchor right &'
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-controlcenter" ] && "$HOME/.local/bin/sway-controlcenter" --server --anchor right &'
 
 # Dynamic-tiling approximation over sway IPC — the mitigation for sway being
 # manual-tiling. Comment this out to judge plain sway.

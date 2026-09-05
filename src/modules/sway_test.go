@@ -47,7 +47,7 @@ func TestSwayPackagesAreReferencedByConfig(t *testing.T) {
 		"config/waybar/config",
 		"config/swaync/config.json",
 		"config/sway/sway-powermenu",
-		"config/sway/sway-quickpanel",
+		"config/sway/sway-controlcenter",
 		"config/sway/sway-calendar",
 		"docs/sway.md",
 	} {
@@ -237,6 +237,32 @@ func TestSwayLinkSourcesAllExist(t *testing.T) {
 			}
 			t.Errorf("SwayModule links %s but that source does not exist: %v\n"+
 				"\ta dangling link here means the config that depends on it fails silently", rel, err)
+		}
+	}
+}
+
+// ⚠ A HELPER WITHOUT A SHEBANG IS EXECUTED BY /bin/sh, WHICH RUNS ITS
+// DOCUMENTATION. These scripts are chmod 0755 and linked onto PATH, so the
+// kernel falls back to the shell for anything with no interpreter line — and
+// sh then executes the file's prose as commands. Caught for real when a
+// docstring rewrite took `#!/usr/bin/env python3` with it and sh reached a line
+// reading `nmcli device wifi connect SSID password ...`, which ran.
+func TestSwayScriptsHaveShebangs(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot locate source file")
+	}
+	repo := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	for _, name := range swayScripts {
+		path := filepath.Join(repo, "config", "sway", name)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("reading %s: %v", name, err)
+			continue
+		}
+		if !strings.HasPrefix(string(b), "#!") {
+			t.Errorf("config/sway/%s has no shebang — it is chmod 0755 and linked "+
+				"onto PATH, so /bin/sh would execute its contents as commands", name)
 		}
 	}
 }

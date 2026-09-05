@@ -277,9 +277,9 @@
     // ⚠ There were `group/volume` / `group/brightness` drawers here wrapping
     // waybar's pulseaudio/slider and backlight/slider. They were removed as
     // unusable for daily driving; the cause is upstream and not
-    // configurable — see the WHY THIS EXISTS block in config/sway/sway-quickpanel.
+    // configurable — see the WHY IT EXISTS block in config/sway/sway-controlcenter.
     // Dragging now lives in the swaync panel (left click) and in
-    // sway-quickpanel (middle click). Note that swaync's sliders are NOT
+    // sway-controlcenter (middle click). Note that swaync's sliders are NOT
     // affected by the waybar bug — it drives a plain GtkScale and does not
     // write back to the widget you are holding.
     // Do not re-add in-bar sliders without re-reading that note first.
@@ -294,8 +294,8 @@
     //
     // Secondary buttons are where the specific tools live, and they are NOT
     // interchangeable — each is the only route to that tool from the bar:
-    //     pulseaudio  middle -> sway-quickpanel      right -> pavucontrol
-    //     network     middle -> sway-network        right -> nm-connection-editor
+    //     pulseaudio  middle -> sway-controlcenter   right -> pavucontrol
+    //     network     middle -> sway-controlcenter   right -> nm-connection-editor
     //     notification                               right -> DND toggle
     // `idle_inhibitor` is deliberately exempt: it is not a readout, it toggles a
     // Wayland object it holds itself (see modules-right).
@@ -323,10 +323,10 @@
         "tooltip-format": "{desc} — {volume}%",
         // Left click opens the full panel (sliders + quick actions), matching
         // the "click the status icon, get the quick settings" model. Middle
-        // click keeps sway-quickpanel, which is faster but narrower. Right
+        // click keeps sway-controlcenter, which is faster but narrower. Right
         // click is the full mixer — inert until pavucontrol is installed.
         "on-click": "swaync-client -t -sw",
-        "on-click-middle": "$HOME/.local/bin/sway-quickpanel",
+        "on-click-middle": "$HOME/.local/bin/sway-controlcenter",
         "on-click-right": "pavucontrol",
         "scroll-step": 5
     },
@@ -392,7 +392,7 @@
         // this cluster — see the "one destination" note above `pulseaudio`.
         "on-click": "swaync-client -t -sw",
         // The wifi picker: pick a network, type a password, disconnect, forget.
-        // MIDDLE, not left, and that is the same call sway-quickpanel makes on
+        // MIDDLE, not left, and that is the same call sway-controlcenter makes on
         // `pulseaudio` above — the one-destination rule is worth more than
         // putting this on the most obvious button, because a cluster where one
         // glyph opens something different is exactly the friction the rule
@@ -400,20 +400,20 @@
         //
         // ⚠ ABSOLUTE PATH, like every other helper here. GDM starts sway
         // without a login shell, so ~/.local/bin is NOT on the PATH waybar
-        // inherits and a bare `sway-network` silently does nothing — the
+        // inherits and a bare `sway-controlcenter` silently does nothing — the
         // `custom/power` block below is the canonical write-up of that trap.
         //
         // This is the CLIENT path: it signals the resident server started from
         // config/sway/config and costs ~35ms. With no server running it becomes
         // one and shows itself, so the click still works.
-        "on-click-middle": "$HOME/.local/bin/sway-network",
+        "on-click-middle": "$HOME/.local/bin/sway-controlcenter",
         // ⚠ nm-connection-editor MOVED HERE FROM on-click, it was not dropped.
         // It is the only route to EDITING a connection from the bar (static IP,
-        // 802.1X, anything sway-network hands off), and it is what justifies
+        // 802.1X, anything sway-controlcenter hands off), and it is what justifies
         // `network-manager-gnome` in swayPackages — check there before deleting
         // this line. (nm-applet's other job, being NetworkManager's secret agent
         // for wifi password prompts, is independent of any click and comes from
-        // the `exec nm-applet` line in config/sway/config. sway-network sends a
+        // the `exec nm-applet` line in config/sway/config. sway-controlcenter sends a
         // password it collected itself over D-Bus, so it does not need the
         // agent — but a REJECTED key, and every 802.1X network, still does.)
         "on-click-right": "nm-connection-editor"
@@ -751,7 +751,7 @@
         // login shell, so the session PATH does NOT include ~/.local/bin and a
         // bare command name silently does nothing — confirm on any machine by
         // reading sway's own /proc/<pid>/environ. waybar runs on-click through
-        // /bin/sh -c, so $HOME expands. Same applies to sway-quickpanel above.
+        // /bin/sh -c, so $HOME expands. Same applies to sway-controlcenter above.
         "on-click": "$HOME/.local/bin/sway-powermenu"
     }
 }

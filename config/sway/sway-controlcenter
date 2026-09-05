@@ -1,28 +1,45 @@
 #!/usr/bin/env python3
-"""sway-network -- wifi picker and network menu for sway.
+"""sway-controlcenter -- wifi, sound and brightness for sway.
 
-Linked to ~/.local/bin/sway-network by modules/sway.go. Opened by MIDDLE-CLICKING
-the network readout in waybar (config/waybar/config), or with $mod+n.
+Linked to ~/.local/bin/sway-controlcenter by modules/sway.go. Opened by
+MIDDLE-CLICKING the network or volume readout in waybar, from the control
+center's wifi button, or with $mod+i.
+
+WHAT THIS IS -- the Quick Settings half of the desktop. Windows 11 and macOS
+both settle on TWO surfaces rather than one: a control surface carrying the
+toggles, the sliders and the device lists, and a notification surface. This is
+the first; swaync is the second.
+
+It began as a wifi picker only, and grew Sound and Display when the split above
+became the plan. That is why the NetworkManager machinery below is so much
+larger than the audio machinery: wifi is a list of things you act on, sound and
+brightness are two numbers and a short list of outputs.
 
 WHY MIDDLE-CLICK AND NOT LEFT -- every status readout in this bar left-clicks to
-the swaync control center, and that is a rule rather than four separate choices:
-the bar shows almost no numbers, so it only works if the numbers live one
-PREDICTABLE click away. The specific tools hang off the secondary buttons, which
-is exactly where sway-quickpanel already sits on `pulseaudio`. So:
+the swaync control center, and that is a rule rather than a set of separate
+choices: the bar shows almost no numbers, so it only works if they live one
+PREDICTABLE click away.
 
-    network   left   -> swaync-client -t -sw     (the numbers, like every readout)
-              middle -> sway-network             (this: pick a network)
-              right  -> nm-connection-editor     (edit a connection in full)
+    network     left -> swaync   middle -> here   right -> nm-connection-editor
+    pulseaudio  left -> swaync   middle -> here   right -> pavucontrol
 
-WHY THIS EXISTS -- joining a wifi network from this desktop used to mean
-nm-connection-editor, which is a connection EDITOR: it lists saved profiles, not
-what is in the air, and joining something new from it takes a dialog and six
-fields. nm-applet's own menu is not available either -- its icon is deliberately
-filtered out of the tray (see sway-tray-filter), and its menu is attached to that
-icon. So there was no "show me the networks around me and let me click one".
+WHY IT EXISTS -- three separate gaps, each of which used to mean leaving the
+desktop's own surfaces:
 
-WHAT IT TALKS TO -- NetworkManager's D-Bus API directly, not `nmcli`. Three
-reasons, all of which cost something if you take the shell route instead:
+  * Joining a wifi network meant nm-connection-editor, which is a connection
+    EDITOR: it lists saved profiles rather than what is in the air, and joining
+    something new takes a dialog and six fields. nm-applet's menu was not
+    available either, since its tray icon is deliberately filtered out (see
+    sway-tray-filter) and the menu hangs off that icon.
+  * Switching audio output meant pavucontrol. On a docked laptop that is a
+    daily action -- this box has four sinks, the speaker and three HDMI/DP
+    outputs.
+  * Volume and brightness had their own panel, sway-quickpanel, which this
+    replaces. Its sliders duplicated swaync's, and its hard-won lessons about
+    what makes a GTK slider usable live on in SliderRow and AsyncCommand.
+
+WHAT IT TALKS TO -- NetworkManager over D-Bus, and WirePlumber through wpctl and
+pw-dump. The D-Bus choice is not stylistic:
 
   * THE PASSWORD NEVER REACHES A COMMAND LINE. `nmcli device wifi connect SSID
     password hunter2` puts the PSK in argv, where it is world-readable in
@@ -63,7 +80,7 @@ import sys
 #
 #     python3 -c pass ........  43 ms   (interpreter floor)
 #     sway-calendar, client ..  92 ms
-#     sway-network,  client ..  88 ms
+#     sway-controlcenter ....  84 ms
 #
 # i.e. on par with its sibling, and nowhere near the ~300 ms a GTK import costs.
 #
@@ -82,7 +99,7 @@ import sys
 # records the measurement (~280ms/click) from when it had exactly that bug.
 PIDFILE = os.path.join(
     os.environ.get("XDG_RUNTIME_DIR") or "/tmp/%d" % os.getuid(),
-    "sway-network.pid")
+    "sway-controlcenter.pid")
 
 
 def server_pid():
@@ -121,7 +138,7 @@ def client_fast_path(argv):
     if "--server" in argv:
         # Decline to become a second server. This is also why the autostart
         # needs no pgrep guard -- and it could not use one anyway, since
-        # `pgrep -f sway-network` matches the shell that launched it.
+        # `pgrep -f sway-controlcenter` matches the shell that launched it.
         return 0 if server_pid() is not None else None
     if signal_server(signal.SIGUSR1):
         return 0  # the click path -- see the measurements above
@@ -134,6 +151,12 @@ if __name__ == "__main__":
         sys.exit(_rc)
 
 
+# ⚠ BELOW THE FAST PATH ON PURPOSE, like the gi imports. These are only used by
+# the resident server, and a module-level import runs on every invocation --
+# including the click path, which exists to be cheap.
+import glob  # noqa: E402
+import json  # noqa: E402
+
 import gi  # noqa: E402  -- see the fast-path note above
 
 gi.require_version("Gtk", "3.0")
@@ -144,7 +167,7 @@ gi.require_version("GtkLayerShell", "0.1")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gio, GLib, Gdk, Gtk, GtkLayerShell, Pango  # noqa: E402
 
-APP_ID = "sway-network"
+APP_ID = "sway-controlcenter"
 
 # -- NetworkManager D-Bus names -----------------------------------------------
 NM = "org.freedesktop.NetworkManager"
@@ -237,6 +260,11 @@ ICON_COG = "\U000f0493"          # md-cog
 ICON_EYE = "\U000f0208"          # md-eye
 ICON_EYE_OFF = "\U000f0209"      # md-eye_off
 ICON_REFRESH = "\U000f0450"     # md-refresh
+ICON_BRIGHTNESS = "\U000f00e0"  # md-brightness_5
+ICON_CHECK = "\U000f012c"       # md-check
+# Volume ramp, matching config/waybar/config's pulseaudio icons.
+ICON_VOL_MUTE = "\U000f075f"    # md-volume_off
+ICON_VOL = ["\U000f057f", "\U000f0580", "\U000f057e"]  # low, medium, high
 
 # -- Geometry ------------------------------------------------------------------
 # GAP IS MEASURED FROM THE USABLE AREA AND ZERO IS CORRECT -- not a missing
@@ -285,6 +313,9 @@ FADE_MS = 180
 TICK_MS = 2000        # safety net behind the signals
 RESCAN_MS = 10000     # ask NM for a fresh scan this often while open
 COALESCE_MS = 200     # debounce: a burst of signals redraws once
+# Volume can be changed from the media keys or another app while the panel is
+# open, so it is re-read on its own timer. Asynchronously -- see Audio.
+AUDIO_POLL_MS = 1000
 
 # -- Style ---------------------------------------------------------------------
 # The material is the one shared by swaync, sway-calendar and fuzzel: #0b0b11 at
@@ -418,6 +449,47 @@ button.reveal {
 }
 button.reveal:hover { color: #cdd6f4; background-color: rgba(205, 214, 244, 0.07); }
 
+/* Output devices sit under the volume slider and are a secondary list, so they
+   get a tighter row than a network -- four sinks at network height would make
+   Sound the tallest section in the panel. */
+button.row.compact { padding: 4px 10px; }
+
+/* Sliders: volume and brightness ------------------------------------------ */
+box.sliderrow { padding: 2px 10px 4px 10px; }
+button.sliderglyph {
+    background-color: transparent; background-image: none; border: none;
+    box-shadow: none; color: #cdd6f4;
+    font-family: "IosevkaTerm Nerd Font", monospace; font-size: 15px;
+    padding: 2px 6px; border-radius: 8px; min-width: 22px;
+}
+button.sliderglyph:hover { background-color: rgba(205, 214, 244, 0.07); }
+button.sliderglyph:disabled { color: #cdd6f4; background-color: transparent; }
+/* The trough and the fill are the same pigment-and-hairline material as
+   everything else, so a slider does not become the one saturated thing in the
+   panel -- the accent is still spent only on urgent and destructive states. */
+scale.level trough {
+    min-height: 6px; border-radius: 3px;
+    background-color: rgba(17, 17, 27, 0.85);
+    box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.10);
+}
+scale.level highlight {
+    border-radius: 3px;
+    background-color: rgba(205, 214, 244, 0.55);
+}
+/* !! NO box-shadow ON THE HANDLE. GTK re-rasterizes a shadow every frame the
+   widget is redrawn, and during a scrub that is every frame. Inherited from
+   sway-quickpanel, where it was measured. */
+scale.level slider {
+    min-width: 14px; min-height: 14px; border-radius: 50%;
+    background-color: #cdd6f4; background-image: none; border: none;
+    margin: -5px;
+}
+scale.level { padding: 0; }
+label.levelvalue {
+    color: #6c7086; font-family: Cantarell, sans-serif; font-size: 11px;
+    font-feature-settings: "tnum";
+}
+
 /* Separators and section headings ----------------------------------------- */
 label.section {
     color: #6c7086; font-family: Cantarell, sans-serif;
@@ -547,11 +619,11 @@ def band_label(freq_mhz):
     return ""
 
 
-DEBUG = bool(os.environ.get("SWAY_NETWORK_DEBUG"))
+DEBUG = bool(os.environ.get("SWAY_CC_DEBUG"))
 
 
 def dbg(fmt, *args):
-    """Trace to stderr under SWAY_NETWORK_DEBUG=1.
+    """Trace to stderr under SWAY_CC_DEBUG=1.
 
     Worth keeping: every interesting failure in a layer-shell panel is about
     an event that did or did not arrive (the spurious post-map focus-out, a
@@ -560,7 +632,7 @@ def dbg(fmt, *args):
     that was never shown look identical.
     """
     if DEBUG:
-        print("sway-network: " + (fmt % args if args else fmt), file=sys.stderr,
+        print("sway-controlcenter: " + (fmt % args if args else fmt), file=sys.stderr,
               flush=True)
 
 
@@ -906,6 +978,258 @@ class NetworkManager:
 
 
 # =============================================================================
+#  Sound and brightness
+# =============================================================================
+class AsyncCommand:
+    """Fire-and-forget command runner with latest-wins coalescing.
+
+    ⚠ INHERITED FROM sway-quickpanel, WHICH THIS PANEL REPLACED, AND THE REASON
+    IS MEASURED. The first version of that script called subprocess.run()
+    straight from the slider's value-changed handler; on this box `wpctl
+    set-volume` forks in ~27ms, so at one write per 50ms the GTK main loop was
+    blocked over half the time, motion events queued, and the slider visibly
+    lagged the cursor by seconds.
+
+    At most one process is in flight. A request arriving while one is running
+    REPLACES any queued request, so a fast drag collapses to "whatever the value
+    was when the last process exited" rather than queueing a backlog of stale
+    writes that the user has already scrubbed past.
+    """
+
+    def __init__(self):
+        self.busy = False
+        self.pending = None
+
+    def send(self, argv):
+        if self.busy:
+            self.pending = argv
+            return
+        self._spawn(argv)
+
+    def _spawn(self, argv):
+        self.busy = True
+        try:
+            proc = Gio.Subprocess.new(
+                argv, Gio.SubprocessFlags.STDOUT_SILENCE
+                | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error:
+            self.busy = False
+            return
+        proc.wait_async(None, self._on_done)
+
+    def _on_done(self, proc, res):
+        try:
+            proc.wait_finish(res)
+        except GLib.Error:
+            pass
+        self.busy = False
+        if self.pending is not None:
+            argv, self.pending = self.pending, None
+            self._spawn(argv)
+
+
+def read_async(argv, done):
+    """Run `argv` and hand its stdout to `done`, or None. Never blocks.
+
+    Everything the audio section reads goes through here. `pw-dump` is 66 ms and
+    `wpctl get-volume` is 26 ms on this box -- both are far too long to spend on
+    the main loop while a panel is open and being scrubbed.
+    """
+    def _cb(proc, res):
+        try:
+            ok, out, _err = proc.communicate_utf8_finish(res)
+            done(out if ok else None)
+        except GLib.Error:
+            done(None)
+    try:
+        proc = Gio.Subprocess.new(argv, Gio.SubprocessFlags.STDOUT_PIPE
+                                  | Gio.SubprocessFlags.STDERR_SILENCE)
+    except GLib.Error:
+        done(None)
+        return
+    proc.communicate_utf8_async(None, None, _cb)
+
+
+class Audio:
+    """Output devices and volume, over WirePlumber.
+
+    ⚠ TWO TOOLS, AND THEY MUST NOT BE MIXED. The sink LIST and which one is
+    default come from `pw-dump` (JSON, so no output parsing); the VOLUME and
+    MUTE come from `wpctl`. That split is not tidiness -- pw-dump's node-level
+    `channelVolumes` and `mute` do not reflect what you can hear. Measured on
+    this box with the speaker at 41% and muted:
+
+        pw-dump  node 98  channelVolumes [1.0, 1.0]  mute False
+        wpctl get-volume 98                          0.41 [MUTED]
+
+    because WirePlumber applies volume on the DEVICE route rather than the node,
+    and pw-dump reports the node. Reading volume from pw-dump would leave the
+    slider pinned at 100% on a muted machine. wpctl's get and set agree with
+    each other, whatever internal scale it uses, so it owns the number.
+
+    ⚠ `pactl` IS NOT INSTALLED HERE and must not be reached for -- this box has
+    WirePlumber's tools only, no PulseAudio client utilities.
+    """
+
+    def __init__(self):
+        self.sinks = []          # [{id, name, label, default}]
+        self.volume = 0.0        # 0..1, wpctl's scale
+        self.muted = False
+        self.ok = False
+        self._cmd = AsyncCommand()
+        self._scrubbing = False
+
+    # -- reads ---------------------------------------------------------------
+    def refresh_sinks(self, done):
+        def _parse(out):
+            if not out:
+                done()
+                return
+            try:
+                objs = json.loads(out)
+            except ValueError:
+                done()
+                return
+            sinks, default = [], None
+            for obj in objs:
+                kind = obj.get("type", "")
+                if kind.endswith("Interface:Metadata"):
+                    for entry in obj.get("metadata", []) or []:
+                        if entry.get("key") == "default.audio.sink":
+                            value = entry.get("value")
+                            if isinstance(value, dict):
+                                default = value.get("name")
+                            else:
+                                default = value
+                elif kind.endswith("Interface:Node"):
+                    props = obj.get("info", {}).get("props", {})
+                    if props.get("media.class") != "Audio/Sink":
+                        continue
+                    sinks.append({
+                        "id": obj.get("id"),
+                        "name": props.get("node.name", ""),
+                        # node.nick is the short form and it is exactly what is
+                        # wanted: 'Speaker', 'HDMI / DisplayPort 1 Output',
+                        # where node.description prefixes all four with the same
+                        # 46 characters of controller name.
+                        "label": (props.get("node.nick")
+                                  or props.get("node.description")
+                                  or props.get("node.name", "?")),
+                    })
+            for sink in sinks:
+                sink["default"] = (default is not None
+                                   and sink["name"] == default)
+            sinks.sort(key=lambda s: (not s["default"], s["label"].lower()))
+            self.sinks = sinks
+            self.ok = True
+            done()
+        read_async(["pw-dump"], _parse)
+
+    def refresh_volume(self, done):
+        def _parse(out):
+            # "Volume: 0.41 [MUTED]"
+            if out and out.startswith("Volume:"):
+                parts = out.split()
+                try:
+                    self.volume = float(parts[1])
+                except (IndexError, ValueError):
+                    pass
+                self.muted = "[MUTED]" in out
+                self.ok = True
+            done()
+        read_async(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], _parse)
+
+    # -- writes --------------------------------------------------------------
+    def set_volume(self, fraction):
+        fraction = max(0.0, min(1.0, fraction))
+        self.volume = fraction          # optimistic: the slider must not snap
+        self._cmd.send(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@",
+                        "%d%%" % round(fraction * 100)])
+
+    def toggle_mute(self):
+        self.muted = not self.muted     # optimistic
+        self._cmd.send(["wpctl", "set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"])
+
+    def set_default_sink(self, sink):
+        for other in self.sinks:
+            other["default"] = other is sink
+        self._cmd.send(["wpctl", "set-default", str(sink["id"])])
+
+
+# ⚠ THE BRIGHTNESS FLOOR IS WRITTEN IN THREE PLACES AND THEY MUST MOVE TOGETHER:
+# FLOOR in config/sway/sway-brightness, this constant, and
+# widget-config.backlight.min in config/swaync/config.json. A floor rather than
+# 0 because a fully dark panel is indistinguishable from the laptop being off,
+# and there is no on-screen way back from it.
+BRIGHTNESS_MIN = 5
+
+
+class Backlight:
+    """Brightness, written straight to sysfs.
+
+    ⚠ WRITE sysfs, DO NOT FORK brightnessctl PER STEP. Measured on this box:
+    the sysfs write is ~0.1ms and `brightnessctl set` forks in ~16ms, and a
+    GtkScale emits value-changed on every pixel of a drag. systemd-logind's
+    udev rules grant the active session's user write access to
+    /sys/class/backlight/*/brightness, so this needs neither root nor a setuid
+    helper; brightnessctl remains the fallback for where that is not true.
+    """
+
+    def __init__(self):
+        devices = sorted(glob.glob("/sys/class/backlight/*"))
+        self.path = devices[0] if devices else None
+        self.max = None
+        self._cmd = AsyncCommand()
+        if self.path:
+            try:
+                with open(os.path.join(self.path, "max_brightness")) as f:
+                    self.max = int(f.read().strip())
+            except (OSError, ValueError):
+                self.path = None
+
+    @property
+    def available(self):
+        return self.path is not None and self.max
+
+    def get(self):
+        """Raw percentage 0-100, or None."""
+        if not self.available:
+            return None
+        try:
+            with open(os.path.join(self.path, "brightness")) as f:
+                return round(int(f.read().strip()) * 100 / self.max)
+        except (OSError, ValueError):
+            return None
+
+    def set(self, pct):
+        pct = max(BRIGHTNESS_MIN, min(100, int(pct)))
+        if self.available:
+            try:
+                with open(os.path.join(self.path, "brightness"), "w") as f:
+                    f.write(str(round(pct * self.max / 100)))
+                return
+            except OSError:
+                pass  # no udev grant here -- fall through
+        self._cmd.send(["brightnessctl", "-q", "set", "%d%%" % pct])
+
+
+def brightness_to_user(raw):
+    """Rebase BRIGHTNESS_MIN..100 onto 0..100 for display.
+
+    The panel can never go below the floor, so reporting the raw number would
+    make the slider bottom out at 5% and read as broken. config/sway/sway-brightness
+    applies the identical mapping to the keyboard keys, and swaync's backlight
+    widget gets it for free by setting the adjustment's lower bound.
+    """
+    span = 100 - BRIGHTNESS_MIN
+    if raw is None:
+        return 0
+    if raw <= BRIGHTNESS_MIN or span <= 0:
+        return 0
+    return round((raw - BRIGHTNESS_MIN) * 100 / span)
+
+
+# =============================================================================
 #  Rows
 # =============================================================================
 def sync_children(container, keys, factory):
@@ -1007,6 +1331,78 @@ class SignalIcon(Gtk.DrawingArea):
             cr.arc(cx, cy, radius, math.radians(-135), math.radians(-45))
             cr.stroke()
         return False
+
+
+class SliderRow(Gtk.Box):
+    """A glyph button plus a scale: volume, brightness.
+
+    ⚠ THE SCALE MUST NOT BE WRITTEN TO WHILE IT IS BEING DRAGGED, and that is
+    what made waybar's own sliders unusable and cost this desktop a separate
+    panel for years. waybar's ASlider::update() calls set_value() on the very
+    widget you are holding, with no drag interlock: backlight/slider re-asserts
+    on its poll interval so the handle is yanked back about once a second, and
+    pulseaudio/slider is driven by PulseAudio events, so every write your own
+    drag causes fires an event that re-sets the handle. src/ASlider.cpp is
+    unchanged since 2024-02-15 and there is no config lever for it (upstream
+    #3249, #4089). `_scrubbing` below is that missing interlock.
+    """
+
+    def __init__(self, glyph, on_change, on_glyph=None, lower=0):
+        super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.get_style_context().add_class("sliderrow")
+        self._scrubbing = False
+        self._on_change = on_change
+
+        self.button = Gtk.Button(label=glyph)
+        self.button.get_style_context().add_class("sliderglyph")
+        self.button.set_sensitive(on_glyph is not None)
+        if on_glyph is not None:
+            self.button.connect("clicked", lambda _b: on_glyph())
+
+        self.scale = Gtk.Scale.new_with_range(
+            Gtk.Orientation.HORIZONTAL, lower, 100, 1)
+        self.scale.set_draw_value(False)
+        self.scale.set_hexpand(True)
+        self.scale.get_style_context().add_class("level")
+        self.scale.connect("value-changed", self._on_value)
+        self.scale.connect("button-press-event", self._grab)
+        self.scale.connect("button-release-event", self._release)
+        # A touchpad/wheel scrub emits no button events at all, so the interlock
+        # would never engage for it; these two bracket that case.
+        self.scale.connect("scroll-event", self._grab)
+
+        self.value = Gtk.Label(xalign=1.0)
+        self.value.get_style_context().add_class("levelvalue")
+        self.value.set_width_chars(4)
+
+        self.pack_start(self.button, False, False, 0)
+        self.pack_start(self.scale, True, True, 0)
+        self.pack_start(self.value, False, False, 0)
+
+    def _grab(self, *_a):
+        self._scrubbing = True
+        return False
+
+    def _release(self, *_a):
+        self._scrubbing = False
+        return False
+
+    def _on_value(self, scale):
+        self._on_change(scale.get_value())
+
+    def set_glyph(self, glyph):
+        if self.button.get_label() != glyph:
+            self.button.set_label(glyph)
+
+    def update(self, percent, text=None):
+        """Reflect the outside world -- but never while the user is holding it."""
+        if self._scrubbing:
+            return
+        if abs(self.scale.get_value() - percent) >= 1:
+            self.scale.handler_block_by_func(self._on_value)
+            self.scale.set_value(percent)
+            self.scale.handler_unblock_by_func(self._on_value)
+        self.value.set_text(text if text is not None else "%d%%" % percent)
 
 
 class Row(Gtk.Box):
@@ -1160,10 +1556,12 @@ class Row(Gtk.Box):
 # =============================================================================
 class Panel(Gtk.Window):
     def __init__(self, nm, anchor="right"):
-        super().__init__(title="Network")
+        super().__init__(title="Control Center")
         self.nm = nm
         self.anchor = anchor
         self.snap = None
+        self.audio = Audio()
+        self.backlight = Backlight()
         self.expanded = None      # key of the one open row, or None
         self.busy = None          # (key, message) while an action is in flight
         self.error = None
@@ -1171,6 +1569,7 @@ class Panel(Gtk.Window):
         self._closing = False
         self._tick = 0
         self._rescan = 0
+        self._audio_poll = 0
         self._coalesce = 0
         self._scan_asked = -1
         self.set_resizable(False)
@@ -1249,6 +1648,24 @@ class Panel(Gtk.Window):
         self.eth_heading, self.eth_box = self._section(root, "WIRED")
         self.vpn_heading, self.vpn_box = self._section(root, "VPN")
 
+        # -- sound -----------------------------------------------------------
+        self.sound_heading, self.sound_box = self._section(root, "SOUND")
+        self.volume_row = SliderRow(ICON_VOL[2], self._on_volume,
+                                    on_glyph=self._toggle_mute)
+        self.sound_box.pack_start(self.volume_row, False, False, 0)
+        # The output list. This is the gap that justified the whole section:
+        # with a dock there are four sinks here, and switching between them
+        # meant opening pavucontrol. macOS puts the device list directly under
+        # the Sound slider and Windows 11 puts it one chevron away; this is the
+        # macOS arrangement, because there is room for it.
+        self.sink_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.sound_box.pack_start(self.sink_box, False, False, 0)
+
+        # -- display ---------------------------------------------------------
+        self.display_heading, self.display_box = self._section(root, "DISPLAY")
+        self.brightness_row = SliderRow(ICON_BRIGHTNESS, self._on_brightness)
+        self.display_box.pack_start(self.brightness_row, False, False, 0)
+
         # -- footer ----------------------------------------------------------
         rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         rule.get_style_context().add_class("rule")
@@ -1292,7 +1709,9 @@ class Panel(Gtk.Window):
         for widget in (self.placeholder, self.eth_heading, self.eth_box,
                        self.vpn_heading, self.vpn_box,
                        self.known_heading, self.known_box,
-                       self.other_heading, self.other_box):
+                       self.other_heading, self.other_box,
+                       self.sound_heading, self.sound_box,
+                       self.display_heading, self.display_box):
             widget.set_no_show_all(True)
         self.hide()
 
@@ -1338,7 +1757,13 @@ class Panel(Gtk.Window):
         self.nm.subscribe(self._on_nm_signal)
         self._tick = GLib.timeout_add(TICK_MS, self._on_tick)
         self._rescan = GLib.timeout_add(RESCAN_MS, self._on_rescan)
+        self._audio_poll = GLib.timeout_add(AUDIO_POLL_MS, self._poll_audio)
         self._do_scan()
+        # The sink list changes only when hardware appears or disappears, so it
+        # is read on open rather than on a timer -- a dock arriving mid-panel is
+        # rare enough to cost a reopen.
+        self.audio.refresh_sinks(self._render_sound)
+        self.audio.refresh_volume(self._render_sound)
 
     def hide_panel(self):
         # ⚠ THE WINDOW STAYS MAPPED FOR THE LENGTH OF THE FADE, so `get_visible`
@@ -1353,7 +1778,7 @@ class Panel(Gtk.Window):
         self.fade.set_reveal_child(False)
         GLib.timeout_add(FADE_MS, self._finish_hide)
         self.nm.unsubscribe()
-        for attr in ("_tick", "_rescan", "_coalesce"):
+        for attr in ("_tick", "_rescan", "_coalesce", "_audio_poll"):
             source = getattr(self, attr)
             if source:
                 GLib.source_remove(source)
@@ -1466,6 +1891,8 @@ class Panel(Gtk.Window):
         self._render_wifi(snap)
         self._render_eth(snap)
         self._render_vpn(snap)
+        self._render_sound()
+        self._render_display()
         self._render_footer(snap)
 
     def _render_wifi(self, snap):
@@ -1638,6 +2065,75 @@ class Panel(Gtk.Window):
                                 [("Connect", None, lambda e=entry: self._vpn_up(e))])
             row.revealer.set_reveal_child(self.expanded == key)
 
+    def _render_sound(self):
+        """Draw whatever the last async read produced -- never read here.
+
+        `pw-dump` is 66ms and `wpctl get-volume` is 26ms; either on the refresh
+        tick would be a visible hitch on a panel that is also being scrubbed.
+        Both are fetched by _poll_audio and this only paints the result.
+        """
+        have = self.audio.ok and bool(self.audio.sinks)
+        self.sound_heading.set_visible(have)
+        self.sound_box.set_visible(have)
+        if not have:
+            return
+        percent = round(self.audio.volume * 100)
+        if self.audio.muted:
+            self.volume_row.set_glyph(ICON_VOL_MUTE)
+            self.volume_row.update(percent, "Muted")
+        else:
+            self.volume_row.set_glyph(ICON_VOL[min(2, percent * 3 // 100)])
+            self.volume_row.update(percent)
+
+        # One row per sink, reconciled in place like the wifi rows -- see
+        # sync_children for why these are never rebuilt.
+        rows = sync_children(self.sink_box, [s["id"] for s in self.audio.sinks],
+                             lambda key: Row(self, key))
+        for sink in self.audio.sinks:
+            row = rows[sink["id"]]
+            row.data = {"kind": "sink", "sink": sink}
+            row.button.get_style_context().add_class("compact")
+            row.show_glyph(ICON_CHECK if sink["default"] else " ")
+            row.icon.get_style_context().remove_class("dim")
+            if not sink["default"]:
+                row.icon.get_style_context().add_class("dim")
+            row.name.set_text(sink["label"])
+            row.meta.set_text("")
+            row.lock.set_text("")
+            row.set_busy(False)
+            row.entry_box.hide()
+            row.set_actions([])
+            ctx = row.button.get_style_context()
+            (ctx.add_class if sink["default"] else ctx.remove_class)("active")
+            row.revealer.set_reveal_child(False)
+
+    def _render_display(self):
+        have = self.backlight.available
+        self.display_heading.set_visible(bool(have))
+        self.display_box.set_visible(bool(have))
+        if not have:
+            return
+        raw = self.backlight.get()
+        self.brightness_row.update(brightness_to_user(raw))
+
+    def _on_volume(self, value):
+        self.audio.set_volume(value / 100.0)
+
+    def _toggle_mute(self):
+        self.audio.toggle_mute()
+        self._render_sound()
+
+    def _on_brightness(self, value):
+        # The slider is the 0-100 USER scale; the floor is added back here, so
+        # the panel can never write a value that blanks the screen.
+        span = 100 - BRIGHTNESS_MIN
+        self.backlight.set(BRIGHTNESS_MIN + value * span / 100.0)
+
+    def _poll_audio(self):
+        """Async refresh of volume; the sink list only when asked."""
+        self.audio.refresh_volume(self._render_sound)
+        return True
+
     def _render_footer(self, snap):
         ctx = self.status.get_style_context()
         ctx.remove_class("error")
@@ -1719,6 +2215,9 @@ class Panel(Gtk.Window):
                 self.set_expanded(row.sync_key)
             else:
                 self._connect_eth(dev)
+        elif data["kind"] == "sink":
+            self.audio.set_default_sink(data["sink"])
+            self._render_sound()
         elif data["kind"] == "vpn":
             entry = data["entry"]
             if entry["kind"] == "external":

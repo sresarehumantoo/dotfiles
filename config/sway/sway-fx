@@ -223,11 +223,11 @@ fx layer_effects '"swayosd"' '"blur enable; blur_ignore_transparent enable; corn
 # this back on.
 fx layer_effects '"sway-calendar"' '"blur disable; corner_radius 14; shadows disable"'
 
-# sway-network — the wifi picker. Identical reasoning to sway-calendar directly
+# sway-controlcenter — wifi, sound and brightness. Identical reasoning to sway-calendar directly
 # above, and it is NOT a copy made for tidiness: this surface spans the whole
 # usable area too (so a click outside the panel can dismiss it), so the
 # compositor's corner_radius rounds a transparent full-screen rectangle and its
 # shadow would draw a full-width dark band under the bar rather than anything
 # around the panel. Both come from CSS in the script instead. The corner_radius
 # here is therefore inert; `shadows disable` is the load-bearing half.
-fx layer_effects '"sway-network"' '"blur disable; corner_radius 16; shadows disable"'
+fx layer_effects '"sway-controlcenter"' '"blur disable; corner_radius 16; shadows disable"'

@@ -75,7 +75,6 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/mako/config` | `~/.config/mako/config` |
 | `config/swayosd/style.css` | `~/.config/swayosd/style.css` |
 | `config/sway/sway-powermenu` | `~/.local/bin/sway-powermenu` |
-| `config/sway/sway-quickpanel` | `~/.local/bin/sway-quickpanel` |
 | `config/sway/sway-brightness` | `~/.local/bin/sway-brightness` |
 | `config/sway/sway-calendar` | `~/.local/bin/sway-calendar` |
 | `config/fuzzel/fuzzel.ini` | `~/.config/fuzzel/fuzzel.ini` |
@@ -84,10 +83,10 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/sway/sway-fx` | `~/.local/bin/sway-fx` |
 | `config/sway/sway-workspaces` | `~/.local/bin/sway-workspaces` |
 | `config/sway/sway-monocle` | `~/.local/bin/sway-monocle` |
-| `config/sway/sway-network` | `~/.local/bin/sway-network` |
+| `config/sway/sway-controlcenter` | `~/.local/bin/sway-controlcenter` |
 | `config/sway/sway-tray-filter` | `~/.local/bin/sway-tray-filter` |
 
-The nine scripts are `chmod 0755` at the **source** before linking, because a
+The eight scripts are `chmod 0755` at the **source** before linking, because a
 symlink inherits its target's mode.
 
 ⚠ Two GTK destinations **rename**: GTK requires `settings.ini` under a
@@ -176,9 +175,9 @@ Notifications and media:
 | Key | Action |
 |---|---|
 | `$mod+n` | Toggle the swaync control center |
-| `$mod+i` | Toggle the wifi picker (`sway-network`) — see *The wifi picker* |
+| `$mod+i` | Toggle the control center (`sway-controlcenter`) — see *The control center* |
 | click the clock | Open the month calendar (`sway-calendar`) — see *The clock is the center module* |
-| **middle**-click the network glyph | The same picker — left-click is the control center, per the one-destination rule |
+| **middle**-click the network *or volume* glyph | The same panel — left-click is swaync, per the one-destination rule |
 | `$mod+Shift+n` | Push the newest popup off screen (`--hide-latest`; it stays in history) |
 | `XF86Audio{Raise,Lower}Volume` | Volume ±, with the swayosd overlay |
 | `XF86AudioMute` / `XF86AudioMicMute` | Mute sink / source |
@@ -400,30 +399,43 @@ property errors outright; only `IconPixmap` answers). There is no lever to
 desaturate or symbolize them: GTK3 offers `-gtk-icon-effect: dim|highlight` and
 nothing else.
 
-## The wifi picker
+## The control center
 
-`config/sway/sway-network` is a layer-shell panel that lists the networks in the
-air and joins one. **Middle**-click the bar's network glyph, or `$mod+i`.
+`config/sway/sway-controlcenter` is the Quick Settings half of this desktop:
+wifi, sound and brightness in one layer-shell panel. **Middle**-click the bar's
+network *or* volume glyph, use `$mod+i`, or press the control center's wifi
+button.
 
-Before it, joining a network meant `nm-connection-editor`, which is a connection
-*editor*: it lists saved profiles rather than what is around you, and joining
-something new takes a dialog and six fields. nm-applet's own menu was not an
-option either — its icon is filtered out of the tray on purpose (see *The tray*),
-and the menu hangs off that icon. So the desktop had no "show me what is here,
-let me click one".
+⚠ **Windows 11 and macOS both settle on TWO surfaces**, not one — a control
+surface carrying the toggles, sliders and device lists, and a notification
+surface. This is the first; swaync is the second. Before this the desktop had
+four overlapping panels, and the third of them, `sway-quickpanel`, is **retired**
+— its volume and brightness sliders duplicated swaync's, and they are a section
+here now. `modules/sway.go`'s `swayLegacyScripts` removes its stale symlink,
+because `Links()` only describes what should exist and would otherwise never
+mention a link that dropped out of the set.
+
+It closed three gaps, each of which meant leaving the desktop's own surfaces:
+
+- **Joining a wifi network** meant `nm-connection-editor`, which is a connection
+  *editor*: it lists saved profiles rather than what is around you, and joining
+  something new takes a dialog and six fields. nm-applet's own menu was not an
+  option either — its icon is filtered out of the tray on purpose (see *The
+  tray*), and the menu hangs off that icon.
+- **Switching audio output** meant pavucontrol. On a docked laptop that is a
+  daily action; this box has four sinks, the speaker and three HDMI/DP outputs.
+- **Volume and brightness** had their own panel.
 
 ### Middle-click, and why not left
 
 Left-click stays `swaync-client -t -sw`, like every other status readout. That is
 the *one-destination rule* (see *The bar shows almost no numbers*), and it is
 worth more than putting this on the most obvious button: the restrained bar only
-works if the numbers live one **predictable** click away. The picker therefore
-sits exactly where `sway-quickpanel` sits on `pulseaudio` — the middle button —
-and `$mod+i` is the discoverable half of the pair.
+works if the numbers live one **predictable** click away. `$mod+i` is the
+discoverable half of the pair.
 
-    network   left   -> swaync-client -t -sw
-              middle -> sway-network
-              right  -> nm-connection-editor
+    network     left -> swaync   middle -> here   right -> nm-connection-editor
+    pulseaudio  left -> swaync   middle -> here   right -> pavucontrol
 
 ⚠ **`$mod+n` was already the control center**, which is why the key is `i`.
 
@@ -626,6 +638,70 @@ icon could not join a network. It opens the picker now. The editor is still
 reachable from the picker's own *Settings* footer and from a right-click on the
 bar's network glyph.
 
+### Sound: two tools, and they must not be mixed
+
+The sink **list** and which one is default come from `pw-dump` (JSON, so no
+output parsing); the **volume** and **mute** come from `wpctl`. That split is not
+tidiness. Measured on this box with the speaker at 41% and muted:
+
+| source | reports |
+|---|---|
+| `pw-dump` node 98 | `channelVolumes [1.0, 1.0]`, `mute false` |
+| `wpctl get-volume 98` | `0.41 [MUTED]` |
+
+because WirePlumber applies volume on the **device route** rather than the node,
+and `pw-dump` reports the node. Reading volume from `pw-dump` would pin the
+slider at 100% on a muted machine. `wpctl`'s get and set agree with each other,
+whatever internal scale it uses, so it owns the number.
+
+⚠ **`pactl` is not installed here** — this box has WirePlumber's tools only, no
+PulseAudio client utilities, so nothing may reach for it.
+
+⚠ **`pw-dump` ships in `pipewire-bin`, which is a separate package from
+`wireplumber`** (that one only carries `wpctl`). It is declared in
+`swayPackages` for that reason: without it the device list silently comes up
+empty and the whole Sound section hides itself, with nothing on screen or in a
+log to say why.
+
+Device labels come from `node.nick` (`Speaker`, `HDMI / DisplayPort 1 Output`),
+not `node.description`, which prefixes all four with the same 46 characters of
+controller name.
+
+Neither read happens on the refresh tick: `pw-dump` is 66 ms and `wpctl
+get-volume` is 26 ms, and either would be a visible hitch on a panel that is
+also being scrubbed. Both are async, and the sink list is read on open rather
+than on a timer — a dock arriving mid-panel is rare enough to cost a reopen.
+
+### ⚠ The slider interlock, which is what made waybar's sliders unusable
+
+waybar's `ASlider::update()` calls `set_value()` on the very widget you are
+holding, with no drag interlock: `backlight/slider` re-asserts on its poll
+interval so the handle is yanked back about once a second, and
+`pulseaudio/slider` is driven by PulseAudio events, so every write your own drag
+causes fires an event that re-sets the handle. `src/ASlider.cpp` is unchanged
+since 2024-02-15 and there is no config lever (upstream #3249, #4089). That is
+why this desktop has never used the in-bar sliders, and `SliderRow._scrubbing`
+is the interlock they lack — an outside update is dropped while the pointer is
+down.
+
+⚠ **A wheel or touchpad scrub emits no button events**, so a press/release-only
+interlock would never engage for it; the scroll handler brackets that case too.
+
+Writes stay off the main loop for a measured reason: `wpctl set-volume` forks in
+~27 ms, and a `GtkScale` emits `value-changed` on every pixel of a drag, so
+calling it synchronously blocked the loop over half the time and the slider
+lagged the cursor by seconds. `AsyncCommand` keeps one process in flight and
+**replaces** any queued request, so a fast drag collapses to the value you
+finished on rather than replaying every value you passed through. Brightness
+writes sysfs directly (~0.1 ms against `brightnessctl`'s ~16 ms fork);
+`brightnessctl` stays the fallback where logind's udev grant is absent.
+
+⚠ **The brightness floor is written in three places** — `FLOOR` in
+`config/sway/sway-brightness`, `BRIGHTNESS_MIN` here, and
+`widget-config.backlight.min` in `config/swaync/config.json`. Change them
+together. A floor rather than 0 because a fully dark panel is indistinguishable
+from the laptop being off, with no on-screen way back.
+
 ### ⚠ The bar's tooltip draws over the panel, and that is an accepted trade
 
 Middle-clicking leaves the pointer on the network glyph, so waybar's tooltip
@@ -646,18 +722,18 @@ move toward the panel. If it ever stops being worth it, the fix is one line on
 - Resident server, started hidden from `exec_always` in `config/sway/config`.
   `--server` checks its own pidfile and declines to become a second instance,
   which is what makes it safe under `swaymsg reload`. ⚠ No `pgrep` guard, for the
-  same self-match reason as `sway-calendar` — `pgrep -f sway-network` matches the
+  same self-match reason as `sway-calendar` — `pgrep -f sway-controlcenter` matches the
   `sh -c` running the line.
 - ⚠ `--anchor` **must match where the network glyph is** in
   `config/waybar/config`, because the server owns the geometry; the click path
   only delivers a signal. `network` is in `group/status` in `modules-right`, so
   `--anchor right`.
-- `layer_effects` for the `sway-network` namespace lives in `config/sway/sway-fx`
+- `layer_effects` for the `sway-controlcenter` namespace lives in `config/sway/sway-fx`
   and is `shadows disable`, for the reason `sway-calendar` is: the surface spans
   the whole usable area (so a click outside can dismiss it), so a compositor
   shadow draws a full-width band under the bar rather than anything around the
   panel. The rounding and the shadow both come from CSS in the script.
-- `SWAY_NETWORK_DEBUG=1` traces the events a screenshot cannot show — a panel
+- `SWAY_CC_DEBUG=1` traces the events a screenshot cannot show — a panel
   that hid itself and one that never mapped look identical.
 
 ## Brightness has a floor, and lies about it
@@ -679,11 +755,11 @@ so user `0` is a real `5%` — dim but visibly lit. Both paths implement it:
 | Path | Floor | Shows |
 |---|---|---|
 | `XF86MonBrightness{Up,Down}` → `sway-brightness` | yes | swayosd OSD, user scale |
-| `sway-quickpanel` slider | yes (`BRIGHTNESS_MIN`) | user scale |
+| `sway-controlcenter` slider | yes (`BRIGHTNESS_MIN`) | user scale |
 | swaync panel slider | yes (`min`) | user scale — see below |
 
 > The floor is written in **three** places: `FLOOR` in `config/sway/sway-brightness`,
-> `BRIGHTNESS_MIN` in `sway-quickpanel`, and `widget-config.backlight.min` in
+> `BRIGHTNESS_MIN` in `sway-controlcenter`, and `widget-config.backlight.min` in
 > `config/swaync/config.json`. **Change one and you must change all three**, or
 > the keys and the sliders will disagree about where the bottom is.
 
@@ -727,7 +803,7 @@ Two implementation notes worth keeping:
   | **after** | **19.4ms** | 40 presses/s → 80%/s at STEP 2 |
 
   The reads and the write now go straight to sysfs (`read` builtin / `printf >`,
-  fork-free, ~0.1ms), mirroring what `sway-quickpanel` already did. **Lowering
+  fork-free, ~0.1ms), mirroring what `sway-controlcenter` does. **Lowering
   the per-press cost without lowering `STEP` makes the key worse, not better**:
   at 14ms and STEP 5 a held key crosses the whole range in half a second. The
   two numbers move together.
@@ -2340,7 +2416,7 @@ loss once armed.
 
 ### It is a layer-shell panel, which is what stops it jumping
 
-**First version was a plain xdg_toplevel like `sway-quickpanel`, and that was the
+**First version was a plain xdg_toplevel (as the retired `sway-quickpanel` was), and that was the
 wrong shape.** A Wayland client cannot position its own toplevel — there is no
 `move()`; sway owns the position. So sway placed it mid-screen and a `swaymsg move
 absolute position` dragged it under the clock a frame or two later, which is
@@ -2379,7 +2455,8 @@ omitting waybar's `margin-bottom`; see *Margins* above.)
 > map, and a bare close-on-focus-loss handler therefore kills it before it
 > draws.** Symptom: the script exits **0 instantly** — no window, no output, no
 > error, nothing to grep for. The same handler is correct on an xdg_toplevel
-> (`sway-quickpanel` still uses one), so the port to layer-shell is what broke it.
+> (an xdg_toplevel can, which is what the retired `sway-quickpanel` relied on),
+> so the port to layer-shell is what broke it.
 > Gating on "have we ever had focus" does **not** help — the spurious `focus-in`
 > already set that. Traced with signal logging:
 >
@@ -2655,8 +2732,8 @@ to that tool from the bar:
 
 | module | left | middle | right |
 |---|---|---|---|
-| `pulseaudio` | control center | `sway-quickpanel` | `pavucontrol` |
-| `network` | control center | — | `nm-connection-editor` |
+| `pulseaudio` | control center | `sway-controlcenter` | `pavucontrol` |
+| `network` | control center | `sway-controlcenter` | `nm-connection-editor` |
 | `battery` | control center | — | — |
 | `custom/notification` | control center | — | DND toggle |
 | `clock` | `sway-calendar` | — | — |
