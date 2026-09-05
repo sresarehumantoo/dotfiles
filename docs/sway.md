@@ -597,6 +597,35 @@ Rows also carry a **spinner** while an action is in flight, rather than only the
 word "Connecting" — all three desktops show motion on the row you acted on, and
 it is the difference between "it heard me" and "did that work?".
 
+### It fades in, on the control center's numbers
+
+180 ms, ease-out, via a `Gtk.Revealer` crossfade around the panel box. None of
+those are new decisions — `config/sway/swaync-cc-fade.patch` already settled them
+for the control center, and two panels on one desktop appearing at different
+speeds reads as one of them being broken. That patch's reasoning carries over
+unchanged: this fires every time the panel opens, and 400 ms of fade on something
+you opened *in order to click* reads as lag rather than polish.
+
+⚠ **A revealer, not `set_opacity`.** Window opacity is an X11 facility and does
+nothing to a Wayland surface. The revealer also honours `gtk-enable-animations`
+for free, which is the accessibility setting the swaync patch went out of its way
+to respect.
+
+⚠ **The window stays mapped for the length of the fade-out, so `get_visible()`
+cannot answer "is the panel open?"** — a toggle pressed mid-fade would compute
+"it is open, so close it" and the click would appear to do nothing. `is_open()`
+tests `_closing` as well, and a toggle during a fade-out re-opens. This is the
+same guard the swaync patch carries, for the same reason; it is a borrowed
+lesson, not a new one.
+
+### The control center's wifi button opens this, not the editor
+
+`config/swaync/config.json`'s buttons-grid had a wifi glyph wired to
+`nm-connection-editor` — so the one button in the control center wearing a wifi
+icon could not join a network. It opens the picker now. The editor is still
+reachable from the picker's own *Settings* footer and from a right-click on the
+bar's network glyph.
+
 ### ⚠ The bar's tooltip draws over the panel, and that is an accepted trade
 
 Middle-clicking leaves the pointer on the network glyph, so waybar's tooltip

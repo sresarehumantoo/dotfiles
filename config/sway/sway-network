@@ -264,6 +264,21 @@ LIST_MAX_HEIGHT = 420
 # it. sway-calendar carries the same guard and the full trace.
 FOCUS_ARM_MS = 500
 
+# Open/close fade, in milliseconds. 180 and ease-out-cubic are not picked here:
+# they are what config/sway/swaync-cc-fade.patch already settled for the control
+# center, and two panels on the same desktop appearing at different speeds reads
+# as one of them being broken. That patch's reasoning applies unchanged -- this
+# fires every time the panel is opened, and 400ms of fade on something you
+# opened in order to click reads as lag rather than polish; ease-out (fast
+# start, gentle settle) makes it feel like it is already arriving as the click
+# lands.
+#
+# ⚠ IT IS A Gtk.Revealer, NOT window opacity. gtk_window_set_opacity is an X11
+# facility and does nothing to a Wayland surface. A revealer also honours
+# `gtk-enable-animations` for free, which is the accessibility setting the
+# swaync patch was careful to respect.
+FADE_MS = 180
+
 # Refresh cadence while the panel is VISIBLE. Nothing runs while it is hidden:
 # the signal subscriptions are dropped and the tick is cancelled, so a resident
 # server that nobody has opened costs zero wakeups.
@@ -1153,6 +1168,7 @@ class Panel(Gtk.Window):
         self.busy = None          # (key, message) while an action is in flight
         self.error = None
         self._focus_armed = False
+        self._closing = False
         self._tick = 0
         self._rescan = 0
         self._coalesce = 0
@@ -1176,7 +1192,16 @@ class Panel(Gtk.Window):
             root.set_halign(Gtk.Align.END)
             root.set_margin_end(EDGE_MARGIN)
         self.panel = root
-        self.add(root)
+        # The revealer wraps the PANEL, not the window: the surface spans the
+        # whole usable area and is transparent, so fading the panel box fades
+        # exactly the part anyone can see.
+        self.fade = Gtk.Revealer()
+        self.fade.set_transition_type(Gtk.RevealerTransitionType.CROSSFADE)
+        self.fade.set_transition_duration(FADE_MS)
+        self.fade.set_valign(Gtk.Align.START)
+        self.fade.set_halign(root.get_halign())
+        self.fade.add(root)
+        self.add(self.fade)
 
         # -- header ----------------------------------------------------------
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
@@ -1282,8 +1307,12 @@ class Panel(Gtk.Window):
         return heading, box
 
     # -- lifecycle -----------------------------------------------------------
+    def is_open(self):
+        """Mapped AND not on its way out -- see hide_panel."""
+        return self.get_visible() and not self._closing
+
     def toggle_visible(self):
-        if self.get_visible():
+        if self.is_open():
             self.hide_panel()
         else:
             self.show_panel()
@@ -1301,7 +1330,9 @@ class Panel(Gtk.Window):
         # armed from the previous showing dismisses this one instantly.
         self._focus_armed = False
         GLib.timeout_add(FOCUS_ARM_MS, self._arm_focus_close)
+        self._closing = False
         self.show()
+        self.fade.set_reveal_child(True)
         # Live updates cost nothing while the panel is closed: the
         # subscriptions and both timers exist only between show and hide.
         self.nm.subscribe(self._on_nm_signal)
@@ -1310,13 +1341,29 @@ class Panel(Gtk.Window):
         self._do_scan()
 
     def hide_panel(self):
-        self.hide()
+        # ⚠ THE WINDOW STAYS MAPPED FOR THE LENGTH OF THE FADE, so `get_visible`
+        # cannot answer "is the panel open?" on its own -- a toggle pressed
+        # mid-fade-out would compute "it is open, so close it", and the click
+        # would appear to do nothing. `_closing` is what the toggle actually
+        # tests. The swaync control-center fade patch carries the same guard for
+        # the same reason; this is not a new lesson, it is a borrowed one.
+        if self._closing:
+            return
+        self._closing = True
+        self.fade.set_reveal_child(False)
+        GLib.timeout_add(FADE_MS, self._finish_hide)
         self.nm.unsubscribe()
         for attr in ("_tick", "_rescan", "_coalesce"):
             source = getattr(self, attr)
             if source:
                 GLib.source_remove(source)
                 setattr(self, attr, 0)
+
+    def _finish_hide(self):
+        if self._closing:
+            self.hide()
+            self._closing = False
+        return False  # one-shot
 
     def _on_tick(self):
         self.refresh()
@@ -1353,8 +1400,8 @@ class Panel(Gtk.Window):
         return False
 
     def _on_focus_out(self, *_a):
-        dbg("focus-out armed=%s visible=%s", self._focus_armed, self.get_visible())
-        if self._focus_armed and self.get_visible():
+        dbg("focus-out armed=%s open=%s", self._focus_armed, self.is_open())
+        if self._focus_armed and self.is_open():
             self.hide_panel()
         return False
 

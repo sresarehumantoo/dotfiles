@@ -139,8 +139,17 @@
           "command": "swaync-client -cp; swaylock -f -c 1e1e2e"
         },
         {
+          "//200": "⚠ THE PICKER, NOT nm-connection-editor. This button predates",
+          "//201": "config/sway/sway-network and still opened the connection EDITOR,",
+          "//202": "which lists saved profiles rather than what is in the air — so",
+          "//203": "the one button in the control center wearing a wifi glyph could",
+          "//204": "not actually join a network. The editor is still reachable, from",
+          "//205": "the panel's own Settings footer and from a right-click on the",
+          "//206": "bar's network glyph.",
+          "//207": "Absolute path: swaync is started from sway, which has no",
+          "//208": "~/.local/bin on PATH (see config/waybar/config's custom/power).",
           "label": "󰖩",
-          "command": "swaync-client -cp; nm-connection-editor"
+          "command": "swaync-client -cp; $HOME/.local/bin/sway-network"
         },
         {
           "label": "󰂯",
