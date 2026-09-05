@@ -545,29 +545,57 @@ forgotten and then come back.
 802.1X is handed to `nm-connection-editor` rather than approximated. It needs an
 identity, a method and sometimes a certificate — a form, not a password box.
 
-### ⚠ The signal-strength ramp is weak, measured, and kept anyway
+### The signal indicator is drawn, not set in a font
 
-The four `md-wifi_strength_*` glyphs are one cone of identical ink bounds whose
-hollow top arc shrinks as strength rises, so neighbouring levels barely differ.
-Rendered from the real face and diffed:
+⚠ **It started as the bar's font ramp and that was wrong**, which was settled by
+rendering both rather than by argument. The four `md-wifi_strength_*` glyphs are
+one cone with a lens cut out of the top, and the only thing that changes between
+levels is how high the fill reaches inside it. Measured off the real panel, at
+the size it actually draws:
 
-| Size | Ink (px) | Adjacent-level differences |
-|---|---|---|
-| 15 px | 71 / 81 / 91 / 102 | 17, 16, 30 |
-| 21 px | 127 / 146 / 168 / 194 | 26, 28, 51 |
+| | level 1 | level 2 | level 3 | adjacent step |
+|---|---|---|---|---|
+| font glyphs | 64 px ink | 75 px | 92 px | **11 / 17 px** |
+| drawn arcs | 16 px ink | 36 px | 66 px | **44 / 82 px** |
 
-A step is ~20-23% of the glyph's ink **at every size** — it is a property of the
-shapes, not the point size, so **growing the label buys nothing**. Two other
-families were rendered the same way and are worse by that metric
-(`md-network_strength` min step 8 px, `md-signal_cellular` 3 px) — though
-`signal_cellular` is arguably the easiest to *read* despite the number, because
-it changes a **countable** feature (filled bars) rather than an area. Which is
-the lesson: a pixel-difference count is a poor proxy for legibility.
+Four times the separation, and — the part the numbers understate — the arcs
+change a **countable** feature. Windows 11, macOS and GNOME all draw the *unlit*
+part of the ramp as a dim ghost, so the reader sees four slots and counts how
+many are filled, instead of judging how full one cone is. That is why a pixel
+diff is a poor proxy here: `md-signal_cellular` scores *worst* of the three font
+families on adjacent-step pixels (3 px) while being the easiest of them to read,
+because it is bars.
 
-It stays because the icon is a tie-breaker, not the primary cue — rows are sorted
-strongest-first, the name is what anyone picks by, and the exact percentage is one
-click away. Changing it would put a second visual language for signal strength on
-the same desktop as the bar, whose ramp this one is byte-identical to.
+Growing the glyph was measured and does not help: the step stays ~20-23% of the
+ink at **every** size, because it is a property of the shapes.
+
+⚠ **The bar still uses the font ramp, deliberately.** waybar cannot draw, and the
+two surfaces answer different questions — the bar shows *one* network, where
+"roughly how strong" is all a glyph needs to say, while a list exists to be
+compared down. What must stay shared is the **buckets**, not the glyphs:
+`signal_level()` divides 0-100 into four exactly as `config/waybar/config` does,
+so a network the bar calls three-quarters strong is three-quarters strong here.
+
+### Sections, and a rescan you can ask for
+
+Two patterns taken from the platforms this is modelled on:
+
+- **macOS splits the list.** The network you are on sits at the top with no
+  heading, then `KNOWN NETWORKS`, then `OTHER NETWORKS`. In a cafe the list is
+  twenty entries of which one is yours, and a flat list sorted by signal buries
+  it. A heading is hidden when its group is empty — an empty `OTHER NETWORKS`
+  above nothing reads as a failure to load.
+- **Windows 11 shipped a refresh button** on its network list, and the footer
+  count here is that button. The list is a snapshot, so a network that starts
+  advertising ten seconds after you opened the panel is invisible until the next
+  automatic scan, and nothing distinguishes "not there" from "not scanned yet".
+  Rescanning is idempotent and NM rate-limits it, so the worst a determined
+  clicker achieves is nothing. It goes insensitive while a scan is already in
+  flight or the radio is off.
+
+Rows also carry a **spinner** while an action is in flight, rather than only the
+word "Connecting" — all three desktops show motion on the row you acted on, and
+it is the difference between "it heard me" and "did that work?".
 
 ### ⚠ The bar's tooltip draws over the panel, and that is an accepted trade
 

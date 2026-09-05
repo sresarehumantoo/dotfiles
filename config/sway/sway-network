@@ -220,26 +220,13 @@ SEC_ENTERPRISE = SEC_KEY_MGMT_802_1X | SEC_KEY_MGMT_EAP_SUITE_B
 # therefore also the same -- 4 icons over 0-100, i.e. [0-24] [25-49] [50-74]
 # [75-100].
 #
-# KNOWN WEAK, MEASURED, AND KEPT ANYWAY -- do not "fix" it by growing the icon.
-# These four Material glyphs are one cone of identical ink bounds whose hollow
-# top arc shrinks as strength rises, so neighbouring levels differ by very
-# little. Rendered from the real face and diffed:
-#
-#     size 15px   ink 71/81/91/102 px   adjacent-level differences 17, 16, 30
-#     size 21px   ink 127/146/168/194   adjacent-level differences 26, 28, 51
-#
-# i.e. a step is ~20-23% of the glyph's ink AT EVERY SIZE -- it is a property of
-# the shapes, not of the point size, so scaling the label buys nothing. Two
-# alternative families were rendered and measured the same way and are WORSE by
-# that metric (md-network_strength min step 8 px, md-signal_cellular 3 px),
-# though signal_cellular is arguably easier to read despite the number, because
-# it changes a COUNTABLE feature -- filled bars -- rather than an area. That is
-# also why the pixel metric alone should not decide this.
-#
-# It stays because the icon is a tie-breaker here, not the primary cue: rows are
-# sorted strongest-first, the name is what anyone actually picks by, and the
-# exact percentage is one click away in the expanded row. Changing it would put
-# a second visual language for signal strength on the same desktop as the bar.
+# ⚠ THE ROWS NO LONGER USE THIS RAMP -- SignalIcon draws theirs. It is kept
+# because the BUCKET BOUNDARIES must stay shared with the bar (see
+# signal_level), and because a glyph is still the right tool for anything that
+# cannot draw. The measurements that moved the rows off it are in SignalIcon's
+# docstring; the short version is that these four glyphs are one cone whose fill
+# height changes, which cannot be counted at 15px, and the bar does not need to
+# count -- it shows one network.
 ICON_WIFI = ["\U000f091f", "\U000f0922", "\U000f0925", "\U000f0928"]
 ICON_WIFI_OFF = "\U000f092e"     # md-wifi_off
 ICON_WIFI_NONE = "\U000f092b"    # md-wifi_strength_alert_outline
@@ -249,6 +236,7 @@ ICON_VPN = "\U000f099d"          # md-shield_lock
 ICON_COG = "\U000f0493"          # md-cog
 ICON_EYE = "\U000f0208"          # md-eye
 ICON_EYE_OFF = "\U000f0209"      # md-eye_off
+ICON_REFRESH = "\U000f0450"     # md-refresh
 
 # -- Geometry ------------------------------------------------------------------
 # GAP IS MEASURED FROM THE USABLE AREA AND ZERO IS CORRECT -- not a missing
@@ -428,8 +416,17 @@ separator.rule {
 
 /* Footer ------------------------------------------------------------------ */
 box.footer { padding: 6px 8px 4px 12px; }
-label.status { color: #6c7086; font-family: Cantarell, sans-serif; font-size: 11px; }
-label.status.error { color: #f38ba8; }
+/* The status line is a BUTTON (the rescan control), so these must match a
+   button, not a label -- `label.status` silently stopped matching when it
+   stopped being a label, and the error state went with it. The inner label
+   carries no class of its own and inherits `color` from here. */
+button.status {
+    color: #6c7086; font-family: Cantarell, sans-serif; font-size: 11px;
+    padding: 4px 8px;
+}
+button.status:hover { color: #cdd6f4; background-color: rgba(205, 214, 244, 0.07); }
+button.status:disabled { color: #6c7086; background-color: transparent; }
+button.status.error, button.status.error:disabled { color: #f38ba8; }
 button.settings {
     background-color: transparent; background-image: none; border: none;
     box-shadow: none; color: #a6adc8;
@@ -508,13 +505,21 @@ def ap_security(ap):
     return ("open", "Open")
 
 
-def wifi_icon(strength):
-    """The bar's ramp, so a row and the bar's glyph can never disagree.
+def signal_level(strength):
+    """0-3 from a 0-100 percentage, on the bar's own bucket boundaries.
 
-    Four icons over 0-100, matching config/waybar/config: the buckets are
-    [0-24] [25-49] [50-74] [75-100].
+    The GLYPHS differ between the bar and this panel (see SignalIcon), but the
+    BUCKETS must not: four levels over 0-100, i.e. [0-24] [25-49] [50-74]
+    [75-100], exactly as config/waybar/config divides them. A network the bar
+    calls three-quarters strong has to be three-quarters strong here too.
     """
-    return ICON_WIFI[min(3, max(0, int(strength)) * len(ICON_WIFI) // 100)]
+    return min(3, max(0, int(strength)) * 4 // 100)
+
+
+def wifi_icon(strength):
+    """The bar's font ramp. Kept for the buckets and for any caller that needs
+    a glyph rather than a widget -- the rows draw theirs (see SignalIcon)."""
+    return ICON_WIFI[signal_level(strength)]
 
 
 def band_label(freq_mhz):
@@ -917,6 +922,78 @@ def sync_children(container, keys, factory):
     return out
 
 
+class SignalIcon(Gtk.DrawingArea):
+    """Signal strength as three arcs and a dot, drawn rather than set in a font.
+
+    ⚠ THIS REPLACED THE FONT RAMP BECAUSE THE FONT RAMP CANNOT BE COUNTED, and
+    that was established by rendering both rather than by argument. The four
+    `md-wifi_strength_*` glyphs are one cone with a lens cut out of the top, and
+    the only thing that changes between levels is how high the fill reaches
+    inside it. Measured off the real panel at the size it actually draws:
+
+        level 1 -> 64 px of ink   level 2 -> 75 px   level 3 -> 92 px
+
+    so 1 and 2 differ by eleven pixels of fill height, and at a glance a list of
+    them reads as one repeated glyph. Growing the icon does not help -- the step
+    stays ~20-23% of the ink at every size, because it is a property of the
+    shapes.
+
+    What Windows 11, macOS and GNOME all do instead is draw the UNLIT part of
+    the ramp as a visible ghost, so the reader sees four slots and counts how
+    many are filled. That is a discrete, countable cue rather than a judgement
+    about an area, and it is what this draws.
+
+    ⚠ THE BAR STILL USES THE FONT RAMP, AND THAT IS DELIBERATE. waybar cannot
+    draw, and the two surfaces are answering different questions: the bar shows
+    ONE network, where "roughly how strong" is all a glyph needs to say, while a
+    list exists to be compared down. Keeping the font ramp in a list was the
+    original call here and it was wrong; keeping it in the bar is not.
+
+    The color comes from the style context, so `label.rowicon`'s CSS still
+    governs it and the theme stays in one place.
+    """
+
+    __gtype_name__ = "SwayNetworkSignalIcon"
+
+    SIZE = 18
+
+    def __init__(self):
+        super().__init__()
+        self.level = 0
+        self.set_size_request(self.SIZE, self.SIZE)
+        self.set_valign(Gtk.Align.CENTER)
+        self.connect("draw", self._on_draw)
+
+    def set_level(self, level):
+        level = max(0, min(3, int(level)))
+        if level != self.level:
+            self.level = level
+            self.queue_draw()
+
+    def _on_draw(self, _w, cr):
+        import math
+        ctx = self.get_style_context()
+        rgba = ctx.get_color(ctx.get_state())
+        size = self.SIZE
+        cx = size / 2.0
+        cy = size * 0.80          # apex of the fan, near the bottom
+        lw = max(1.0, size * 0.095)
+        dim = 0.22                # the unlit ghost: present, clearly not lit
+        cr.set_line_cap(1)        # cairo.LINE_CAP_ROUND, without the import
+        cr.arc(cx, cy - lw * 0.15, lw * 0.62, 0, 2 * math.pi)
+        cr.set_source_rgba(rgba.red, rgba.green, rgba.blue, rgba.alpha)
+        cr.fill()
+        for i in range(3):
+            radius = size * (0.20 + 0.145 * i)
+            lit = self.level >= i + 1
+            cr.set_source_rgba(rgba.red, rgba.green, rgba.blue,
+                               rgba.alpha if lit else rgba.alpha * dim)
+            cr.set_line_width(lw)
+            cr.arc(cx, cy, radius, math.radians(-135), math.radians(-45))
+            cr.stroke()
+        return False
+
+
 class Row(Gtk.Box):
     """A clickable line, plus a revealer holding its actions.
 
@@ -939,6 +1016,11 @@ class Row(Gtk.Box):
         self.button.connect("clicked", lambda _b: self.panel.on_row_activate(self))
 
         line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        # TWO icons, one shown at a time. Wifi rows get the drawn ramp (see
+        # SignalIcon); wired and VPN rows get a glyph, where there is no level
+        # to show and the font is the right tool.
+        self.signal = SignalIcon()
+        self.signal.get_style_context().add_class("rowicon")
         self.icon = Gtk.Label()
         self.icon.get_style_context().add_class("rowicon")
         self.name = Gtk.Label(xalign=0.0)
@@ -948,10 +1030,17 @@ class Row(Gtk.Box):
         self.meta.get_style_context().add_class("rowmeta")
         self.lock = Gtk.Label()
         self.lock.get_style_context().add_class("rowlock")
+        # A spinner, not just the word "Connecting". Every one of the three
+        # desktops this panel is modelled on shows motion on the row you acted
+        # on -- it is the difference between "it heard me" and "did that work?"
+        self.spinner = Gtk.Spinner()
+        self.spinner.set_valign(Gtk.Align.CENTER)
+        line.pack_start(self.signal, False, False, 0)
         line.pack_start(self.icon, False, False, 0)
         line.pack_start(self.name, True, True, 0)
         line.pack_end(self.lock, False, False, 0)
         line.pack_end(self.meta, False, False, 0)
+        line.pack_end(self.spinner, False, False, 0)
         self.button.add(line)
         self.pack_start(self.button, False, False, 0)
 
@@ -986,8 +1075,29 @@ class Row(Gtk.Box):
         self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.actions.pack_start(self.buttons, False, False, 0)
         self.show_all()
-        self.entry_box.set_no_show_all(True)
+        # ⚠ Marked AFTER show_all, or show_all would un-hide them again. Each of
+        # these is shown only in the states that want it.
+        for widget in (self.entry_box, self.signal, self.icon, self.spinner):
+            widget.set_no_show_all(True)
         self.entry_box.hide()
+        self.spinner.hide()
+
+    def set_busy(self, busy):
+        self.spinner.set_visible(busy)
+        if busy:
+            self.spinner.start()
+        else:
+            self.spinner.stop()
+
+    def show_signal(self, level):
+        self.icon.hide()
+        self.signal.set_level(level)
+        self.signal.show()
+
+    def show_glyph(self, glyph):
+        self.signal.hide()
+        self.icon.set_text(glyph)
+        self.icon.show()
 
     def _toggle_visibility(self, _b):
         shown = not self.entry.get_visibility()
@@ -1092,8 +1202,18 @@ class Panel(Gtk.Window):
         self.scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.scroller.set_propagate_natural_height(True)
         self.scroller.set_max_content_height(LIST_MAX_HEIGHT)
-        self.wifi_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
-        self.scroller.add(self.wifi_box)
+        # THREE GROUPS, WHICH IS THE macOS SPLIT: the network you are on sits at
+        # the top with no heading, then the ones you have joined before, then
+        # everything else. In a cafe the list is twenty entries of which one is
+        # yours, and a flat list sorted by signal buries it -- the sections are
+        # what make "mine" findable without reading names.
+        wifi = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.cur_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.known_heading, self.known_box = self._section(wifi, "KNOWN NETWORKS",
+                                                           first=self.cur_box)
+        self.other_heading, self.other_box = self._section(wifi, "OTHER NETWORKS")
+        self.wifi_groups = (self.cur_box, self.known_box, self.other_box)
+        self.scroller.add(wifi)
         root.pack_start(self.scroller, False, False, 0)
 
         self.placeholder = Gtk.Label(xalign=0.0)
@@ -1110,9 +1230,21 @@ class Panel(Gtk.Window):
         root.pack_start(rule, False, False, 0)
         footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         footer.get_style_context().add_class("footer")
-        self.status = Gtk.Label(xalign=0.0)
+        # ⚠ THE STATUS LINE IS A BUTTON, AND THAT IS A BORROWED FIX. Windows 11
+        # shipped a refresh control on its network list for a reason this panel
+        # has too: the list is a snapshot, so a network that starts advertising
+        # ten seconds after you opened the panel is invisible until the next
+        # automatic scan, and the user has no way to tell "not there" from "not
+        # scanned yet". Rescan is idempotent and NM rate-limits it, so the worst
+        # a determined clicker achieves is nothing.
+        self.status = Gtk.Button()
+        self.status.get_style_context().add_class("settings")
         self.status.get_style_context().add_class("status")
-        self.status.set_ellipsize(Pango.EllipsizeMode.END)
+        self.status.set_relief(Gtk.ReliefStyle.NONE)
+        self.status_label = Gtk.Label(xalign=0.0)
+        self.status_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.status.add(self.status_label)
+        self.status.connect("clicked", lambda _b: self._do_scan())
         settings = Gtk.Button(label=ICON_COG + "  Settings")
         settings.get_style_context().add_class("settings")
         settings.connect("clicked", self._open_settings)
@@ -1133,11 +1265,15 @@ class Panel(Gtk.Window):
         # once and later opens use show() rather than show_all().
         self.show_all()
         for widget in (self.placeholder, self.eth_heading, self.eth_box,
-                       self.vpn_heading, self.vpn_box):
+                       self.vpn_heading, self.vpn_box,
+                       self.known_heading, self.known_box,
+                       self.other_heading, self.other_box):
             widget.set_no_show_all(True)
         self.hide()
 
-    def _section(self, root, label):
+    def _section(self, root, label, first=None):
+        if first is not None:
+            root.pack_start(first, False, False, 0)
         heading = Gtk.Label(label=label, xalign=0.0)
         heading.get_style_context().add_class("section")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
@@ -1310,8 +1446,20 @@ class Panel(Gtk.Window):
                 aps.append(stale)
         self._ap_cache = {ap["ssid_raw"]: ap for ap in aps}
 
-        rows = sync_children(self.wifi_box, [ap["ssid_raw"] for ap in aps],
-                             lambda key: Row(self, key))
+        current = [a for a in aps if a["is_active"]]
+        known = [a for a in aps if not a["is_active"] and a["saved"]]
+        other = [a for a in aps if not a["is_active"] and not a["saved"]]
+        rows = {}
+        for box, group in ((self.cur_box, current), (self.known_box, known),
+                           (self.other_box, other)):
+            rows.update(sync_children(box, [a["ssid_raw"] for a in group],
+                                      lambda key: Row(self, key)))
+        # Headings appear only over a group that has something in it -- an empty
+        # "OTHER NETWORKS" label above nothing reads as a failure to load.
+        self.known_heading.set_visible(bool(known))
+        self.known_box.set_visible(bool(known))
+        self.other_heading.set_visible(bool(other))
+        self.other_box.set_visible(bool(other))
         for ap in aps:
             self._update_wifi_row(rows[ap["ssid_raw"]], ap, snap)
 
@@ -1323,10 +1471,12 @@ class Panel(Gtk.Window):
         connected = ap["is_active"] and snap["active_state"] == ACT_ACTIVATED
         connecting = ap["is_active"] and not connected
 
-        row.icon.set_text(wifi_icon(ap["strength"]))
+        row.show_signal(signal_level(ap["strength"]))
         row.name.set_text(ap["ssid"])
         row.lock.set_text(ICON_LOCK if secured else "")
-        if self.busy and self.busy[0] == ap["ssid_raw"]:
+        acting = bool(self.busy and self.busy[0] == ap["ssid_raw"])
+        row.set_busy(acting or connecting)
+        if acting:
             row.meta.set_text(self.busy[1])
         elif connected:
             row.meta.set_text("Connected")
@@ -1383,7 +1533,7 @@ class Panel(Gtk.Window):
             row = rows[dev["path"]]
             row.data = {"kind": "eth", "dev": dev}
             up = dev["state"] == DEV_STATE_ACTIVATED
-            row.icon.set_text(ICON_ETHERNET)
+            row.show_glyph(ICON_ETHERNET)
             row.name.set_text(dev["active"]["id"] if dev["active"] else dev["iface"])
             row.lock.set_text("")
             row.meta.set_text("Connected" if up else
@@ -1416,8 +1566,9 @@ class Panel(Gtk.Window):
             row = rows[key]
             row.data = {"kind": "vpn", "entry": entry}
             up = entry["state"] == ACT_ACTIVATED
+            row.set_busy(entry["state"] == ACT_ACTIVATING)
             external = entry["kind"] == "external"
-            row.icon.set_text(ICON_VPN)
+            row.show_glyph(ICON_VPN)
             row.name.set_text(entry["id"])
             row.lock.set_text("")
             row.entry_box.hide()
@@ -1443,21 +1594,27 @@ class Panel(Gtk.Window):
     def _render_footer(self, snap):
         ctx = self.status.get_style_context()
         ctx.remove_class("error")
+        scanning = self._scanning(snap)
+        # Only offer the rescan when it could do something.
+        self.status.set_sensitive(snap["ok"] and snap["wireless_enabled"]
+                                  and not scanning)
         if not snap["ok"]:
-            self.status.set_text("NetworkManager is not responding")
+            self.status_label.set_text("NetworkManager is not responding")
             ctx.add_class("error")
         elif self.error:
-            self.status.set_text(self.error)
+            self.status_label.set_text(self.error)
             ctx.add_class("error")
         elif self.busy:
-            self.status.set_text(self.busy[1])
+            self.status_label.set_text(self.busy[1])
         elif not snap["wireless_enabled"]:
-            self.status.set_text("Wi-Fi is off")
-        elif self._scanning(snap):
-            self.status.set_text("Scanning…")
+            self.status_label.set_text("Wi-Fi is off")
+        elif scanning:
+            self.status_label.set_text("Scanning…")
         else:
             count = len(snap["aps"])
-            self.status.set_text("%d network%s" % (count, "" if count == 1 else "s"))
+            self.status_label.set_text(
+                "%s  %d network%s" % (ICON_REFRESH, count,
+                                      "" if count == 1 else "s"))
 
     def _scanning(self, snap):
         """True between asking for a scan and NM reporting one finished.
@@ -1475,7 +1632,7 @@ class Panel(Gtk.Window):
     # -- interaction ---------------------------------------------------------
     def set_expanded(self, key):
         self.expanded = key
-        for box in (self.wifi_box, self.eth_box, self.vpn_box):
+        for box in self.wifi_groups + (self.eth_box, self.vpn_box):
             for row in box.get_children():
                 row.revealer.set_reveal_child(row.sync_key == key)
                 if row.sync_key == key and row.entry_box.get_visible():
