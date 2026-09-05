@@ -83,8 +83,11 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/gtk/gtk4-settings.ini` | `~/.config/gtk-4.0/settings.ini` |
 | `config/sway/sway-fx` | `~/.local/bin/sway-fx` |
 | `config/sway/sway-workspaces` | `~/.local/bin/sway-workspaces` |
+| `config/sway/sway-monocle` | `~/.local/bin/sway-monocle` |
+| `config/sway/sway-network` | `~/.local/bin/sway-network` |
+| `config/sway/sway-tray-filter` | `~/.local/bin/sway-tray-filter` |
 
-The six scripts are `chmod 0755` at the **source** before linking, because a
+The nine scripts are `chmod 0755` at the **source** before linking, because a
 symlink inherits its target's mode.
 
 ⚠ Two GTK destinations **rename**: GTK requires `settings.ini` under a
@@ -173,7 +176,9 @@ Notifications and media:
 | Key | Action |
 |---|---|
 | `$mod+n` | Toggle the swaync control center |
+| `$mod+i` | Toggle the wifi picker (`sway-network`) — see *The wifi picker* |
 | click the clock | Open the month calendar (`sway-calendar`) — see *The clock is the center module* |
+| **middle**-click the network glyph | The same picker — left-click is the control center, per the one-destination rule |
 | `$mod+Shift+n` | Push the newest popup off screen (`--hide-latest`; it stays in history) |
 | `XF86Audio{Raise,Lower}Volume` | Volume ±, with the swayosd overlay |
 | `XF86AudioMute` / `XF86AudioMicMute` | Mute sink / source |
@@ -230,7 +235,8 @@ re-adding percentages, note what each removal bought:
 - **Volume is icon-only.** Same reasoning; the glyph still carries muted-or-not,
   which is the part you read at a glance.
 - **Network is icon-only.** The glyph is a signal-strength ramp; SSID, address
-  and dBm are one hover away.
+  and dBm are one hover away, and the picker is one **middle**-click away (see
+  *The wifi picker*).
 - **Battery keeps its percentage**, and the clock keeps the date. These are read
   at rest rather than adjusted, so a number earns its place.
 
@@ -393,6 +399,209 @@ logos, usually a raw pixmap rather than a themed icon name (Discord's `IconName`
 property errors outright; only `IconPixmap` answers). There is no lever to
 desaturate or symbolize them: GTK3 offers `-gtk-icon-effect: dim|highlight` and
 nothing else.
+
+## The wifi picker
+
+`config/sway/sway-network` is a layer-shell panel that lists the networks in the
+air and joins one. **Middle**-click the bar's network glyph, or `$mod+i`.
+
+Before it, joining a network meant `nm-connection-editor`, which is a connection
+*editor*: it lists saved profiles rather than what is around you, and joining
+something new takes a dialog and six fields. nm-applet's own menu was not an
+option either — its icon is filtered out of the tray on purpose (see *The tray*),
+and the menu hangs off that icon. So the desktop had no "show me what is here,
+let me click one".
+
+### Middle-click, and why not left
+
+Left-click stays `swaync-client -t -sw`, like every other status readout. That is
+the *one-destination rule* (see *The bar shows almost no numbers*), and it is
+worth more than putting this on the most obvious button: the restrained bar only
+works if the numbers live one **predictable** click away. The picker therefore
+sits exactly where `sway-quickpanel` sits on `pulseaudio` — the middle button —
+and `$mod+i` is the discoverable half of the pair.
+
+    network   left   -> swaync-client -t -sw
+              middle -> sway-network
+              right  -> nm-connection-editor
+
+⚠ **`$mod+n` was already the control center**, which is why the key is `i`.
+
+### It talks to NetworkManager over D-Bus, not through `nmcli`
+
+Three things that cost something if you take the shell route:
+
+- **The password never reaches a command line.** `nmcli device wifi connect SSID
+  password …` puts the PSK in `argv`, readable by any local process in
+  `/proc/<pid>/cmdline` for as long as the process lives. `AddAndActivateConnection`
+  carries it over the bus instead — the same route nm-applet uses.
+- **One read instead of dozens.** See below.
+- State arrives as **signals**, so a connection coming up redraws at once.
+
+nm-applet is *not* replaced and must keep running: it is the session's secret
+agent, which is what prompts when a saved key is rejected or an 802.1X network
+needs credentials. It does that with no icon on screen.
+
+### ⚠ One `GetManagedObjects` call, not a property read per access point
+
+NetworkManager implements `org.freedesktop.DBus.ObjectManager` at
+`/org/freedesktop`, and one call there returns the daemon, every device, every
+access point and every active connection. Measured on this box:
+
+| Read | Cost |
+|---|---|
+| `GetAll` per object, 4 APs | 15.8 ms |
+| `GetManagedObjects`, 103 objects | 16.6 ms (78 ms cold, once) |
+
+The first scales with the **number of access points**, so a cafe with 40 of them
+costs ~110 ms of frozen UI per refresh; the second scales with total object count
+and barely moves. It is also atomic, so the AP list and the active-connection
+list can never disagree about what is connected.
+
+**Saved profiles are the exception and are cached.** Their settings are not
+properties — each needs its own `GetSettings`, ~65 ms for the 25 profiles here —
+so the map is built once at startup, while the server is hidden and nobody is
+waiting, and rebuilt on `NewConnection` / `ConnectionRemoved`.
+
+### ⚠ `DeviceType` is the only safe filter, and both obvious alternatives are wrong
+
+This machine runs docker, so NetworkManager manages **nine bridges and eight
+veths**, every one of them reporting `connected (externally)`. Two plausible ways
+to keep them out of the wired section both fail:
+
+- `nmcli -t -f TYPE device` calls a veth **`ethernet`** — filtering on nmcli's
+  type word puts eight veth pairs in the list;
+- every veth **also exposes the `Device.Wired` D-Bus interface** (measured: 8
+  objects carry both `Device.Veth` and `Device.Wired`) — so filtering on the
+  presence of that interface is wrong in exactly the same way.
+
+The `DeviceType` property separates them: veth is 20, bridge is 13, a real
+ethernet port is 1. This box has **no** ethernet device at all, so the whole
+wired section is correctly absent.
+
+### VPN: what NM owns is a toggle, what it does not is read-only
+
+Profiles of type `vpn` or `wireguard` get a real on/off row. An active `tun`
+device gets a **read-only** row instead — `tailscale0` here, and openvpn's `tun0`
+when an HTB box is up. NetworkManager auto-generates a `tun` profile for a device
+somebody else created, so it shows up in the list, but deactivating it from here
+would fight whatever actually owns it.
+
+### An SSID is 32 arbitrary octets, not a string
+
+It is not required to be UTF-8, and this box carries live proof that the escape
+hatch gets used: two saved profiles named `/6F/77/65/6E` and `x6Fx77x65x6E`. So
+rows are **keyed by the raw bytes** and the decode is lenient and never raises —
+keying on the display form would merge two networks that both decode to
+replacement characters and offer one's password to the other. The SSID sent in a
+new profile is likewise the raw octets, not the decoded string re-encoded.
+
+⚠ **One row per SSID, strongest BSS wins.** Not cosmetic: a dual-band router
+publishes one AP object per band, so `32Bytes` appears twice here with nothing to
+tell the rows apart, and any mesh shows it once per repeater.
+
+### ⚠ `LastScan` is `CLOCK_BOOTTIME`, and `GLib.get_monotonic_time()` is not
+
+NM stamps `LastScan` on `CLOCK_BOOTTIME`, which keeps counting across suspend.
+`CLOCK_MONOTONIC` does not. Measured on this laptop right after a resume:
+
+    LastScan (BOOTTIME)  904865097
+    CLOCK_BOOTTIME       904890608   <- 25 s ago, correct
+    CLOCK_MONOTONIC      322709482   <- 582 s adrift
+
+so with the wrong clock every scan looks ten minutes in the future and the footer
+claims a scan is in flight forever. Same suspend-versus-wall-clock shape as the
+vault-agent renewal trap.
+
+### ⚠ Rows are reconciled in place; rebuilding the list destroys a password
+
+The panel refreshes on a 2 s tick *and* on every NetworkManager signal. Emptying
+the list box and rebuilding it — the obvious implementation — would destroy an
+open password field and its contents while somebody was typing into it, and drop
+keyboard focus and the hover highlight several times a minute. Widgets are
+created once per SSID and only reordered.
+
+For the same reason **the open row survives its network dropping out of a scan**:
+a weak AP comes and goes between scans, and without that the row you are typing
+into vanishes mid-word.
+
+### One click connects; it does not merely open the row
+
+Expanding first would put a second click in front of the only thing anyone opens
+this panel to do. So a row opens only when it has something to **ask** (a
+password) or something to **show** (you are already on this network, here is
+Disconnect). A saved profile or an open network joins on the one click.
+
+Forget therefore needs another route, and that is **right-click**, which always
+opens the row whatever its state.
+
+`Disconnect` calls `Device.Disconnect`, not `DeactivateConnection`, because it
+also stops the device autoconnecting straight back to what you just left — which
+is the whole point of pressing it. `Forget` deletes **every** profile for the
+SSID, not the first match: this box has `FoodArt-5GHz` and `FoodArt-5GHz 1`, and
+deleting one would leave the other to autoconnect, so the network would look
+forgotten and then come back.
+
+802.1X is handed to `nm-connection-editor` rather than approximated. It needs an
+identity, a method and sometimes a certificate — a form, not a password box.
+
+### ⚠ The signal-strength ramp is weak, measured, and kept anyway
+
+The four `md-wifi_strength_*` glyphs are one cone of identical ink bounds whose
+hollow top arc shrinks as strength rises, so neighbouring levels barely differ.
+Rendered from the real face and diffed:
+
+| Size | Ink (px) | Adjacent-level differences |
+|---|---|---|
+| 15 px | 71 / 81 / 91 / 102 | 17, 16, 30 |
+| 21 px | 127 / 146 / 168 / 194 | 26, 28, 51 |
+
+A step is ~20-23% of the glyph's ink **at every size** — it is a property of the
+shapes, not the point size, so **growing the label buys nothing**. Two other
+families were rendered the same way and are worse by that metric
+(`md-network_strength` min step 8 px, `md-signal_cellular` 3 px) — though
+`signal_cellular` is arguably the easiest to *read* despite the number, because
+it changes a **countable** feature (filled bars) rather than an area. Which is
+the lesson: a pixel-difference count is a poor proxy for legibility.
+
+It stays because the icon is a tie-breaker, not the primary cue — rows are sorted
+strongest-first, the name is what anyone picks by, and the exact percentage is one
+click away. Changing it would put a second visual language for signal strength on
+the same desktop as the bar, whose ramp this one is byte-identical to.
+
+### ⚠ The bar's tooltip draws over the panel, and that is an accepted trade
+
+Middle-clicking leaves the pointer on the network glyph, so waybar's tooltip
+appears — and a GTK tooltip is its own surface, not confined to the bar's height,
+so it lands over the panel's top-right and covers the Wi-Fi switch until the
+pointer moves. This is the same artifact recorded for `custom/notification` in
+*Where it sits, and what CSS can and cannot do to it*, where the fix was
+`"tooltip": false` on the module that opens the panel.
+
+It is **deliberately not applied here.** The tooltip is the only hover readout of
+the ESSID, IP, dBm and frequency, and "the bar shows almost no numbers, they are
+a hover away" is the design. The overlap is transient — it clears the moment you
+move toward the panel. If it ever stops being worth it, the fix is one line on
+`network` in `config/waybar/config`.
+
+### Where the pieces live
+
+- Resident server, started hidden from `exec_always` in `config/sway/config`.
+  `--server` checks its own pidfile and declines to become a second instance,
+  which is what makes it safe under `swaymsg reload`. ⚠ No `pgrep` guard, for the
+  same self-match reason as `sway-calendar` — `pgrep -f sway-network` matches the
+  `sh -c` running the line.
+- ⚠ `--anchor` **must match where the network glyph is** in
+  `config/waybar/config`, because the server owns the geometry; the click path
+  only delivers a signal. `network` is in `group/status` in `modules-right`, so
+  `--anchor right`.
+- `layer_effects` for the `sway-network` namespace lives in `config/sway/sway-fx`
+  and is `shadows disable`, for the reason `sway-calendar` is: the surface spans
+  the whole usable area (so a click outside can dismiss it), so a compositor
+  shadow draws a full-width band under the bar rather than anything around the
+  panel. The rounding and the shadow both come from CSS in the script.
+- `SWAY_NETWORK_DEBUG=1` traces the events a screenshot cannot show — a panel
+  that hid itself and one that never mapped look identical.
 
 ## Brightness has a floor, and lies about it
 

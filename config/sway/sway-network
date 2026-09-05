@@ -1,0 +1,1772 @@
+#!/usr/bin/env python3
+"""sway-network -- wifi picker and network menu for sway.
+
+Linked to ~/.local/bin/sway-network by modules/sway.go. Opened by MIDDLE-CLICKING
+the network readout in waybar (config/waybar/config), or with $mod+n.
+
+WHY MIDDLE-CLICK AND NOT LEFT -- every status readout in this bar left-clicks to
+the swaync control center, and that is a rule rather than four separate choices:
+the bar shows almost no numbers, so it only works if the numbers live one
+PREDICTABLE click away. The specific tools hang off the secondary buttons, which
+is exactly where sway-quickpanel already sits on `pulseaudio`. So:
+
+    network   left   -> swaync-client -t -sw     (the numbers, like every readout)
+              middle -> sway-network             (this: pick a network)
+              right  -> nm-connection-editor     (edit a connection in full)
+
+WHY THIS EXISTS -- joining a wifi network from this desktop used to mean
+nm-connection-editor, which is a connection EDITOR: it lists saved profiles, not
+what is in the air, and joining something new from it takes a dialog and six
+fields. nm-applet's own menu is not available either -- its icon is deliberately
+filtered out of the tray (see sway-tray-filter), and its menu is attached to that
+icon. So there was no "show me the networks around me and let me click one".
+
+WHAT IT TALKS TO -- NetworkManager's D-Bus API directly, not `nmcli`. Three
+reasons, all of which cost something if you take the shell route instead:
+
+  * THE PASSWORD NEVER REACHES A COMMAND LINE. `nmcli device wifi connect SSID
+    password hunter2` puts the PSK in argv, where it is world-readable in
+    /proc/<pid>/cmdline for as long as the process lives. AddAndActivateConnection
+    takes it over the bus instead, which is the same route nm-applet uses.
+  * ONE READ INSTEAD OF DOZENS. See the GetManagedObjects note on refresh().
+  * State arrives as SIGNALS, so a connection going up redraws immediately
+    rather than on the next poll.
+
+nm-applet stays running and is NOT replaced by this: it is NetworkManager's
+secret agent, the thing that prompts when a saved key is rejected or an 802.1X
+network needs credentials, and it does that job with no icon on screen.
+
+Keys:
+    Escape          close the open row, or the panel
+    Enter           in the password field, connect
+    Tab / arrows    move between rows (ordinary GTK focus)
+"""
+import os
+import signal
+import sys
+
+
+# -- The resident-server fast path --------------------------------------------
+# Identical in shape to sway-calendar, and for the identical measured reason: the
+# `gi` imports alone cost ~220ms, so a spawn-per-click panel cannot feel
+# instant. The window is built ONCE by a server autostarted from
+# config/sway/config, and a click merely signals it.
+#
+# The scan is the second reason, and it is specific to this panel. A cold
+# NetworkManager scan takes seconds to fill in, so a panel that started scanning
+# only when you clicked would open empty and populate under your cursor. The
+# resident server is already subscribed when you open it, so the list is there
+# in the first frame.
+#
+# Measured here, median of 7, against sway-calendar as the reference for what
+# this desktop already accepts:
+#
+#     python3 -c pass ........  43 ms   (interpreter floor)
+#     sway-calendar, client ..  92 ms
+#     sway-network,  client ..  88 ms
+#
+# i.e. on par with its sibling, and nowhere near the ~300 ms a GTK import costs.
+#
+# ⚠ FILE SIZE IS A STARTUP COST HERE, WHICH IS NOT TRUE OF AN IMPORTED MODULE.
+# A script run as __main__ is never bytecode-cached, so CPython recompiles the
+# whole file on every invocation -- including the parts the fast path is about to
+# skip. Measured: compiling this file takes 25.9 ms against sway-calendar's
+# 7.5 ms, tracking their sizes (75 KB vs 35 KB). It does not dominate today, but
+# it is the reason not to keep growing the file indefinitely, and it is why
+# moving the fast path earlier cannot help any further -- compilation of
+# everything below it has already happened by then.
+#
+# WARNING: THIS BLOCK MUST STAY ABOVE `import gi`. Module-level imports run at
+# exec time, before main() is entered, so moving this logic into main() would
+# pay the full GTK cost on the client path and buy nothing. sway-calendar
+# records the measurement (~280ms/click) from when it had exactly that bug.
+PIDFILE = os.path.join(
+    os.environ.get("XDG_RUNTIME_DIR") or "/tmp/%d" % os.getuid(),
+    "sway-network.pid")
+
+
+def server_pid():
+    """PID of the live server, or None. A stale pidfile reads as None."""
+    try:
+        with open(PIDFILE) as f:
+            pid = int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+    if pid == os.getpid():
+        return None
+    try:
+        os.kill(pid, 0)  # probe only
+    except OSError:
+        return None      # stale: a crash, or a reboot that left the file behind
+    return pid
+
+
+def signal_server(sig):
+    """Send `sig` to the resident server. True if it was delivered."""
+    pid = server_pid()
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, sig)
+        return True
+    except OSError:
+        return False
+
+
+def client_fast_path(argv):
+    """Exit code if this invocation needs no GTK at all, else None."""
+    if any(a in ("-h", "--help") for a in argv):
+        print(__doc__.strip())
+        return 0
+    if "--server" in argv:
+        # Decline to become a second server. This is also why the autostart
+        # needs no pgrep guard -- and it could not use one anyway, since
+        # `pgrep -f sway-network` matches the shell that launched it.
+        return 0 if server_pid() is not None else None
+    if signal_server(signal.SIGUSR1):
+        return 0  # the click path -- see the measurements above
+    return None   # no server running -- fall through and become one
+
+
+if __name__ == "__main__":
+    _rc = client_fast_path(sys.argv[1:])
+    if _rc is not None:
+        sys.exit(_rc)
+
+
+import gi  # noqa: E402  -- see the fast-path note above
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("GtkLayerShell", "0.1")
+# Gdk MUST be pinned too. Without this line Gdk resolves first, loads GTK 4, and
+# the Gtk 3.0 requirement then fails at import. sway-calendar and sway-quickpanel
+# pin both for the same reason; py_compile does not catch it.
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gio, GLib, Gdk, Gtk, GtkLayerShell, Pango  # noqa: E402
+
+APP_ID = "sway-network"
+
+# -- NetworkManager D-Bus names -----------------------------------------------
+NM = "org.freedesktop.NetworkManager"
+NM_PATH = "/org/freedesktop/NetworkManager"
+NM_SETTINGS_PATH = "/org/freedesktop/NetworkManager/Settings"
+I_NM = "org.freedesktop.NetworkManager"
+I_DEV = "org.freedesktop.NetworkManager.Device"
+I_WIFI = "org.freedesktop.NetworkManager.Device.Wireless"
+I_AP = "org.freedesktop.NetworkManager.AccessPoint"
+I_ACTIVE = "org.freedesktop.NetworkManager.Connection.Active"
+I_SETTINGS = "org.freedesktop.NetworkManager.Settings"
+I_CONN = "org.freedesktop.NetworkManager.Settings.Connection"
+I_IP4 = "org.freedesktop.NetworkManager.IP4Config"
+I_PROPS = "org.freedesktop.DBus.Properties"
+I_OBJMGR = "org.freedesktop.DBus.ObjectManager"
+
+# NMDeviceType. All five below were confirmed against this box's live device
+# list rather than taken from the header.
+#
+# WARNING: DEVICETYPE IS THE ONLY SAFE FILTER, AND BOTH OBVIOUS ALTERNATIVES ARE
+# WRONG HERE. This machine runs docker, so NetworkManager manages nine bridges
+# and eight veths, all reported `connected (externally)`:
+#   * `nmcli -t -f TYPE device` calls a veth "ethernet" -- so filtering on
+#     nmcli's type word puts eight veth pairs in the wired section;
+#   * every veth ALSO exposes the `Device.Wired` D-Bus interface (measured: 8
+#     objects carry both Device.Veth and Device.Wired) -- so filtering on the
+#     presence of that interface is wrong in exactly the same way.
+# The DeviceType property distinguishes them: veth is 20, bridge is 13, and a
+# real ethernet port is 1.
+DEV_ETHERNET = 1
+DEV_WIFI = 2
+DEV_BRIDGE = 13
+DEV_TUN = 16
+DEV_VETH = 20
+DEV_WIREGUARD = 29
+
+# NMDeviceState -- only the ones this panel distinguishes.
+DEV_STATE_UNMANAGED = 10
+DEV_STATE_UNAVAILABLE = 20
+DEV_STATE_DISCONNECTED = 30
+DEV_STATE_NEED_AUTH = 60
+DEV_STATE_ACTIVATED = 100
+DEV_STATE_DEACTIVATING = 110
+DEV_STATE_FAILED = 120
+
+# NMActiveConnectionState
+ACT_ACTIVATING = 1
+ACT_ACTIVATED = 2
+
+# NM80211ApFlags
+AP_FLAGS_PRIVACY = 0x1
+
+# NM80211ApSecurityFlags. Verified against a live reading: this box's AP reports
+# RsnFlags 392 == 0x188 == PAIR_CCMP | GROUP_CCMP | KEY_MGMT_PSK, i.e. WPA2-PSK.
+SEC_KEY_MGMT_PSK = 0x100
+SEC_KEY_MGMT_802_1X = 0x200
+SEC_KEY_MGMT_SAE = 0x400
+SEC_KEY_MGMT_OWE = 0x800
+SEC_KEY_MGMT_OWE_TM = 0x1000
+SEC_KEY_MGMT_EAP_SUITE_B = 0x2000
+SEC_ENTERPRISE = SEC_KEY_MGMT_802_1X | SEC_KEY_MGMT_EAP_SUITE_B
+
+# -- Icons ---------------------------------------------------------------------
+# Written as escapes, not raw bytes: every Nerd Font icon here is in Plane 15,
+# and config/waybar/config records how easily a non-UTF-8-clean tool strips those
+# invisibly. All of these were checked against the cmap of the face this desktop
+# actually renders with (IosevkaTermNerdFont-Regular) before being used -- the
+# battery ramp in config/waybar/config carries the same warning.
+#
+# The four-step wifi ramp is byte-identical to the one in config/waybar/config,
+# and deliberately so: the bar's glyph and this panel's row for the same network
+# must never disagree about how strong the signal is. Percentage buckets are
+# therefore also the same -- 4 icons over 0-100, i.e. [0-24] [25-49] [50-74]
+# [75-100].
+#
+# KNOWN WEAK, MEASURED, AND KEPT ANYWAY -- do not "fix" it by growing the icon.
+# These four Material glyphs are one cone of identical ink bounds whose hollow
+# top arc shrinks as strength rises, so neighbouring levels differ by very
+# little. Rendered from the real face and diffed:
+#
+#     size 15px   ink 71/81/91/102 px   adjacent-level differences 17, 16, 30
+#     size 21px   ink 127/146/168/194   adjacent-level differences 26, 28, 51
+#
+# i.e. a step is ~20-23% of the glyph's ink AT EVERY SIZE -- it is a property of
+# the shapes, not of the point size, so scaling the label buys nothing. Two
+# alternative families were rendered and measured the same way and are WORSE by
+# that metric (md-network_strength min step 8 px, md-signal_cellular 3 px),
+# though signal_cellular is arguably easier to read despite the number, because
+# it changes a COUNTABLE feature -- filled bars -- rather than an area. That is
+# also why the pixel metric alone should not decide this.
+#
+# It stays because the icon is a tie-breaker here, not the primary cue: rows are
+# sorted strongest-first, the name is what anyone actually picks by, and the
+# exact percentage is one click away in the expanded row. Changing it would put
+# a second visual language for signal strength on the same desktop as the bar.
+ICON_WIFI = ["\U000f091f", "\U000f0922", "\U000f0925", "\U000f0928"]
+ICON_WIFI_OFF = "\U000f092e"     # md-wifi_off
+ICON_WIFI_NONE = "\U000f092b"    # md-wifi_strength_alert_outline
+ICON_LOCK = "\U000f033e"         # md-lock
+ICON_ETHERNET = "\U000f0200"     # md-ethernet
+ICON_VPN = "\U000f099d"          # md-shield_lock
+ICON_COG = "\U000f0493"          # md-cog
+ICON_EYE = "\U000f0208"          # md-eye
+ICON_EYE_OFF = "\U000f0209"      # md-eye_off
+
+# -- Geometry ------------------------------------------------------------------
+# GAP IS MEASURED FROM THE USABLE AREA AND ZERO IS CORRECT -- not a missing
+# setting. A layer surface anchored to TOP with exclusive_zone 0 has its margins
+# resolved against the area left AFTER waybar's exclusive zone, so there is no
+# bar arithmetic to do. usable_area.y is 52 here and a tiled window starts at
+# exactly 52 (`gaps top -8` cancels `gaps inner 8`), so GAP 0 lines this panel's
+# top edge up with the window beside it.
+#
+# Do not recompute this from the bar's parts. waybar's zone is height 40 +
+# margin-top 6 + margin-BOTTOM 6 = 52, and the margin-bottom is the term that
+# keeps getting dropped -- sway-calendar shipped at GAP 6 (landing on y58) and
+# swaync at control-center-margin-top 5 (y57) from exactly that error. Measure:
+#   swaymsg -t get_outputs | jq '.[0].rect, .[0].layer_shell_surfaces'
+GAP = 0
+EDGE_MARGIN = 10   # waybar's own margin-left/right, for the left/right anchors
+PANEL_WIDTH = 380  # matches swaync's notification-window-width
+LIST_MAX_HEIGHT = 420
+
+# How long to ignore focus events after mapping. A layer surface emits a
+# spurious focus-in -> focus-out pair within milliseconds of mapping, so an
+# unguarded close-on-focus-loss handler dismisses the panel before the first
+# frame -- the process exits 0 with no window and no error. Gating on "have we
+# ever been focused" does not help, because that spurious focus-in already set
+# it. sway-calendar carries the same guard and the full trace.
+FOCUS_ARM_MS = 500
+
+# Refresh cadence while the panel is VISIBLE. Nothing runs while it is hidden:
+# the signal subscriptions are dropped and the tick is cancelled, so a resident
+# server that nobody has opened costs zero wakeups.
+TICK_MS = 2000        # safety net behind the signals
+RESCAN_MS = 10000     # ask NM for a fresh scan this often while open
+COALESCE_MS = 200     # debounce: a burst of signals redraws once
+
+# -- Style ---------------------------------------------------------------------
+# The material is the one shared by swaync, sway-calendar and fuzzel: #0b0b11 at
+# high alpha, a lit inset hairline, 16px radius, and NO accent hue in any
+# resting state. See docs/sway.md ("Four surfaces share one material").
+#
+# The alpha is deliberately high (0.94) and must NOT be lowered to match the
+# bar's 0.32/0.60. The bar is genuinely blurred, so a low alpha there reads as
+# glass; this surface is NOT blurred -- blur on a panel-sized surface spills a
+# visible band past its edge, measured on swaync -- so anything showing through
+# arrives SHARP. At 0.86 the terminal behind was legible through the panel.
+#
+# THE ROUNDING IS THIS border-radius, NOT the compositor. The `layer_effects`
+# rule for this namespace in config/sway/sway-fx sets a corner_radius, but that
+# applies to the SURFACE, which spans the whole usable area and is transparent,
+# so it rounds nothing anyone can see. Same for shadows -- see the box-shadow
+# below, and the `shadows disable` in sway-fx that it replaces.
+#
+# Three syntax notes, each of which discards the WHOLE stylesheet if broken:
+# GTK3 CSS comments are C-style (a `#` line is a parse error); this is a Python
+# BYTES literal so it must stay pure ASCII; and GTK3 is not the web -- there is
+# no `transform`, and `font-feature-settings: "tnum" 1` is rejected where
+# `font-feature-settings: "tnum"` is fine. Gtk.CssProvider().load_from_data()
+# RAISES GError rather than merely emitting parsing-error, so a bad property
+# here is a hard startup failure, not a silent one.
+CSS = b"""
+/* The surface spans the whole usable area so a click outside the panel reaches
+   us and can dismiss it, so the WINDOW must be transparent and box.panel is
+   what carries the background. */
+window { background-color: transparent; }
+
+box.panel {
+    background-color: rgba(11, 11, 17, 0.94);
+    border-radius: 16px;
+    /* First entry is the lit top hairline and must stay FIRST and inset; the
+       rest are the drop shadow, which has to come from here because the
+       compositor's is disabled for this namespace. */
+    box-shadow: inset 0 1px 0 rgba(205, 214, 244, 0.10),
+                0 1px 2px rgba(17, 17, 27, 0.55),
+                0 0 10px rgba(17, 17, 27, 0.65),
+                0 12px 36px rgba(17, 17, 27, 0.60);
+    padding: 6px;
+}
+
+/* Header: the Wi-Fi title and its switch. -------------------------------- */
+box.header { padding: 6px 8px 6px 12px; }
+label.title {
+    color: #cdd6f4; font-family: Cantarell, sans-serif;
+    font-size: 14px; font-weight: bold;
+}
+label.subtitle {
+    color: #6c7086; font-family: Cantarell, sans-serif; font-size: 11px;
+}
+
+/* Rows -------------------------------------------------------------------- */
+/* One box, one oval: the resting padding is what the hover ring traces, so it
+   is not invisible. Same lesson as the bar's status chips. */
+button.row {
+    background-color: transparent; background-image: none; border: none;
+    box-shadow: none; color: #cdd6f4;
+    font-family: Cantarell, sans-serif; font-size: 13px;
+    padding: 7px 10px; border-radius: 10px;
+}
+button.row:hover {
+    background-color: rgba(205, 214, 244, 0.07);
+    box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.10);
+}
+/* Connected is the same dark pigment + lit hairline as the bar's focused
+   workspace chip, NOT a saturated blue fill. A tint should modulate the
+   material rather than paint over it -- the blue fill is the thing Apple's
+   Liquid Glass guidance warns against, and it is why no accent survives in a
+   resting state anywhere on this desktop. */
+button.row.active {
+    background-color: rgba(17, 17, 27, 0.55);
+    box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.30);
+}
+button.row.active:hover { background-color: rgba(17, 17, 27, 0.75); }
+/* An externally-managed device is shown but not actionable. */
+button.row.readonly { color: #a6adc8; }
+
+label.rowicon {
+    font-family: "IosevkaTerm Nerd Font", monospace;
+    font-size: 15px; color: #cdd6f4; min-width: 22px;
+}
+label.rowicon.dim { color: #6c7086; }
+label.rowname { color: #cdd6f4; }
+label.rowmeta {
+    color: #6c7086; font-size: 11px;
+    font-feature-settings: "tnum";
+}
+label.rowlock {
+    font-family: "IosevkaTerm Nerd Font", monospace;
+    font-size: 11px; color: #6c7086;
+}
+
+/* The expanded half of a row: actions, and the password field. ------------- */
+box.actions { padding: 2px 10px 8px 42px; }
+label.detail {
+    color: #a6adc8; font-size: 11px;
+    font-family: Cantarell, sans-serif;
+    font-feature-settings: "tnum";
+    padding-bottom: 6px;
+}
+button.act {
+    background-color: rgba(205, 214, 244, 0.07);
+    background-image: none; border: none;
+    box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.10);
+    color: #cdd6f4; font-family: Cantarell, sans-serif; font-size: 12px;
+    padding: 5px 14px; border-radius: 9px;
+}
+button.act:hover { background-color: rgba(205, 214, 244, 0.13); }
+/* Forget and Disconnect are the destructive pair and are the ONLY place any
+   hue survives in this panel, for the same reason waybar's urgent workspace
+   keeps its fill: drain that too and nothing can interrupt. */
+button.act.danger { color: #f38ba8; }
+button.act.danger:hover { background-color: rgba(243, 139, 168, 0.13); }
+
+entry.psk {
+    background-color: rgba(17, 17, 27, 0.75); background-image: none;
+    border: none; box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.14);
+    color: #cdd6f4; font-family: Cantarell, sans-serif; font-size: 12px;
+    padding: 5px 10px; border-radius: 9px; caret-color: #cdd6f4;
+}
+entry.psk:focus { box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.34); }
+entry.psk selection { background-color: rgba(205, 214, 244, 0.20); color: #cdd6f4; }
+button.reveal {
+    background-color: transparent; background-image: none; border: none;
+    box-shadow: none; color: #6c7086;
+    font-family: "IosevkaTerm Nerd Font", monospace; font-size: 13px;
+    padding: 4px 8px; border-radius: 8px;
+}
+button.reveal:hover { color: #cdd6f4; background-color: rgba(205, 214, 244, 0.07); }
+
+/* Separators and section headings ----------------------------------------- */
+label.section {
+    color: #6c7086; font-family: Cantarell, sans-serif;
+    font-size: 10px; font-weight: bold; letter-spacing: 0.08em;
+    padding: 10px 12px 4px 12px;
+}
+separator.rule {
+    background-color: rgba(205, 214, 244, 0.08);
+    min-height: 1px; margin: 4px 10px;
+}
+
+/* Footer ------------------------------------------------------------------ */
+box.footer { padding: 6px 8px 4px 12px; }
+label.status { color: #6c7086; font-family: Cantarell, sans-serif; font-size: 11px; }
+label.status.error { color: #f38ba8; }
+button.settings {
+    background-color: transparent; background-image: none; border: none;
+    box-shadow: none; color: #a6adc8;
+    font-family: Cantarell, sans-serif; font-size: 11px;
+    padding: 4px 10px; border-radius: 8px;
+}
+button.settings:hover { color: #cdd6f4; background-color: rgba(205, 214, 244, 0.07); }
+
+/* The scroller must not paint its own background over the panel's. */
+scrolledwindow, scrolledwindow viewport { background-color: transparent; }
+scrollbar { background-color: transparent; border: none; }
+scrollbar slider {
+    background-color: rgba(205, 214, 244, 0.16);
+    border: none; border-radius: 8px; min-width: 5px;
+}
+scrollbar slider:hover { background-color: rgba(205, 214, 244, 0.28); }
+
+/* The Wi-Fi switch. GTK's default is a bright blue capsule; this is the same
+   pigment-and-hairline treatment as everything else. */
+switch {
+    background-color: rgba(17, 17, 27, 0.75);
+    background-image: none; border: none;
+    box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.14);
+    border-radius: 14px; min-width: 40px; min-height: 22px;
+}
+switch:checked {
+    background-color: rgba(205, 214, 244, 0.22);
+    box-shadow: inset 0 0 0 1px rgba(205, 214, 244, 0.34);
+}
+switch slider {
+    background-color: #cdd6f4; background-image: none;
+    border: none; border-radius: 50%;
+    min-width: 18px; min-height: 18px; margin: 1px;
+}
+"""
+
+
+# =============================================================================
+#  Reading what NetworkManager reports
+# =============================================================================
+def ssid_str(raw):
+    """Decode an SSID byte array for display.
+
+    An SSID is 32 arbitrary OCTETS, not a string -- 802.11 does not require it
+    to be UTF-8, and this box carries live proof that the escape hatch is used
+    in practice: two saved profiles named '/6F/77/65/6E' and 'x6Fx77x65x6E'.
+    So decode leniently and never raise; a replacement character in one row is
+    survivable, an exception that empties the whole list is not.
+    """
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("utf-8", "replace")
+
+
+def ap_security(ap):
+    """('open' | 'psk' | 'sae' | 'owe' | 'enterprise', human label)."""
+    rsn, wpa, flags = ap["rsn"], ap["wpa"], ap["flags"]
+    both = rsn | wpa
+    if both & SEC_ENTERPRISE:
+        return ("enterprise", "WPA2-Enterprise" if not (rsn & SEC_KEY_MGMT_EAP_SUITE_B)
+                else "WPA3-Enterprise")
+    if rsn & SEC_KEY_MGMT_SAE:
+        # A transitional AP advertises SAE and PSK together. Prefer SAE: NM
+        # negotiates down by itself, and asking for wpa-psk on a WPA3-only AP
+        # fails outright.
+        return ("sae", "WPA3")
+    if both & SEC_KEY_MGMT_PSK:
+        return ("psk", "WPA2" if rsn else "WPA")
+    if both & (SEC_KEY_MGMT_OWE | SEC_KEY_MGMT_OWE_TM):
+        return ("owe", "Open (encrypted)")
+    if flags & AP_FLAGS_PRIVACY:
+        # PRIVACY with no WPA/RSN flags at all is WEP, which NM can still join
+        # and which no password field here can express safely.
+        return ("enterprise", "WEP")
+    return ("open", "Open")
+
+
+def wifi_icon(strength):
+    """The bar's ramp, so a row and the bar's glyph can never disagree.
+
+    Four icons over 0-100, matching config/waybar/config: the buckets are
+    [0-24] [25-49] [50-74] [75-100].
+    """
+    return ICON_WIFI[min(3, max(0, int(strength)) * len(ICON_WIFI) // 100)]
+
+
+def band_label(freq_mhz):
+    if freq_mhz >= 5925:
+        return "6 GHz"
+    if freq_mhz >= 4900:
+        return "5 GHz"
+    if freq_mhz:
+        return "2.4 GHz"
+    return ""
+
+
+DEBUG = bool(os.environ.get("SWAY_NETWORK_DEBUG"))
+
+
+def dbg(fmt, *args):
+    """Trace to stderr under SWAY_NETWORK_DEBUG=1.
+
+    Worth keeping: every interesting failure in a layer-shell panel is about
+    an event that did or did not arrive (the spurious post-map focus-out, a
+    click landing outside the panel box, a dismissal nobody asked for), and
+    none of that is visible from a screenshot -- a hidden panel and a panel
+    that was never shown look identical.
+    """
+    if DEBUG:
+        print("sway-network: " + (fmt % args if args else fmt), file=sys.stderr,
+              flush=True)
+
+
+def boottime_ms():
+    """Milliseconds on CLOCK_BOOTTIME, which is what NM's LastScan counts.
+
+    WARNING: GLib.get_monotonic_time() IS THE WRONG CLOCK AND THE ERROR IS
+    INVISIBLE UNTIL THE MACHINE SLEEPS. CLOCK_MONOTONIC stops during suspend
+    and CLOCK_BOOTTIME does not, so on this laptop, measured immediately after
+    a resume:
+
+        LastScan (BOOTTIME)  904865097
+        CLOCK_BOOTTIME       904890608   <- 25 s ago, correct
+        CLOCK_MONOTONIC      322709482   <- 582 s adrift, i.e. every scan looks
+                                            ten minutes in the future
+
+    which would leave the footer permanently claiming a scan was in flight.
+    The identical suspend-versus-wall-clock trap is what breaks vault-agent's
+    renewal timer; see the global CLAUDE.md.
+    """
+    import time
+    return int(time.clock_gettime(time.CLOCK_BOOTTIME) * 1000)
+
+# =============================================================================
+#  NetworkManager
+# =============================================================================
+class NetworkManager:
+    """Everything this panel knows about the network, over the system bus.
+
+    Reads go through ONE `GetManagedObjects` call on org.freedesktop.DBus's
+    ObjectManager at /org/freedesktop, which NetworkManager implements. That is
+    not a micro-optimization, it is what makes a synchronous read acceptable at
+    all -- measured on this box:
+
+        per-object GetAll, 4 APs .............  15.8 ms
+        GetManagedObjects, 103 objects .......  16.6 ms (78 ms cold, once)
+
+    The first number scales with the number of access points, so a cafe with 40
+    of them costs ~110 ms of frozen UI per refresh; the second scales with the
+    total object count and barely moves. One call is also atomic, so the AP list
+    and the active-connection list can never disagree about what is connected.
+
+    SAVED CONNECTIONS ARE THE EXCEPTION AND ARE CACHED. Their settings are not
+    D-Bus properties -- each one needs its own GetSettings call, and with 25
+    saved profiles here that is ~65 ms. They change only when a profile is added
+    or deleted, so the cache is built once at startup (while the server is
+    hidden and nobody is waiting) and rebuilt on NewConnection /
+    ConnectionRemoved.
+    """
+
+    def __init__(self):
+        self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
+        self._subs = []
+        self.saved_wifi = {}   # ssid str -> [{path, id, key_mgmt}]
+        self.saved_vpn = []    # [{path, id, type}]
+        self.reload_saved()
+
+    # -- low-level -----------------------------------------------------------
+    def _call(self, path, iface, method, args=None, timeout=4000):
+        return self.bus.call_sync(NM, path, iface, method, args, None,
+                                  Gio.DBusCallFlags.NONE, timeout, None)
+
+    def _call_async(self, path, iface, method, args, done=None, timeout=45000):
+        """Fire a method and report failure to `done`, never blocking the UI.
+
+        Every ACTION goes through here. Activating a connection returns as soon
+        as NM has accepted it -- association happens afterwards and arrives as
+        state signals -- but `AddAndActivateConnection` on a busy supplicant and
+        `Disconnect` on a wedged device can both take seconds, and a synchronous
+        call would freeze the panel for exactly as long.
+        """
+        def _cb(_src, res):
+            try:
+                self.bus.call_finish(res)
+                if done:
+                    done(None)
+            except GLib.Error as e:
+                if done:
+                    done(e.message)
+        self.bus.call(NM, path, iface, method, args, None,
+                      Gio.DBusCallFlags.NONE, timeout, None, _cb)
+
+    def _get(self, path, iface, name):
+        return self._call(path, I_PROPS, "Get",
+                          GLib.Variant("(ss)", (iface, name))).unpack()[0]
+
+    # -- saved connections ---------------------------------------------------
+    def reload_saved(self):
+        """Rebuild the SSID -> saved-profile map. See the class docstring."""
+        self.saved_wifi = {}
+        self.saved_vpn = []
+        try:
+            paths = self._get(NM_SETTINGS_PATH, I_SETTINGS, "Connections")
+        except GLib.Error:
+            return
+        for path in paths:
+            try:
+                s = self._call(path, I_CONN, "GetSettings").unpack()[0]
+            except GLib.Error:
+                continue  # deleted between the list and the read
+            conn = s.get("connection", {})
+            ctype = conn.get("type", "")
+            if ctype == "802-11-wireless":
+                raw = s.get("802-11-wireless", {}).get("ssid")
+                if raw is None:
+                    continue
+                # KEYED BY THE RAW OCTETS, NOT THE DECODED STRING. An SSID
+                # is 32 arbitrary bytes (see ssid_str), so two different
+                # networks can decode to the same replacement text; keying on
+                # the display form would merge them and offer one's password to
+                # the other.
+                ssid = bytes(raw)
+                # NOTE: ONE SSID CAN HAVE SEVERAL PROFILES, and this box has a
+                # live example -- 'FoodArt-5GHz' and 'FoodArt-5GHz 1' carry the
+                # same ssid. So this is a list, and "forget" deletes every entry
+                # in it rather than the first match.
+                self.saved_wifi.setdefault(ssid, []).append({
+                    "path": path,
+                    "id": conn.get("id", ssid_str(ssid)),
+                    "key_mgmt": s.get("802-11-wireless-security", {})
+                                 .get("key-mgmt", ""),
+                })
+            elif ctype in ("vpn", "wireguard"):
+                self.saved_vpn.append(
+                    {"path": path, "id": conn.get("id", path), "type": ctype})
+        self.saved_vpn.sort(key=lambda c: c["id"].lower())
+
+    # -- the snapshot --------------------------------------------------------
+    def snapshot(self):
+        """One atomic read of everything the UI draws. Never raises."""
+        snap = {
+            "ok": False, "wireless_enabled": False, "wireless_hw": True,
+            "wifi_dev": None, "aps": [], "ethernet": [], "vpn": [],
+            "active_ssid": None, "active_state": None, "last_scan": -1,
+        }
+        try:
+            objs = self._call("/org/freedesktop", I_OBJMGR,
+                              "GetManagedObjects").unpack()[0]
+        except GLib.Error:
+            return snap  # NM down or restarting: the UI shows the offline state
+        snap["ok"] = True
+
+        root = objs.get(NM_PATH, {}).get(I_NM, {})
+        snap["wireless_enabled"] = bool(root.get("WirelessEnabled", False))
+        snap["wireless_hw"] = bool(root.get("WirelessHardwareEnabled", True))
+
+        # Active connections, indexed by the device they run on, so a device row
+        # can name its profile without a second lookup.
+        active_by_dev, active_by_conn = {}, {}
+        for path, ifaces in objs.items():
+            a = ifaces.get(I_ACTIVE)
+            if not a:
+                continue
+            rec = {"path": path, "id": a.get("Id", ""), "type": a.get("Type", ""),
+                   "state": a.get("State", 0), "conn": a.get("Connection", "/"),
+                   "devices": list(a.get("Devices", []))}
+            active_by_conn[rec["conn"]] = rec
+            for d in rec["devices"]:
+                active_by_dev[d] = rec
+
+        def ip4_of(dev_props):
+            path = dev_props.get("Ip4Config", "/")
+            addrs = objs.get(path, {}).get(I_IP4, {}).get("AddressData", [])
+            if not addrs:
+                return None
+            a = addrs[0]
+            return "%s/%s" % (a.get("address", "?"), a.get("prefix", "?"))
+
+        # Devices. DeviceType is the only safe discriminator here -- see the
+        # constants block for the veth/bridge trap this box demonstrates.
+        wifi_props = None
+        for path, ifaces in objs.items():
+            d = ifaces.get(I_DEV)
+            if not d:
+                continue
+            dtype = d.get("DeviceType", 0)
+            if dtype == DEV_WIFI and wifi_props is None:
+                wifi_props = (path, d, ifaces.get(I_WIFI, {}))
+            elif dtype == DEV_ETHERNET:
+                act = active_by_dev.get(path)
+                snap["ethernet"].append({
+                    "path": path, "iface": d.get("Interface", "?"),
+                    "state": d.get("State", 0), "ip": ip4_of(d),
+                    "active": act,
+                    "available": list(d.get("AvailableConnections", [])),
+                })
+            elif dtype in (DEV_TUN, DEV_WIREGUARD):
+                # An UNMANAGEABLE tunnel: tailscale0 here, and openvpn's tun0
+                # when an HTB box is up. NM auto-generates a `tun` profile for a
+                # device somebody else created, so it appears in the list, but
+                # deactivating it from here would fight whatever owns it. These
+                # are shown READ-ONLY -- what NM genuinely owns arrives instead
+                # through saved_vpn below, as a real toggle.
+                act = active_by_dev.get(path)
+                if act and act["type"] in ("tun", "wireguard"):
+                    snap["vpn"].append({
+                        "kind": "external", "id": act["id"],
+                        "iface": d.get("Interface", "?"),
+                        "ip": ip4_of(d), "state": act["state"],
+                    })
+
+        snap["ethernet"].sort(key=lambda e: e["iface"])
+
+        # VPN and WireGuard profiles NM owns: real toggles.
+        for c in self.saved_vpn:
+            act = active_by_conn.get(c["path"])
+            snap["vpn"].append({
+                "kind": "managed", "id": c["id"], "type": c["type"],
+                "path": c["path"], "active": act,
+                "state": act["state"] if act else 0,
+            })
+
+        if wifi_props is None:
+            return snap  # no wifi hardware: the whole wifi section is hidden
+        dev_path, dev, wifi = wifi_props
+        snap["wifi_dev"] = {"path": dev_path, "iface": dev.get("Interface", "?"),
+                            "state": dev.get("State", 0), "ip": ip4_of(dev),
+                            "bitrate": wifi.get("Bitrate", 0)}
+        snap["last_scan"] = wifi.get("LastScan", -1)
+        active_ap = wifi.get("ActiveAccessPoint", "/")
+        act = active_by_dev.get(dev_path)
+        if act:
+            snap["active_ssid"] = act["id"]
+            snap["active_state"] = act["state"]
+
+        # ONE ROW PER SSID, STRONGEST BSS WINS. Not cosmetic: a dual-band router
+        # publishes one AP object per band, so this box shows '32Bytes' twice
+        # with nothing to tell the rows apart, and any router with roaming
+        # repeaters shows it once per repeater.
+        by_ssid = {}
+        for path, ifaces in objs.items():
+            p = ifaces.get(I_AP)
+            if not p:
+                continue
+            raw = bytes(p.get("Ssid", b""))
+            if not raw:
+                continue  # a hidden AP broadcasts an empty SSID; nothing to show
+            ssid = ssid_str(raw)
+            rec = {
+                "ssid": ssid, "ssid_raw": raw, "path": path,
+                "strength": int(p.get("Strength", 0)),
+                "flags": p.get("Flags", 0),
+                "wpa": p.get("WpaFlags", 0), "rsn": p.get("RsnFlags", 0),
+                "freq": p.get("Frequency", 0),
+                "is_active": path == active_ap,
+            }
+            cur = by_ssid.get(raw)
+            if cur is None or rec["strength"] > cur["strength"]:
+                # Keep the active flag even if a weaker BSS is the connected
+                # one -- the row must still read as connected.
+                if cur is not None and cur["is_active"]:
+                    rec["is_active"] = True
+                by_ssid[raw] = rec
+            elif rec["is_active"]:
+                cur["is_active"] = True
+
+        aps = list(by_ssid.values())
+        for ap in aps:
+            ap["saved"] = self.saved_wifi.get(ap["ssid_raw"], [])
+            ap["security"] = ap_security(ap)
+        # Connected first, then saved, then by signal. Anything you are likely
+        # to want is above the fold without scrolling.
+        aps.sort(key=lambda a: (not a["is_active"], not a["saved"],
+                                -a["strength"], a["ssid"].lower()))
+        snap["aps"] = aps
+        return snap
+
+    # -- signals -------------------------------------------------------------
+    def subscribe(self, handler):
+        """Watch everything that can change what the panel is drawing.
+
+        Only called while the panel is VISIBLE; unsubscribe() runs on hide, so a
+        server nobody has opened receives nothing and wakes for nothing.
+
+        The AccessPoint rule is a single subscription covering EVERY access
+        point, matched on arg0 of PropertiesChanged rather than on a path, so
+        adding an AP does not need a new watch -- signal strengths update
+        without this panel enumerating anything.
+        """
+        watches = [
+            (I_PROPS, "PropertiesChanged", None, I_AP),
+            (I_PROPS, "PropertiesChanged", NM_PATH, None),
+            (I_WIFI, "AccessPointAdded", None, None),
+            (I_WIFI, "AccessPointRemoved", None, None),
+            (I_DEV, "StateChanged", None, None),
+            (I_ACTIVE, "StateChanged", None, None),
+            (I_SETTINGS, "NewConnection", None, None),
+            (I_SETTINGS, "ConnectionRemoved", None, None),
+        ]
+        for iface, member, path, arg0 in watches:
+            self._subs.append(self.bus.signal_subscribe(
+                NM, iface, member, path, arg0,
+                Gio.DBusSignalFlags.NONE,
+                lambda *a, _m=member: handler(_m)))
+
+    def unsubscribe(self):
+        for sid in self._subs:
+            self.bus.signal_unsubscribe(sid)
+        self._subs = []
+
+    # -- actions -------------------------------------------------------------
+    def set_wireless_enabled(self, on, done=None):
+        self._call_async(NM_PATH, I_PROPS, "Set",
+                         GLib.Variant("(ssv)", (I_NM, "WirelessEnabled",
+                                                GLib.Variant("b", on))),
+                         done, timeout=8000)
+
+    def request_scan(self):
+        dev = None
+        try:
+            for d in self._get(NM_PATH, I_NM, "Devices"):
+                if self._get(d, I_DEV, "DeviceType") == DEV_WIFI:
+                    dev = d
+                    break
+        except GLib.Error:
+            return
+        if dev:
+            # Failure here is routine and must stay silent: NM rate-limits
+            # scanning, and a refused rescan simply means the list you already
+            # have is recent enough.
+            self._call_async(dev, I_WIFI, "RequestScan",
+                             GLib.Variant("(a{sv})", ({},)), None, timeout=8000)
+
+    def activate(self, conn_path, dev_path, ap_path="/", done=None):
+        self._call_async(NM_PATH, I_NM, "ActivateConnection",
+                         GLib.Variant("(ooo)", (conn_path, dev_path, ap_path)),
+                         done)
+
+    def add_and_activate(self, settings, dev_path, ap_path, done=None):
+        self._call_async(NM_PATH, I_NM, "AddAndActivateConnection",
+                         GLib.Variant("(a{sa{sv}}oo)",
+                                      (settings, dev_path, ap_path)), done)
+
+    def deactivate(self, active_path, done=None):
+        self._call_async(NM_PATH, I_NM, "DeactivateConnection",
+                         GLib.Variant("(o)", (active_path,)), done)
+
+    def disconnect_device(self, dev_path, done=None):
+        self._call_async(dev_path, I_DEV, "Disconnect", None, done)
+
+    def delete_connection(self, conn_path, done=None):
+        self._call_async(conn_path, I_CONN, "Delete", None, done)
+
+
+# =============================================================================
+#  Rows
+# =============================================================================
+def sync_children(container, keys, factory):
+    """Reconcile `container` to exactly `keys`, in order, reusing widgets.
+
+    WARNING: THE OBVIOUS ALTERNATIVE -- EMPTY THE BOX AND REBUILD IT ON EVERY
+    REFRESH -- IS WRONG HERE, AND NOT ONLY UNTIDY. The panel refreshes on a 2 s
+    tick and on every NetworkManager signal, so a rebuild would destroy an open
+    password field and its contents while somebody was typing into it, and drop
+    keyboard focus and the hover highlight several times a minute. Widgets are
+    therefore created once per key and only reordered.
+    """
+    existing = {}
+    for child in container.get_children():
+        key = getattr(child, "sync_key", None)
+        if key in keys and key not in existing:
+            existing[key] = child
+        else:
+            child.destroy()
+    out = {}
+    for index, key in enumerate(keys):
+        widget = existing.get(key)
+        if widget is None:
+            widget = factory(key)
+            widget.sync_key = key
+            container.pack_start(widget, False, False, 0)
+        container.reorder_child(widget, index)
+        out[key] = widget
+    return out
+
+
+class Row(Gtk.Box):
+    """A clickable line, plus a revealer holding its actions.
+
+    One row is one SSID (or one device, or one VPN profile). The revealer is
+    collapsed unless this row is the panel's expanded one.
+    """
+
+    def __init__(self, panel, key):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.panel = panel
+        self.key = key
+
+        self.button = Gtk.Button()
+        self.button.get_style_context().add_class("row")
+        # BUTTON_PRESS on the button itself, not on the window: the window-level
+        # handler exists to catch clicks OUTSIDE the panel and must not have to
+        # work out which row was hit.
+        self.button.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.button.connect("button-press-event", self._on_press)
+        self.button.connect("clicked", lambda _b: self.panel.on_row_activate(self))
+
+        line = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        self.icon = Gtk.Label()
+        self.icon.get_style_context().add_class("rowicon")
+        self.name = Gtk.Label(xalign=0.0)
+        self.name.get_style_context().add_class("rowname")
+        self.name.set_ellipsize(Pango.EllipsizeMode.END)
+        self.meta = Gtk.Label(xalign=1.0)
+        self.meta.get_style_context().add_class("rowmeta")
+        self.lock = Gtk.Label()
+        self.lock.get_style_context().add_class("rowlock")
+        line.pack_start(self.icon, False, False, 0)
+        line.pack_start(self.name, True, True, 0)
+        line.pack_end(self.lock, False, False, 0)
+        line.pack_end(self.meta, False, False, 0)
+        self.button.add(line)
+        self.pack_start(self.button, False, False, 0)
+
+        self.revealer = Gtk.Revealer()
+        self.revealer.set_transition_type(
+            Gtk.RevealerTransitionType.SLIDE_DOWN)
+        self.revealer.set_transition_duration(140)
+        self.actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.actions.get_style_context().add_class("actions")
+        self.revealer.add(self.actions)
+        self.pack_start(self.revealer, False, False, 0)
+
+        self.detail = Gtk.Label(xalign=0.0)
+        self.detail.get_style_context().add_class("detail")
+        self.detail.set_line_wrap(True)
+        self.actions.pack_start(self.detail, False, False, 0)
+
+        self.entry_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self.entry = Gtk.Entry()
+        self.entry.get_style_context().add_class("psk")
+        self.entry.set_visibility(False)
+        self.entry.set_placeholder_text("Password")
+        self.entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
+        self.entry.connect("activate", lambda _e: self.panel.on_connect(self))
+        self.eye = Gtk.Button(label=ICON_EYE)
+        self.eye.get_style_context().add_class("reveal")
+        self.eye.connect("clicked", self._toggle_visibility)
+        self.entry_box.pack_start(self.entry, True, True, 0)
+        self.entry_box.pack_start(self.eye, False, False, 0)
+        self.actions.pack_start(self.entry_box, False, False, 0)
+
+        self.buttons = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.actions.pack_start(self.buttons, False, False, 0)
+        self.show_all()
+        self.entry_box.set_no_show_all(True)
+        self.entry_box.hide()
+
+    def _toggle_visibility(self, _b):
+        shown = not self.entry.get_visibility()
+        self.entry.set_visibility(shown)
+        self.eye.set_label(ICON_EYE_OFF if shown else ICON_EYE)
+
+    def _on_press(self, _w, event):
+        # Right-click always opens the row rather than acting on it: that is how
+        # Forget stays reachable on a saved network without putting an extra
+        # click in front of the ordinary "click the network I want" path. See
+        # Panel.on_row_activate.
+        dbg("row press b%d on %r", event.button, self.key)
+        if event.button == 3:
+            self.panel.set_expanded(None if self.panel.expanded == self.key
+                                    else self.key)
+            return True
+        return False
+
+    def set_actions(self, specs):
+        """specs: [(label, css_class, callback)] -- rebuilt only when changed."""
+        sig = tuple((label, cls) for label, cls, _cb in specs)
+        if getattr(self, "_action_sig", None) == sig:
+            # Refresh the callbacks; they close over snapshot data that moved.
+            for button, (_l, _c, cb) in zip(self.buttons.get_children(), specs):
+                if getattr(button, "_handler", None):
+                    button.disconnect(button._handler)
+                button._handler = button.connect("clicked", lambda _b, f=cb: f())
+            return
+        self._action_sig = sig
+        for child in self.buttons.get_children():
+            child.destroy()
+        for label, cls, cb in specs:
+            button = Gtk.Button(label=label)
+            ctx = button.get_style_context()
+            ctx.add_class("act")
+            if cls:
+                ctx.add_class(cls)
+            button._handler = button.connect("clicked", lambda _b, f=cb: f())
+            self.buttons.pack_start(button, False, False, 0)
+        self.buttons.show_all()
+
+
+# =============================================================================
+#  The panel
+# =============================================================================
+class Panel(Gtk.Window):
+    def __init__(self, nm, anchor="right"):
+        super().__init__(title="Network")
+        self.nm = nm
+        self.anchor = anchor
+        self.snap = None
+        self.expanded = None      # key of the one open row, or None
+        self.busy = None          # (key, message) while an action is in flight
+        self.error = None
+        self._focus_armed = False
+        self._tick = 0
+        self._rescan = 0
+        self._coalesce = 0
+        self._scan_asked = -1
+        self.set_resizable(False)
+
+        # The surface covers the whole usable area so a click outside the panel
+        # reaches us and can dismiss it, so the OFFSETS live on this box rather
+        # than on the layer surface. See the layer-shell setup in main().
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        root.get_style_context().add_class("panel")
+        root.set_valign(Gtk.Align.START)
+        root.set_size_request(PANEL_WIDTH, -1)
+        root.set_margin_top(GAP)
+        if anchor == "left":
+            root.set_halign(Gtk.Align.START)
+            root.set_margin_start(EDGE_MARGIN)
+        elif anchor == "center":
+            root.set_halign(Gtk.Align.CENTER)
+        else:
+            root.set_halign(Gtk.Align.END)
+            root.set_margin_end(EDGE_MARGIN)
+        self.panel = root
+        self.add(root)
+
+        # -- header ----------------------------------------------------------
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        header.get_style_context().add_class("header")
+        titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        title = Gtk.Label(label="Wi-Fi", xalign=0.0)
+        title.get_style_context().add_class("title")
+        self.subtitle = Gtk.Label(xalign=0.0)
+        self.subtitle.get_style_context().add_class("subtitle")
+        self.subtitle.set_ellipsize(Pango.EllipsizeMode.END)
+        titles.pack_start(title, False, False, 0)
+        titles.pack_start(self.subtitle, False, False, 0)
+        self.switch = Gtk.Switch()
+        self.switch.set_valign(Gtk.Align.CENTER)
+        self._switch_handler = self.switch.connect("notify::active",
+                                                   self._on_switch)
+        header.pack_start(titles, True, True, 0)
+        header.pack_end(self.switch, False, False, 0)
+        root.pack_start(header, False, False, 0)
+
+        # -- wifi list -------------------------------------------------------
+        self.scroller = Gtk.ScrolledWindow()
+        self.scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroller.set_propagate_natural_height(True)
+        self.scroller.set_max_content_height(LIST_MAX_HEIGHT)
+        self.wifi_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.scroller.add(self.wifi_box)
+        root.pack_start(self.scroller, False, False, 0)
+
+        self.placeholder = Gtk.Label(xalign=0.0)
+        self.placeholder.get_style_context().add_class("section")
+        root.pack_start(self.placeholder, False, False, 0)
+
+        # -- wired and VPN ---------------------------------------------------
+        self.eth_heading, self.eth_box = self._section(root, "WIRED")
+        self.vpn_heading, self.vpn_box = self._section(root, "VPN")
+
+        # -- footer ----------------------------------------------------------
+        rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        rule.get_style_context().add_class("rule")
+        root.pack_start(rule, False, False, 0)
+        footer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        footer.get_style_context().add_class("footer")
+        self.status = Gtk.Label(xalign=0.0)
+        self.status.get_style_context().add_class("status")
+        self.status.set_ellipsize(Pango.EllipsizeMode.END)
+        settings = Gtk.Button(label=ICON_COG + "  Settings")
+        settings.get_style_context().add_class("settings")
+        settings.connect("clicked", self._open_settings)
+        footer.pack_start(self.status, True, True, 0)
+        footer.pack_end(settings, False, False, 0)
+        root.pack_start(footer, False, False, 0)
+
+        self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        self.connect("button-press-event", self._on_button_press)
+        self.connect("key-press-event", self._on_key)
+        self.connect("focus-out-event", self._on_focus_out)
+        self.connect("destroy", Gtk.main_quit)
+
+        # WARNING: show_all() UN-HIDES EVERYTHING, INCLUDING WIDGETS THIS PANEL
+        # HIDES ON PURPOSE -- an empty VPN section, a password field on a row
+        # that needs none. Every such widget is marked no_show_all, and it is
+        # marked HERE, after the single show_all below, so the tree is realized
+        # once and later opens use show() rather than show_all().
+        self.show_all()
+        for widget in (self.placeholder, self.eth_heading, self.eth_box,
+                       self.vpn_heading, self.vpn_box):
+            widget.set_no_show_all(True)
+        self.hide()
+
+    def _section(self, root, label):
+        heading = Gtk.Label(label=label, xalign=0.0)
+        heading.get_style_context().add_class("section")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        root.pack_start(heading, False, False, 0)
+        root.pack_start(box, False, False, 0)
+        return heading, box
+
+    # -- lifecycle -----------------------------------------------------------
+    def toggle_visible(self):
+        if self.get_visible():
+            self.hide_panel()
+        else:
+            self.show_panel()
+
+    def show_panel(self):
+        self.error = None
+        self.busy = None
+        self.set_expanded(None)
+        # Saved profiles are cached (see NetworkManager.reload_saved) and can
+        # have been edited from nm-connection-editor since the last open.
+        self.nm.reload_saved()
+        self.refresh()
+        # Re-arm the focus guard on EVERY open, not just the first: the spurious
+        # post-map focus-in/focus-out pair happens on every map, so a flag left
+        # armed from the previous showing dismisses this one instantly.
+        self._focus_armed = False
+        GLib.timeout_add(FOCUS_ARM_MS, self._arm_focus_close)
+        self.show()
+        # Live updates cost nothing while the panel is closed: the
+        # subscriptions and both timers exist only between show and hide.
+        self.nm.subscribe(self._on_nm_signal)
+        self._tick = GLib.timeout_add(TICK_MS, self._on_tick)
+        self._rescan = GLib.timeout_add(RESCAN_MS, self._on_rescan)
+        self._do_scan()
+
+    def hide_panel(self):
+        self.hide()
+        self.nm.unsubscribe()
+        for attr in ("_tick", "_rescan", "_coalesce"):
+            source = getattr(self, attr)
+            if source:
+                GLib.source_remove(source)
+                setattr(self, attr, 0)
+
+    def _on_tick(self):
+        self.refresh()
+        return True
+
+    def _on_rescan(self):
+        self._do_scan()
+        return True
+
+    def _do_scan(self):
+        if self.snap and not self.snap["wireless_enabled"]:
+            return
+        self._scan_asked = boottime_ms()
+        self.nm.request_scan()
+
+    def _on_nm_signal(self, member):
+        if member in ("NewConnection", "ConnectionRemoved"):
+            self.nm.reload_saved()
+        # Coalesce: a single scan completing emits a PropertiesChanged per
+        # access point, so an un-debounced handler would redraw the list dozens
+        # of times in the same millisecond.
+        if self._coalesce:
+            return
+        self._coalesce = GLib.timeout_add(COALESCE_MS, self._coalesced)
+
+    def _coalesced(self):
+        self._coalesce = 0
+        self.refresh()
+        return False
+
+    # -- focus and dismissal -------------------------------------------------
+    def _arm_focus_close(self):
+        self._focus_armed = True
+        return False
+
+    def _on_focus_out(self, *_a):
+        dbg("focus-out armed=%s visible=%s", self._focus_armed, self.get_visible())
+        if self._focus_armed and self.get_visible():
+            self.hide_panel()
+        return False
+
+    def _on_button_press(self, _w, event):
+        """Dismiss on a click outside the panel box.
+
+        Tested against the panel's ALLOCATION, not by asking whether a child
+        handled the click: the panel's own padding is not a child widget (a
+        Gtk.Box has no event window), so a click on the 6px border arrives here
+        exactly like a click on the wallpaper.
+        """
+        alloc = self.panel.get_allocation()
+        inside = (alloc.x <= event.x < alloc.x + alloc.width
+                  and alloc.y <= event.y < alloc.y + alloc.height)
+        dbg("window press b%d at (%.0f,%.0f) panel=(%d,%d %dx%d) inside=%s",
+            event.button, event.x, event.y,
+            alloc.x, alloc.y, alloc.width, alloc.height, inside)
+        if not inside:
+            self.hide_panel()
+            return True
+        return False
+
+    def _on_key(self, _w, event):
+        if event.keyval == Gdk.KEY_Escape:
+            # Escape backs out one level: an open row first, then the panel.
+            # HIDE, never quit -- this process is the resident server, and
+            # quitting would throw away the window that makes the next click
+            # instant.
+            if self.expanded is not None:
+                self.set_expanded(None)
+            else:
+                self.hide_panel()
+            return True
+        return False
+
+    # -- rendering -----------------------------------------------------------
+    def refresh(self):
+        snap = self.nm.snapshot()
+        self.snap = snap
+
+        # Blocked while set programmatically, or reflecting NM's state back into
+        # the widget would immediately look like the user had flipped it.
+        self.switch.handler_block(self._switch_handler)
+        self.switch.set_active(snap["wireless_enabled"])
+        self.switch.handler_unblock(self._switch_handler)
+        self.switch.set_sensitive(
+            snap["ok"] and snap["wireless_hw"] and snap["wifi_dev"] is not None)
+
+        if snap["active_ssid"] and snap["active_state"] == ACT_ACTIVATED:
+            wifi_dev = snap["wifi_dev"] or {}
+            self.subtitle.set_text(
+                "  ·  ".join(x for x in (snap["active_ssid"],
+                                        (wifi_dev.get("ip") or "").split("/")[0])
+                            if x))
+        elif not snap["wireless_hw"]:
+            self.subtitle.set_text("Blocked by the hardware switch")
+        elif not snap["wireless_enabled"]:
+            self.subtitle.set_text("Off")
+        else:
+            self.subtitle.set_text("Not connected")
+
+        self._render_wifi(snap)
+        self._render_eth(snap)
+        self._render_vpn(snap)
+        self._render_footer(snap)
+
+    def _render_wifi(self, snap):
+        if not snap["ok"] or snap["wifi_dev"] is None or not snap["wireless_enabled"]:
+            self.scroller.hide()
+            self.placeholder.set_text(
+                "NetworkManager is not responding" if not snap["ok"] else
+                "No Wi-Fi hardware" if snap["wifi_dev"] is None else
+                "Wi-Fi is off")
+            self.placeholder.show()
+            return
+        self.placeholder.hide()
+        self.scroller.show()
+
+        aps = list(snap["aps"])
+        # KEEP THE OPEN ROW EVEN IF ITS NETWORK DROPS OUT OF THE SCAN. A weak AP
+        # comes and goes between scans, and without this the row you are typing
+        # a password into is destroyed underneath you mid-word.
+        seen = {ap["ssid_raw"] for ap in aps}
+        remembered = getattr(self, "_ap_cache", {})
+        if isinstance(self.expanded, bytes) and self.expanded not in seen:
+            stale = remembered.get(self.expanded)
+            if stale:
+                stale = dict(stale, strength=0, is_active=False)
+                aps.append(stale)
+        self._ap_cache = {ap["ssid_raw"]: ap for ap in aps}
+
+        rows = sync_children(self.wifi_box, [ap["ssid_raw"] for ap in aps],
+                             lambda key: Row(self, key))
+        for ap in aps:
+            self._update_wifi_row(rows[ap["ssid_raw"]], ap, snap)
+
+    def _update_wifi_row(self, row, ap, snap):
+        row.data = {"kind": "wifi", "ap": ap}
+        kind, label = ap["security"]
+        secured = kind not in ("open", "owe")
+        saved = bool(ap["saved"])
+        connected = ap["is_active"] and snap["active_state"] == ACT_ACTIVATED
+        connecting = ap["is_active"] and not connected
+
+        row.icon.set_text(wifi_icon(ap["strength"]))
+        row.name.set_text(ap["ssid"])
+        row.lock.set_text(ICON_LOCK if secured else "")
+        if self.busy and self.busy[0] == ap["ssid_raw"]:
+            row.meta.set_text(self.busy[1])
+        elif connected:
+            row.meta.set_text("Connected")
+        elif connecting:
+            row.meta.set_text("Connecting")
+        elif saved:
+            row.meta.set_text("Saved")
+        else:
+            row.meta.set_text("")
+        ctx = row.button.get_style_context()
+        (ctx.add_class if ap["is_active"] else ctx.remove_class)("active")
+
+        bits = [label, band_label(ap["freq"]), "%d%%" % ap["strength"]]
+        if connected:
+            wifi_dev = snap["wifi_dev"] or {}
+            if wifi_dev.get("ip"):
+                bits.append(wifi_dev["ip"])
+            if wifi_dev.get("bitrate"):
+                bits.append("%d Mb/s" % (wifi_dev["bitrate"] // 1000))
+        row.detail.set_text("  ·  ".join(b for b in bits if b))
+
+        need_psk = secured and not saved and kind != "enterprise"
+        row.entry_box.set_visible(need_psk)
+        if not need_psk:
+            row.entry.set_text("")
+
+        actions = []
+        if kind == "enterprise" and not saved:
+            # 802.1X needs an identity, a method, sometimes a certificate. That
+            # is a form, not a password box, and nm-applet is already this
+            # session's secret agent for it -- so hand off rather than build a
+            # worse version of nm-connection-editor's.
+            row.detail.set_text(row.detail.get_text()
+                                + "\n" + label + " needs a full profile.")
+            actions.append(("Set up…", None, self._open_settings))
+        elif connected or connecting:
+            actions.append(("Disconnect", "danger", lambda: self._disconnect_wifi()))
+        else:
+            actions.append(("Connect", None, lambda r=row: self.on_connect(r)))
+        if saved:
+            actions.append(("Forget", "danger", lambda a=ap: self._forget(a)))
+        row.set_actions(actions)
+        row.revealer.set_reveal_child(self.expanded == ap["ssid_raw"])
+
+    def _render_eth(self, snap):
+        devices = snap["ethernet"]
+        self.eth_heading.set_visible(bool(devices))
+        self.eth_box.set_visible(bool(devices))
+        if not devices:
+            return
+        rows = sync_children(self.eth_box, [d["path"] for d in devices],
+                             lambda key: Row(self, key))
+        for dev in devices:
+            row = rows[dev["path"]]
+            row.data = {"kind": "eth", "dev": dev}
+            up = dev["state"] == DEV_STATE_ACTIVATED
+            row.icon.set_text(ICON_ETHERNET)
+            row.name.set_text(dev["active"]["id"] if dev["active"] else dev["iface"])
+            row.lock.set_text("")
+            row.meta.set_text("Connected" if up else
+                              "Unplugged" if dev["state"] <= DEV_STATE_UNAVAILABLE
+                              else "Available")
+            ctx = row.button.get_style_context()
+            (ctx.add_class if up else ctx.remove_class)("active")
+            row.entry_box.hide()
+            row.detail.set_text("  ·  ".join(
+                b for b in (dev["iface"], dev["ip"]) if b))
+            if up:
+                row.set_actions([("Disconnect", "danger",
+                                  lambda d=dev: self._disconnect_device(d))])
+            elif dev["available"]:
+                row.set_actions([("Connect", None,
+                                  lambda d=dev: self._connect_eth(d))])
+            else:
+                row.set_actions([])
+            row.revealer.set_reveal_child(self.expanded == dev["path"])
+
+    def _render_vpn(self, snap):
+        entries = snap["vpn"]
+        self.vpn_heading.set_visible(bool(entries))
+        self.vpn_box.set_visible(bool(entries))
+        if not entries:
+            return
+        keys = [e.get("path", "ext:" + e["id"]) for e in entries]
+        rows = sync_children(self.vpn_box, keys, lambda key: Row(self, key))
+        for key, entry in zip(keys, entries):
+            row = rows[key]
+            row.data = {"kind": "vpn", "entry": entry}
+            up = entry["state"] == ACT_ACTIVATED
+            external = entry["kind"] == "external"
+            row.icon.set_text(ICON_VPN)
+            row.name.set_text(entry["id"])
+            row.lock.set_text("")
+            row.entry_box.hide()
+            ctx = row.button.get_style_context()
+            (ctx.add_class if up else ctx.remove_class)("active")
+            (ctx.add_class if external else ctx.remove_class)("readonly")
+            if external:
+                # Not ours to switch off -- see the DEV_TUN branch of snapshot().
+                row.meta.set_text("Up (external)")
+                row.detail.set_text("  ·  ".join(
+                    b for b in (entry.get("iface", ""), entry.get("ip") or "") if b))
+                row.set_actions([])
+            else:
+                row.meta.set_text("Connected" if up else
+                                  "Connecting" if entry["state"] == ACT_ACTIVATING
+                                  else "Off")
+                row.detail.set_text(entry["type"])
+                row.set_actions([("Disconnect", "danger",
+                                  lambda e=entry: self._vpn_down(e))] if up else
+                                [("Connect", None, lambda e=entry: self._vpn_up(e))])
+            row.revealer.set_reveal_child(self.expanded == key)
+
+    def _render_footer(self, snap):
+        ctx = self.status.get_style_context()
+        ctx.remove_class("error")
+        if not snap["ok"]:
+            self.status.set_text("NetworkManager is not responding")
+            ctx.add_class("error")
+        elif self.error:
+            self.status.set_text(self.error)
+            ctx.add_class("error")
+        elif self.busy:
+            self.status.set_text(self.busy[1])
+        elif not snap["wireless_enabled"]:
+            self.status.set_text("Wi-Fi is off")
+        elif self._scanning(snap):
+            self.status.set_text("Scanning…")
+        else:
+            count = len(snap["aps"])
+            self.status.set_text("%d network%s" % (count, "" if count == 1 else "s"))
+
+    def _scanning(self, snap):
+        """True between asking for a scan and NM reporting one finished.
+
+        NM sets LastScan when a scan COMPLETES, so "scanning" is the window
+        between our request and that timestamp moving past it. Both are
+        CLOCK_BOOTTIME -- see boottime_ms for why that matters.
+        """
+        if self._scan_asked < 0:
+            return False
+        if snap["last_scan"] >= self._scan_asked:
+            return False
+        return boottime_ms() - self._scan_asked < 8000
+
+    # -- interaction ---------------------------------------------------------
+    def set_expanded(self, key):
+        self.expanded = key
+        for box in (self.wifi_box, self.eth_box, self.vpn_box):
+            for row in box.get_children():
+                row.revealer.set_reveal_child(row.sync_key == key)
+                if row.sync_key == key and row.entry_box.get_visible():
+                    row.entry.grab_focus()
+
+    def on_row_activate(self, row):
+        """A LEFT-CLICK CONNECTS; IT DOES NOT MERELY OPEN THE ROW.
+
+        Expanding first would put a second click in front of the only thing
+        anybody opens this panel to do. So the row opens only when it has
+        something to ask (a password) or something to show (you are already on
+        this network, here is Disconnect). Everything else -- a saved profile,
+        an open network -- joins on the one click.
+
+        Forget therefore needs another route, and that is the right-click in
+        Row._on_press, which always opens the row whatever its state.
+        """
+        if self.expanded == row.sync_key:
+            self.set_expanded(None)
+            return
+        data = getattr(row, "data", None)
+        if not data:
+            return
+        if data["kind"] == "wifi":
+            ap = data["ap"]
+            if ap["is_active"] or ap["security"][0] == "enterprise":
+                self.set_expanded(row.sync_key)
+            elif ap["saved"]:
+                self._connect_saved(ap)
+            elif ap["security"][0] in ("open", "owe"):
+                self._connect_new(ap, None)
+            else:
+                self.set_expanded(row.sync_key)
+        elif data["kind"] == "eth":
+            dev = data["dev"]
+            if dev["state"] == DEV_STATE_ACTIVATED or not dev["available"]:
+                self.set_expanded(row.sync_key)
+            else:
+                self._connect_eth(dev)
+        elif data["kind"] == "vpn":
+            entry = data["entry"]
+            if entry["kind"] == "external":
+                self.set_expanded(row.sync_key)
+            elif entry["state"] == ACT_ACTIVATED:
+                self._vpn_down(entry)
+            else:
+                self._vpn_up(entry)
+
+    def on_connect(self, row):
+        data = getattr(row, "data", None)
+        if not data or data["kind"] != "wifi":
+            return
+        ap = data["ap"]
+        psk = row.entry.get_text() if row.entry_box.get_visible() else ""
+        if ap["saved"] and not psk:
+            self._connect_saved(ap)
+        else:
+            self._connect_new(ap, psk or None)
+
+    def _on_switch(self, switch, _param):
+        self.error = None
+        self.nm.set_wireless_enabled(switch.get_active(), self._done)
+
+    def _open_settings(self, *_a):
+        self.hide_panel()
+        # Detached, and explicitly NOT through a shell: the panel must not
+        # outlive its child's stdout or keep a zombie around.
+        try:
+            Gio.Subprocess.new(["nm-connection-editor"],
+                               Gio.SubprocessFlags.STDOUT_SILENCE
+                               | Gio.SubprocessFlags.STDERR_SILENCE)
+        except GLib.Error as e:
+            self.error = friendly_error(e.message)
+
+    # -- actions -------------------------------------------------------------
+    def _begin(self, key, message):
+        self.busy = (key, message)
+        self.error = None
+        self.refresh()
+
+    def _done(self, err):
+        self.busy = None
+        self.error = friendly_error(err) if err else None
+        if not err:
+            self.set_expanded(None)
+        self.refresh()
+
+    def _wifi_dev(self):
+        dev = (self.snap or {}).get("wifi_dev")
+        return dev["path"] if dev else None
+
+    def _connect_saved(self, ap):
+        dev = self._wifi_dev()
+        if not dev:
+            return
+        self._begin(ap["ssid_raw"], "Connecting to %s" % ap["ssid"])
+        self.nm.activate(ap["saved"][0]["path"], dev, ap["path"], self._done)
+
+    def _connect_new(self, ap, psk):
+        """Create a profile and bring it up, with the key sent over the bus.
+
+        The alternative -- shelling out to `nmcli device wifi connect SSID
+        password ...` -- publishes the PSK in /proc/<pid>/cmdline for the life
+        of the process, where any local process can read it.
+        """
+        dev = self._wifi_dev()
+        if not dev:
+            return
+        kind = ap["security"][0]
+        settings = {
+            "connection": {
+                "id": GLib.Variant("s", ap["ssid"]),
+                "type": GLib.Variant("s", "802-11-wireless"),
+            },
+            "802-11-wireless": {
+                # THE RAW OCTETS, NOT THE DISPLAY STRING. An SSID is 32
+                # arbitrary bytes; re-encoding what ssid_str decoded would send
+                # U+FFFD to the router for any SSID that is not valid UTF-8.
+                "ssid": GLib.Variant("ay", ap["ssid_raw"]),
+                "mode": GLib.Variant("s", "infrastructure"),
+            },
+        }
+        if psk:
+            # SAE is preferred where the AP offers both: NM negotiates down on
+            # its own, whereas asking for wpa-psk against a WPA3-only AP fails.
+            settings["802-11-wireless-security"] = {
+                "key-mgmt": GLib.Variant("s", "sae" if kind == "sae" else "wpa-psk"),
+                "psk": GLib.Variant("s", psk),
+            }
+        self._begin(ap["ssid_raw"], "Connecting to %s" % ap["ssid"])
+        self.nm.add_and_activate(settings, dev, ap["path"], self._done)
+
+    def _disconnect_wifi(self):
+        dev = self._wifi_dev()
+        if not dev:
+            return
+        # Device.Disconnect, not DeactivateConnection: it also stops the device
+        # autoconnecting straight back to what you just left, which is the whole
+        # point of pressing Disconnect.
+        self._begin(None, "Disconnecting")
+        self.nm.disconnect_device(dev, self._done)
+
+    def _disconnect_device(self, dev):
+        self._begin(None, "Disconnecting")
+        self.nm.disconnect_device(dev["path"], self._done)
+
+    def _connect_eth(self, dev):
+        self._begin(None, "Connecting")
+        self.nm.activate(dev["available"][0], dev["path"], "/", self._done)
+
+    def _forget(self, ap):
+        """Delete EVERY saved profile for this SSID, not just the first.
+
+        One SSID can carry several, and this box has a live pair --
+        'FoodArt-5GHz' and 'FoodArt-5GHz 1'. Deleting one would leave the other
+        to autoconnect, so the network would look forgotten and then come back.
+        """
+        remaining = [c["path"] for c in ap["saved"]]
+        if not remaining:
+            return
+        self._begin(ap["ssid_raw"], "Forgetting %s" % ap["ssid"])
+        state = {"left": len(remaining), "err": None}
+
+        def one_done(err):
+            state["left"] -= 1
+            state["err"] = state["err"] or err
+            if state["left"] == 0:
+                self.nm.reload_saved()
+                self._done(state["err"])
+
+        for path in remaining:
+            self.nm.delete_connection(path, one_done)
+
+    def _vpn_up(self, entry):
+        self._begin(None, "Connecting to %s" % entry["id"])
+        self.nm.activate(entry["path"], "/", "/", self._done)
+
+    def _vpn_down(self, entry):
+        active = entry.get("active")
+        if not active:
+            return
+        self._begin(None, "Disconnecting %s" % entry["id"])
+        self.nm.deactivate(active["path"], self._done)
+
+
+def friendly_error(message):
+    """Strip the D-Bus decoration off an NM error.
+
+    A raw one reads 'GDBus.Error:org.freedesktop.NetworkManager.Device.
+    InvalidConnection: 802-11-wireless-security.psk: property is invalid',
+    which is three quarters namespace. The footer has one line.
+    """
+    if not message:
+        return None
+    text = message.split(": ", 1)[-1].strip()
+    text = text.replace("802-11-wireless-security.psk", "password")
+    if len(text) > 78:
+        text = text[:77] + "…"
+    return text or "Failed"
+
+
+def main():
+    args = sys.argv[1:]
+
+    anchor = "right"
+    if "--anchor" in args:
+        i = args.index("--anchor")
+        if i + 1 >= len(args) or args[i + 1] not in ("left", "center", "right"):
+            print("--anchor takes one of: left, center, right", file=sys.stderr)
+            return 2
+        anchor = args[i + 1]
+
+    # Reaching main() means client_fast_path declined this invocation, so we are
+    # becoming the resident server. Two ways in: `--server` (autostarted from
+    # config/sway/config, come up hidden) or a click that found no server (become
+    # one AND show, or the click would appear to do nothing).
+    show_now = "--server" not in args
+
+    GLib.set_prgname(APP_ID)
+
+    try:
+        nm = NetworkManager()
+    except GLib.Error as e:
+        print("cannot reach NetworkManager on the system bus: %s" % e.message,
+              file=sys.stderr)
+        return 1
+
+    provider = Gtk.CssProvider()
+    provider.load_from_data(CSS)
+    Gtk.StyleContext.add_provider_for_screen(
+        Gdk.Screen.get_default(), provider,
+        Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    win = Panel(nm, anchor=anchor)
+
+    # init_for_window MUST precede the first map -- it is what makes this a
+    # zwlr_layer_surface_v1 rather than an xdg_toplevel, and a surface's role
+    # cannot change once it is committed. That role is the whole reason the
+    # panel appears already positioned instead of being placed mid-screen and
+    # then dragged under the bar a frame later; sway-calendar carries the full
+    # account of trying it the other way.
+    GtkLayerShell.init_for_window(win)
+    # The namespace, and the ONLY thing that sets it -- prgname does NOT, which
+    # was measured the first time a layer_effects rule needed it. Must stay in
+    # step with config/sway/sway-fx.
+    GtkLayerShell.set_namespace(win, APP_ID)
+    # OVERLAY, not TOP: TOP is waybar's own layer, so stacking against the bar
+    # would be arbitrary.
+    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.OVERLAY)
+    # ON_DEMAND, not EXCLUSIVE. The password field needs keys, but EXCLUSIVE
+    # would hold the whole session's keyboard for as long as the panel is open.
+    GtkLayerShell.set_keyboard_mode(win, GtkLayerShell.KeyboardMode.ON_DEMAND)
+    # 0, not -1: "reserve nothing, but respect what others reserved", which is
+    # what makes GAP measure from below waybar rather than from the screen edge.
+    GtkLayerShell.set_exclusive_zone(win, 0)
+    # Anchored on all four edges so the surface fills the usable area and a
+    # click outside the panel still reaches us -- see _on_button_press. Margins
+    # stay zero here on purpose: with the surface full-bleed they would inset
+    # the clickable region rather than the panel.
+    for edge in (GtkLayerShell.Edge.TOP, GtkLayerShell.Edge.BOTTOM,
+                 GtkLayerShell.Edge.LEFT, GtkLayerShell.Edge.RIGHT):
+        GtkLayerShell.set_anchor(win, edge, True)
+
+    if show_now:
+        win.show_panel()
+
+    try:
+        with open(PIDFILE, "w") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass  # no toggle, but the panel still works -- do not fail on this
+
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGUSR1,
+                         lambda *_a: (win.toggle_visible(), True)[1])
+    # Quit cleanly on SIGTERM so the finally below runs and no pidfile is left
+    # behind. unix_signal_add defers to the main loop rather than running Python
+    # inside a signal handler.
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM,
+                         lambda *_a: (Gtk.main_quit(), False)[1])
+
+    try:
+        Gtk.main()
+    finally:
+        try:
+            with open(PIDFILE) as f:
+                if int(f.read().strip()) == os.getpid():
+                    os.unlink(PIDFILE)
+        except (OSError, ValueError):
+            pass
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

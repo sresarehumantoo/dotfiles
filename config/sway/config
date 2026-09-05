@@ -356,6 +356,17 @@ bindsym $mod+n       exec swaync-client -t -sw
 # reach for -C here: that is close-all, which drops them from the history too.
 bindsym $mod+Shift+n exec swaync-client --hide-latest -sw
 
+### Network ---------------------------------------------------------------
+# The wifi picker. The pointer route is a MIDDLE click on the bar's network
+# glyph (see "network" in config/waybar/config) — left-click is the control
+# center there, like every other status readout, so this key is the discoverable
+# half of the pair.
+#
+# ⚠ NOT $mod+n, which is already the control center directly above. `i` for
+# internet; it was the free key with any mnemonic at all.
+# ⚠ Absolute path, for the GDM/PATH reason recorded on the brightness keys.
+bindsym $mod+i       exec $HOME/.local/bin/sway-network
+
 ### Media / laptop keys ---------------------------------------------------
 # ⚠ Each of these is written as `swayosd-client ... || <fallback>` on purpose.
 # swayosd draws the on-screen level overlay, and it is what makes the bar's
@@ -550,6 +561,27 @@ exec_always sh -c '[ -x "$HOME/.local/bin/sway-calendar" ] && "$HOME/.local/bin/
 # ⚠ It also clears its state on startup, so a reload can never leave a
 # workspace marked monocle with nothing actually fullscreen.
 exec_always sh -c '[ -x "$HOME/.local/bin/sway-monocle" ] && "$HOME/.local/bin/sway-monocle" --server &'
+
+# sway-network as a RESIDENT SERVER, started hidden — the wifi picker behind the
+# bar's network glyph (middle click) and $mod+i. Same argument as sway-calendar
+# (measured: its client path and this one both cost ~90ms against a ~300ms GTK
+# import, so neither can be spawn-per-click), plus one of its own that the
+# calendar does not have: a cold NetworkManager scan takes SECONDS to
+# fill in, so a panel that only began scanning when you opened it would appear
+# empty and then populate under the cursor. The resident server is already
+# subscribed, so the list is there in the first frame.
+#
+# ⚠ `--anchor` MUST MATCH WHERE THE NETWORK GLYPH IS in config/waybar/config,
+# because the SERVER owns the geometry — the click path only delivers a signal
+# and cannot pass an anchor. `network` sits in group/status in modules-right ->
+# `--anchor right`.
+#
+# ⚠ NO pgrep GUARD, for the same self-match reason as sway-calendar,
+# sway-workspaces and sway-monocle above — `pgrep -f sway-network` matches the
+# `sh -c` running this very line. The script guards itself: `--server` checks its
+# own pidfile and declines to become a second resident instance, which is what
+# makes this safe under `exec_always` on every `swaymsg reload`.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-network" ] && "$HOME/.local/bin/sway-network" --server --anchor right &'
 
 # Dynamic-tiling approximation over sway IPC — the mitigation for sway being
 # manual-tiling. Comment this out to judge plain sway.

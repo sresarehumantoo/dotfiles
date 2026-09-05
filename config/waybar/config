@@ -295,7 +295,7 @@
     // Secondary buttons are where the specific tools live, and they are NOT
     // interchangeable — each is the only route to that tool from the bar:
     //     pulseaudio  middle -> sway-quickpanel      right -> pavucontrol
-    //     network                                    right -> nm-connection-editor
+    //     network     middle -> sway-network        right -> nm-connection-editor
     //     notification                               right -> DND toggle
     // `idle_inhibitor` is deliberately exempt: it is not a readout, it toggles a
     // Wayland object it holds itself (see modules-right).
@@ -391,12 +391,31 @@
         // Left-click opens the control center, like every other status readout in
         // this cluster — see the "one destination" note above `pulseaudio`.
         "on-click": "swaync-client -t -sw",
+        // The wifi picker: pick a network, type a password, disconnect, forget.
+        // MIDDLE, not left, and that is the same call sway-quickpanel makes on
+        // `pulseaudio` above — the one-destination rule is worth more than
+        // putting this on the most obvious button, because a cluster where one
+        // glyph opens something different is exactly the friction the rule
+        // removes. $mod+i is the keyboard route.
+        //
+        // ⚠ ABSOLUTE PATH, like every other helper here. GDM starts sway
+        // without a login shell, so ~/.local/bin is NOT on the PATH waybar
+        // inherits and a bare `sway-network` silently does nothing — the
+        // `custom/power` block below is the canonical write-up of that trap.
+        //
+        // This is the CLIENT path: it signals the resident server started from
+        // config/sway/config and costs ~35ms. With no server running it becomes
+        // one and shows itself, so the click still works.
+        "on-click-middle": "$HOME/.local/bin/sway-network",
         // ⚠ nm-connection-editor MOVED HERE FROM on-click, it was not dropped.
-        // It is the only route to editing connections from the bar, and it is
-        // what justifies `network-manager-gnome` in swayPackages — check there
-        // before deleting this line. (nm-applet's other job, being NetworkManager's
-        // secret agent for wifi password prompts, is independent of any click and
-        // comes from the `exec nm-applet` line in config/sway/config.)
+        // It is the only route to EDITING a connection from the bar (static IP,
+        // 802.1X, anything sway-network hands off), and it is what justifies
+        // `network-manager-gnome` in swayPackages — check there before deleting
+        // this line. (nm-applet's other job, being NetworkManager's secret agent
+        // for wifi password prompts, is independent of any click and comes from
+        // the `exec nm-applet` line in config/sway/config. sway-network sends a
+        // password it collected itself over D-Bus, so it does not need the
+        // agent — but a REJECTED key, and every 802.1X network, still does.)
         "on-click-right": "nm-connection-editor"
     },
 

@@ -98,6 +98,12 @@ func (SwayModule) Links() core.LinkSet {
 		// script.
 		{Src: core.ConfigPath("sway", "sway-monocle"), Dst: core.HomeTarget(".local", "bin", "sway-monocle")},
 
+		// The wifi picker and network menu, behind a MIDDLE click on the bar's
+		// network glyph and $mod+i. Talks to NetworkManager over D-Bus rather
+		// than shelling out to nmcli, so a password never reaches a command
+		// line where /proc would publish it.
+		{Src: core.ConfigPath("sway", "sway-network"), Dst: core.HomeTarget(".local", "bin", "sway-network")},
+
 		// The session's StatusNotifierWatcher, so the bar can carry a tray at
 		// all. waybar 0.12.0 cannot drop an individual item and nm-applet
 		// publishes a permanently-Active one it must keep publishing (it is
@@ -109,7 +115,7 @@ func (SwayModule) Links() core.LinkSet {
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle", "sway-tray-filter"}
+var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle", "sway-network", "sway-tray-filter"}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //
@@ -160,18 +166,20 @@ var swayPackages = []string{
 	"network-manager-gnome", // nm-connection-editor
 	"blueman",               // blueman-manager
 
-	// GObject-introspection data for gtk-layer-shell. config/sway/sway-calendar
-	// does `gi.require_version("GtkLayerShell", "0.1")` — it is a layer surface,
-	// not a floating window, which is what stops it appearing mid-screen and
-	// sliding into place. Without this package the calendar dies on import, and
-	// because waybar launches it from a click there is nowhere for the traceback
-	// to go: the clock would simply do nothing. See swayPkgGlobs — this one ships
-	// no binary, so it cannot be probed on PATH like everything else here.
+	// GObject-introspection data for gtk-layer-shell. sway-calendar and
+	// sway-network both do `gi.require_version("GtkLayerShell", "0.1")` — they
+	// are layer surfaces, not floating windows, which is what stops them
+	// appearing mid-screen and sliding into place. Without this package they die
+	// on import, and because waybar launches both from a click there is nowhere
+	// for the traceback to go: the glyph would simply do nothing. See
+	// swayPkgGlobs — this one ships no binary, so it cannot be probed on PATH
+	// like everything else here.
 	"gir1.2-gtklayershell-0.1",
 
-	// PyGObject itself. Three helpers here are Python + GLib — sway-calendar,
-	// and now sway-tray-filter, which is a pure D-Bus service and needs only
-	// Gio/GLib (no GTK, no typelib beyond what this package carries). It went
+	// PyGObject itself. Six helpers here are Python + GLib — sway-calendar,
+	// sway-network, sway-quickpanel, sway-monocle, sway-workspaces, and
+	// sway-tray-filter, which is a pure D-Bus service and needs only Gio/GLib
+	// (no GTK, no typelib beyond what this package carries). It went
 	// undeclared for a long time because Debian pulls it in behind almost any
 	// desktop package, so it is always already there and its absence would
 	// present as a helper that silently does nothing. Also globbed below: it
@@ -182,7 +190,8 @@ var swayPackages = []string{
 // swayPkgGlobs covers packages that ship NO binary, where the PATH probe below
 // cannot see them. The value is a set of globs; the package counts as present if
 // any of them matches. GObject-introspection data forced this: a typelib is a
-// hard runtime dependency of sway-calendar with nothing on PATH to look for.
+// hard runtime dependency of sway-calendar and sway-network with nothing on PATH
+// to look for.
 //
 // Two globs because Debian installs typelibs under a multiarch directory
 // (/usr/lib/x86_64-linux-gnu/girepository-1.0) while other distros use the plain
