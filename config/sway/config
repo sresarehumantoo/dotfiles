@@ -435,7 +435,19 @@ bindswitch --reload --locked lid:on exec $lock
 # primary-GPU-scanout setup. The rule that works: reload the RUNNING instance
 # in place, and only spawn one if none is running. Never kill-and-respawn.
 # (`||` and `>` below are handled by sh -c, not sway's parser.)
-exec_always pkill -SIGUSR2 -x waybar || waybar     # waybar reloads its config on SIGUSR2
+# Supervised by systemd since 2026-09-06, and the rule above still holds.
+# `reload-or-restart` SIGUSR2s the RUNNING instance in place via the unit's
+# ExecReload (verified: the pid does not change) and only starts one if none is
+# running, so this is still "reload in place, never kill-and-respawn".
+# What it adds is Restart=on-failure: waybar 0.12.0 segfaults in libglibmm, a
+# use-after-free on a Glib::Dispatcher, roughly once a fortnight. As a bare
+# exec_always child nothing brought it back, so on 2026-09-05 the bar died at
+# 20:21:10 and was gone for 21 hours. It now returns in about a second, and the
+# crash is logged as status=11/SEGV in the user journal, which is readable
+# WITHOUT the root access the kernel log needs.
+# The unit is a full replacement at ~/.config/systemd/user/waybar.service, not a
+# drop-in; that file explains why.
+exec_always systemctl --user reload-or-restart waybar.service
 
 # SwayFX visual effects — blur, rounded corners, shadows, animations.
 #
