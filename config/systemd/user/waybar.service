@@ -1,0 +1,36 @@
+# Full replacement for /usr/lib/systemd/user/waybar.service, not a drop-in.
+#
+# WHY NOT A DROP-IN: the packaged unit has Requisite=graphical-session.target,
+# and that target is INACTIVE under this gdm-wayland-session + swayfx setup, so
+# every start fails with "a dependency job for waybar.service failed". Clearing
+# the dependency from a drop-in with `Requisite=` does NOT work (verified
+# 2026-09-06: the reset is not honored, the start still fails). Starting the
+# target instead is documented as not-to-be-started-directly and would pull in
+# at-spi-dbus-bus.service. So this file shadows the vendor unit entirely.
+#
+# WHY IT EXISTS AT ALL: waybar 0.12.0 segfaults in libglibmm, a use-after-free
+# on a Glib::Dispatcher (notifier pointer reads back as -1), roughly once a
+# fortnight. Launched as a bare `exec_always` child of sway, nothing restarted
+# it, so on 2026-09-05 the bar died at 20:21:10 and stayed gone for 21 hours.
+[Unit]
+Description=Waybar (sway status bar), supervised so a crash self-heals
+Documentation=https://github.com/Alexays/Waybar/wiki/
+# Session teardown makes waybar exit non-zero because the compositor is gone.
+# Nothing stops it first, so cap the retries: a few failed starts, then a stop,
+# never an endless loop.
+StartLimitIntervalSec=30
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/waybar
+# Absolute path on purpose: the vendor unit's bare `kill` is not a valid
+# systemd ExecReload command.
+ExecReload=/usr/bin/kill -SIGUSR2 $MAINPID
+Restart=on-failure
+RestartSec=1s
+# Required for systemd-coredump to actually capture the segfault. The manager's
+# default SOFT limit is 0, and for a PIPED core_pattern the kernel refuses to
+# dump when the soft limit is 0 (it logs "has RLIMIT_CORE set to 0" and skips),
+# so LimitCORE=infinity here is what makes the next crash diagnosable.
+LimitCORE=infinity

@@ -203,3 +203,40 @@ func TestSwayScriptsCoverEveryLinkedScript(t *testing.T) {
 		}
 	}
 }
+
+// A LinkSet entry whose SOURCE does not exist in the repo produces a dangling
+// symlink, and dangling is the worst failure mode this module has: config/sway/
+// config's autostart line runs `systemctl --user reload-or-restart
+// waybar.service`, so a missing config/systemd/user/waybar.service means that
+// command fails and the box comes up with NO BAR AT ALL, silently. The sway
+// config is committed and shared, so the two halves must not be able to drift.
+//
+// Deliberately covers every link, not just the unit: the same trap applies to
+// any config this module promises to place.
+func TestSwayLinkSourcesAllExist(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot locate source file")
+	}
+	repo, err := filepath.Abs(filepath.Join(filepath.Dir(thisFile), "..", ".."))
+	if err != nil {
+		t.Fatalf("resolving repo root: %v", err)
+	}
+
+	for _, link := range (SwayModule{}).Links() {
+		// Links() yields absolute paths under the repo; only assert on those
+		// that actually live here, so a future absolute-path link elsewhere
+		// does not fail this test spuriously.
+		if !strings.HasPrefix(link.Src, repo+string(filepath.Separator)) {
+			continue
+		}
+		if _, err := os.Stat(link.Src); err != nil {
+			rel, relErr := filepath.Rel(repo, link.Src)
+			if relErr != nil {
+				rel = link.Src
+			}
+			t.Errorf("SwayModule links %s but that source does not exist: %v\n"+
+				"\ta dangling link here means the config that depends on it fails silently", rel, err)
+		}
+	}
+}

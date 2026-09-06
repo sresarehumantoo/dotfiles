@@ -20,6 +20,19 @@ func (SwayModule) Links() core.LinkSet {
 		{Src: core.ConfigPath("sway", "config"), Dst: core.XDGTarget("sway", "config")},
 		{Src: core.ConfigPath("waybar", "config"), Dst: core.XDGTarget("waybar", "config")},
 		{Src: core.ConfigPath("waybar", "style.css"), Dst: core.XDGTarget("waybar", "style.css")},
+		// waybar's supervisor. A FULL REPLACEMENT for the packaged unit, not a
+		// drop-in: the vendor unit carries Requisite=graphical-session.target,
+		// that target is inactive under gdm-wayland-session + swayfx, and an
+		// empty `Requisite=` in a drop-in is not honored, so every start fails.
+		// It exists because waybar segfaults in libglibmm every week or two
+		// (upstream Alexays/Waybar#2065) and as a bare exec_always child
+		// nothing restarted it -- the bar was once gone for 21h.
+		//
+		// ⚠ config/sway/config's autostart calls `systemctl --user
+		// reload-or-restart waybar.service`, so this link is NOT optional on a
+		// sway box: without it that line fails and there is no bar at all.
+		{Src: core.ConfigPath("systemd", "user", "waybar.service"),
+			Dst: core.XDGTarget("systemd", "user", "waybar.service")},
 		// swaync is the active notification daemon. mako stays installed and
 		// managed as a one-line fallback (see the autostart block in
 		// config/sway/config) — mako cannot animate, which is why it lost.
@@ -296,8 +309,30 @@ func (m SwayModule) Install(ctx context.Context) error {
 	if err := m.Links().Apply(); err != nil {
 		return err
 	}
+	m.reloadUserSystemd(ctx)
 	core.Ok("sway config done")
 	return nil
+}
+
+// reloadUserSystemd makes systemd notice a newly linked waybar.service.
+//
+// Best-effort and never fatal, deliberately: this runs on boxes where there is
+// no user manager to talk to at all (a container, a chroot, an install done
+// over SSH before the graphical session exists). A failure there means "nothing
+// to reload yet", not a broken install -- the unit is on disk and the next
+// login picks it up.
+func (m SwayModule) reloadUserSystemd(ctx context.Context) {
+	if !systemdAvailable() {
+		core.Debug("systemctl not found -- skipping user daemon-reload")
+		return
+	}
+	if core.DryRun {
+		core.Status("Would run: systemctl --user daemon-reload")
+		return
+	}
+	if err := runCmd(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		core.Debug("user daemon-reload failed (no user manager?): %v", err)
+	}
 }
 
 func (m SwayModule) Uninstall(ctx context.Context) error {
