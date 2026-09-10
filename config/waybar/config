@@ -128,7 +128,8 @@
     // the note on modules-right ordering above). Folding it into this pill is
     // deliberate and matches GNOME, where the quick-settings button *is* the
     // status cluster rather than a separate glyph beside it; every module in
-    // here already left-clicks to the same control center.
+    // here left-clicks to one of the two panels, per the ONE DESTINATION block
+    // below.
     "group/status": {
         "orientation": "horizontal",
         "modules": ["idle_inhibitor", "pulseaudio", "network", "battery", "custom/notification"]
@@ -278,25 +279,35 @@
     // waybar's pulseaudio/slider and backlight/slider. They were removed as
     // unusable for daily driving; the cause is upstream and not
     // configurable — see the WHY IT EXISTS block in config/sway/sway-controlcenter.
-    // Dragging now lives in the swaync panel (left click) and in
-    // sway-controlcenter (middle click). Note that swaync's sliders are NOT
+    // Dragging now lives in sway-controlcenter (left click on the volume or
+    // network glyph) and in the swaync panel (middle click). Note that swaync's sliders are NOT
     // affected by the waybar bug — it drives a plain GtkScale and does not
     // write back to the widget you are holding.
     // Do not re-add in-bar sliders without re-reading that note first.
-    // ⚠ ONE DESTINATION: EVERY STATUS READOUT LEFT-CLICKS TO THE CONTROL CENTER.
-    // `pulseaudio`, `network`, `battery` and `custom/notification` all run
-    // `swaync-client -t -sw` on a plain left click. Keep it that way when adding a
-    // readout — an inconsistent cluster is worse than any individual choice here,
-    // because the whole point of the restrained bar (see docs/sway.md, "The bar
-    // shows almost no numbers") is that the numbers live one predictable click
-    // away. Guessing which glyph opens which different thing is exactly the
-    // friction that removes.
+    // ⚠ ONE DESTINATION, RESTATED: A READOUT LEFT-CLICKS TO THE SURFACE THAT
+    // CAN OPERATE IT. The rule used to be "every readout opens swaync", on the
+    // reasoning that a predictable destination beats a well-chosen one. That
+    // held only while swaync was the sole panel. Now that sway-controlcenter
+    // exists and can actually *drive* the radio and the sinks, sending the wifi
+    // and speaker glyphs to a notification list is the surprise, not the
+    // consistency — you click the speaker to change the volume, and Windows 11
+    // and macOS both answer that click with the mini menu, in place.
     //
-    // Secondary buttons are where the specific tools live, and they are NOT
+    // So the split is by capability, and it is still a rule, not four choices:
+    //     pulseaudio  left -> sway-controlcenter   (slider + sink picker)
+    //     network     left -> sway-controlcenter   (the wifi picker)
+    //     battery     left -> swaync               (nothing to operate; the
+    //                                               percentage lives there)
+    //     notification left -> swaync              (it IS the swaync button)
+    // A readout with a control surface opens it; a readout with only a number
+    // opens the panel that holds the number. Adding a readout means answering
+    // that question, not copying whichever line is nearest.
+    //
+    // Secondary buttons are where everything else lives, and they are NOT
     // interchangeable — each is the only route to that tool from the bar:
-    //     pulseaudio  middle -> sway-controlcenter   right -> pavucontrol
-    //     network     middle -> sway-controlcenter   right -> nm-connection-editor
-    //     notification                               right -> DND toggle
+    //     pulseaudio  middle -> swaync   right -> pavucontrol
+    //     network     middle -> swaync   right -> nm-connection-editor
+    //     notification                   right -> DND toggle
     // `idle_inhibitor` is deliberately exempt: it is not a readout, it toggles a
     // Wayland object it holds itself (see modules-right).
     "pulseaudio": {
@@ -321,12 +332,17 @@
         // ⚠ Plain text only — pulseaudio is one of the modules that renders
         // Pango tags literally rather than interpreting them.
         "tooltip-format": "{desc} — {volume}%",
-        // Left click opens the full panel (sliders + quick actions), matching
-        // the "click the status icon, get the quick settings" model. Middle
-        // click keeps sway-controlcenter, which is faster but narrower. Right
-        // click is the full mixer — inert until pavucontrol is installed.
-        "on-click": "swaync-client -t -sw",
-        "on-click-middle": "$HOME/.local/bin/sway-controlcenter",
+        // Left click opens sway-controlcenter — the operable mini menu, with a
+        // real volume slider and a sink picker. This is the Windows 11 / macOS
+        // model: clicking the speaker glyph gives you the control you came for,
+        // in place, without a detour through a notification panel.
+        //
+        // ⚠ THIS USED TO BE `swaync-client -t -sw`, AND THE SWAP IS DELIBERATE
+        // — see the ONE DESTINATION block above `pulseaudio` for the rule that
+        // replaced the old one. swaync moved to MIDDLE, it was not dropped.
+        // Right click is the full mixer — inert until pavucontrol is installed.
+        "on-click": "$HOME/.local/bin/sway-controlcenter",
+        "on-click-middle": "swaync-client -t -sw",
         "on-click-right": "pavucontrol",
         "scroll-step": 5
     },
@@ -388,15 +404,14 @@
         "tooltip-format-wifi": "<b>{essid}</b>\n{ipaddr}/{cidr} on {ifname}\n{signaldBm} dBm  ·  {frequency} GHz",
         "tooltip-format-ethernet": "<b>{ifname}</b>\n{ipaddr}/{cidr}",
         "tooltip-format-disconnected": "Offline",
-        // Left-click opens the control center, like every other status readout in
-        // this cluster — see the "one destination" note above `pulseaudio`.
-        "on-click": "swaync-client -t -sw",
-        // The wifi picker: pick a network, type a password, disconnect, forget.
-        // MIDDLE, not left, and that is the same call sway-controlcenter makes on
-        // `pulseaudio` above — the one-destination rule is worth more than
-        // putting this on the most obvious button, because a cluster where one
-        // glyph opens something different is exactly the friction the rule
-        // removes. $mod+i is the keyboard route.
+        // Left-click opens sway-controlcenter: the wifi picker — pick a network,
+        // type a password, disconnect, forget — plus sound and brightness. The
+        // obvious button now opens the thing that operates the radio, which is
+        // what Windows and macOS both do and what this panel was built for.
+        // $mod+i is the keyboard route; swaync is on MIDDLE.
+        //
+        // ⚠ THIS USED TO BE `swaync-client -t -sw`. See the ONE DESTINATION
+        // block above `pulseaudio` for the rule that replaced the old one.
         //
         // ⚠ ABSOLUTE PATH, like every other helper here. GDM starts sway
         // without a login shell, so ~/.local/bin is NOT on the PATH waybar
@@ -406,7 +421,12 @@
         // This is the CLIENT path: it signals the resident server started from
         // config/sway/config and costs ~35ms. With no server running it becomes
         // one and shows itself, so the click still works.
-        "on-click-middle": "$HOME/.local/bin/sway-controlcenter",
+        "on-click": "$HOME/.local/bin/sway-controlcenter",
+        // swaync — the notification list and the system-stats readout. Moved
+        // here from left-click; it is still the only route to those from this
+        // glyph, and `battery` and `custom/notification` still open it on a
+        // plain left click.
+        "on-click-middle": "swaync-client -t -sw",
         // ⚠ nm-connection-editor MOVED HERE FROM on-click, it was not dropped.
         // It is the only route to EDITING a connection from the bar (static IP,
         // 802.1X, anything sway-controlcenter hands off), and it is what justifies
@@ -543,9 +563,10 @@
         ],
         // Carries the number the bar no longer shows.
         "tooltip-format": "{capacity}%  ·  {timeTo}  ·  {power:0.1f}W",
-        // Left-click opens the control center — see the "one destination" note
-        // above `pulseaudio`. This module had no click action at all before, so
-        // nothing is displaced.
+        // Left-click opens swaync, which carries the percentage this glyph no
+        // longer shows. Deliberately NOT sway-controlcenter: there is nothing to
+        // operate about a battery, and the number is in swaync's system-stats
+        // widget — see the ONE DESTINATION block above `pulseaudio`.
         "on-click": "swaync-client -t -sw"
     },
 

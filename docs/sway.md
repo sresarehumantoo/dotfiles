@@ -31,7 +31,7 @@ button that no-ops. So the dependency set is declared as data in
 | Bar / notifications | `waybar` `sway-notification-center` `mako-notifier` | the bar; the panel and bell; the documented fallback daemon |
 | Status-area features | `swayosd` `pavucontrol` `playerctl` `pipewire-pulse` `wireplumber` | the on-screen volume/brightness overlay, the mixer on right-click, the mpris module and media keys |
 | Screenshots | `grim` `slurp` `wl-clipboard` | `Print` / `Shift+Print` and the panel's two capture buttons |
-| Applets | `network-manager-gnome` `blueman` | **right**-clicking the network module (left-click opens the control center); Bluetooth pairing. nm-applet is also NetworkManager's secret agent, so without it wifi password prompts never appear |
+| Applets | `network-manager-gnome` `blueman` | **right**-clicking the network module (left-click opens `sway-controlcenter`); Bluetooth pairing. nm-applet is also NetworkManager's secret agent, so without it wifi password prompts never appear |
 | Calendar | `gir1.2-gtklayershell-0.1` | `sway-calendar` dies on import — and since waybar launches it from a click, the clock just silently does nothing |
 | Python helpers | `python3-gi` | `sway-calendar` and `sway-tray-filter` both die on import. The tray one takes the whole tray with it, so every app that hides itself on close becomes unreachable |
 
@@ -177,7 +177,7 @@ Notifications and media:
 | `$mod+n` | Toggle the swaync control center |
 | `$mod+i` | Toggle the control center (`sway-controlcenter`) — see *The control center* |
 | click the clock | Open the month calendar (`sway-calendar`) — see *The clock is the center module* |
-| **middle**-click the network *or volume* glyph | The same panel — left-click is swaync, per the one-destination rule |
+| click the network *or volume* glyph | The same panel — it is the surface that operates them; swaync is on **middle**-click |
 | `$mod+Shift+n` | Push the newest popup off screen (`--hide-latest`; it stays in history) |
 | `XF86Audio{Raise,Lower}Volume` | Volume ±, with the swayosd overlay |
 | `XF86AudioMute` / `XF86AudioMicMute` | Mute sink / source |
@@ -426,13 +426,20 @@ It closed three gaps, each of which meant leaving the desktop's own surfaces:
   daily action; this box has four sinks, the speaker and three HDMI/DP outputs.
 - **Volume and brightness** had their own panel.
 
-### Middle-click, and why not left
+### Left-click, and what moved to make room
 
-Left-click stays `swaync-client -t -sw`, like every other status readout. That is
-the *one-destination rule* (see *The bar shows almost no numbers*), and it is
-worth more than putting this on the most obvious button: the restrained bar only
-works if the numbers live one **predictable** click away. `$mod+i` is the
-discoverable half of the pair.
+Left-click on the network or volume glyph opens this panel; swaync moved to
+**middle**-click on those two modules. `$mod+i` is the keyboard route.
+
+This reverses an earlier decision, and the reason it reversed is worth keeping.
+The old rule sent every readout to swaync on the grounds that a *predictable*
+destination beats a well-chosen one, and that was right while swaync was the only
+panel there was. Once `sway-controlcenter` could actually drive the radio and the
+sinks, the calculus changed: clicking the speaker and getting a notification list
+is the surprising outcome, not the consistent one. Windows 11 and macOS both
+answer that click with the mini menu, in place.
+
+The rule did not go away, it changed axis — see *One destination*, below.
 
     network     left -> swaync   middle -> here   right -> nm-connection-editor
     pulseaudio  left -> swaync   middle -> here   right -> pavucontrol
@@ -2716,27 +2723,34 @@ via `exec_always`:
 systemctl --user mask waybar.service mako.service swaync.service
 ```
 
-## One destination: every status readout left-clicks to the control center
+## One destination: a readout left-clicks to the surface that can operate it
 
-`pulseaudio`, `network`, `battery` and `custom/notification` all run
-`swaync-client -t -sw` on a plain left click. That is a rule, not four independent
-choices — keep it when adding a readout.
+That is a rule, not four independent choices — keep it when adding a readout.
 
-It is the other half of *The bar shows almost no numbers*: if the numbers live one
-click away, that click has to be predictable. A cluster where each glyph opens a
-different tool reintroduces exactly the friction the restrained bar removes — you
-end up reading the icons to remember which one goes where.
+It began as something stricter: *every* readout ran `swaync-client -t -sw`, on the
+reasoning that if the numbers live one click away (see *The bar shows almost no
+numbers*), that click has to be predictable, and a cluster where each glyph opens
+a different tool reintroduces the friction the restrained bar removes.
 
-Secondary buttons are where the specific tools live, and each is the **only** route
-to that tool from the bar:
+That reasoning was sound while swaync was the only panel. `sway-controlcenter`
+broke the tie by being able to *act*: it carries a real volume slider, a sink
+picker and the wifi picker. Sending the speaker glyph past it to a notification
+list is the surprise. So the rule now splits by capability, which is just as
+predictable and answers the question the click was actually asking:
+
+**A readout with a control surface opens it. A readout with only a number opens
+the panel that holds the number.**
 
 | module | left | middle | right |
 |---|---|---|---|
-| `pulseaudio` | control center | `sway-controlcenter` | `pavucontrol` |
-| `network` | control center | `sway-controlcenter` | `nm-connection-editor` |
-| `battery` | control center | — | — |
-| `custom/notification` | control center | — | DND toggle |
+| `pulseaudio` | `sway-controlcenter` — slider + sink picker | swaync | `pavucontrol` |
+| `network` | `sway-controlcenter` — the wifi picker | swaync | `nm-connection-editor` |
+| `battery` | swaync — nothing to operate, and it holds the percentage | — | — |
+| `custom/notification` | swaync — it *is* the swaync button | — | DND toggle |
 | `clock` | `sway-calendar` | — | — |
+
+Secondary buttons are still the **only** route to those tools from the bar, so
+none of them is interchangeable.
 
 Two things not to undo by accident:
 
