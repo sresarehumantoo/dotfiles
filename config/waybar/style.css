@@ -843,6 +843,13 @@ window#waybar.empty .modules-center {
    `margin: … 1px` from the rule above, or its allocation would shrink by 2px
    and shove the cluster the other way). */
 #battery:hover             { padding-left: 10px; padding-right: 10px; margin: 2px 0; }
+/* ⚠ NOT OPTIONAL, AND NOT REDUNDANT WITH THE ROW ABOVE. `#battery.charging`
+   (id + class) and `#battery:hover` (id + pseudo-class) TIE on specificity, and
+   the resting splits live ~180 lines BELOW this block — so without this row the
+   charging split wins the hover case and the glyph jumps 1px when you point at
+   a battery that is charging. Same trap as `#id:hover` vs `#id.focused` on the
+   workspace chips. Resting row + 1px each side, sum 20, as everywhere here. */
+#battery.charging:hover    { padding-left:  8px; padding-right: 12px; margin: 2px 0; }
 #pulseaudio:hover          { padding-left:  9px; padding-right: 11px; margin: 2px 0; }
 #custom-notification:hover { padding-left:  8px; padding-right: 12px; margin: 2px 0; }
 #idle_inhibitor:hover      { padding-left:  8px; padding-right: 12px; margin: 2px 0; }
@@ -908,7 +915,16 @@ window#waybar.empty .modules-center {
        md-shield_lock         0.500    0.750       0.000           0.250
        md-memory (handle)     0.500    0.750       0.000           0.250
        md-battery_*           0.500    0.500       0.000           0.000  ✓
+       md-battery_charging_*  0.500    0.875       0.000           0.375
        md-volume_*            0.500    0.376       0.062           0.000  ✓
+
+   ⚠ THE BATTERY IS TWO FAMILIES, NOT ONE, AND ONLY THE RESTING ONE IS
+   SYMMETRIC. md-battery_* draws the bolt-less body inside its cell and needs no
+   correction, which is why the ✓ above is right for eleven-twelfths of the
+   time. md-battery_charging_* puts the bolt OUTSIDE the body, so it is the
+   second-widest glyph in the bar — 0.875em of ink, worse than the bell — and it
+   is on screen for as long as the charger is in. Hence the `.charging` split
+   below; the resting row is untouched.
 
    Every one starts at the left edge of its cell (left bearing 0) and spills
    over the RIGHT edge. Pango positions the 0.500em ADVANCE, not the ink, so
@@ -1022,6 +1038,13 @@ window#waybar.empty .modules-center {
    have to be kept in step — and the size change is the thing that was removed
    on purpose. */
 #battery             { padding-left:  9px; padding-right:  9px; }  /* +0.00px — symmetric ink */
+/* ⚠ CHARGING IS A DIFFERENT GLYPH FAMILY WITH A DIFFERENT OFFSET. The ramp
+   under format-icons.charging is md-battery_charging_*, whose bolt hangs
+   outside the cell (0.875em ink vs the resting 0.500em), putting its visible
+   mass +2.44px right of the advance center. Without this row the glyph sits
+   off the ring it is supposed to be inside for the whole time the laptop is on
+   the charger. Sum is still 18, so the oval does not change size. */
+#battery.charging    { padding-left:  7px; padding-right: 11px; }  /* charging ramp +2.44px */
 #pulseaudio          { padding-left:  8px; padding-right: 10px; }  /* volume ramp, see below */
 #custom-notification { padding-left:  7px; padding-right: 11px; }  /* bell      +1.62px */
 #idle_inhibitor      { padding-left:  7px; padding-right: 11px; }  /* coffee    +2.16px */
