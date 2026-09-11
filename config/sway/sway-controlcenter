@@ -1833,17 +1833,44 @@ class Panel(Gtk.Window):
     def _on_button_press(self, _w, event):
         """Dismiss on a click outside the panel box.
 
-        Tested against the panel's ALLOCATION, not by asking whether a child
-        handled the click: the panel's own padding is not a child widget (a
-        Gtk.Box has no event window), so a click on the 6px border arrives here
-        exactly like a click on the wallpaper.
+        Hit-tested geometrically, not by asking whether a child handled the
+        click: the panel's own padding is not a child widget (a Gtk.Box has no
+        event window), so a click on the 6px border arrives here exactly like a
+        click on the wallpaper.
+
+        ⚠ THE RECTANGLE MUST BE TRANSLATED INTO THIS WINDOW'S COORDINATES, AND
+        `self.panel.get_allocation()` IS NOT IN THEM. The panel is wrapped in
+        `self.fade` for the fade-in, and a Gtk.Revealer OWNS A GdkWindow
+        (`get_has_window()` is True, unlike the Gtk.Box it contains) -- so the
+        panel's allocation is expressed relative to the revealer's window and
+        reads x=0, y=0 wherever on screen the panel actually is, while these
+        events arrive in the toplevel's space. Comparing the two made EVERY
+        click on the panel test as outside and dismiss it: measured, a press on
+        the sound slider arrived at (1859, 197) against panel=(0, 0 380x371).
+        The size was right and the origin was not, which is why this looked
+        like a slider bug rather than a hit-test bug -- widgets that consume
+        their own press (buttons, rows, the switch) never reach here and went
+        on working, so only the scale and the labels beside it dismissed.
         """
         alloc = self.panel.get_allocation()
-        inside = (alloc.x <= event.x < alloc.x + alloc.width
-                  and alloc.y <= event.y < alloc.y + alloc.height)
+        # ⚠ PyGObject returns a 2-TUPLE here, or None on failure -- NOT the
+        # (ok, x, y) triple the C signature's out-params suggest. Unpacking
+        # three raised ValueError inside the handler, and a handler that raises
+        # returns None, i.e. False, i.e. "propagate" -- so the panel stopped
+        # dismissing on ANY click and looked fixed while being broken the other
+        # way round.
+        origin = self.panel.translate_coordinates(self, 0, 0)
+        if origin is None:
+            # Not realized or not in this hierarchy: no rectangle to test
+            # against. Propagate rather than guess -- a wrong dismissal is the
+            # failure this whole comment is about.
+            return False
+        px, py = origin
+        inside = (px <= event.x < px + alloc.width
+                  and py <= event.y < py + alloc.height)
         dbg("window press b%d at (%.0f,%.0f) panel=(%d,%d %dx%d) inside=%s",
             event.button, event.x, event.y,
-            alloc.x, alloc.y, alloc.width, alloc.height, inside)
+            px, py, alloc.width, alloc.height, inside)
         if not inside:
             self.hide_panel()
             return True

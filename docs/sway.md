@@ -701,6 +701,42 @@ tests `_closing` as well, and a toggle during a fade-out re-opens. This is the
 same guard the swaync patch carries, for the same reason; it is a borrowed
 lesson, not a new one.
 
+> [!CAUTION]
+> **Inserting the revealer silently broke click-outside-to-dismiss, and it
+> presented as a slider bug.** `Gtk.Revealer.get_has_window()` is **True** — it
+> owns a `GdkWindow`, unlike the `Gtk.Box` it wraps — so once the panel box sat
+> inside it, `self.panel.get_allocation()` began reporting coordinates relative
+> to the *revealer's* window rather than the toplevel's, while the events
+> reaching `_on_button_press` stayed in the toplevel's. Measured on the live
+> panel: a press arrived at `(1859, 197)` against `panel=(0, 0 380x371)`. The
+> **size was right and the origin was not**, which is exactly why this did not
+> look like a hit-test bug — the panel was plainly at the top right of the
+> screen while its allocation claimed the top left, so every click on it tested
+> as *outside* and dismissed it.
+>
+> It read as "the sliders don't work and clicking them closes the menu" because
+> the widgets that consume their own button press — buttons, rows, the switch —
+> never reach that handler and went on working normally. Only the parts that
+> fall through to the toplevel (the scale's surroundings, the value labels, the
+> panel padding) showed it, and those are concentrated in the sound and
+> brightness rows.
+>
+> The fix is `self.panel.translate_coordinates(self, 0, 0)`, which yields the
+> panel's origin in the toplevel's space no matter what sits between them. After
+> it, the same handler logs `panel=(1530, 0 380x510)` — the panel's real
+> position. ⚠ **PyGObject returns a 2-tuple from that call, or `None`**, not the
+> `(ok, x, y)` triple the C out-params suggest; unpacking three raises inside the
+> handler, and a handler that raises returns `None`, i.e. "propagate", so the
+> panel then dismisses on *nothing at all* and looks fixed while being broken in
+> the opposite direction.
+>
+> `sway-calendar` does `self.add(root)` with no revealer in between, so its
+> identical-looking hit test is correct and must not be "fixed" to match. The
+> rule is not "use the allocation" or "use translate_coordinates" — it is **both
+> sides of the comparison must be in one coordinate space**, and inserting any
+> windowed widget (a `Gtk.Revealer`, a `Gtk.ScrolledWindow`, a `Gtk.EventBox`)
+> above the panel changes which space its allocation is in.
+
 ### The control center's wifi button opens this, not the editor
 
 `config/swaync/config.json`'s buttons-grid had a wifi glyph wired to
