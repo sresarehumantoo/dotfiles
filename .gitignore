@@ -43,8 +43,8 @@ config/sway/outputs.conf
 # Neovim plugin lock (auto-updated by lazy.nvim)
 config/nvim/lazy-lock.json
 
-# Python bytecode (config/sway/sway-quickpanel is a .py-less script, but
-# `python3 -m py_compile` on it drops a __pycache__ beside it)
+# Python bytecode (the config/sway/ helpers are .py-less scripts, but
+# `python3 -m py_compile` on one drops a __pycache__ beside it)
 __pycache__/
 *.pyc
 

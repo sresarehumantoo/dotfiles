@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // In-package rather than in tests/, because the dependency list and its binary
@@ -47,7 +49,7 @@ func TestSwayPackagesAreReferencedByConfig(t *testing.T) {
 		"config/waybar/config",
 		"config/swaync/config.json",
 		"config/sway/sway-powermenu",
-		"config/sway/sway-quickpanel",
+		"config/sway/sway-controlcenter",
 		"config/sway/sway-calendar",
 		"docs/sway.md",
 	} {
@@ -200,6 +202,82 @@ func TestSwayScriptsCoverEveryLinkedScript(t *testing.T) {
 			t.Errorf("config/sway/%s is linked into ~/.local/bin but is missing from "+
 				"swayScripts, so Install() never chmods it — the symlink inherits the "+
 				"source mode and sway would run an unexecutable file, silently", name)
+		}
+	}
+}
+
+// A LinkSet entry whose SOURCE does not exist in the repo produces a dangling
+// symlink, and dangling is the worst failure mode this module has: config/sway/
+// config's autostart line runs `systemctl --user reload-or-restart
+// waybar.service`, so a missing config/systemd/user/waybar.service means that
+// command fails and the box comes up with NO BAR AT ALL, silently. The sway
+// config is committed and shared, so the two halves must not be able to drift.
+//
+// Deliberately covers every link, not just the unit: the same trap applies to
+// any config this module promises to place.
+func TestSwayLinkSourcesAllExist(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot locate source file")
+	}
+	repo, err := filepath.Abs(filepath.Join(filepath.Dir(thisFile), "..", ".."))
+	if err != nil {
+		t.Fatalf("resolving repo root: %v", err)
+	}
+
+	// ⚠ RE-ROOT EACH SOURCE AT THE REPO; DO NOT STAT link.Src DIRECTLY. Links()
+	// builds its paths from core.DotfilesDir(), which resolves $DOTFILES, then
+	// the machine-global canonical pointer, then the invoking clone -- so what
+	// it returns depends on the MACHINE, not on the checkout under test. On a
+	// developer box the canonical pointer names the real clone and statting
+	// link.Src happens to work; in CI there is no pointer and no $DOTFILES, so
+	// it falls through to the working directory, which for `go test` is the
+	// PACKAGE directory. Every source then resolved under src/modules/config/
+	// and all 25 links reported as missing. This test was red on develop from
+	// 2026-09-06 to 2026-09-10 for exactly that reason, while `make test`
+	// passed for everyone who ran it locally.
+	//
+	// Comparing the tail instead asks the question this test actually means --
+	// "does the repo contain every file the module promises to link?" -- and it
+	// asks it of the checkout being tested, wherever DotfilesDir happens to
+	// point.
+	base := core.DotfilesDir()
+	for _, link := range (SwayModule{}).Links() {
+		rel, err := filepath.Rel(base, link.Src)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			// Not under the dotfiles root: an absolute link elsewhere is not
+			// this repo's to account for.
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(repo, rel)); err != nil {
+			t.Errorf("SwayModule links %s but that source does not exist: %v\n"+
+				"\ta dangling link here means the config that depends on it fails silently", rel, err)
+		}
+	}
+}
+
+// ⚠ A HELPER WITHOUT A SHEBANG IS EXECUTED BY /bin/sh, WHICH RUNS ITS
+// DOCUMENTATION. These scripts are chmod 0755 and linked onto PATH, so the
+// kernel falls back to the shell for anything with no interpreter line — and
+// sh then executes the file's prose as commands. Caught for real when a
+// docstring rewrite took `#!/usr/bin/env python3` with it and sh reached a line
+// reading `nmcli device wifi connect SSID password ...`, which ran.
+func TestSwayScriptsHaveShebangs(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Skip("cannot locate source file")
+	}
+	repo := filepath.Join(filepath.Dir(thisFile), "..", "..")
+	for _, name := range swayScripts {
+		path := filepath.Join(repo, "config", "sway", name)
+		b, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("reading %s: %v", name, err)
+			continue
+		}
+		if !strings.HasPrefix(string(b), "#!") {
+			t.Errorf("config/sway/%s has no shebang — it is chmod 0755 and linked "+
+				"onto PATH, so /bin/sh would execute its contents as commands", name)
 		}
 	}
 }

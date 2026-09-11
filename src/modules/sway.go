@@ -20,6 +20,19 @@ func (SwayModule) Links() core.LinkSet {
 		{Src: core.ConfigPath("sway", "config"), Dst: core.XDGTarget("sway", "config")},
 		{Src: core.ConfigPath("waybar", "config"), Dst: core.XDGTarget("waybar", "config")},
 		{Src: core.ConfigPath("waybar", "style.css"), Dst: core.XDGTarget("waybar", "style.css")},
+		// waybar's supervisor. A FULL REPLACEMENT for the packaged unit, not a
+		// drop-in: the vendor unit carries Requisite=graphical-session.target,
+		// that target is inactive under gdm-wayland-session + swayfx, and an
+		// empty `Requisite=` in a drop-in is not honored, so every start fails.
+		// It exists because waybar segfaults in libglibmm every week or two
+		// (upstream Alexays/Waybar#2065) and as a bare exec_always child
+		// nothing restarted it -- the bar was once gone for 21h.
+		//
+		// ⚠ config/sway/config's autostart calls `systemctl --user
+		// reload-or-restart waybar.service`, so this link is NOT optional on a
+		// sway box: without it that line fails and there is no bar at all.
+		{Src: core.ConfigPath("systemd", "user", "waybar.service"),
+			Dst: core.XDGTarget("systemd", "user", "waybar.service")},
 		// swaync is the active notification daemon. mako stays installed and
 		// managed as a one-line fallback (see the autostart block in
 		// config/sway/config) — mako cannot animate, which is why it lost.
@@ -55,9 +68,6 @@ func (SwayModule) Links() core.LinkSet {
 		// Session picker behind waybar's power button. Lives in ~/.local/bin
 		// like the devtools scripts so waybar can name it without a path.
 		{Src: core.ConfigPath("sway", "sway-powermenu"), Dst: core.HomeTarget(".local", "bin", "sway-powermenu")},
-		// Volume + brightness panel behind the waybar volume/brightness
-		// readouts. Same reason for living in ~/.local/bin.
-		{Src: core.ConfigPath("sway", "sway-quickpanel"), Dst: core.HomeTarget(".local", "bin", "sway-quickpanel")},
 		// Month calendar behind the clock (waybar's center module). A real
 		// window, not a tooltip: waybar's clock renders {calendar} only in its
 		// tooltip, which is hover-only and cannot be browsed.
@@ -85,6 +95,15 @@ func (SwayModule) Links() core.LinkSet {
 		// script.
 		{Src: core.ConfigPath("sway", "sway-monocle"), Dst: core.HomeTarget(".local", "bin", "sway-monocle")},
 
+		// The Quick Settings surface: wifi, sound and brightness, behind a
+		// MIDDLE click on the bar's network or volume glyph and $mod+i. It
+		// REPLACED sway-quickpanel, whose sliders duplicated swaync's — see
+		// swayLegacyScripts for the stale links that retirement leaves behind.
+		// Talks to NetworkManager over D-Bus rather than shelling out to nmcli,
+		// so a wifi password never reaches a command line where /proc would
+		// publish it.
+		{Src: core.ConfigPath("sway", "sway-controlcenter"), Dst: core.HomeTarget(".local", "bin", "sway-controlcenter")},
+
 		// The session's StatusNotifierWatcher, so the bar can carry a tray at
 		// all. waybar 0.12.0 cannot drop an individual item and nm-applet
 		// publishes a permanently-Active one it must keep publishing (it is
@@ -96,7 +115,27 @@ func (SwayModule) Links() core.LinkSet {
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-quickpanel", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle", "sway-tray-filter"}
+var swayScripts = []string{"sway-powermenu", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle", "sway-controlcenter", "sway-tray-filter"}
+
+// swayLegacyScripts are helpers this module used to link and no longer does.
+//
+// ⚠ A RENAMED OR RETIRED SCRIPT LEAVES ITS OLD SYMLINK BEHIND, and nothing else
+// in this codebase would ever remove it: Links() only describes what SHOULD
+// exist, so a link that has dropped out of the set is simply never mentioned
+// again — it keeps working, keeps pointing at a path that no longer exists in
+// the repo, and keeps being found first by anything searching PATH. Same shape
+// as the fonts module's legacyArtifacts, and the same fix.
+//
+// Only removed when it is a symlink INTO this repo. A real file, or a link
+// somewhere else, is somebody else's and is left alone.
+var swayLegacyScripts = []string{
+	// Replaced by sway-controlcenter (2026-09-05): its volume and brightness
+	// sliders duplicated swaync's, and the panel it opened is now a section.
+	"sway-quickpanel",
+	// Renamed to sway-controlcenter (2026-09-05) when the wifi picker grew
+	// sound and brightness and stopped being about the network.
+	"sway-network",
+}
 
 // swayPackages is the desktop this repo's sway config actually describes.
 //
@@ -137,6 +176,15 @@ var swayPackages = []string{
 	"playerctl",   // mpris module + XF86Audio play/next/prev
 	"pipewire-pulse",
 	"wireplumber",
+	// pw-dump, which is how sway-controlcenter enumerates audio OUTPUTS for
+	// its Sound section.
+	//
+	// ⚠ SEPARATE FROM wireplumber, WHICH ONLY SHIPS wpctl. Without this the
+	// device list silently comes up empty and the whole Sound section hides
+	// itself — the panel would look like it simply does not have one, with
+	// nothing on screen or in a log to say why. wpctl cannot substitute: it
+	// has no machine-readable output, only the `wpctl status` tree.
+	"pipewire-bin",
 
 	// Screenshots ($mod+Print, and the swaync grid's two capture buttons).
 	"grim",
@@ -147,18 +195,20 @@ var swayPackages = []string{
 	"network-manager-gnome", // nm-connection-editor
 	"blueman",               // blueman-manager
 
-	// GObject-introspection data for gtk-layer-shell. config/sway/sway-calendar
-	// does `gi.require_version("GtkLayerShell", "0.1")` — it is a layer surface,
-	// not a floating window, which is what stops it appearing mid-screen and
-	// sliding into place. Without this package the calendar dies on import, and
-	// because waybar launches it from a click there is nowhere for the traceback
-	// to go: the clock would simply do nothing. See swayPkgGlobs — this one ships
-	// no binary, so it cannot be probed on PATH like everything else here.
+	// GObject-introspection data for gtk-layer-shell. sway-calendar and
+	// sway-network both do `gi.require_version("GtkLayerShell", "0.1")` — they
+	// are layer surfaces, not floating windows, which is what stops them
+	// appearing mid-screen and sliding into place. Without this package they die
+	// on import, and because waybar launches both from a click there is nowhere
+	// for the traceback to go: the glyph would simply do nothing. See
+	// swayPkgGlobs — this one ships no binary, so it cannot be probed on PATH
+	// like everything else here.
 	"gir1.2-gtklayershell-0.1",
 
-	// PyGObject itself. Three helpers here are Python + GLib — sway-calendar,
-	// and now sway-tray-filter, which is a pure D-Bus service and needs only
-	// Gio/GLib (no GTK, no typelib beyond what this package carries). It went
+	// PyGObject itself. Five helpers here are Python + GLib — sway-calendar,
+	// sway-controlcenter, sway-monocle, sway-workspaces, and
+	// sway-tray-filter, which is a pure D-Bus service and needs only Gio/GLib
+	// (no GTK, no typelib beyond what this package carries). It went
 	// undeclared for a long time because Debian pulls it in behind almost any
 	// desktop package, so it is always already there and its absence would
 	// present as a helper that silently does nothing. Also globbed below: it
@@ -169,7 +219,8 @@ var swayPackages = []string{
 // swayPkgGlobs covers packages that ship NO binary, where the PATH probe below
 // cannot see them. The value is a set of globs; the package counts as present if
 // any of them matches. GObject-introspection data forced this: a typelib is a
-// hard runtime dependency of sway-calendar with nothing on PATH to look for.
+// hard runtime dependency of sway-calendar and sway-network with nothing on PATH
+// to look for.
 //
 // Two globs because Debian installs typelibs under a multiarch directory
 // (/usr/lib/x86_64-linux-gnu/girepository-1.0) while other distros use the plain
@@ -249,6 +300,8 @@ func swayPkgBinary(pkg string) string {
 		return "pipewire-pulse"
 	case "wireplumber":
 		return "wireplumber"
+	case "pipewire-bin":
+		return "pw-dump"
 	case "wl-clipboard":
 		return "wl-copy"
 	case "xwayland":
@@ -296,8 +349,66 @@ func (m SwayModule) Install(ctx context.Context) error {
 	if err := m.Links().Apply(); err != nil {
 		return err
 	}
+	m.removeLegacyScripts()
+	m.reloadUserSystemd(ctx)
 	core.Ok("sway config done")
 	return nil
+}
+
+// reloadUserSystemd makes systemd notice a newly linked waybar.service.
+//
+// Best-effort and never fatal, deliberately: this runs on boxes where there is
+// no user manager to talk to at all (a container, a chroot, an install done
+// over SSH before the graphical session exists). A failure there means "nothing
+// to reload yet", not a broken install -- the unit is on disk and the next
+// login picks it up.
+func (m SwayModule) reloadUserSystemd(ctx context.Context) {
+	if !systemdAvailable() {
+		core.Debug("systemctl not found -- skipping user daemon-reload")
+		return
+	}
+	if core.DryRun {
+		core.Status("Would run: systemctl --user daemon-reload")
+		return
+	}
+	if err := runCmd(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		core.Debug("user daemon-reload failed (no user manager?): %v", err)
+	}
+}
+
+// removeLegacyScripts drops symlinks this module used to create. See
+// swayLegacyScripts for why nothing else would ever remove them.
+//
+// Best-effort and never fatal: a helper that could not be removed is clutter,
+// not a broken install, and failing the whole module over it would be worse
+// than leaving it.
+func (m SwayModule) removeLegacyScripts() {
+	for _, name := range swayLegacyScripts {
+		path := core.HomeTarget(".local", "bin", name)
+		if path == "" {
+			continue
+		}
+		// ⚠ Lstat, not Stat: Stat follows the link, so a stale link pointing at
+		// a script this repo has deleted reports ErrNotExist and would be
+		// skipped — which is exactly the case this exists to clean up.
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue // absent, or a real file that is not ours to delete
+		}
+		dest, err := os.Readlink(path)
+		if err != nil || !strings.HasPrefix(dest, core.DotfilesDir()) {
+			continue // points somewhere else; leave it alone
+		}
+		if core.DryRun {
+			core.Status("Would remove retired helper %s", path)
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			core.Warn("could not remove retired helper %s: %v", path, err)
+		} else {
+			core.Info("removed retired helper %s", path)
+		}
+	}
 }
 
 func (m SwayModule) Uninstall(ctx context.Context) error {

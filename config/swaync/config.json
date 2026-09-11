@@ -139,8 +139,17 @@
           "command": "swaync-client -cp; swaylock -f -c 1e1e2e"
         },
         {
+          "//200": "⚠ THE PICKER, NOT nm-connection-editor. This button predates",
+          "//201": "config/sway/sway-controlcenter and still opened the connection EDITOR,",
+          "//202": "which lists saved profiles rather than what is in the air — so",
+          "//203": "the one button in the control center wearing a wifi glyph could",
+          "//204": "not actually join a network. The editor is still reachable, from",
+          "//205": "the panel's own Settings footer and from a right-click on the",
+          "//206": "bar's network glyph.",
+          "//207": "Absolute path: swaync is started from sway, which has no",
+          "//208": "~/.local/bin on PATH (see config/waybar/config's custom/power).",
           "label": "󰖩",
-          "command": "swaync-client -cp; nm-connection-editor"
+          "command": "swaync-client -cp; $HOME/.local/bin/sway-controlcenter"
         },
         {
           "label": "󰂯",
@@ -156,9 +165,9 @@
     "//20": "These two sliders do NOT hit the bug that killed waybar's in-bar",
     "//21": "sliders. That was waybar's ASlider calling set_value() on the very",
     "//22": "widget under the pointer with no drag interlock (see the WHY THIS",
-    "//23": "EXISTS block in config/sway/sway-quickpanel). swaync drives a plain",
+    "//23": "EXISTS block in config/sway/sway-controlcenter). swaync drives a plain",
     "//24": "GtkScale and does not write back mid-drag, so dragging is precise.",
-    "//25": "sway-quickpanel therefore still exists but is no longer the only",
+    "//25": "sway-controlcenter therefore still exists but is no longer the only",
     "//26": "way to drag these — it stays because it is one keystroke away and",
     "//27": "does not require opening a full panel.",
     "volume": {
@@ -172,10 +181,10 @@
     "//34": "to the bottom takes the panel fully black — the one thing the floor",
     "//35": "exists to prevent, and hard to undo when you cannot see the screen.",
     "//36": "With it, `slider.set_range(min, 100)` makes the bottom of the track",
-    "//37": "unreachable below 5 — the SAME model sway-quickpanel uses (its scale",
+    "//37": "unreachable below 5 — the SAME model sway-controlcenter uses (its scale",
     "//38": "is also real units clamped at BRIGHTNESS_MIN, with the 0-100 user",
     "//39": "scale applied only to the label). 5 must match BRIGHTNESS_MIN in",
-    "//40": "sway-quickpanel and FLOOR in sway-brightness — three copies, change",
+    "//40": "sway-controlcenter and FLOOR in sway-brightness — three copies, change",
     "//41": "all three together or the slider and the keys disagree about the",
     "//42": "bottom.",
     "//43": "AND THE FALSE ZERO COMES FREE WITH IT — this was not obvious and is",

@@ -32,7 +32,7 @@ set -eu
 
 # Real hardware percent at user-scale zero. 5 rather than 1: measured on this
 # panel, 1% is not reliably distinguishable from off in a lit room, which
-# defeats the entire point. Duplicated as BRIGHTNESS_MIN in sway-quickpanel and
+# defeats the entire point. Duplicated as BRIGHTNESS_MIN in sway-controlcenter and
 # as widget-config.backlight.min in config/swaync/config.json — change all
 # three together or the keys and the sliders disagree about where the bottom is.
 FLOOR=5
@@ -67,7 +67,7 @@ usable=$((100 - FLOOR))
 # the `read` builtin and writing it with `printf >` forks NOTHING, so the whole
 # press collapses to the one swayosd-client spawn we cannot avoid.
 #
-# This mirrors what config/sway/sway-quickpanel already does, deliberately —
+# This mirrors what config/sway/sway-controlcenter already does, deliberately —
 # the two must agree about the hardware or the keys and the slider drift apart.
 # It needs config/sway/90-backlight.rules installed (grants the `video` group
 # write access) and the user in `video`; Debian's brightnessctl ships no such
@@ -93,7 +93,7 @@ divround() { echo $((($1 + $2 / 2) / $2)); }
 #
 # Computing the percent from raw/max rather than parsing brightnessctl's own
 # percent field assumes the raw->percent mapping is linear. That is what
-# sway-quickpanel has always done, and brightnessctl itself computes its
+# sway-controlcenter has always done, and brightnessctl itself computes its
 # percent the same way, so the two agree; the fallback below still parses
 # brightnessctl's field for any backend where we cannot read sysfs at all.
 real_now() {

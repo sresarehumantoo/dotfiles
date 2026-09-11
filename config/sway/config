@@ -356,6 +356,17 @@ bindsym $mod+n       exec swaync-client -t -sw
 # reach for -C here: that is close-all, which drops them from the history too.
 bindsym $mod+Shift+n exec swaync-client --hide-latest -sw
 
+### Network ---------------------------------------------------------------
+# The wifi picker. The pointer route is a MIDDLE click on the bar's network
+# glyph (see "network" in config/waybar/config) — left-click is the control
+# center there, like every other status readout, so this key is the discoverable
+# half of the pair.
+#
+# ⚠ NOT $mod+n, which is already the control center directly above. `i` for
+# internet; it was the free key with any mnemonic at all.
+# ⚠ Absolute path, for the GDM/PATH reason recorded on the brightness keys.
+bindsym $mod+i       exec $HOME/.local/bin/sway-controlcenter
+
 ### Media / laptop keys ---------------------------------------------------
 # ⚠ Each of these is written as `swayosd-client ... || <fallback>` on purpose.
 # swayosd draws the on-screen level overlay, and it is what makes the bar's
@@ -393,13 +404,7 @@ for_window [window_role="dialog"]        floating enable
 for_window [window_role="pop-up"]        floating enable
 for_window [window_type="dialog"]        floating enable
 for_window [app_id="pavucontrol"]        floating enable
-# Volume + brightness quick panel, opened by left-clicking those readouts in
-# waybar. It replaces waybar's own in-bar sliders, which were unusable — see
-# the WHY THIS EXISTS block in config/sway/sway-quickpanel.
-for_window [app_id="sway-quickpanel"]    floating enable
-for_window [app_id="sway-quickpanel"]    border pixel 2
-for_window [app_id="sway-quickpanel"]    sticky enable
-# ⚠ sway-calendar DELIBERATELY HAS NO for_window RULES, and adding them is a
+# ⚠ sway-controlcenter AND sway-calendar DELIBERATELY HAVE NO for_window RULES, and adding them is a
 # no-op rather than an error. It is a zwlr_layer_shell_v1 surface (like waybar
 # and swaync), not an xdg_toplevel, so it never appears in the window tree and no
 # `[app_id="sway-calendar"]` criteria can ever match it — floating/border/sticky
@@ -435,7 +440,19 @@ bindswitch --reload --locked lid:on exec $lock
 # primary-GPU-scanout setup. The rule that works: reload the RUNNING instance
 # in place, and only spawn one if none is running. Never kill-and-respawn.
 # (`||` and `>` below are handled by sh -c, not sway's parser.)
-exec_always pkill -SIGUSR2 -x waybar || waybar     # waybar reloads its config on SIGUSR2
+# Supervised by systemd since 2026-09-06, and the rule above still holds.
+# `reload-or-restart` SIGUSR2s the RUNNING instance in place via the unit's
+# ExecReload (verified: the pid does not change) and only starts one if none is
+# running, so this is still "reload in place, never kill-and-respawn".
+# What it adds is Restart=on-failure: waybar 0.12.0 segfaults in libglibmm, a
+# use-after-free on a Glib::Dispatcher, roughly once a fortnight. As a bare
+# exec_always child nothing brought it back, so on 2026-09-05 the bar died at
+# 20:21:10 and was gone for 21 hours. It now returns in about a second, and the
+# crash is logged as status=11/SEGV in the user journal, which is readable
+# WITHOUT the root access the kernel log needs.
+# The unit is a full replacement at ~/.config/systemd/user/waybar.service, not a
+# drop-in; that file explains why.
+exec_always systemctl --user reload-or-restart waybar.service
 
 # SwayFX visual effects — blur, rounded corners, shadows, animations.
 #
@@ -538,6 +555,27 @@ exec_always sh -c '[ -x "$HOME/.local/bin/sway-calendar" ] && "$HOME/.local/bin/
 # ⚠ It also clears its state on startup, so a reload can never leave a
 # workspace marked monocle with nothing actually fullscreen.
 exec_always sh -c '[ -x "$HOME/.local/bin/sway-monocle" ] && "$HOME/.local/bin/sway-monocle" --server &'
+
+# sway-controlcenter as a RESIDENT SERVER, started hidden — the wifi picker behind the
+# bar's network glyph (middle click) and $mod+i. Same argument as sway-calendar
+# (measured: its client path and this one both cost ~90ms against a ~300ms GTK
+# import, so neither can be spawn-per-click), plus one of its own that the
+# calendar does not have: a cold NetworkManager scan takes SECONDS to
+# fill in, so a panel that only began scanning when you opened it would appear
+# empty and then populate under the cursor. The resident server is already
+# subscribed, so the list is there in the first frame.
+#
+# ⚠ `--anchor` MUST MATCH WHERE THE NETWORK GLYPH IS in config/waybar/config,
+# because the SERVER owns the geometry — the click path only delivers a signal
+# and cannot pass an anchor. `network` sits in group/status in modules-right ->
+# `--anchor right`.
+#
+# ⚠ NO pgrep GUARD, for the same self-match reason as sway-calendar,
+# sway-workspaces and sway-monocle above — `pgrep -f sway-controlcenter` matches the
+# `sh -c` running this very line. The script guards itself: `--server` checks its
+# own pidfile and declines to become a second resident instance, which is what
+# makes this safe under `exec_always` on every `swaymsg reload`.
+exec_always sh -c '[ -x "$HOME/.local/bin/sway-controlcenter" ] && "$HOME/.local/bin/sway-controlcenter" --server --anchor right &'
 
 # Dynamic-tiling approximation over sway IPC — the mitigation for sway being
 # manual-tiling. Comment this out to judge plain sway.

@@ -1,5 +1,5 @@
 # Let the `video` group write laptop backlight brightness, so brightnessctl and
-# config/sway/sway-quickpanel can change it without root.
+# config/sway/sway-controlcenter can change it without root.
 #
 # NOT installed automatically -- it writes outside $HOME and needs root:
 #     sudo install -m 0644 config/sway/90-backlight.rules /etc/udev/rules.d/

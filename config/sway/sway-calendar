@@ -25,8 +25,8 @@ POSITION — it drops from under the bar, aligned to the clock, which is the one
 thing the tooltip genuinely got right.
 
 ⚠ THIS IS A LAYER-SHELL SURFACE, NOT A FLOATING TOPLEVEL, and that is the whole
-reason it does not visibly jump. The first version was a plain xdg_toplevel like
-sway-quickpanel, and a Wayland client cannot position its own toplevel: sway
+reason it does not visibly jump. The first version was a plain xdg_toplevel (as the retired
+sway-quickpanel was), and a Wayland client cannot position its own toplevel: sway
 placed it in the middle of the screen, then a `swaymsg move absolute position`
 dragged it under the bar a frame or two later. That reposition is VISIBLE — the
 window appears mid-screen and slides. There is no fix at that level, only a
@@ -167,7 +167,7 @@ gi.require_version("GtkLayerShell", "0.1")
 # GTK **4** — after which `require_version("Gtk", "3.0")` fails with
 # `RepositoryError: Requiring namespace 'Gdk' version '3.0', but '4.0' is already
 # loaded`. It is not hypothetical and it is not caught by py_compile: this file
-# had exactly that bug until the first run. sway-quickpanel pins both for the
+# had exactly that bug until the first run. sway-controlcenter pins both for the
 # same reason.
 gi.require_version("Gdk", "3.0")
 from gi.repository import GLib, Gdk, Gtk, GtkLayerShell  # noqa: E402
@@ -475,7 +475,8 @@ class Calendar(Gtk.Window):
         self.connect("key-press-event", self._on_key)
         # ⚠ CLOSE-ON-FOCUS-LOSS MUST BE ARMED ON A TIMER, and the obvious guards
         # do not work. As an xdg_toplevel a bare focus-out handler was correct
-        # (sway-quickpanel still uses one). On a layer surface it is not: traced
+        # (an xdg_toplevel can, which is what the
+        # retired sway-quickpanel relied on). On a layer surface it is not: traced
         # with signal logging, the surface emits
         #     map-event -> focus-in -> focus-out
         # within milliseconds of mapping, unprompted. So an unguarded handler
