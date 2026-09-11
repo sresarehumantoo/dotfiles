@@ -494,6 +494,10 @@ label.levelvalue {
     color: #6c7086; font-family: Cantarell, sans-serif; font-size: 11px;
     font-feature-settings: "tnum";
 }
+/* Muted: the level is still shown, just quieter -- the glyph carries the
+   state. Replacing the number with a word is what made a muted machine look
+   like a broken slider. */
+label.levelvalue.muted { color: #45475a; }
 
 /* Separators and section headings ----------------------------------------- */
 label.section {
@@ -1352,6 +1356,10 @@ class SliderRow(Gtk.Box):
     #3249, #4089). `_scrubbing` below is that missing interlock.
     """
 
+    @staticmethod
+    def _fmt(value):
+        return "%d%%" % round(value)
+
     def __init__(self, glyph, on_change, on_glyph=None, lower=0):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.get_style_context().add_class("sliderrow")
@@ -1432,11 +1440,32 @@ class SliderRow(Gtk.Box):
             self._settle = 0
 
     def _on_value(self, scale):
-        self._on_change(scale.get_value())
+        """Write the new value out, and paint it immediately.
+
+        ⚠ THE LABEL MUST BE WRITTEN HERE, NOT LEFT TO `update()`. `update()` is
+        suppressed for the whole scrub -- that is the entire point of the
+        interlock -- and it is otherwise driven by a 1s poll, so with the label
+        written only there the number stayed frozen for as long as you held the
+        handle and then jumped once you let go. Dragging a slider whose number
+        does not move reads as a stuck slider, which is exactly how this was
+        reported. This value is the user's OWN input, so painting it is not the
+        outside write the interlock exists to keep out.
+        """
+        value = scale.get_value()
+        self.value.set_text(self._fmt(value))
+        self._on_change(value)
 
     def set_glyph(self, glyph):
         if self.button.get_label() != glyph:
             self.button.set_label(glyph)
+
+    def set_muted(self, muted):
+        """Dim the level without hiding it. See the note in _render_sound."""
+        ctx = self.value.get_style_context()
+        if muted:
+            ctx.add_class("muted")
+        else:
+            ctx.remove_class("muted")
 
     def update(self, percent, text=None):
         """Reflect the outside world -- but never while the user is holding it."""
@@ -1446,7 +1475,7 @@ class SliderRow(Gtk.Box):
             self.scale.handler_block_by_func(self._on_value)
             self.scale.set_value(percent)
             self.scale.handler_unblock_by_func(self._on_value)
-        self.value.set_text(text if text is not None else "%d%%" % percent)
+        self.value.set_text(text if text is not None else self._fmt(percent))
 
 
 class Row(Gtk.Box):
@@ -2149,12 +2178,21 @@ class Panel(Gtk.Window):
         if not have:
             return
         percent = round(self.audio.volume * 100)
+        # ⚠ THE NUMBER STAYS A NUMBER WHILE MUTED. This used to render the word
+        # "Muted" in place of the percentage, which meant the sound row's value
+        # could never change on a muted machine -- drag the handle, watch the
+        # level actually move (verified: the sink went 0.41 -> 0.65), and read
+        # the same word throughout. Reported, reasonably, as "the percentages
+        # aren't adjusting"; the mute state was never the thing in doubt.
+        # Mute is carried by the glyph, which is how Windows, macOS and GNOME
+        # all show it, and `.muted` dims the number so the level still reads as
+        # inactive.
+        self.volume_row.set_muted(self.audio.muted)
         if self.audio.muted:
             self.volume_row.set_glyph(ICON_VOL_MUTE)
-            self.volume_row.update(percent, "Muted")
         else:
             self.volume_row.set_glyph(ICON_VOL[min(2, percent * 3 // 100)])
-            self.volume_row.update(percent)
+        self.volume_row.update(percent)
 
         # One row per sink, reconciled in place like the wifi rows -- see
         # sync_children for why these are never rebuilt.

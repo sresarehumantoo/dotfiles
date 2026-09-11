@@ -708,6 +708,28 @@ interlock would never engage for it; the scroll handler brackets that case too.
 > independent of audio, so if the DISPLAY percentage tracks and SOUND does not,
 > the fault is below the panel.
 
+> [!CAUTION]
+> **The interlock suppresses `update()`, so the NUMBER has to be painted from
+> `_on_value`, not left to the poll.** With the label written only in `update()`
+> it was frozen for the entire length of a drag — the interlock blocks it, by
+> design, and the 1s poll is the only other thing that writes it — so the handle
+> moved under the cursor while the percentage sat still and then jumped once you
+> let go. A slider whose number does not move while you drag it reads as a stuck
+> slider, and was reported as one. `_on_value` writes the label directly: that
+> value is the user's own input, not the outside write the interlock exists to
+> keep out. Both rows share `_fmt` so the live text and the polled text cannot
+> drift apart.
+
+> [!CAUTION]
+> **A muted sink still shows its level.** The sound row used to render the word
+> *Muted* in place of the percentage, which meant that on a muted machine the
+> number could never change at all: drag the handle, watch the sink genuinely
+> move (measured 0.41 → 0.65), and read the same word throughout. That is
+> indistinguishable from a broken slider, and it is the second thing behind "the
+> percentages aren't adjusting" — the mute state was never the part in doubt.
+> Mute is carried by the glyph, as it is on Windows, macOS and GNOME, and
+> `label.levelvalue.muted` dims the number so the level still reads as inactive.
+
 Writes stay off the main loop for a measured reason: `wpctl set-volume` forks in
 ~27 ms, and a `GtkScale` emits `value-changed` on every pixel of a drag, so
 calling it synchronously blocked the loop over half the time and the slider
