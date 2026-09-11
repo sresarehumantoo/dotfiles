@@ -665,6 +665,49 @@ down.
 ⚠ **A wheel or touchpad scrub emits no button events**, so a press/release-only
 interlock would never engage for it; the scroll handler brackets that case too.
 
+> [!CAUTION]
+> **A scroll has no release event, so the scroll handler cannot be `_grab`
+> itself — and for a while it was.** `_grab` only ever *sets* `_scrubbing`;
+> `_release` is what clears it, and no button-release ever follows a wheel tick.
+> So a single scroll over the scale latched the interlock True for the life of
+> the panel: GTK went on driving the handle, so the slider moved and looked
+> perfectly healthy, while `update()` returned early on every poll and **the
+> percentage beside it froze at whatever it last read**. It stayed frozen until
+> some unrelated press/release pair happened to clear the flag.
+>
+> That is the entire visible symptom of "the percentages aren't adjusting", and
+> it is invisible in a code read, because the broken line
+> (`connect("scroll-event", self._grab)`) is indistinguishable from the working
+> one next to it. `_scroll` now engages the interlock and arms a
+> `SCRUB_SETTLE_MS` (400 ms) timer to end it; `_grab` and `_release` both cancel
+> a pending timer, so a scroll immediately followed by a drag cannot have its
+> timer fire mid-drag and re-open the interlock the press just closed.
+>
+> ⚠ **Do not diagnose this from the bar or from `wpctl` alone.** A dead sink
+> produces the same complaint from the other end — see the note below — and the
+> two are easy to confuse because both leave a slider that moves and a number
+> that does not.
+
+> [!NOTE]
+> **"The percentage is not adjusting" has a second, unrelated cause that is not
+> a bug in this panel: no real audio sink.** When WirePlumber has the card on
+> profile `off`, PipeWire substitutes `auto_null` — a sink named *Dummy Output*
+> that **accepts `wpctl set-volume` and silently ignores it**, so the write
+> succeeds, the readback never moves, and the panel faithfully reports a number
+> that cannot change. Seen on this box 2026-09-10: the only sink was *Dummy
+> Output*, and `pw-dump` offered just two profiles, `off` and `pro-audio`, with
+> no analog stereo among them — while `/proc/asound/card0/` listed eight PCM
+> devices and `firmware-sof-signed` was installed, i.e. ALSA was fine the whole
+> time and only WirePlumber's enumeration was wrong.
+> `systemctl --user restart wireplumber` re-probed the card and brought back
+> four real sinks plus the proper HiFi profiles.
+>
+> The quick discriminator, before touching any code: run
+> `wpctl status`. If the only sink is *Dummy Output*, the panel is not the
+> problem. Cross-check by moving **brightness** instead — it writes sysfs and is
+> independent of audio, so if the DISPLAY percentage tracks and SOUND does not,
+> the fault is below the panel.
+
 Writes stay off the main loop for a measured reason: `wpctl set-volume` forks in
 ~27 ms, and a `GtkScale` emits `value-changed` on every pixel of a drag, so
 calling it synchronously blocked the loop over half the time and the slider

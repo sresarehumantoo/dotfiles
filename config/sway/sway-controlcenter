@@ -316,6 +316,11 @@ COALESCE_MS = 200     # debounce: a burst of signals redraws once
 # Volume can be changed from the media keys or another app while the panel is
 # open, so it is re-read on its own timer. Asynchronously -- see Audio.
 AUDIO_POLL_MS = 1000
+# How long after the last scroll tick a wheel scrub counts as finished. A scroll
+# has no release event, so this timer is the only thing that ends one -- see
+# SliderRow._scroll. Long enough to span the gap between ticks of one gesture,
+# short enough that the number catches up the moment you stop.
+SCRUB_SETTLE_MS = 400
 
 # -- Style ---------------------------------------------------------------------
 # The material is the one shared by swaync, sway-calendar and fuzzel: #0b0b11 at
@@ -1351,6 +1356,7 @@ class SliderRow(Gtk.Box):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.get_style_context().add_class("sliderrow")
         self._scrubbing = False
+        self._settle = 0
         self._on_change = on_change
 
         self.button = Gtk.Button(label=glyph)
@@ -1368,8 +1374,8 @@ class SliderRow(Gtk.Box):
         self.scale.connect("button-press-event", self._grab)
         self.scale.connect("button-release-event", self._release)
         # A touchpad/wheel scrub emits no button events at all, so the interlock
-        # would never engage for it; these two bracket that case.
-        self.scale.connect("scroll-event", self._grab)
+        # would never engage for it; _scroll brackets that case on a timer.
+        self.scale.connect("scroll-event", self._scroll)
 
         self.value = Gtk.Label(xalign=1.0)
         self.value.get_style_context().add_class("levelvalue")
@@ -1380,12 +1386,50 @@ class SliderRow(Gtk.Box):
         self.pack_start(self.value, False, False, 0)
 
     def _grab(self, *_a):
+        self._cancel_settle()
         self._scrubbing = True
         return False
 
     def _release(self, *_a):
+        self._cancel_settle()
         self._scrubbing = False
         return False
+
+    def _scroll(self, *_a):
+        """A wheel/touchpad scrub, which ENDS ON A TIMER because it has no
+        release event.
+
+        ⚠ THIS CANNOT REUSE `_grab`, AND IT USED TO. `_grab` only ever sets the
+        flag; `_release` clears it, and a scroll never produces a
+        button-release -- so one wheel tick over the scale latched
+        `_scrubbing` True for the life of the panel. GTK still drove the handle,
+        so the slider moved and looked healthy while `update()` returned early
+        every tick, freezing the percentage beside it at whatever it last read.
+        It stayed frozen until some later press/release pair happened to clear
+        the flag. That is the whole "the percentages aren't adjusting" symptom,
+        and it is invisible in a code read because the broken line looks exactly
+        like the working one.
+        """
+        self._cancel_settle()
+        self._scrubbing = True
+        self._settle = GLib.timeout_add(SCRUB_SETTLE_MS, self._settled)
+        return False
+
+    def _settled(self):
+        self._settle = 0
+        self._scrubbing = False
+        return False
+
+    def _cancel_settle(self):
+        """Drop a pending settle timer.
+
+        Called from both button handlers so a scroll immediately followed by a
+        press cannot have its timer fire mid-drag and re-open the interlock the
+        press just closed.
+        """
+        if self._settle:
+            GLib.source_remove(self._settle)
+            self._settle = 0
 
     def _on_value(self, scale):
         self._on_change(scale.get_value())
