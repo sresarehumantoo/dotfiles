@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // In-package rather than in tests/, because the dependency list and its binary
@@ -223,18 +225,31 @@ func TestSwayLinkSourcesAllExist(t *testing.T) {
 		t.Fatalf("resolving repo root: %v", err)
 	}
 
+	// ⚠ RE-ROOT EACH SOURCE AT THE REPO; DO NOT STAT link.Src DIRECTLY. Links()
+	// builds its paths from core.DotfilesDir(), which resolves $DOTFILES, then
+	// the machine-global canonical pointer, then the invoking clone -- so what
+	// it returns depends on the MACHINE, not on the checkout under test. On a
+	// developer box the canonical pointer names the real clone and statting
+	// link.Src happens to work; in CI there is no pointer and no $DOTFILES, so
+	// it falls through to the working directory, which for `go test` is the
+	// PACKAGE directory. Every source then resolved under src/modules/config/
+	// and all 25 links reported as missing. This test was red on develop from
+	// 2026-09-06 to 2026-09-10 for exactly that reason, while `make test`
+	// passed for everyone who ran it locally.
+	//
+	// Comparing the tail instead asks the question this test actually means --
+	// "does the repo contain every file the module promises to link?" -- and it
+	// asks it of the checkout being tested, wherever DotfilesDir happens to
+	// point.
+	base := core.DotfilesDir()
 	for _, link := range (SwayModule{}).Links() {
-		// Links() yields absolute paths under the repo; only assert on those
-		// that actually live here, so a future absolute-path link elsewhere
-		// does not fail this test spuriously.
-		if !strings.HasPrefix(link.Src, repo+string(filepath.Separator)) {
+		rel, err := filepath.Rel(base, link.Src)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			// Not under the dotfiles root: an absolute link elsewhere is not
+			// this repo's to account for.
 			continue
 		}
-		if _, err := os.Stat(link.Src); err != nil {
-			rel, relErr := filepath.Rel(repo, link.Src)
-			if relErr != nil {
-				rel = link.Src
-			}
+		if _, err := os.Stat(filepath.Join(repo, rel)); err != nil {
 			t.Errorf("SwayModule links %s but that source does not exist: %v\n"+
 				"\ta dangling link here means the config that depends on it fails silently", rel, err)
 		}
