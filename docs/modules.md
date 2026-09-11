@@ -255,6 +255,29 @@ Symlinks shell configuration files:
 
 The zshrc sources p10k instant prompt, loads oh-my-zsh, then sources all `~/.zsh.d/*.zsh` files for modular configuration.
 
+### Interactive shells start in tmux
+
+The first thing `zshrc` does, above everything else, is put an interactive shell into tmux: `tmux new-session -A -s main`. `-A` attaches to `main` if it exists and creates it otherwise, so every terminal on the machine shares one session.
+
+**To get a shell without tmux, set `DF_NO_TMUX`:**
+
+```zsh
+DF_NO_TMUX=1 ghostty      # one terminal, no tmux
+export DF_NO_TMUX=1       # ...and anything it launches
+```
+
+Empty or `0` means "start tmux"; anything else means "don't". The name is negative, so requiring `1` to mean *no* tmux is the only reading that is not a coin flip. It follows the `DF_SMEAR_CURSOR` convention in `config/nvim`.
+
+There was no opt-out before 2026-09-10, and that is what made this hard to live with. The only reliable route to a tmux-free shell was running `bash`. `TERM=dumb zsh` worked too, but by accident of the guard list, and it drags the prompt down to `robbyrussell`, drops the cursor-shape keybinds and un-colors tldr as side effects.
+
+The block is skipped when: `DF_NO_TMUX` is set, tmux is not installed, `$TMUX` is already set, the shell is not interactive, `$TERM` is `linux` or `dumb`, or the shell belongs to a VS Code (`TERM_PROGRAM=vscode`, which also covers Cursor and Windsurf) or JetBrains (`TERMINAL_EMULATOR=JetBrains-JediTerm`) integrated terminal.
+
+> [!NOTE]
+> **It is deliberately not `exec`.** It was until 2026-09-10, and `exec` replaces the shell, leaving nothing underneath it. That produced three complaints that never looked related to each other: detaching with `prefix d` **closed the terminal** instead of dropping to a prompt, so detach was not an escape hatch either; a tmux that failed to start (stale socket after a WSL VM restart, a `tmux.conf` you just broke, `/tmp` not writable) took the window down with it before the error could be read, making the failure invisible; and there was no way to `exit` back to a plain shell. Calling tmux normally costs one idle parent zsh for the length of the session and buys back all three. The explicit `exit` on success preserves the old behavior where detaching ends the terminal.
+
+> [!CAUTION]
+> **Two of the three IDE guards used to guard nothing.** `VSCODE_PID` is set for the extension-host process, not for the integrated terminal, and has been removed; `TERM_PROGRAM` is the check that works. `INTELLIJ_ENVIRONMENT_READER` is set only during JetBrains' one-shot env-probe shell and never in the terminal you type into, so **JetBrains terminals were being exec'd into tmux** until `TERMINAL_EMULATOR` was added beside it.
+
 ### Custom Shell File Preservation
 
 Before linking, the shell module scans `$HOME` for custom shell files that aren't managed by dfinstall (e.g. `.companyrc`, `.work_env`, `.localrc`). If new files are found, an interactive multi-select menu lets the user choose which to keep sourcing after dfinstall replaces `~/.zshrc`.
