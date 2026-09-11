@@ -38,7 +38,8 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   && [[ "$TERM" != "dumb" ]] \
   && [[ "$TERM_PROGRAM" != "vscode" ]] \
   && [[ "$TERMINAL_EMULATOR" != "JetBrains-JediTerm" ]] \
-  && [[ -z "$INTELLIJ_ENVIRONMENT_READER" ]]; then
+  && [[ -z "$INTELLIJ_ENVIRONMENT_READER" ]] \
+  && { [[ -z "$SSH_CONNECTION" && -z "$SSH_TTY" ]] || [[ "$DF_TMUX_SSH" == 1 ]] }; then
   # TERM_PROGRAM is the VS Code check that works, and it covers Cursor and
   # Windsurf too. `VSCODE_PID` used to be in this list and guarded nothing: it
   # is set for the extension-host process, not for the integrated terminal.
@@ -47,6 +48,26 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   # `INTELLIJ_ENVIRONMENT_READER` is set only during JetBrains' one-shot
   # env-probe shell and never in the terminal you type into, so until that
   # line was added, IntelliJ terminals were exec'd into tmux like any other.
+  #
+  # AN INBOUND SSH LOGIN DOES NOT START TMUX. Set DF_TMUX_SSH=1 to opt back in
+  # per host, or per login. Nothing consulted SSH_CONNECTION before, and the
+  # two consequences were both bad:
+  #   - every ssh login joined that host's shared `main`, so two terminals into
+  #     one box mirrored each other's screen and fought over `window-size
+  #     latest` (the tmux default; nothing here sets it). The console session
+  #     was in the same fight.
+  #   - ssh OUT of a pane stacked two servers in one terminal. $TMUX is not
+  #     forwarded, so the remote shell sees an empty one and starts its own,
+  #     and both then use `M-a` as prefix with the same root-table (`-n`) binds
+  #     from tmux.conf: M-n, M-1..9, M-Enter, M--, M-q, M-m, M-s, M-c, C-q.
+  #     The OUTER tmux eats all of them, so the inner session cannot be driven
+  #     by its own keys at all.
+  # The second is the one with no good fix from inside tmux: a shared prefix is
+  # a property of both configs, and the remote host is not always ours to
+  # configure. Not starting the inner server is what makes the keys work.
+  #
+  # SSH_TTY is checked beside SSH_CONNECTION because a login shell can carry
+  # one without the other depending on sshd's settings.
   tmux new-session -A -s main
   tmux_rc=$?
   if (( tmux_rc == 0 )); then

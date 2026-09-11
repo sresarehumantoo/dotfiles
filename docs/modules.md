@@ -270,7 +270,21 @@ Empty or `0` means "start tmux"; anything else means "don't". The name is negati
 
 There was no opt-out before 2026-09-10, and that is what made this hard to live with. The only reliable route to a tmux-free shell was running `bash`. `TERM=dumb zsh` worked too, but by accident of the guard list, and it drags the prompt down to `robbyrussell`, drops the cursor-shape keybinds and un-colors tldr as side effects.
 
-The block is skipped when: `DF_NO_TMUX` is set, tmux is not installed, `$TMUX` is already set, the shell is not interactive, `$TERM` is `linux` or `dumb`, or the shell belongs to a VS Code (`TERM_PROGRAM=vscode`, which also covers Cursor and Windsurf) or JetBrains (`TERMINAL_EMULATOR=JetBrains-JediTerm`) integrated terminal.
+The block is skipped when: `DF_NO_TMUX` is set, tmux is not installed, `$TMUX` is already set, the shell is not interactive, `$TERM` is `linux` or `dumb`, the shell belongs to a VS Code (`TERM_PROGRAM=vscode`, which also covers Cursor and Windsurf) or JetBrains (`TERMINAL_EMULATOR=JetBrains-JediTerm`) integrated terminal, or the shell is an inbound ssh login.
+
+### An inbound ssh login does not start tmux
+
+Set `DF_TMUX_SSH=1` to opt back in, per host or per login. `DF_NO_TMUX` wins over it, so an explicit "no tmux" is always honored.
+
+Nothing consulted `SSH_CONNECTION` before 2026-09-10, and it had two consequences:
+
+- **Every ssh login joined that host's shared `main`.** Two terminals into one box mirrored each other's screen and fought over `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it). The console session was in the same fight.
+- **ssh *out of* a pane stacked two servers in one terminal.** `$TMUX` is not forwarded, so the remote shell sees an empty one and starts its own. Both then use `M-a` as prefix and both carry the root-table (`-n`) binds from `tmux.conf` — `M-n`, `M-1..9`, `M-Enter`, `M--`, `M-q`, `M-m`, `M-s`, `M-c`, `C-q`. The **outer** tmux eats every one of them, so the inner session cannot be driven by its own keys at all.
+
+The second has no good fix from inside tmux: a shared prefix is a property of *both* configs, and the remote host is not always yours to configure. Not starting the inner server is what makes the keys work. `SSH_TTY` is checked beside `SSH_CONNECTION` because a login shell can carry one without the other depending on sshd's settings.
+
+> [!NOTE]
+> This trades away tmux's disconnect resilience on remote hosts, which is a real loss and the reason many people want tmux on ssh in the first place. `DF_TMUX_SSH=1` is how you take it back; put it in the remote host's own `~/.profile.local` if you want it permanently for one box. The default is the other way round because a session you did not ask for, shared with every other login and unable to receive its own keybinds, is worse than one you start deliberately with `tmux new -A -s <name>`.
 
 > [!NOTE]
 > **It is deliberately not `exec`.** It was until 2026-09-10, and `exec` replaces the shell, leaving nothing underneath it. That produced three complaints that never looked related to each other: detaching with `prefix d` **closed the terminal** instead of dropping to a prompt, so detach was not an escape hatch either; a tmux that failed to start (stale socket after a WSL VM restart, a `tmux.conf` you just broke, `/tmp` not writable) took the window down with it before the error could be read, making the failure invisible; and there was no way to `exit` back to a plain shell. Calling tmux normally costs one idle parent zsh for the length of the session and buys back all three. The explicit `exit` on success preserves the old behavior where detaching ends the terminal.
