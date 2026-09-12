@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -62,6 +63,10 @@ func registerTools(s *server.MCPServer) {
 				mcp.Required(),
 				mcp.Description("Module name to install, or 'all' for everything"),
 			),
+			mcp.WithBoolean("dry_run",
+				mcp.Description("Report what would change without touching anything. "+
+					"The safe way to inspect an install from here"),
+			),
 			mcp.WithIdempotentHintAnnotation(true),
 		),
 		handleInstall,
@@ -96,9 +101,16 @@ func registerTools(s *server.MCPServer) {
 
 	s.AddTool(
 		mcp.NewTool("dfinstall_restore",
-			mcp.WithDescription("Restore files from a backup snapshot"),
+			mcp.WithDescription("List backup snapshots, or restore one by timestamp. "+
+				"Defaults to listing; restoring requires action='restore' AND an "+
+				"explicit timestamp."),
+			mcp.WithString("action",
+				mcp.Description("'list' (default) to show available backups, "+
+					"'restore' to actually restore one"),
+			),
 			mcp.WithString("timestamp",
-				mcp.Description("Backup timestamp to restore (latest if omitted)"),
+				mcp.Description("Backup timestamp to restore. Required when "+
+					"action='restore'; there is deliberately no 'latest' default"),
 			),
 			mcp.WithDestructiveHintAnnotation(true),
 		),
@@ -163,10 +175,31 @@ func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult
 	return mcp.NewToolResultText(b.String()), nil
 }
 
+// installMu serializes installs so the process-wide core.DryRun flag cannot be
+// observed by a concurrent call.
+//
+// ⚠ core.BeginInstall ALREADY TAKES A PROCESS-WIDE LOCK, AND THAT IS NOT
+// ENOUGH ON ITS OWN. DryRun has to be set BEFORE BeginInstall, because the
+// session itself decides whether to take a backup and whether to write the
+// canonical pointer, and "nothing mutates persisted state under DryRun" is the
+// invariant that makes a dry run safe. Setting a global before acquiring the
+// session lock leaves a window where a second install, dispatched from this
+// server's worker pool, would run under someone else's flag: a real install
+// silently doing nothing, or worse, a dry run that writes.
+var installMu sync.Mutex
+
 func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	name := request.GetString("module", "")
 	if name == "" {
 		return mcp.NewToolResultError("module parameter is required"), nil
+	}
+
+	installMu.Lock()
+	defer installMu.Unlock()
+	if request.GetBool("dry_run", false) {
+		prev := core.DryRun
+		core.DryRun = true
+		defer func() { core.DryRun = prev }()
 	}
 
 	if name == "all" {
@@ -328,24 +361,63 @@ func handleListBackups(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolR
 	return mcp.NewToolResultText(b.String()), nil
 }
 
+// ⚠ THIS TOOL DEFAULTS TO LISTING, AND RESTORING REQUIRES AN EXPLICIT
+// TIMESTAMP. It used to take a single optional `timestamp` that meant "restore
+// the latest" when omitted, so the zero-argument call -- the one anything
+// exploring the tool makes first, by analogy with the CLI's `restore --list`
+// -- was the destructive one.
+//
+// That is not hypothetical: on 2026-09-12 a no-argument call here restored a
+// June snapshot over a live machine, repointing every managed symlink in $HOME
+// at a spare clone that had since been deleted. `shell` went from 12 linked to
+// 1, nvim from 21 to 3, and ~/.zshrc and ~/.gitconfig were left dangling.
+//
+// The CLI has always had this right: `restore --list` to look, `restore <ts>`
+// to act. The MCP tool collapsed both into one call whose default was to act.
+// A destructive operation must not be the default branch of a tool an agent
+// will call speculatively, and "latest" is not a safe implicit target when the
+// caller has not seen the list.
 func handleRestore(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	action := request.GetString("action", "list")
 	ts := request.GetString("timestamp", "")
 
-	if ts == "" {
+	switch action {
+	case "list":
 		backups, err := core.ListBackups()
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("list backups: %v", err)), nil
 		}
-		if len(backups) == 0 {
-			return mcp.NewToolResultError("no backups found"), nil
+		var b strings.Builder
+		core.WriteBackupList(&b, backups)
+		if len(backups) > 0 {
+			fmt.Fprintf(&b, "\nTo restore: action='restore' with an explicit timestamp.\n")
 		}
-		ts = backups[0].Timestamp
-	}
+		return mcp.NewToolResultText(b.String()), nil
 
-	if err := core.RestoreBackup(ts); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("restore %s: %v", ts, err)), nil
+	case "restore":
+		if ts == "" {
+			return mcp.NewToolResultError("timestamp is required to restore. " +
+				"Call with action='list' first and pass one of the timestamps it " +
+				"reports; there is no 'latest' default, deliberately."), nil
+		}
+		res, err := core.RestoreBackup(ts)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("restore %s: %v", ts, err)), nil
+		}
+		// ⚠ res.Summary, NOT a bare "successfully". A faithful restore can
+		// still leave every managed file dangling, and saying only that it
+		// succeeded is what hid exactly that on 2026-09-12.
+		var b strings.Builder
+		fmt.Fprintln(&b, res.Summary(ts))
+		for _, d := range res.Dangling {
+			fmt.Fprintf(&b, "  dangling: %s\n", d)
+		}
+		return mcp.NewToolResultText(b.String()), nil
+
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"unknown action %q: expected 'list' or 'restore'", action)), nil
 	}
-	return mcp.NewToolResultText(fmt.Sprintf("Restored backup %s successfully.", ts)), nil
 }
 
 func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
