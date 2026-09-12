@@ -53,9 +53,11 @@ Three groups of additional tooling:
 
 Reads `/etc/os-release` for `VERSION_CODENAME` to construct apt repo URLs.
 
+**Signing key refresh:** both repos above are re-checked on every converge, not just when first added. Upstreams rotate signing keys on their own schedule, and a stale key makes `apt update` reject the index (exit 100) while the repo file, the key file, and the installed binary all still look fine. Each converge fetches the repo's `InRelease` and verifies it against the keyring on disk; if that fails, the upstream key is downloaded and **appended** to the keyring, keeping the outgoing certificate for the duration of the rotation window. A key that fails to verify even after refresh is left alone and reported as a warning rather than overwritten. Offline or unreachable upstreams skip the check entirely, so no network blip can trigger a keyring rewrite.
+
 After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
 
-**Status:** Checks 18 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, and terraform).
+**Status:** Checks 20 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, terraform, and the Docker and HashiCorp apt keyrings). The keyring checks are offline: they catch an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
 
 ---
 
@@ -306,6 +308,24 @@ The second has no good fix from inside tmux: a shared prefix is a property of *b
 
 > [!NOTE]
 > **It is deliberately not `exec`.** It was until 2026-09-10, and `exec` replaces the shell, leaving nothing underneath it. That produced three complaints that never looked related to each other: detaching with `prefix d` **closed the terminal** instead of dropping to a prompt, so detach was not an escape hatch either; a tmux that failed to start (stale socket after a WSL VM restart, a `tmux.conf` you just broke, `/tmp` not writable) took the window down with it before the error could be read, making the failure invisible; and there was no way to `exit` back to a plain shell. Calling tmux normally costs one idle parent zsh for the length of the session and buys back all three. The explicit `exit` on success preserves the old behavior where detaching ends the terminal.
+
+### Choosing a session, and knowing when one is new
+
+Every terminal joins one shared session called `main`. `DF_TMUX_SESSION` overrides the name, which is how a terminal gets a session of its own:
+
+```zsh
+DF_TMUX_SESSION=review ghostty
+```
+
+**Sharing means mirroring, and that is the default.** Each terminal attaches another *client* to the same session, so both show the same window and both move when either one does, and `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it) resizes the window to whichever client was used last, reflowing panes in the other. That is a preference rather than a defect, so the default is unchanged and `DF_TMUX_SESSION` is the way out. `aggressive-resize on` is the other available lever, and it only helps for clients viewing *different* windows.
+
+> [!CAUTION]
+> **Do not "fix" the mirroring with `-D`.** It is the obvious answer — a new client detaches the old one — and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
+
+> [!CAUTION]
+> **A resume and a fresh start are otherwise indistinguishable.** `new-session -A` attaches if the session exists and silently creates it if not, so when the server has gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty session with nothing to say the old one is not coming back — and `@continuum-restore` is `'off'` by default in `config/tmux/tmux.conf`, so nothing is restoring it either. `has-session` is now checked first, and a newly created session announces itself on the status line for 4s.
+>
+> **`=` makes the match exact, and it is required.** tmux target names are *prefix* matches, so a plain `has-session -t main` is satisfied by a session called `mainwork` (measured) and would report a resume that is not happening.
 
 > [!CAUTION]
 > **The tmux SERVER gets the environment too, not just the panes.** The server is forked from the shell that starts it, which has not reached the `~/.zsh.d/*.zsh` sourcing yet, so `path.zsh`, `exports.zsh`, `locale.zsh` and `ssh.zsh` are now sourced explicitly just before `tmux new-session`. Panes always recovered on their own; anything spawned from the *server's* environment did not, and that is `run-shell`, `display-popup`, `tmux new-window <cmd>` and TPM. Measured before the fix: the server's `PATH` had no `~/.local/bin` at all (no `dfinstall`, no `sway-*` helper, nothing user-installed), and its `SSH_AUTH_SOCK` was `/run/user/1000/gcr/ssh` — gnome-keyring — while every pane used `~/.ssh/agent.sock`, so anything git-ish run from the server authenticated against a different agent holding different keys. It is a list rather than a glob of `~/.zsh.d` because `options.zsh` and `keybinds.zsh` configure this shell's own line editing and would be wasted work in a shell about to hand over; sourcing the four twice is harmless by construction, since `path.zsh` ends in `typeset -U path PATH` and the others only assign.

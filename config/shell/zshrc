@@ -93,8 +93,45 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   done
   unset _df_env
 
-  tmux new-session -A -s main
+  # Which session to join. DF_TMUX_SESSION=work gives that terminal its own,
+  # instead of joining the shared one:
+  #
+  #     DF_TMUX_SESSION=review ghostty
+  #
+  # ⚠ THE DEFAULT IS STILL ONE SHARED `main`, AND SHARING MEANS MIRRORING.
+  # Every terminal attaches another client to the same session, so both show the
+  # same window and both move when either one does, and `window-size latest`
+  # (the tmux default; nothing in tmux.conf sets it) resizes the window to
+  # whichever client was last used, reflowing panes in the other. That is a
+  # preference, not a bug, so the default is unchanged and this variable is the
+  # way out of it. `aggressive-resize on` in tmux.conf is the other lever, and
+  # it only helps for clients viewing DIFFERENT windows.
+  #
+  # ⚠ DO NOT "FIX" THE MIRRORING WITH `-D`. It is the obvious answer (a new
+  # client detaches the old one) and it is actively wrong here: a displaced
+  # client exits 0, measured on tmux 3.5a, and the `exit` below fires on 0. So
+  # every new terminal you opened would CLOSE the previous one. `-D` only made
+  # sense while this block was an `exec` into a shell nobody could return to.
+  _df_sess="${DF_TMUX_SESSION:-main}"
+
+  # ⚠ RESUME AND FRESH START ARE OTHERWISE INDISTINGUISHABLE. `-A` attaches if
+  # the session exists and silently creates it if not, so when the server has
+  # gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty
+  # session and nothing says the old one is not coming back. @continuum-restore
+  # is 'off' by default in config/tmux/tmux.conf, so nothing is restoring it
+  # either. Ask first, and say so on the status line when it is a new one.
+  #
+  # ⚠ `=` MAKES THE MATCH EXACT. tmux target names are PREFIX matches, so a
+  # plain `has-session -t main` is satisfied by a session called `mainwork`
+  # (measured) and would report a resume that is not happening.
+  if tmux has-session -t "=$_df_sess" 2>/dev/null; then
+    tmux new-session -A -s "$_df_sess"
+  else
+    tmux new-session -A -s "$_df_sess" \; \
+      display-message -d 4000 "new session '$_df_sess': nothing was restored"
+  fi
   tmux_rc=$?
+  unset _df_sess
   if (( tmux_rc == 0 )); then
     # Normal end: the session was detached or its last window closed. Match the
     # old behaviour and take the terminal with it.
