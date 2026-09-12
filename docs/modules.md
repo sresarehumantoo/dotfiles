@@ -53,9 +53,11 @@ Three groups of additional tooling:
 
 Reads `/etc/os-release` for `VERSION_CODENAME` to construct apt repo URLs.
 
+**Signing key refresh:** both repos above are re-checked on every converge, not just when first added. Upstreams rotate signing keys on their own schedule, and a stale key makes `apt update` reject the index (exit 100) while the repo file, the key file, and the installed binary all still look fine. Each converge fetches the repo's `InRelease` and verifies it against the keyring on disk; if that fails, the upstream key is downloaded and **appended** to the keyring, keeping the outgoing certificate for the duration of the rotation window. A key that fails to verify even after refresh is left alone and reported as a warning rather than overwritten. Offline or unreachable upstreams skip the check entirely, so no network blip can trigger a keyring rewrite.
+
 After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
 
-**Status:** Checks 18 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, and terraform).
+**Status:** Checks 20 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, terraform, and the Docker and HashiCorp apt keyrings). The keyring checks are offline: they catch an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
 
 ---
 
@@ -252,8 +254,84 @@ Symlinks shell configuration files:
 | `shell/zsh/exports.zsh` | `~/.zsh.d/exports.zsh` |
 | `shell/zsh/ssh.zsh` | `~/.zsh.d/ssh.zsh` |
 | `shell/zsh/locale.zsh` | `~/.zsh.d/locale.zsh` |
+| `shell/zprofile` | `~/.zprofile` |
 
 The zshrc sources p10k instant prompt, loads oh-my-zsh, then sources all `~/.zsh.d/*.zsh` files for modular configuration.
+
+### zsh does not read `~/.profile`, so `~/.zprofile` bridges it
+
+`~/.zprofile` is read for login shells, after `~/.zshenv` and before `~/.zshrc`, and its only job is to source `~/.profile` under `emulate sh`. Before it existed the shell module linked `.zshrc`, `.aliases`, `.p10k.zsh`, `.bashrc`, `.profile` and the `~/.zsh.d/*` files, and no `.zprofile`, `.zlogin` or `.zshenv` at all — and **zsh never reads `~/.profile` under any circumstances**, unlike bash.
+
+On a desktop this is usually invisible, because the display manager sources `~/.profile` into the session and terminals inherit it. That is a convention, not a guarantee, and it does not hold here. Measured on this box 2026-09-12, the session `PATH` was:
+
+```
+/home/owen/.cargo/bin:/opt/swayfx/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+```
+
+with no `~/.local/bin`, which `~/.profile` prepends — so GDM never sourced it. Same root cause as the "GDM starts sway without a login shell" note in `config/waybar/config`, seen from the other side.
+
+Under WSL it is never invisible: `wsl.exe` launches the login shell directly, so there is no session to inherit from. Everything in `~/.profile` silently failed to apply: `XDG_*`, `$HOME/bin` and `$HOME/go/bin` on `PATH`, the WSLg `XCURSOR_SIZE`/`GDK_SCALE` fixes (which are themselves WSL-only, so that block was dead exactly where it was needed), and the `~/.profile.local` hook where machine-local settings such as CA bundles live.
+
+> [!CAUTION]
+> **`~/.profile` exports `DF_PROFILE_SOURCED=1`, and `~/.zprofile` skips itself when it sees it.** That guard is what makes this safe to add on a machine where something else already sourced the file: `~/.profile` prepends to `PATH` unconditionally, so a second pass duplicates every entry it adds (measured: `$HOME/bin` twice). The sentinel is exported by `~/.profile` itself rather than set by `~/.zprofile`, because only that version can see a display manager's pass.
+
+### Interactive shells start in tmux
+
+The first thing `zshrc` does, above everything else, is put an interactive shell into tmux: `tmux new-session -A -s main`. `-A` attaches to `main` if it exists and creates it otherwise, so every terminal on the machine shares one session.
+
+**To get a shell without tmux, set `DF_NO_TMUX`:**
+
+```zsh
+DF_NO_TMUX=1 ghostty      # one terminal, no tmux
+export DF_NO_TMUX=1       # ...and anything it launches
+```
+
+Empty or `0` means "start tmux"; anything else means "don't". The name is negative, so requiring `1` to mean *no* tmux is the only reading that is not a coin flip. It follows the `DF_SMEAR_CURSOR` convention in `config/nvim`.
+
+There was no opt-out before 2026-09-10, and that is what made this hard to live with. The only reliable route to a tmux-free shell was running `bash`. `TERM=dumb zsh` worked too, but by accident of the guard list, and it drags the prompt down to `robbyrussell`, drops the cursor-shape keybinds and un-colors tldr as side effects.
+
+The block is skipped when: `DF_NO_TMUX` is set, tmux is not installed, `$TMUX` is already set, the shell is not interactive, `$TERM` is `linux` or `dumb`, the shell belongs to a VS Code (`TERM_PROGRAM=vscode`, which also covers Cursor and Windsurf) or JetBrains (`TERMINAL_EMULATOR=JetBrains-JediTerm`) integrated terminal, or the shell is an inbound ssh login.
+
+### An inbound ssh login does not start tmux
+
+Set `DF_TMUX_SSH=1` to opt back in, per host or per login. `DF_NO_TMUX` wins over it, so an explicit "no tmux" is always honored.
+
+Nothing consulted `SSH_CONNECTION` before 2026-09-10, and it had two consequences:
+
+- **Every ssh login joined that host's shared `main`.** Two terminals into one box mirrored each other's screen and fought over `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it). The console session was in the same fight.
+- **ssh *out of* a pane stacked two servers in one terminal.** `$TMUX` is not forwarded, so the remote shell sees an empty one and starts its own. Both then use `M-a` as prefix and both carry the root-table (`-n`) binds from `tmux.conf` — `M-n`, `M-1..9`, `M-Enter`, `M--`, `M-q`, `M-m`, `M-s`, `M-c`, `C-q`. The **outer** tmux eats every one of them, so the inner session cannot be driven by its own keys at all.
+
+The second has no good fix from inside tmux: a shared prefix is a property of *both* configs, and the remote host is not always yours to configure. Not starting the inner server is what makes the keys work. `SSH_TTY` is checked beside `SSH_CONNECTION` because a login shell can carry one without the other depending on sshd's settings.
+
+> [!NOTE]
+> This trades away tmux's disconnect resilience on remote hosts, which is a real loss and the reason many people want tmux on ssh in the first place. `DF_TMUX_SSH=1` is how you take it back; put it in the remote host's own `~/.profile.local` if you want it permanently for one box. The default is the other way round because a session you did not ask for, shared with every other login and unable to receive its own keybinds, is worse than one you start deliberately with `tmux new -A -s <name>`.
+
+> [!NOTE]
+> **It is deliberately not `exec`.** It was until 2026-09-10, and `exec` replaces the shell, leaving nothing underneath it. That produced three complaints that never looked related to each other: detaching with `prefix d` **closed the terminal** instead of dropping to a prompt, so detach was not an escape hatch either; a tmux that failed to start (stale socket after a WSL VM restart, a `tmux.conf` you just broke, `/tmp` not writable) took the window down with it before the error could be read, making the failure invisible; and there was no way to `exit` back to a plain shell. Calling tmux normally costs one idle parent zsh for the length of the session and buys back all three. The explicit `exit` on success preserves the old behavior where detaching ends the terminal.
+
+### Choosing a session, and knowing when one is new
+
+Every terminal joins one shared session called `main`. `DF_TMUX_SESSION` overrides the name, which is how a terminal gets a session of its own:
+
+```zsh
+DF_TMUX_SESSION=review ghostty
+```
+
+**Sharing means mirroring, and that is the default.** Each terminal attaches another *client* to the same session, so both show the same window and both move when either one does, and `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it) resizes the window to whichever client was used last, reflowing panes in the other. That is a preference rather than a defect, so the default is unchanged and `DF_TMUX_SESSION` is the way out. `aggressive-resize on` is the other available lever, and it only helps for clients viewing *different* windows.
+
+> [!CAUTION]
+> **Do not "fix" the mirroring with `-D`.** It is the obvious answer — a new client detaches the old one — and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
+
+> [!CAUTION]
+> **A resume and a fresh start are otherwise indistinguishable.** `new-session -A` attaches if the session exists and silently creates it if not, so when the server has gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty session with nothing to say the old one is not coming back — and `@continuum-restore` is `'off'` by default in `config/tmux/tmux.conf`, so nothing is restoring it either. `has-session` is now checked first, and a newly created session announces itself on the status line for 4s.
+>
+> **`=` makes the match exact, and it is required.** tmux target names are *prefix* matches, so a plain `has-session -t main` is satisfied by a session called `mainwork` (measured) and would report a resume that is not happening.
+
+> [!CAUTION]
+> **The tmux SERVER gets the environment too, not just the panes.** The server is forked from the shell that starts it, which has not reached the `~/.zsh.d/*.zsh` sourcing yet, so `path.zsh`, `exports.zsh`, `locale.zsh` and `ssh.zsh` are now sourced explicitly just before `tmux new-session`. Panes always recovered on their own; anything spawned from the *server's* environment did not, and that is `run-shell`, `display-popup`, `tmux new-window <cmd>` and TPM. Measured before the fix: the server's `PATH` had no `~/.local/bin` at all (no `dfinstall`, no `sway-*` helper, nothing user-installed), and its `SSH_AUTH_SOCK` was `/run/user/1000/gcr/ssh` — gnome-keyring — while every pane used `~/.ssh/agent.sock`, so anything git-ish run from the server authenticated against a different agent holding different keys. It is a list rather than a glob of `~/.zsh.d` because `options.zsh` and `keybinds.zsh` configure this shell's own line editing and would be wasted work in a shell about to hand over; sourcing the four twice is harmless by construction, since `path.zsh` ends in `typeset -U path PATH` and the others only assign.
+
+> [!CAUTION]
+> **Two of the three IDE guards used to guard nothing.** `VSCODE_PID` is set for the extension-host process, not for the integrated terminal, and has been removed; `TERM_PROGRAM` is the check that works. `INTELLIJ_ENVIRONMENT_READER` is set only during JetBrains' one-shot env-probe shell and never in the terminal you type into, so **JetBrains terminals were being exec'd into tmux** until `TERMINAL_EMULATOR` was added beside it.
 
 ### Custom Shell File Preservation
 

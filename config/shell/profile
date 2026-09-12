@@ -1,3 +1,10 @@
+# Sourced by bash for login shells, and by ~/.zprofile for zsh, which does not
+# read this file on its own. The sentinel lets ~/.zprofile tell whether anything
+# already sourced us (a display manager, say), because the PATH blocks below
+# prepend unconditionally and a second pass would duplicate every entry.
+# Exported so a child login shell sees it too.
+export DF_PROFILE_SOURCED=1
+
 # XDG base directories
 export XDG_CONFIG_HOME="$HOME/.config"
 export XDG_DATA_HOME="$HOME/.local/share"

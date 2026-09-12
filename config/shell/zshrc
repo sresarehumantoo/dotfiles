@@ -1,14 +1,145 @@
-# Auto-start tmux on interactive shells (skip if already in tmux, not interactive,
-# running inside an IDE/editor integrated terminal, or on a raw TTY/dumb terminal)
-if command -v tmux &>/dev/null \
+# ---- tmux auto-start ---------------------------------------------------------
+# Interactive shells land in tmux. `-A` attaches to `main` if it exists and
+# creates it otherwise, so every terminal shares one session.
+#
+# ESCAPE HATCH: DF_NO_TMUX=1 gives a plain shell.
+#
+#     DF_NO_TMUX=1 ghostty      # one terminal, no tmux
+#     export DF_NO_TMUX=1       # ...and anything it launches
+#
+# Empty or 0 means "start tmux", anything else means "don't". The name is
+# negative, so requiring the value 1 to mean *no* tmux is the only reading that
+# is not a coin flip at the prompt. Naming follows DF_SMEAR_CURSOR.
+#
+# There was no opt-out at all before this, and that is what made the whole thing
+# hard to live with: the only reliable way to a tmux-free shell was to run
+# `bash`. `TERM=dumb zsh` also worked, but by accident, and it drags the prompt
+# down to robbyrussell (see the P10k guard below), drops the cursor-shape
+# keybinds and un-colors tldr, which is a lot of collateral for "just give me
+# a shell this once".
+#
+# NOT `exec`, AND THAT IS THE POINT. `exec tmux ...` replaces the shell, leaving
+# nothing underneath it, which caused three separate complaints that never
+# looked related:
+#   - detaching (prefix d) CLOSED THE TERMINAL rather than dropping to a prompt,
+#     so detach was not an escape hatch either;
+#   - a tmux that failed to start (stale socket after a WSL VM restart, a
+#     tmux.conf you just broke, /tmp not writable) took the window down with
+#     it before the error could be read, so the failure was invisible;
+#   - there was no way to `exit` back to a plain shell.
+# Calling it normally costs one idle parent zsh (a few MB) for the length of the
+# session and buys back all three. The `exit` below preserves the old behaviour
+# where detaching ends the terminal.
+if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
+  && command -v tmux &>/dev/null \
   && [[ -z "$TMUX" ]] \
   && [[ $- == *i* ]] \
   && [[ "$TERM" != "linux" ]] \
   && [[ "$TERM" != "dumb" ]] \
-  && [[ -z "$VSCODE_PID" ]] \
+  && [[ "$TERM_PROGRAM" != "vscode" ]] \
+  && [[ "$TERMINAL_EMULATOR" != "JetBrains-JediTerm" ]] \
   && [[ -z "$INTELLIJ_ENVIRONMENT_READER" ]] \
-  && [[ "$TERM_PROGRAM" != "vscode" ]]; then
-  exec tmux new-session -A -s main
+  && { [[ -z "$SSH_CONNECTION" && -z "$SSH_TTY" ]] || [[ "$DF_TMUX_SSH" == 1 ]] }; then
+  # TERM_PROGRAM is the VS Code check that works, and it covers Cursor and
+  # Windsurf too. `VSCODE_PID` used to be in this list and guarded nothing: it
+  # is set for the extension-host process, not for the integrated terminal.
+  #
+  # TERMINAL_EMULATOR is the JetBrains check that works.
+  # `INTELLIJ_ENVIRONMENT_READER` is set only during JetBrains' one-shot
+  # env-probe shell and never in the terminal you type into, so until that
+  # line was added, IntelliJ terminals were exec'd into tmux like any other.
+  #
+  # AN INBOUND SSH LOGIN DOES NOT START TMUX. Set DF_TMUX_SSH=1 to opt back in
+  # per host, or per login. Nothing consulted SSH_CONNECTION before, and the
+  # two consequences were both bad:
+  #   - every ssh login joined that host's shared `main`, so two terminals into
+  #     one box mirrored each other's screen and fought over `window-size
+  #     latest` (the tmux default; nothing here sets it). The console session
+  #     was in the same fight.
+  #   - ssh OUT of a pane stacked two servers in one terminal. $TMUX is not
+  #     forwarded, so the remote shell sees an empty one and starts its own,
+  #     and both then use `M-a` as prefix with the same root-table (`-n`) binds
+  #     from tmux.conf: M-n, M-1..9, M-Enter, M--, M-q, M-m, M-s, M-c, C-q.
+  #     The OUTER tmux eats all of them, so the inner session cannot be driven
+  #     by its own keys at all.
+  # The second is the one with no good fix from inside tmux: a shared prefix is
+  # a property of both configs, and the remote host is not always ours to
+  # configure. Not starting the inner server is what makes the keys work.
+  #
+  # SSH_TTY is checked beside SSH_CONNECTION because a login shell can carry
+  # one without the other depending on sshd's settings.
+  # ⚠ GIVE THE SERVER THE ENVIRONMENT, NOT JUST THE PANES. The tmux server is
+  # forked from THIS shell, which has not reached the ~/.zsh.d/*.zsh sourcing
+  # further down yet. Panes recover, because each pane's zsh sources them on the
+  # way up; anything spawned from the SERVER's own environment does not, and
+  # that is run-shell, display-popup, `tmux new-window <cmd>`, and TPM.
+  #
+  # Measured on this box before this loop existed:
+  #   server PATH           ...:/opt/swayfx/bin:/usr/local/sbin:/usr/local/bin:...
+  #                         with NO ~/.local/bin, so no dfinstall, no sway-*
+  #                         helper, nothing user-installed
+  #   server SSH_AUTH_SOCK  /run/user/1000/gcr/ssh   (gnome-keyring)
+  #   pane   SSH_AUTH_SOCK  ~/.ssh/agent.sock        (ssh.zsh's fixed socket)
+  # A different agent, so anything git-ish run from the server env authenticates
+  # against the wrong one, holding different keys.
+  #
+  # A LIST, NOT A GLOB OF ~/.zsh.d: these four are the ones that set environment
+  # a child process inherits. options.zsh and keybinds.zsh configure this shell's
+  # own editing and would be wasted work in a shell that is about to hand over.
+  # Sourcing them twice is harmless by construction: path.zsh ends in
+  # `typeset -U path PATH`, and the other three only assign.
+  for _df_env in path exports locale ssh; do
+    [[ -r "$HOME/.zsh.d/$_df_env.zsh" ]] && source "$HOME/.zsh.d/$_df_env.zsh"
+  done
+  unset _df_env
+
+  # Which session to join. DF_TMUX_SESSION=work gives that terminal its own,
+  # instead of joining the shared one:
+  #
+  #     DF_TMUX_SESSION=review ghostty
+  #
+  # ⚠ THE DEFAULT IS STILL ONE SHARED `main`, AND SHARING MEANS MIRRORING.
+  # Every terminal attaches another client to the same session, so both show the
+  # same window and both move when either one does, and `window-size latest`
+  # (the tmux default; nothing in tmux.conf sets it) resizes the window to
+  # whichever client was last used, reflowing panes in the other. That is a
+  # preference, not a bug, so the default is unchanged and this variable is the
+  # way out of it. `aggressive-resize on` in tmux.conf is the other lever, and
+  # it only helps for clients viewing DIFFERENT windows.
+  #
+  # ⚠ DO NOT "FIX" THE MIRRORING WITH `-D`. It is the obvious answer (a new
+  # client detaches the old one) and it is actively wrong here: a displaced
+  # client exits 0, measured on tmux 3.5a, and the `exit` below fires on 0. So
+  # every new terminal you opened would CLOSE the previous one. `-D` only made
+  # sense while this block was an `exec` into a shell nobody could return to.
+  _df_sess="${DF_TMUX_SESSION:-main}"
+
+  # ⚠ RESUME AND FRESH START ARE OTHERWISE INDISTINGUISHABLE. `-A` attaches if
+  # the session exists and silently creates it if not, so when the server has
+  # gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty
+  # session and nothing says the old one is not coming back. @continuum-restore
+  # is 'off' by default in config/tmux/tmux.conf, so nothing is restoring it
+  # either. Ask first, and say so on the status line when it is a new one.
+  #
+  # ⚠ `=` MAKES THE MATCH EXACT. tmux target names are PREFIX matches, so a
+  # plain `has-session -t main` is satisfied by a session called `mainwork`
+  # (measured) and would report a resume that is not happening.
+  if tmux has-session -t "=$_df_sess" 2>/dev/null; then
+    tmux new-session -A -s "$_df_sess"
+  else
+    tmux new-session -A -s "$_df_sess" \; \
+      display-message -d 4000 "new session '$_df_sess': nothing was restored"
+  fi
+  tmux_rc=$?
+  unset _df_sess
+  if (( tmux_rc == 0 )); then
+    # Normal end: the session was detached or its last window closed. Match the
+    # old behaviour and take the terminal with it.
+    exit
+  fi
+  print -u2 "tmux exited $tmux_rc; continuing in a plain shell."
+  print -u2 "(DF_NO_TMUX=1 skips tmux entirely.)"
+  unset tmux_rc
 fi
 
 export ZSH="$HOME/.oh-my-zsh"

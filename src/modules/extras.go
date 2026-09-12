@@ -70,7 +70,24 @@ func downloadAndInstallAsRoot(ctx context.Context, url, dst string, mode os.File
 func addAptRepo(ctx context.Context, name, keyURL, keyPath, repoContent, repoPath string) error {
 	if existing, err := os.ReadFile(repoPath); err == nil {
 		if strings.TrimSpace(string(existing)) == strings.TrimSpace(repoContent) {
-			core.Ok("%s repo already configured", name)
+			// The repo line being unchanged says nothing about the signing
+			// key. Upstreams rotate keys on their own schedule, and a stale
+			// key makes apt refuse the index while this function, the repo
+			// file, and the installed binary all still look fine — so the
+			// key has to be checked separately or it is never checked again
+			// after the day the repo was first added.
+			changed, err := ensureAptRepoKey(ctx, name, keyURL, keyPath, repoContent)
+			if err != nil {
+				core.Warn("%s signing key check: %v", name, err)
+			}
+			if !changed {
+				core.Ok("%s repo already configured", name)
+				return nil
+			}
+			if err := aptUpdateWithRetry(ctx); err != nil {
+				return fmt.Errorf("apt update after refreshing %s key: %w", name, err)
+			}
+			core.Ok("%s signing key refreshed", name)
 			return nil
 		}
 		core.Notice("Updating %s repo (content changed)", name)
@@ -496,6 +513,26 @@ func (ExtrasModule) Status() core.ModuleStatus {
 		s.Linked++
 	} else {
 		s.Missing++
+	}
+
+	// Signing keys for the apt repos added above (1 check each). A present
+	// binary says nothing about whether the repo it came from can still be
+	// updated, which is how a dead keyring stays invisible. Arch hosts get
+	// these tools from binaries or the AUR and have no keyring to check.
+	//
+	// This is deliberately offline, so it catches an absent, corrupt, or
+	// expired keyring but not a rotation — see aptKeyringUsable.
+	if !core.IsArchBased() {
+		for _, keyPath := range []string{
+			"/etc/apt/keyrings/docker.asc",
+			"/usr/share/keyrings/hashicorp-archive-keyring.asc",
+		} {
+			if aptKeyringUsable(keyPath) {
+				s.Linked++
+			} else {
+				s.Missing++
+			}
+		}
 	}
 
 	return s
