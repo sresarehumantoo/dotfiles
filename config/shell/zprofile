@@ -1,0 +1,34 @@
+# ~/.zprofile — login shells only, read after ~/.zshenv and before ~/.zshrc.
+#
+# ⚠ ZSH DOES NOT READ ~/.profile, AND NOTHING HERE USED TO BRIDGE THE GAP.
+# The shell module links .zshrc, .aliases, .p10k.zsh, .bashrc, .profile and the
+# ~/.zsh.d/* files, and no .zprofile, .zlogin or .zshenv at all. bash reads
+# ~/.profile for a login shell; zsh never does, under any circumstances.
+#
+# On a desktop this is usually invisible, because the display manager sources
+# ~/.profile into the session and every terminal inherits it. That is a
+# convention, not a guarantee, and it does not hold here: measured on this box
+# 2026-09-12, the session PATH carried /opt/swayfx/bin and ~/.cargo/bin but NOT
+# ~/.local/bin, which ~/.profile prepends, i.e. GDM never sourced it. It is the
+# same root cause as the "GDM starts sway without a login shell" note in
+# config/waybar/config, seen from the other side.
+#
+# Under WSL it is never invisible: wsl.exe launches the login shell directly, so
+# there is no desktop session to inherit from and nothing sources ~/.profile at
+# any point. Everything in it silently does not apply: XDG_*, $HOME/bin and
+# $HOME/go/bin on PATH, the WSLg XCURSOR_SIZE/GDK_SCALE fixes (which are
+# themselves WSL-only, so the file's one WSL block was dead exactly where it was
+# needed), and the whole ~/.profile.local hook, which is where machine-local
+# settings such as CA bundles live.
+#
+# ⚠ Sourced under `emulate sh`: ~/.profile is POSIX shell, shared with bash, and
+# must not be reinterpreted with zsh's globbing and word-splitting rules.
+#
+# ⚠ The DF_PROFILE_SOURCED guard is what makes this safe to add on a machine
+# where something ELSE already sourced ~/.profile. The file prepends to PATH
+# unconditionally, so a second pass would duplicate every entry it adds. The
+# sentinel is exported by ~/.profile itself rather than set here, which is the
+# only version that can see a display manager's pass.
+if [[ -r "$HOME/.profile" && -z "$DF_PROFILE_SOURCED" ]]; then
+  emulate sh -c 'source "$HOME/.profile"'
+fi

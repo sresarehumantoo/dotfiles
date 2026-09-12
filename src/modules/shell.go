@@ -20,6 +20,9 @@ var shellLinks = []struct{ src, dst string }{
 	{"shell/p10k.zsh", ".p10k.zsh"},
 	{"shell/bashrc", ".bashrc"},
 	{"shell/profile", ".profile"},
+	// zsh never reads ~/.profile; this is the only thing that bridges it. See
+	// the header of config/shell/zprofile for what silently did not apply.
+	{"shell/zprofile", ".zprofile"},
 	{"shell/zsh/options.zsh", ".zsh.d/options.zsh"},
 	{"shell/zsh/keybinds.zsh", ".zsh.d/keybinds.zsh"},
 	{"shell/zsh/path.zsh", ".zsh.d/path.zsh"},

@@ -68,6 +68,31 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   #
   # SSH_TTY is checked beside SSH_CONNECTION because a login shell can carry
   # one without the other depending on sshd's settings.
+  # ⚠ GIVE THE SERVER THE ENVIRONMENT, NOT JUST THE PANES. The tmux server is
+  # forked from THIS shell, which has not reached the ~/.zsh.d/*.zsh sourcing
+  # further down yet. Panes recover, because each pane's zsh sources them on the
+  # way up; anything spawned from the SERVER's own environment does not, and
+  # that is run-shell, display-popup, `tmux new-window <cmd>`, and TPM.
+  #
+  # Measured on this box before this loop existed:
+  #   server PATH           ...:/opt/swayfx/bin:/usr/local/sbin:/usr/local/bin:...
+  #                         with NO ~/.local/bin, so no dfinstall, no sway-*
+  #                         helper, nothing user-installed
+  #   server SSH_AUTH_SOCK  /run/user/1000/gcr/ssh   (gnome-keyring)
+  #   pane   SSH_AUTH_SOCK  ~/.ssh/agent.sock        (ssh.zsh's fixed socket)
+  # A different agent, so anything git-ish run from the server env authenticates
+  # against the wrong one, holding different keys.
+  #
+  # A LIST, NOT A GLOB OF ~/.zsh.d: these four are the ones that set environment
+  # a child process inherits. options.zsh and keybinds.zsh configure this shell's
+  # own editing and would be wasted work in a shell that is about to hand over.
+  # Sourcing them twice is harmless by construction: path.zsh ends in
+  # `typeset -U path PATH`, and the other three only assign.
+  for _df_env in path exports locale ssh; do
+    [[ -r "$HOME/.zsh.d/$_df_env.zsh" ]] && source "$HOME/.zsh.d/$_df_env.zsh"
+  done
+  unset _df_env
+
   tmux new-session -A -s main
   tmux_rc=$?
   if (( tmux_rc == 0 )); then

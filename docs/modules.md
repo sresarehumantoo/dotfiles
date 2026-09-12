@@ -252,8 +252,26 @@ Symlinks shell configuration files:
 | `shell/zsh/exports.zsh` | `~/.zsh.d/exports.zsh` |
 | `shell/zsh/ssh.zsh` | `~/.zsh.d/ssh.zsh` |
 | `shell/zsh/locale.zsh` | `~/.zsh.d/locale.zsh` |
+| `shell/zprofile` | `~/.zprofile` |
 
 The zshrc sources p10k instant prompt, loads oh-my-zsh, then sources all `~/.zsh.d/*.zsh` files for modular configuration.
+
+### zsh does not read `~/.profile`, so `~/.zprofile` bridges it
+
+`~/.zprofile` is read for login shells, after `~/.zshenv` and before `~/.zshrc`, and its only job is to source `~/.profile` under `emulate sh`. Before it existed the shell module linked `.zshrc`, `.aliases`, `.p10k.zsh`, `.bashrc`, `.profile` and the `~/.zsh.d/*` files, and no `.zprofile`, `.zlogin` or `.zshenv` at all — and **zsh never reads `~/.profile` under any circumstances**, unlike bash.
+
+On a desktop this is usually invisible, because the display manager sources `~/.profile` into the session and terminals inherit it. That is a convention, not a guarantee, and it does not hold here. Measured on this box 2026-09-12, the session `PATH` was:
+
+```
+/home/owen/.cargo/bin:/opt/swayfx/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
+```
+
+with no `~/.local/bin`, which `~/.profile` prepends — so GDM never sourced it. Same root cause as the "GDM starts sway without a login shell" note in `config/waybar/config`, seen from the other side.
+
+Under WSL it is never invisible: `wsl.exe` launches the login shell directly, so there is no session to inherit from. Everything in `~/.profile` silently failed to apply: `XDG_*`, `$HOME/bin` and `$HOME/go/bin` on `PATH`, the WSLg `XCURSOR_SIZE`/`GDK_SCALE` fixes (which are themselves WSL-only, so that block was dead exactly where it was needed), and the `~/.profile.local` hook where machine-local settings such as CA bundles live.
+
+> [!CAUTION]
+> **`~/.profile` exports `DF_PROFILE_SOURCED=1`, and `~/.zprofile` skips itself when it sees it.** That guard is what makes this safe to add on a machine where something else already sourced the file: `~/.profile` prepends to `PATH` unconditionally, so a second pass duplicates every entry it adds (measured: `$HOME/bin` twice). The sentinel is exported by `~/.profile` itself rather than set by `~/.zprofile`, because only that version can see a display manager's pass.
 
 ### Interactive shells start in tmux
 
@@ -288,6 +306,9 @@ The second has no good fix from inside tmux: a shared prefix is a property of *b
 
 > [!NOTE]
 > **It is deliberately not `exec`.** It was until 2026-09-10, and `exec` replaces the shell, leaving nothing underneath it. That produced three complaints that never looked related to each other: detaching with `prefix d` **closed the terminal** instead of dropping to a prompt, so detach was not an escape hatch either; a tmux that failed to start (stale socket after a WSL VM restart, a `tmux.conf` you just broke, `/tmp` not writable) took the window down with it before the error could be read, making the failure invisible; and there was no way to `exit` back to a plain shell. Calling tmux normally costs one idle parent zsh for the length of the session and buys back all three. The explicit `exit` on success preserves the old behavior where detaching ends the terminal.
+
+> [!CAUTION]
+> **The tmux SERVER gets the environment too, not just the panes.** The server is forked from the shell that starts it, which has not reached the `~/.zsh.d/*.zsh` sourcing yet, so `path.zsh`, `exports.zsh`, `locale.zsh` and `ssh.zsh` are now sourced explicitly just before `tmux new-session`. Panes always recovered on their own; anything spawned from the *server's* environment did not, and that is `run-shell`, `display-popup`, `tmux new-window <cmd>` and TPM. Measured before the fix: the server's `PATH` had no `~/.local/bin` at all (no `dfinstall`, no `sway-*` helper, nothing user-installed), and its `SSH_AUTH_SOCK` was `/run/user/1000/gcr/ssh` — gnome-keyring — while every pane used `~/.ssh/agent.sock`, so anything git-ish run from the server authenticated against a different agent holding different keys. It is a list rather than a glob of `~/.zsh.d` because `options.zsh` and `keybinds.zsh` configure this shell's own line editing and would be wasted work in a shell about to hand over; sourcing the four twice is harmless by construction, since `path.zsh` ends in `typeset -U path PATH` and the others only assign.
 
 > [!CAUTION]
 > **Two of the three IDE guards used to guard nothing.** `VSCODE_PID` is set for the extension-host process, not for the integrated terminal, and has been removed; `TERM_PROGRAM` is the check that works. `INTELLIJ_ENVIRONMENT_READER` is set only during JetBrains' one-shot env-probe shell and never in the terminal you type into, so **JetBrains terminals were being exec'd into tmux** until `TERMINAL_EMULATOR` was added beside it.
