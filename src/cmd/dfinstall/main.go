@@ -184,14 +184,7 @@ func main() {
 				if err != nil {
 					return err
 				}
-				if len(backups) == 0 {
-					fmt.Println("No backups found.")
-					return nil
-				}
-				fmt.Printf("%-20s %s\n", "TIMESTAMP", "ENTRIES")
-				for _, b := range backups {
-					fmt.Printf("%-20s %d\n", b.Timestamp, b.Count)
-				}
+				core.WriteBackupList(os.Stdout, backups)
 				return nil
 			}
 
@@ -214,7 +207,13 @@ func main() {
 				core.Info("restoring latest backup: %s", ts)
 			}
 
-			return core.RestoreBackup(ts)
+			res, err := core.RestoreBackup(ts)
+			if err != nil {
+				return err
+			}
+			// The dangling case is reported, not failed -- see RestoreBackup.
+			core.Status("%s", res.Summary(ts))
+			return nil
 		},
 	}
 

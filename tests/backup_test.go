@@ -224,7 +224,7 @@ func TestRestoreRoundTrip(t *testing.T) {
 		t.Fatal("no backups found")
 	}
 
-	if err := core.RestoreBackup(backups[0].Timestamp); err != nil {
+	if _, err := core.RestoreBackup(backups[0].Timestamp); err != nil {
 		t.Fatalf("RestoreBackup: %v", err)
 	}
 
@@ -340,7 +340,7 @@ func TestRestoreBackup_DryRunIsNonDestructive(t *testing.T) {
 	ts := backups[0].Timestamp
 
 	core.DryRun = true
-	if err := core.RestoreBackup(ts); err != nil {
+	if _, err := core.RestoreBackup(ts); err != nil {
 		t.Fatalf("dry-run RestoreBackup: %v", err)
 	}
 	if data, _ := os.ReadFile(cfg); string(data) != "modified" {
@@ -352,7 +352,7 @@ func TestRestoreBackup_DryRunIsNonDestructive(t *testing.T) {
 
 	// The same restore without --dry-run must still do the work.
 	core.DryRun = false
-	if err := core.RestoreBackup(ts); err != nil {
+	if _, err := core.RestoreBackup(ts); err != nil {
 		t.Fatalf("RestoreBackup: %v", err)
 	}
 	if data, _ := os.ReadFile(cfg); string(data) != "original" {

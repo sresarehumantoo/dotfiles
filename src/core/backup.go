@@ -230,11 +230,11 @@ func ListBackups() ([]BackupListEntry, error) {
 }
 
 // RestoreBackup restores the state recorded in a backup.
-func RestoreBackup(ts string) error {
+func RestoreBackup(ts string) (RestoreResult, error) {
 	dir := filepath.Join(BackupDir(), ts)
 	manifest, err := loadManifest(dir)
 	if err != nil {
-		return fmt.Errorf("load backup %s: %w", ts, err)
+		return RestoreResult{}, fmt.Errorf("load backup %s: %w", ts, err)
 	}
 
 	if DryRun {
@@ -249,7 +249,7 @@ func RestoreBackup(ts string) error {
 			}
 		}
 		Info("dry run: %d entries from backup %s left untouched", len(manifest.Entries), ts)
-		return nil
+		return RestoreResult{Total: len(manifest.Entries)}, nil
 	}
 
 	var failures int
@@ -295,13 +295,87 @@ func RestoreBackup(ts string) error {
 		}
 	}
 
+	// ⚠ A SNAPSHOT CAN BE FAITHFULLY RESTORED AND STILL LEAVE THE MACHINE
+	// BROKEN, AND IT USED TO REPORT SUCCESS WHEN IT DID. A "symlink" entry
+	// records the target as a STRING, so restoring one recreates a link to
+	// wherever it pointed when the snapshot was taken -- which may be a clone
+	// that has since moved or been deleted. Seen for real on 2026-09-12: a
+	// backup from June restored 46 entries pointing at /home/owen/dotfiles, a
+	// spare clone that no longer existed, so every managed file in $HOME became
+	// a dangling link and the next new terminal would have come up bare. The
+	// restore had done exactly what it was asked; it printed "successfully",
+	// and only `dfinstall status` showed the damage.
+	//
+	// Stat (not Lstat) follows the link, so this is precisely the "does it
+	// resolve" question. Entries that were removed or restored as regular
+	// files cannot dangle and are not checked.
+	var dangling []string
+	for _, entry := range manifest.Entries {
+		if entry.Type != "symlink" {
+			continue
+		}
+		if _, err := os.Stat(entry.Path); err != nil {
+			dangling = append(dangling, entry.Path)
+		}
+	}
+
 	total := len(manifest.Entries)
 	if failures > 0 {
-		return fmt.Errorf("restored %d/%d entries (%d failures)", total-failures, total, failures)
+		return RestoreResult{Total: total}, fmt.Errorf("restored %d/%d entries (%d failures)", total-failures, total, failures)
+	}
+
+	// ⚠ DANGLING IS NOT A FAILURE, AND MAKING IT ONE WAS THE FIRST ATTEMPT AT
+	// THIS FIX. The snapshot may faithfully record a link that already pointed
+	// at something absent, and reproducing that is correct: restore's contract
+	// is "put back what was there", not "leave a working machine".
+	// TestRestoreRoundTrip is the case that settles it -- it snapshots a link to
+	// a placeholder target and asserts the target string comes back, which an
+	// error return would have failed for a restore that did its job perfectly.
+	//
+	// So this reports rather than refuses. What was actually broken was the
+	// REPORT: callers printed an unqualified "successfully" over a machine whose
+	// every managed file had just been left dangling.
+	if len(dangling) > 0 {
+		for _, p := range dangling {
+			AlwaysWarn("restored link does not resolve: %s", p)
+		}
+		AlwaysWarn("%d of %d restored entries point at paths that no longer exist; "+
+			"run `dfinstall install all` to repoint them at the canonical clone",
+			len(dangling), total)
 	}
 
 	Info("restored %d entries from backup %s", total, ts)
-	return nil
+	return RestoreResult{Total: total, Dangling: dangling}, nil
+}
+
+// RestoreResult reports what a restore did, so callers can say so instead of
+// printing a bare success. See the dangling note in RestoreBackup.
+type RestoreResult struct {
+	Total    int
+	Dangling []string
+}
+
+// Summary is the one-line outcome, suitable for a CLI or a tool result.
+func (r RestoreResult) Summary(ts string) string {
+	if len(r.Dangling) == 0 {
+		return fmt.Sprintf("Restored backup %s successfully (%d entries).", ts, r.Total)
+	}
+	return fmt.Sprintf("Restored backup %s: %d entries, but %d link(s) now point at "+
+		"paths that no longer exist. Run `dfinstall install all` to repoint them.",
+		ts, r.Total, len(r.Dangling))
+}
+
+// WriteBackupList renders the backup table. Shared so the CLI and the MCP
+// server cannot drift into two different listings of the same thing.
+func WriteBackupList(w io.Writer, backups []BackupListEntry) {
+	if len(backups) == 0 {
+		fmt.Fprintln(w, "No backups found.")
+		return
+	}
+	fmt.Fprintf(w, "%-20s %s\n", "TIMESTAMP", "ENTRIES")
+	for _, b := range backups {
+		fmt.Fprintf(w, "%-20s %d\n", b.Timestamp, b.Count)
+	}
 }
 
 // FlattenPath converts a filesystem path to a flat filename (/ -> --).
