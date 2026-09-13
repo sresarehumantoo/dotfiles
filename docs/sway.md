@@ -1467,6 +1467,45 @@ So the window is **floated onto the workspace's own rect**, which sway publishes
 with the bar's exclusive zone and the gaps already subtracted — there is no
 geometry to compute and nothing to keep in step with waybar.
 
+### Monocle needs two windows, and it lets itself out
+
+Below two windows there is nothing to stack and nothing to cycle, so monocle
+is not a mode there — it is a lone window floating on the area it would have
+tiled into anyway, with the focus keys shadowed and the tiling tree empty for
+no benefit. Both ends enforce that:
+
+* **`on`/`toggle` refuses** on a workspace with fewer than two tiled windows.
+  It prints one line to stderr (the journal, since it runs from a keybinding)
+  and exits `0`, so nothing pops a swaynag.
+* **The daemon drops out** the moment a workspace in monocle falls to one
+  window. The survivor un-floats back into the tiling and, once no workspace
+  is left in monocle, the focus keys are handed back to the config's own
+  bindings. Measured: survivor back at `10,172 1900x1138`, `floating: false`,
+  focused, state file `{}`.
+
+So closing down to one window and then opening another **tiles normally** —
+monocle is off by then. Press `$mod+m` again to restack. That asymmetry is the
+deliberate choice: the alternative (keeping the mode "armed" while dormant) was
+weighed and rejected as a hidden state you cannot see on screen.
+
+> [!CAUTION]
+> **The check runs on every event, not only on `close`.** A window moved to
+> another workspace emits `move`, not `close`; a workspace that shrank while it
+> was not focused is first seen on the `focus` event that brings it back. Both
+> lose windows with no close anywhere in sight, and a `close`-only rule leaves
+> monocle stuck on in both. Verified live for the move case: shown window moved
+> to ws9, ws8's survivor un-floated by itself.
+
+> [!CAUTION]
+> **An empty workspace and an unanswered `swaymsg` must not look the same.**
+> `swaymsg()` here never raises, so a timeout comes back as no tree — and
+> flattened to `[]` that reads exactly like the last window closing, which
+> would tear down a healthy monocle. `windows_for()` returns `None` for "no
+> answer" and `live_order()` then returns the **recorded** order unchanged;
+> `all_windows_on()` keeps the old flatten-to-`[]`, which is right for the
+> geometry lookups in `show()`/`reconcile()` that only ask "where is this
+> con_id now".
+
 ### Every window is floated, not just the one on show
 
 Floating removes a window from the tiling tree, and `floating disable` reinserts

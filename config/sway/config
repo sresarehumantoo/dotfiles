@@ -301,20 +301,27 @@ bindsym $mod+t           layout toggle split tabbed
 bindsym $mod+f           fullscreen
 
 # dwm-style monocle for the focused workspace: the focused window fills the
-# screen and the focus keys cycle which one is showing, with the tiling
-# underneath left completely untouched. Per workspace, so ws1 can be in monocle
-# while ws2 is tiled.
+# TILING AREA and the focus keys cycle which one is showing. Per workspace, so
+# ws1 can be in monocle while ws2 is tiled.
 #
-# ⚠ THIS COVERS WAYBAR, and that is sway's layer ordering rather than a choice
-# here — the bar is `layer: top` and sway renders fullscreen surfaces above that
-# layer. Measured: a fullscreen window's rect is 0,120 1920x1200, the whole
-# output, against 10,172 for a tiled one. $mod+t above is the variant that keeps
-# the bar.
+# ⚠ THIS KEEPS WAYBAR AND THE GAPS — it is $mod+f that does not. The window is
+# floated onto the workspace's own rect (10,172 1900x1138 here), which sway
+# publishes with the bar's exclusive zone and the gaps already subtracted; a
+# fullscreen window's rect is 0,120 1920x1200, the whole output, bar included.
+# An earlier revision of this comment had it the other way round, from when
+# monocle was built on `fullscreen`; it is not, and cannot be, because every
+# focus command is a no-op while a window is fullscreen. Both measurements are
+# written up in config/sway/sway-monocle.
+#
+# ⚠ IT NEEDS TWO WINDOWS AND IT LETS ITSELF OUT. On a workspace with one window
+# this does nothing (a lone window floated onto the area it already filled is
+# not a mode), and a workspace already in monocle drops out by itself the
+# moment it falls back to one — the survivor returns to the tiling and the
+# focus keys stop being shadowed. So closing down to one and opening another
+# tiles normally; press this again to restack.
 #
 # ⚠ Absolute path for the same GDM/PATH reason as the brightness keys: sway is
 # started without a login shell, so ~/.local/bin is not on its PATH.
-# Why this needs a program at all — every focus command is a no-op while a
-# window is fullscreen — is measured and written up in config/sway/sway-monocle.
 bindsym $mod+m           exec $HOME/.local/bin/sway-monocle toggle
 bindsym $mod+Shift+space floating toggle
 bindsym $mod+space       focus mode_toggle
