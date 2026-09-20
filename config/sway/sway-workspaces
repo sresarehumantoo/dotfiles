@@ -73,51 +73,89 @@ def runtime_dir():
 
 
 class Emitter:
-    """One append-only file per slot; `tail -F` on the other end.
+    """One append-only file per (output, slot); `tail -F` on the other end.
 
     ⚠ Files are TRUNCATED rather than left to grow, and the current state is
     re-emitted immediately after — `tail -F` follows by name and survives
     truncation, but a truncate with nothing written after it would leave that
     module showing whatever it last read, forever.
+
+    ⚠ THE FILES ARE PER-OUTPUT, AND THAT IS WHAT MAKES THE ROW MEAN ANYTHING
+    ON A DOCK. There used to be one `slot-N.jsonl` shared by every bar, so all
+    three bars painted identical state and the `.focused` chip lit on ALL of
+    them at once. Combined with `focus_follows_mouse no` and the
+    `hide_edge_borders --i3 smart` note in docs/sway.md — which already records
+    that one window per output leaves no border cue anywhere — that meant
+    NOTHING on this desktop said which screen owned the focus. It is not
+    cosmetic: the focused output is what decides where sway-calendar and
+    sway-controlcenter open, and clicking a bar does NOT move focus to it
+    (measured: clicking eDP-1's bar left the focus on DVI-I-1). So the bar that
+    owns the seat is now the only one with a lit chip.
+
+    ⚠ FILES ARE OPENED LAZILY, not up front. The output set changes at runtime
+    (dock plug, lid close) and a bar for an output that did not exist at startup
+    must still find its file. `tail -F` follows by NAME and keeps retrying a
+    missing one, so a file created after that bar started is picked up on its
+    own — which is also why the server now subscribes to `output` events.
     """
 
     MAX_LINES = 400
+
+    # ⚠ THE PSEUDO-OUTPUT THE CLIENTS FALL BACK TO, AND IT IS NOT DECORATION.
+    # waybar sets WAYBAR_OUTPUT_NAME on a custom module's `exec` (the string is
+    # present in both the packaged 0.12.0 and a master build), but if it were
+    # ever empty the client would tail `slot--N.jsonl`, which nothing writes —
+    # i.e. a BLANK WORKSPACE ROW, the worst failure available to a status bar.
+    # This name is always written and always behaves as the focused bar, so the
+    # row degrades to exactly its old global behaviour rather than to nothing.
+    FALLBACK = "any"
 
     def __init__(self, d):
         self.dir = d
         self.files = {}
         self.counts = {}
         self.last = {}
-        for n in SLOTS:
-            p = os.path.join(d, f"slot-{n}.jsonl")
-            # Truncate on start: a stale file from a previous session would
-            # otherwise replay old state into a fresh bar.
-            self.files[n] = open(p, "w", buffering=1)
-            self.counts[n] = 0
-            self.last[n] = None
 
-    def emit(self, slot, text, cls):
+    def _file(self, key):
+        f = self.files.get(key)
+        if f is None:
+            output, slot = key
+            p = os.path.join(self.dir, f"slot-{output}-{slot}.jsonl")
+            # Truncate on open: a stale file from a previous session would
+            # otherwise replay old state into a fresh bar.
+            f = open(p, "w", buffering=1)
+            self.files[key] = f
+            self.counts[key] = 0
+            self.last[key] = None
+        return f
+
+    def emit(self, output, slot, text, cls):
+        key = (output, slot)
+        f = self._file(key)          # must precede the `last` read: it seeds it
         payload = {"text": text, "class": cls}
-        if self.last[slot] == payload:
+        if self.last[key] == payload:
             return          # never write a frame that changes nothing
-        self.last[slot] = payload
-        f = self.files[slot]
-        if self.counts[slot] >= self.MAX_LINES:
+        self.last[key] = payload
+        if self.counts[key] >= self.MAX_LINES:
             f.seek(0)
             f.truncate()
-            self.counts[slot] = 0
+            self.counts[key] = 0
         f.write(json.dumps(payload) + "\n")
-        self.counts[slot] = self.counts[slot] + 1
+        self.counts[key] = self.counts[key] + 1
 
-    def resend(self, slot):
+    def resend(self, output, slot):
         """Force the next emit for this slot to be written even if unchanged."""
-        self.last[slot] = None
+        key = (output, slot)
+        if key in self.last:
+            self.last[key] = None
 
 
 class Row:
     def __init__(self, emitter):
         self.out = emitter
         self.focused = 1
+        self.outputs = []       # every output sway currently has a workspace on
+        self.focus_output = None   # the one whose bar may light a chip
         self.occupied = set()
         self.urgent = set()
         self.visible = set()
@@ -136,40 +174,73 @@ class Row:
         self.occupied = {w["num"] for w in ws if w.get("num", -1) in SLOTS}
         self.urgent = {w["num"] for w in ws if w.get("urgent")}
         self.visible = {w["num"] for w in ws if w.get("visible")}
-        foc = [w["num"] for w in ws if w.get("focused")]
-        if foc and foc[0] in SLOTS:
-            self.focused = foc[0]
+        # Every active output has at least one workspace, so this needs no
+        # second `get_outputs` call — the answer is already in hand.
+        self.outputs = sorted({w["output"] for w in ws if w.get("output")})
+        foc = [w for w in ws if w.get("focused")]
+        if foc:
+            # ⚠ The focused OUTPUT is tracked separately from the focused
+            # slot, and is set even when the focused workspace has no number in
+            # SLOTS (a named scratch workspace, say) — that output still owns
+            # the seat, and its bar is still where a panel would open.
+            self.focus_output = foc[0].get("output") or self.focus_output
+            if foc[0].get("num") in SLOTS:
+                self.focused = foc[0]["num"]
 
-    def class_for(self, n):
-        # ⚠ Order matters: the trail must beat `empty`, or a sweep across
-        # workspaces that do not exist yet would be invisible — which is most
-        # of the row on a fresh login, and exactly when the effect is wanted.
-        if n == self.trail:
-            return "trail"
-        # ⚠ THE DESTINATION STAYS DARK UNTIL THE SWEEP ARRIVES. Without this the
-        # focused chip lights the instant the key is pressed and the trail runs
-        # toward an already-lit target — two highlights on screen at once, which
-        # reads as a glitch rather than as travel. Suppressing it makes the
-        # highlight genuinely move: it leaves where you were, walks the row, and
-        # lands. Costs nothing, because `arriving` is only true for the ~250ms
-        # the sweep is in flight.
-        if n == self.focused:
-            return "empty" if self.arriving else "focused"
+    def class_for(self, n, owns_focus):
+        # ⚠ `trail` AND `focused` ARE THE FOCUS EXPRESSION AND BELONG ONLY TO
+        # THE BAR ON THE OUTPUT THAT OWNS THE SEAT. On any other bar a sweep
+        # would be a highlight travelling toward a chip that is never going to
+        # light, and a second `.focused` would defeat the point of the
+        # per-output split — see the Emitter docstring. Everything below this
+        # branch is global state (which workspaces exist, which are urgent,
+        # which are on screen somewhere) and is painted identically everywhere.
+        if owns_focus:
+            # ⚠ Order matters: the trail must beat `empty`, or a sweep across
+            # workspaces that do not exist yet would be invisible — which is
+            # most of the row on a fresh login, and exactly when the effect is
+            # wanted.
+            if n == self.trail:
+                return "trail"
+            # ⚠ THE DESTINATION STAYS DARK UNTIL THE SWEEP ARRIVES. Without this
+            # the focused chip lights the instant the key is pressed and the
+            # trail runs toward an already-lit target — two highlights on screen
+            # at once, which reads as a glitch rather than as travel.
+            # Suppressing it makes the highlight genuinely move: it leaves where
+            # you were, walks the row, and lands. Costs nothing, because
+            # `arriving` is only true for the ~250ms the sweep is in flight.
+            if n == self.focused:
+                return "empty" if self.arriving else "focused"
         if n in self.urgent:
             return "urgent"
+        # On a bar that does not own the seat this is where the focused
+        # workspace lands: it IS visible on its own output, so it reads as
+        # `.visible` rather than vanishing into `.occupied`.
         if n in self.visible:
             return "visible"
         if n in self.occupied:
             return "occupied"
         return "empty"
 
+    def targets(self):
+        """(output, owns_focus) for every bar that needs painting.
+
+        ⚠ FALLBACK always owns the focus, so a client that could not resolve
+        its own output name gets the old global row rather than a dead one.
+        """
+        out = [(o, o == self.focus_output) for o in self.outputs]
+        out.append((self.out.FALLBACK, True))
+        return out
+
     def paint(self):
-        for n in SLOTS:
-            self.out.emit(n, str(n), self.class_for(n))
+        for output, owns in self.targets():
+            for n in SLOTS:
+                self.out.emit(output, n, str(n), self.class_for(n, owns))
 
     def repaint_all(self):
-        for n in SLOTS:
-            self.out.resend(n)
+        for output, _owns in self.targets():
+            for n in SLOTS:
+                self.out.resend(output, n)
         self.paint()
 
     # ── the sweep ---------------------------------------------------------
@@ -218,8 +289,16 @@ def main():
     signal.signal(signal.SIGTERM, bye)
     signal.signal(signal.SIGINT, bye)
 
+    # ⚠ `output` IS SUBSCRIBED FOR THE FILES, NOT FOR THE ROW'S CONTENT. A
+    # monitor plugged in mid-session gets a new waybar instance whose nine
+    # `tail -F` clients immediately start waiting on `slot-<newoutput>-N.jsonl`,
+    # and nothing else here would ever create them — a workspace event only
+    # arrives once you USE that screen, so its row would sit blank until then.
+    # sway emits this with change "unspecified", which falls through the `focus`
+    # test below to the refresh + paint at the bottom of the loop, and that is
+    # all it needs to do.
     sub = subprocess.Popen(
-        ["swaymsg", "-t", "subscribe", "-m", '["workspace"]'],
+        ["swaymsg", "-t", "subscribe", "-m", '["workspace", "output"]'],
         stdout=subprocess.PIPE, text=True)
 
     for line in sub.stdout:
