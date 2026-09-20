@@ -38,3 +38,43 @@ output "MAKE MODEL SERIAL"                position 1920 0
 
 # Right monitor, 1920x1080.
 output "MAKE MODEL SERIAL"                position 4480 180
+
+# ── Which screen a workspace opens on ─────────────────────────────────────
+# Geometry above is only half of a multi-monitor setup. The other half is
+# `workspace <n> output <outputs...>`, which is what makes a workspace come
+# back to the right screen after a re-dock, and it belongs here for the same
+# reason the positions do: it names outputs.
+#
+# sway takes a LIST and uses the first available, so write a fallback chain
+# rather than a single output — an assignment naming only the dock is inert
+# on the road, and the workspace lands wherever sway felt like putting it:
+#
+#     workspace 1 output "MAKE MODEL SERIAL" eDP-1
+#
+# ⚠ Two properties of this command, both from sway(5), both load-bearing:
+#
+#   * It is a PREFERENCE THAT RE-ASSERTS ITSELF, not a one-time placement.
+#     "If the workspace gets placed on an output further down the list and an
+#     output that is higher on the list becomes available, the workspace will
+#     be moved to the higher priority output." That sentence is the entire
+#     reason to bother: plug the dock back in and the workspaces walk home by
+#     themselves. Nothing else in this file does that.
+#
+#   * It "does not affect existing workspaces". So adding a line here and
+#     running `swaymsg reload` looks like it did nothing — the workspaces you
+#     already have stay put, and only the next one to be CREATED lands
+#     correctly. To move what already exists, switch to it and
+#     `move workspace to output <name>` (or bind it: $mod+Ctrl+comma/period
+#     in config/sway/config do left/right).
+#
+# Identifiers work here exactly as they do above, and for the same reason —
+# so the DisplayLink screen must be named by identifier, not by DVI-I-1.
+
+# Example, matching the three-screen layout above: comms on the laptop,
+# everything else centre, media on the right, each falling back to the
+# built-in panel when the externals are absent.
+
+# workspace 1 output eDP-1
+# workspace 2 output "MAKE MODEL SERIAL" eDP-1
+# workspace 3 output "MAKE MODEL SERIAL" eDP-1
+# workspace 9 output "MAKE MODEL SERIAL" eDP-1
