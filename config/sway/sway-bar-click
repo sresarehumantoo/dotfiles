@@ -1,0 +1,28 @@
+#!/bin/sh
+# sway-bar-click <cmd> [args...]
+#
+# Wrap a waybar on-click so its command opens on the bar the user actually
+# clicked, rather than the previously-focused output. If WAYBAR_OUTPUT_NAME is
+# set (waybar has been patched with config/sway/waybar-onclick-output.patch, so
+# on-click gets the same env var custom-module exec already does), focus that
+# output first; then exec the rest of the args.
+#
+# On an unpatched waybar the env var is unset and this reduces to `exec "$@"`,
+# so the same config works either way -- the patched build just makes the
+# focus-transfer step actually happen.
+#
+# The focus prefix is intentional under focus_follows_mouse=no: a bar click is
+# the one explicit "I am interacting with this screen" mouse gesture, and
+# without it every panel opens on whichever output happened to hold focus,
+# regardless of which bar was clicked. Workspace-number clicks likewise switch
+# the CLICKED output's workspace, not the focused output's.
+set -eu
+
+if [ -n "${WAYBAR_OUTPUT_NAME:-}" ]; then
+    # Ignore the return code: an output that vanished between the click and
+    # this fork should not swallow the actual command. swaymsg prints to
+    # stderr on failure, which waybar's log will show.
+    swaymsg focus output "$WAYBAR_OUTPUT_NAME" >/dev/null || true
+fi
+
+exec "$@"

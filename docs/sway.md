@@ -70,6 +70,7 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/sway/sway-portals.conf` | `~/.config/xdg-desktop-portal/sway-portals.conf` |
 | `config/waybar/config` | `~/.config/waybar/config` |
 | `config/waybar/style.css` | `~/.config/waybar/style.css` |
+| `config/systemd/user/waybar.service` | `~/.config/systemd/user/waybar.service` |
 | `config/swaync/config.json` | `~/.config/swaync/config.json` |
 | `config/swaync/style.css` | `~/.config/swaync/style.css` |
 | `config/mako/config` | `~/.config/mako/config` |
@@ -85,8 +86,9 @@ sway                   9        0  1 package(s) missing: pavucontrol
 | `config/sway/sway-monocle` | `~/.local/bin/sway-monocle` |
 | `config/sway/sway-controlcenter` | `~/.local/bin/sway-controlcenter` |
 | `config/sway/sway-tray-filter` | `~/.local/bin/sway-tray-filter` |
+| `config/sway/sway-bar-click` | `~/.local/bin/sway-bar-click` |
 
-The eight scripts are `chmod 0755` at the **source** before linking, because a
+The nine scripts are `chmod 0755` at the **source** before linking, because a
 symlink inherits its target's mode.
 
 ⚠ Two GTK destinations **rename**: GTK requires `settings.ini` under a
@@ -959,9 +961,9 @@ percent (`5..100`). Nothing else shows a number; the widget calls
 > forking Vala and carrying a build. Verified by diffing the 0.11.0 source
 > (`apt-get source sway-notification-center`) against upstream `main`.
 
-## ⚠ Three local builds carry patches — read this before upgrading anything
+## ⚠ Four local builds carry patches — read this before upgrading anything
 
-Two packages on this box are **local builds installed to `/usr/local/bin`,
+Three packages on this box are **local builds installed to `/usr/local/bin`,
 shadowing the Debian package**, and they carry patches that live in this repo.
 An `apt upgrade` does not touch `/usr/local`, so it will not silently revert
 them — but rebuilding from a new upstream release will, unless the patches are
@@ -972,19 +974,21 @@ re-applied.
 | `config/sway/swayosd-fade.patch` | SwayOSD v0.3.2 | fade in/out for the OSD overlay |
 | `config/sway/swaync-system-stats.patch` | swaync 0.11.0 | the `system-stats` widget (cpu / memory / temperature / **battery**) |
 | `config/sway/swaync-cc-fade.patch` | swaync 0.11.0 | fade in/out for the control center |
+| `config/sway/waybar-onclick-output.patch` | waybar 0.12.0 | threads `WAYBAR_OUTPUT_NAME` into `on-click`/`on-scroll`/`on-update` env, so `sway-bar-click` can route a click to the bar's own output |
 
-All three were verified to apply cleanly to a pristine upstream tree, and the
+All four were verified to apply cleanly to a pristine upstream tree, and the
 two swaync patches touch disjoint files so their order does not matter.
 
-**Where the stock packages still matter:** both Debian packages stay installed.
-They supply `/etc/xdg/swaync/*`, the D-Bus service files and the systemd units,
-and they are the fallback if `/usr/local/bin` is ever cleared.
+**Where the stock packages still matter:** all three Debian packages stay
+installed. They supply `/etc/xdg/swaync/*` and `/etc/xdg/waybar/`, the D-Bus
+service files and the systemd units, and they are the fallback if
+`/usr/local/bin` is ever cleared.
 
 > [!NOTE]
-> **There is a fourth local build, and it is not in this table because it
+> **There is a fifth local build, and it is not in this table because it
 > carries no patches:** SwayFX, in `/opt/swayfx`, as an additional GDM session.
 > It is a fork of sway rather than a patched package, so it upgrades on its own
-> schedule and none of the three patches above apply to it. See
+> schedule and none of the four patches above apply to it. See
 > *SwayFX — the effects build* below.
 
 ### Rebuilding
@@ -1004,6 +1008,13 @@ patch -p1 < <dotfiles>/config/sway/swaync-system-stats.patch
 patch -p1 < <dotfiles>/config/sway/swaync-cc-fade.patch
 meson setup build --prefix=/usr/local && ninja -C build
 sudo install -m0755 build/src/swaync{,-client} /usr/local/bin/
+
+# waybar — C++ + meson; `apt build-dep` installs the exact Build-Depends
+sudo apt build-dep -y waybar
+git clone https://github.com/Alexays/Waybar.git && cd Waybar && git checkout 0.12.0
+patch -p1 < <dotfiles>/config/sway/waybar-onclick-output.patch
+meson setup build --buildtype=release -Dexperimental=true && ninja -C build
+sudo install -m0755 build/waybar /usr/local/bin/
 ```
 
 > [!WARNING]
@@ -1079,12 +1090,69 @@ reads as lag on something you opened to click. Two non-obvious hazards:
 Verified by differential against the stock Debian binary: stock renders **2**
 distinct opacity levels, patched renders **6** in and **5** out.
 
+### waybar is a local build (0.12.0 + on-click output routing)
+
+Same upstream release as trixie's `waybar 0.12.0-1` — this build exists to
+close **one gap**: on the packaged binary, a bar module's `on-click` handler
+has no way to know which of the (up to nine, on this dock) bars it fired on.
+`WAYBAR_OUTPUT_NAME` reaches a custom module's `exec` — has since v0.10.0 — but
+`on-click`/`on-scroll`/`on-update` go through a one-argument
+`util::command::forkExec` in `src/AModule.cpp` that does not set it. So a click
+on eDP-1's bar and a click on DVI-I-1's bar produce identical env.
+
+That gap is what made the calendar and control-center panels open on the
+*focused* output rather than the *clicked* one — measured, and recorded in
+`CLAUDE.md`'s multi-monitor bullets. Without focus_follows_mouse (which owen
+declined) the click could not reach the routing decision. With the env var
+threaded through, `sway-bar-click` reads it, focuses that output, and the
+existing "opens on focused output" behavior does the right thing.
+
+The patch has four pieces:
+
+- `include/util/command.hpp` — adds a two-argument `forkExec(cmd, output_name)`
+  that `setenv`s `WAYBAR_OUTPUT_NAME` in the child (matching the shape upstream
+  landed later in `c4982ef`, not present until 0.15.0), keeping the one-arg
+  wrapper for callers that pass no name.
+- `include/AModule.hpp` — adds `std::string output_name_;` plus
+  `setOutputName(...)`, so a module can carry the name of the bar it belongs to.
+- `src/AModule.cpp` — the three `forkExec` call sites (`on-update`,
+  `on-click`/`-release`/etc, `on-scroll-*`) all forward `output_name_`.
+- `src/bar.cpp` — after each `factory.makeModule(...)` (and after the `Group`
+  wrapper is constructed for `group/...` entries), calls
+  `module->setOutputName(output->name)`. This is the one place `Bar` actually
+  knows what output it is drawing on.
+
+19 net-added lines, applies cleanly to a pristine 0.12.0 checkout, builds with
+the standard `apt build-dep waybar` set. Verified compiled by grepping
+`WAYBAR_OUTPUT_NAME` out of the built binary.
+
+`config/sway/sway-bar-click` is the userspace half. It reads the env var, does
+`swaymsg focus output "$WAYBAR_OUTPUT_NAME"`, and `exec "$@"`. On an unpatched
+waybar the variable is unset and it reduces to a plain `exec` — same config
+works either way, the patched build just makes the focus-transfer step actually
+happen. Every panel-opening handler in `config/waybar/config` (calendar, control
+center, swaync toggle/dismiss, powermenu) and every workspace-number click goes
+through it.
+
+The compositor never sees a stray focus command on the unpatched build, and a
+click that would have opened a panel on the focused output does so as before —
+the shape is graceful in both directions.
+
+> [!NOTE]
+> **Why not simply build waybar 0.15.0?** Upstream added its own two-argument
+> `forkExec` there (`c4982ef`, Feb 2026), so the patch would shrink to just the
+> `AModule`/`bar.cpp` half. The reason to stay on 0.12.0 is that it is what
+> trixie ships and what every other layout/CSS/module here has been measured
+> against — 0.13.0 → 0.15.0 span eight months of behavior changes that are not
+> worth surveying to shave a few lines off a one-time patch. Revisit when
+> trixie's `waybar` version moves.
+
 ## SwayFX — the effects build (blur, rounded corners, animations)
 
 **Status 2026-08-08: built, validated, NOT YET LOGGED INTO.** The one untested
 thing is DisplayLink; see the go/no-go at the end of this section.
 
-This is the fourth local build, and unlike the three above it is not a patch —
+This is the fifth local build, and unlike the four above it is not a patch —
 it is a **fork of sway itself**, in its own prefix, offered as a **third GDM
 session**. Plain sway cannot blur or round corners at any setting; that has been
 recorded elsewhere in this file as the only thing that would ever justify a

@@ -162,12 +162,13 @@
     // is what decides where sway-calendar and sway-controlcenter open. Now
     // exactly one bar carries a lit chip: that one.
     //
-    // ⚠ CLICKING A BAR DOES NOT MOVE FOCUS TO ITS OUTPUT (measured: clicking
-    // eDP-1's bar left the focus on DVI-I-1), so the chip is a READOUT of where
-    // a panel will open, not a promise about the bar you are pointing at.
-    // waybar cannot fix that end: WAYBAR_OUTPUT_NAME reaches a custom module's
-    // `exec` but NOT its `on-click`, which goes through the one-argument
-    // `forkExec` in AModule::handleUserEvent.
+    // ⚠ CLICKING A BAR MOVES FOCUS TO ITS OUTPUT via sway-bar-click on every
+    // panel-opening on-click, given the local waybar carrying
+    // config/sway/waybar-onclick-output.patch (which threads
+    // WAYBAR_OUTPUT_NAME into on-click env — packaged 0.12.0 does not). On the
+    // packaged binary sway-bar-click has no env var to read and reduces to a
+    // plain exec, so the chip goes back to being a readout of where a panel
+    // will open. Update this comment before any change that assumes one shape.
     //
     // ⚠ `${WAYBAR_OUTPUT_NAME:-any}` — the fallback is deliberate. The server
     // always writes an `any` set behaving as the focused bar, so if the
@@ -177,7 +178,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-1.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 1",
+        "on-click": "sway-bar-click swaymsg workspace number 1",
         "tooltip": false
     },
 
@@ -185,7 +186,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-2.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 2",
+        "on-click": "sway-bar-click swaymsg workspace number 2",
         "tooltip": false
     },
 
@@ -193,7 +194,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-3.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 3",
+        "on-click": "sway-bar-click swaymsg workspace number 3",
         "tooltip": false
     },
 
@@ -201,7 +202,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-4.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 4",
+        "on-click": "sway-bar-click swaymsg workspace number 4",
         "tooltip": false
     },
 
@@ -209,7 +210,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-5.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 5",
+        "on-click": "sway-bar-click swaymsg workspace number 5",
         "tooltip": false
     },
 
@@ -217,7 +218,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-6.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 6",
+        "on-click": "sway-bar-click swaymsg workspace number 6",
         "tooltip": false
     },
 
@@ -225,7 +226,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-7.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 7",
+        "on-click": "sway-bar-click swaymsg workspace number 7",
         "tooltip": false
     },
 
@@ -233,7 +234,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-8.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 8",
+        "on-click": "sway-bar-click swaymsg workspace number 8",
         "tooltip": false
     },
 
@@ -241,7 +242,7 @@
         "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-9.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
-        "on-click": "swaymsg workspace number 9",
+        "on-click": "sway-bar-click swaymsg workspace number 9",
         "tooltip": false
     },
 
@@ -362,9 +363,9 @@
         // — see the ONE DESTINATION block above `pulseaudio` for the rule that
         // replaced the old one. swaync moved to MIDDLE, it was not dropped.
         // Right click is the full mixer — inert until pavucontrol is installed.
-        "on-click": "$HOME/.local/bin/sway-controlcenter",
-        "on-click-middle": "swaync-client -t -sw",
-        "on-click-right": "pavucontrol",
+        "on-click": "sway-bar-click $HOME/.local/bin/sway-controlcenter",
+        "on-click-middle": "sway-bar-click swaync-client -t -sw",
+        "on-click-right": "sway-bar-click pavucontrol",
         "scroll-step": 5
     },
 
@@ -442,12 +443,12 @@
         // This is the CLIENT path: it signals the resident server started from
         // config/sway/config and costs ~35ms. With no server running it becomes
         // one and shows itself, so the click still works.
-        "on-click": "$HOME/.local/bin/sway-controlcenter",
+        "on-click": "sway-bar-click $HOME/.local/bin/sway-controlcenter",
         // swaync — the notification list and the system-stats readout. Moved
         // here from left-click; it is still the only route to those from this
         // glyph, and `battery` and `custom/notification` still open it on a
         // plain left click.
-        "on-click-middle": "swaync-client -t -sw",
+        "on-click-middle": "sway-bar-click swaync-client -t -sw",
         // ⚠ nm-connection-editor MOVED HERE FROM on-click, it was not dropped.
         // It is the only route to EDITING a connection from the bar (static IP,
         // 802.1X, anything sway-controlcenter hands off), and it is what justifies
@@ -457,7 +458,7 @@
         // the `exec nm-applet` line in config/sway/config. sway-controlcenter sends a
         // password it collected itself over D-Bus, so it does not need the
         // agent — but a REJECTED key, and every 802.1X network, still does.)
-        "on-click-right": "nm-connection-editor"
+        "on-click-right": "sway-bar-click nm-connection-editor"
     },
 
     // The VPN light. Separate instance rather than folded into the module
@@ -627,7 +628,7 @@
         // longer shows. Deliberately NOT sway-controlcenter: there is nothing to
         // operate about a battery, and the number is in swaync's system-stats
         // widget — see the ONE DESTINATION block above `pulseaudio`.
-        "on-click": "swaync-client -t -sw"
+        "on-click": "sway-bar-click swaync-client -t -sw"
     },
 
     // The bell. Before this existed there was no way to reach swaync's control
@@ -722,8 +723,8 @@
         //
         // ⚠ The action flag comes FIRST. swaync-client accepts one option, so
         // `-sw -t` prints usage and exits 0 — a silent no-op that looks fine.
-        "on-click": "swaync-client -t -sw",
-        "on-click-right": "swaync-client -d -sw"
+        "on-click": "sway-bar-click swaync-client -t -sw",
+        "on-click-right": "sway-bar-click swaync-client -d -sw"
     },
 
     // ⚠ THIS MODULE ONLY WORKS BECAUSE OF config/sway/sway-tray-filter, AND
@@ -815,7 +816,7 @@
         // becomes one. Change the anchor in BOTH places or the two disagree about
         // where the panel drops. It must match which module list holds the clock:
         // `center` for modules-center, `right` if it moves back to modules-right.
-        "on-click": "$HOME/.local/bin/sway-calendar --anchor center"
+        "on-click": "sway-bar-click $HOME/.local/bin/sway-calendar --anchor center"
     },
 
     // ⚠ DEFINED BUT DELIBERATELY NOT IN `modules-right`. The session actions
@@ -833,6 +834,6 @@
         // bare command name silently does nothing — confirm on any machine by
         // reading sway's own /proc/<pid>/environ. waybar runs on-click through
         // /bin/sh -c, so $HOME expands. Same applies to sway-controlcenter above.
-        "on-click": "$HOME/.local/bin/sway-powermenu"
+        "on-click": "sway-bar-click $HOME/.local/bin/sway-powermenu"
     }
 }
