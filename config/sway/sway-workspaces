@@ -115,6 +115,22 @@ class Emitter:
         self.files = {}
         self.counts = {}
         self.last = {}
+        # ⚠ SWEEP STALE FILES, because opening lazily no longer does it for us.
+        # The old emitter opened all nine with "w" up front, which truncated
+        # last session's files as a side effect. Lazy opening means a file for
+        # an output that is NOT present at startup keeps its previous contents
+        # — and $XDG_RUNTIME_DIR survives a compositor restart on a box whose
+        # user manager lingers (observed: files from a 13:59 session still in
+        # place at 20:00, after sway had died and been restarted in between).
+        # A bar for that output would then `tail -n1` a line describing a
+        # workspace layout that no longer exists, and if this server were not
+        # running it would show it forever.
+        for name in os.listdir(d):
+            if name.startswith("slot-") and name.endswith(".jsonl"):
+                try:
+                    os.unlink(os.path.join(d, name))
+                except OSError:
+                    pass
 
     def _file(self, key):
         f = self.files.get(key)
