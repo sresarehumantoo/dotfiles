@@ -208,6 +208,58 @@ EDGE_MARGIN = 10  # waybar's own margin-left/right, for the left/right anchors
 # which would otherwise dismiss the calendar before it is ever drawn.
 FOCUS_ARM_MS = 500
 
+
+# ---- surviving an output that goes away ----------------------------------
+# ⚠ A LAYER SURFACE DIES WITH ITS OUTPUT, AND THAT USED TO TAKE THE SERVER
+# WITH IT. gtk-layer-shell turns the compositor's `closed` event into a window
+# destroy, so the plain `connect("destroy", Gtk.main_quit)` this used to carry
+# meant that unplugging the dock -- or closing the lid -- while this panel
+# happened to be OPEN on that output ended the resident server outright.
+# Measured on sway-calendar: `swaymsg output eDP-1 disable` with the panel
+# showing there killed a server that had been up for 3h43m. It self-healed,
+# because a click that finds no server falls through and becomes one, but that
+# click then pays the full ~366ms GTK start instead of ~35ms -- which is the
+# entire reason the server exists.
+#
+# So a destroy in server mode is not a reason to exit, it is a reason to come
+# back. `execv` KEEPS THE PID, and that is what makes the return trip safe: the
+# pidfile still names us, `server_pid()` returns None for our own pid, and the
+# fresh image therefore declines the `--server` fast path and becomes the
+# server again. It comes up HIDDEN, which is right -- the surface it had been
+# showing was on an output that no longer exists.
+#
+# ⚠ THIS CANNOT LOOP. `--server` maps no surface at all until the first
+# SIGUSR1, so immediately after a respawn there is nothing for the compositor
+# to close and nothing to re-trigger it.
+#
+# ⚠ THE PATH IS RESOLVED AT IMPORT, not at destroy time: `os.path.abspath`
+# would resolve against whatever the cwd is by then, and a resident server
+# outlives the shell that launched it.
+_SELF = os.path.realpath(__file__)
+_RESPAWN_ANCHOR = None   # set by main() once this process IS the server
+_QUITTING = False        # SIGTERM -- a deliberate exit, not a lost output
+
+
+def _on_window_destroy(_w):
+    """Come back rather than exit, unless this is a real shutdown."""
+    if _QUITTING or _RESPAWN_ANCHOR is None:
+        Gtk.main_quit()
+        return
+    try:
+        os.execv(sys.executable,
+                 [sys.executable, _SELF, "--server", "--anchor", _RESPAWN_ANCHOR])
+    except OSError:
+        Gtk.main_quit()  # nothing left to try; the next click rebuilds us
+
+
+def _on_sigterm(*_a):
+    """Quit for real. Sets the flag _on_window_destroy checks, so teardown of
+    the window on the way out is not mistaken for a lost output."""
+    global _QUITTING
+    _QUITTING = True
+    Gtk.main_quit()
+    return False
+
 # ⚠ THIS PANEL IS THE ONE PLACE ON THIS DESKTOP THAT IS NOT IosevkaTerm, and
 # that is deliberate. Everything else here (bar, swaync, terminal) is monospace
 # because it shows aligned columns of data; a calendar is UI chrome, and set in a
@@ -488,7 +540,7 @@ class Calendar(Gtk.Window):
         # once, clicking away dismisses it as expected.
         GLib.timeout_add(FOCUS_ARM_MS, self._arm_focus_close)
         self.connect("focus-out-event", self._on_focus_out)
-        self.connect("destroy", Gtk.main_quit)
+        self.connect("destroy", _on_window_destroy)
 
         self.redraw()
 
@@ -644,6 +696,11 @@ def main():
             return 2
         anchor = args[i + 1]
 
+    # This process is the resident server from here on, so a window destroy
+    # from now on means the output went away -- see _on_window_destroy.
+    global _RESPAWN_ANCHOR
+    _RESPAWN_ANCHOR = anchor
+
     # Reaching main() at all means client_fast_path() declined to handle this
     # invocation, so we are becoming the resident server. Two ways in:
     #   --server     : autostarted from config/sway/config — come up HIDDEN and
@@ -741,8 +798,7 @@ def main():
     # interpreter outright, so the finally below runs and no pidfile is left
     # behind. GLib's unix_signal_add is the safe route: it defers to the main loop
     # instead of running Python inside a signal handler.
-    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM,
-                         lambda *_a: (Gtk.main_quit(), False)[1])
+    GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, _on_sigterm)
 
     try:
         Gtk.main()

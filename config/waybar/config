@@ -152,8 +152,29 @@
     //
     // The `class` field in the server's JSON is what CSS keys off
     // (.focused / .trail / .visible / .occupied / .empty / .urgent).
+    //
+    // ⚠ THE PATH IS PER-OUTPUT, AND THAT IS THE WHOLE POINT. It used to be a
+    // shared `slot-N.jsonl`, so all three bars painted identical state and the
+    // `.focused` chip lit on every screen at once. With `focus_follows_mouse
+    // no` and `hide_edge_borders --i3 smart` (which, per docs/sway.md, already
+    // leaves one window per output with no border cue), that meant nothing on
+    // this desktop said which screen owned the focus — and the focused output
+    // is what decides where sway-calendar and sway-controlcenter open. Now
+    // exactly one bar carries a lit chip: that one.
+    //
+    // ⚠ CLICKING A BAR DOES NOT MOVE FOCUS TO ITS OUTPUT (measured: clicking
+    // eDP-1's bar left the focus on DVI-I-1), so the chip is a READOUT of where
+    // a panel will open, not a promise about the bar you are pointing at.
+    // waybar cannot fix that end: WAYBAR_OUTPUT_NAME reaches a custom module's
+    // `exec` but NOT its `on-click`, which goes through the one-argument
+    // `forkExec` in AModule::handleUserEvent.
+    //
+    // ⚠ `${WAYBAR_OUTPUT_NAME:-any}` — the fallback is deliberate. The server
+    // always writes an `any` set behaving as the focused bar, so if the
+    // variable were ever empty the row degrades to its old global behaviour
+    // instead of tailing a file nobody writes, which is a BLANK ROW.
     "custom/ws1": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-1.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-1.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 1",
@@ -161,7 +182,7 @@
     },
 
     "custom/ws2": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-2.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-2.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 2",
@@ -169,7 +190,7 @@
     },
 
     "custom/ws3": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-3.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-3.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 3",
@@ -177,7 +198,7 @@
     },
 
     "custom/ws4": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-4.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-4.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 4",
@@ -185,7 +206,7 @@
     },
 
     "custom/ws5": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-5.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-5.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 5",
@@ -193,7 +214,7 @@
     },
 
     "custom/ws6": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-6.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-6.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 6",
@@ -201,7 +222,7 @@
     },
 
     "custom/ws7": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-7.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-7.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 7",
@@ -209,7 +230,7 @@
     },
 
     "custom/ws8": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-8.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-8.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 8",
@@ -217,7 +238,7 @@
     },
 
     "custom/ws9": {
-        "exec": "tail -n1 -F $XDG_RUNTIME_DIR/sway-workspaces/slot-9.jsonl 2>/dev/null",
+        "exec": "tail -n1 -F \"$XDG_RUNTIME_DIR/sway-workspaces/slot-${WAYBAR_OUTPUT_NAME:-any}-9.jsonl\" 2>/dev/null",
         "return-type": "json",
         "format": "{}",
         "on-click": "swaymsg workspace number 9",

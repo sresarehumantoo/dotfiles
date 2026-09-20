@@ -2172,13 +2172,33 @@ pill even though it can no longer leak blur.
 > answer was "our rule overrides the wrong property".
 
 > [!CAUTION]
-> **`cursor set` and `grim -g` do not share a coordinate space.** grim takes
-> GLOBAL coordinates, so capturing the bar needs the output's offset (`0,120`
-> here); the cursor commands do NOT take that offset, so the bar is at y≈26 for
-> them. Adding the offset parks the pointer 120px below the bar where it hovers
-> nothing — and `cursor set` still returns `success: true`, so it presents as
-> "hover is broken" on modules whose `:hover` has worked for months. `seat -`
-> and `seat seat0` behave identically; that is not the variable.
+> **`cursor set` and `grim -g` DO share a coordinate space: both are global.**
+> This block used to say the opposite — that the cursor commands take no output
+> offset, so "the bar is at y≈26 for them" — and that is wrong. `sway-input(5)`
+> is explicit: `seat <seat> cursor move|set <x> <y>` wraps "to absolute
+> coordinates (**with respect to the global coordinate space**)". Re-measured
+> 2026-09-19 on the three-output dock by parking the pointer and diffing
+> `grim -c` against `grim`: `cursor set 960 700` put the cursor at layout
+> `(959,699)` on eDP-1, and `cursor set 5000 600` at layout `(5000,599)` on
+> DVI-I-1 — which output-relative coordinates cannot even express, since that
+> output is 1920 wide. So capturing the bar and pointing at it use the same
+> numbers, offset included.
+>
+> ⚠ **What actually produced the bogus y≈26 reading is almost certainly
+> `mouse_warping output`**, which warps the pointer to the centre of an output
+> on every `focus output`. It re-bit this audit: a probe that focused an output
+> before each measurement kept finding the cursor at that output's centre and
+> reported it as the result of the `cursor set`. Do not change focus inside a
+> pointer measurement, and re-locate the cursor across **every** output rather
+> than the one you expect it on.
+>
+> ⚠ Two real traps remain here. `cursor set` returns `success: true` whatever
+> you pass it, so a bad coordinate presents as "hover is broken" on a module
+> whose `:hover` has worked for months. And per the same man page, **"specifying
+> either value as 0 will not update that coordinate"** — `cursor set 0 700` does
+> not move x to 0, it leaves x alone. `seat -` and `seat seat0` behave
+> identically; that is not the variable. The command is also marked
+> **deprecated** in favour of the virtual-pointer protocol.
 
 ## The battery lives in two places, on purpose
 
@@ -2526,10 +2546,11 @@ PY
 
 Under sway you can also verify the result rather than trusting it: `grim -c -g
 "<x>,<y> <w>x<h>" out.png` captures a region with the cursor drawn, which is how
-the tooltips and the swayosd overlay were checked. Note `grim -g` takes **global**
-coordinates while `swaymsg seat seat0 cursor set` takes **output-relative** ones —
-on a multi-head layout those differ by the output's origin, which is an easy hour
-to lose.
+the tooltips and the swayosd overlay were checked. ⚠ The note that used to sit here — that `grim -g` takes
+**global** coordinates while `swaymsg seat seat0 cursor set` takes
+**output-relative** ones — was **wrong**, and believing it is the easy hour to
+lose. Both are global; see the CAUTION block under *The hover ring* for the
+man-page wording and the re-measurement.
 
 ## The clock is the center module, and the calendar is a real window
 
