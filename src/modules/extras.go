@@ -141,7 +141,20 @@ func pkgInstalled(pkg string) bool {
 		}
 		return pacmanInstalled(resolved)
 	}
+	if core.IsMac() {
+		resolved := resolvePkg("brew", pkg)
+		if resolved == "" {
+			return true // not needed on macOS
+		}
+		return brewInstalled(resolved)
+	}
 	return dpkgInstalled(pkg)
+}
+
+// brewInstalled checks if a Homebrew formula is installed.
+func brewInstalled(pkg string) bool {
+	_, err := runProbe(context.Background(), "brew", "list", "--versions", pkg)
+	return err == nil
 }
 
 // userInGroup checks if the current user belongs to the given group.
@@ -218,7 +231,7 @@ func (ExtrasModule) Install(ctx context.Context) error {
 	core.Info("Installing Python tooling...")
 	var pythonPkgs []string
 	for _, pkg := range []string{"python3-pip", "python3-venv", "pipx"} {
-		if !dpkgInstalled(pkg) {
+		if !pkgInstalled(pkg) {
 			pythonPkgs = append(pythonPkgs, pkg)
 		}
 	}

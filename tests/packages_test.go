@@ -50,10 +50,22 @@ func TestResolvePkgs(t *testing.T) {
 			want: []string{},
 		},
 		{
-			name: "brew passthrough",
+			name: "brew renames",
 			mgr:  "brew",
-			pkgs: []string{"fd-find", "bat"},
-			want: []string{"fd-find", "bat"},
+			pkgs: []string{"fd-find", "golang", "nodejs", "bat"},
+			want: []string{"fd", "go", "node", "bat"},
+		},
+		{
+			name: "brew skips what macOS provides",
+			mgr:  "brew",
+			pkgs: []string{"build-essential", "npm", "python3-pip", "python3-venv", "locales", "xclip", "fontconfig", "tmux"},
+			want: []string{"tmux"},
+		},
+		{
+			name: "dnf passthrough",
+			mgr:  "dnf",
+			pkgs: []string{"fd-find", "build-essential"},
+			want: []string{"fd-find", "build-essential"},
 		},
 	}
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -73,6 +74,26 @@ var pacmanNames = map[string]string{
 	"docker-compose-plugin":   "docker-compose",
 }
 
+// brewNames maps canonical (apt) package names to Homebrew formulae.
+// Empty string means macOS or another formula already provides it.
+var brewNames = map[string]string{
+	"fd-find":         "fd",
+	"build-essential": "", // Xcode Command Line Tools, a bootstrap prerequisite
+	"golang":          "go",
+	"nodejs":          "node",
+	"npm":             "", // ships with node
+	"python3-pip":     "", // ships with python
+	"python3-venv":    "",
+	"locales":         "", // macOS ships en_US.UTF-8
+	"xclip":           "", // pbcopy/pbpaste are built in
+	"fontconfig":      "", // macOS registers fonts in ~/Library/Fonts without it
+}
+
+var pkgNames = map[string]map[string]string{
+	"pacman": pacmanNames,
+	"brew":   brewNames,
+}
+
 // ResolvePkgs translates canonical package names for the given package manager.
 // Exported for testing.
 func ResolvePkgs(mgr string, pkgs []string) []string {
@@ -81,14 +102,15 @@ func ResolvePkgs(mgr string, pkgs []string) []string {
 
 // resolvePkgs translates canonical package names for the given package manager.
 func resolvePkgs(mgr string, pkgs []string) []string {
-	if mgr != "pacman" {
+	names, ok := pkgNames[mgr]
+	if !ok {
 		return pkgs
 	}
 	var out []string
 	for _, p := range pkgs {
-		if mapped, ok := pacmanNames[p]; ok {
+		if mapped, ok := names[p]; ok {
 			if mapped == "" {
-				continue // skip — not needed on Arch
+				continue // not needed with this package manager
 			}
 			out = append(out, mapped)
 		} else {
@@ -402,7 +424,7 @@ func (PackagesModule) Install(ctx context.Context) error {
 		}
 	}
 	// locales has no binary to check — ensure the package is present
-	if !dpkgInstalled("locales") {
+	if !pkgInstalled("locales") {
 		pkgs = append(pkgs, "locales")
 	}
 
@@ -416,8 +438,12 @@ func (PackagesModule) Install(ctx context.Context) error {
 	}
 
 	// zsh-syntax-highlighting
-	syntaxHL := "/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"
-	if _, err := os.Stat(syntaxHL); err != nil {
+	syntaxHL := []string{"/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"}
+	if brew, err := exec.LookPath("brew"); err == nil {
+		prefix := filepath.Dir(filepath.Dir(brew))
+		syntaxHL = append(syntaxHL, filepath.Join(prefix, "share", "zsh-syntax-highlighting", "zsh-syntax-highlighting.zsh"))
+	}
+	if !slices.ContainsFunc(syntaxHL, func(p string) bool { _, err := os.Stat(p); return err == nil }) {
 		if err := installPkg(ctx, "zsh-syntax-highlighting"); err != nil {
 			core.Warn("Install zsh-syntax-highlighting manually")
 		}
