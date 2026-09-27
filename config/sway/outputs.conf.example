@@ -78,3 +78,28 @@ output "MAKE MODEL SERIAL"                position 4480 180
 # workspace 2 output "MAKE MODEL SERIAL" eDP-1
 # workspace 3 output "MAKE MODEL SERIAL" eDP-1
 # workspace 9 output "MAKE MODEL SERIAL" eDP-1
+
+# ── Touch input on a specific output ──────────────────────────────────────
+# A touchscreen or drawing tablet without `map_to_output` is stretched over
+# sway's full coordinate space (the bounding box of every enabled output), so
+# taps land in the wrong place on any multi-monitor setup. This is the same
+# per-machine-identifier problem as output geometry, so it belongs here.
+#
+# Match by DEVICE identifier, not `type:touch` — the latter also matches a
+# future stylus / drawing tablet, and each of those wants its own output.
+# Discover the identifier with:
+#     swaymsg -t get_inputs | grep -A2 -i 'touch\|tablet\|pen'
+#
+# Match the destination by output identifier for the same reason the outputs
+# themselves are matched by identifier — connector names are not durable.
+#
+# ⚠ `events enabled` matters. If `map_to_output` resolves to an ABSENT output
+# (the panel is unplugged), sway parks the device with `send_events=disabled`
+# and no `swaymsg input … events enabled` sticks — each rule re-eval undoes
+# it. The explicit line here re-arms it every reload; the durable fix is that
+# the mapping names an output that IS present while the touch device is.
+#
+# input "VENDOR:PRODUCT:NAME" {
+#     map_to_output "MAKE MODEL SERIAL"
+#     events enabled
+# }

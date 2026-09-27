@@ -110,12 +110,19 @@ func (SwayModule) Links() core.LinkSet {
 		// NetworkManager's secret agent), so the filtering happens one layer
 		// down, in the broker both of them talk to.
 		{Src: core.ConfigPath("sway", "sway-tray-filter"), Dst: core.HomeTarget(".local", "bin", "sway-tray-filter")},
+
+		// Wraps a waybar on-click so it opens on the bar the user clicked
+		// rather than the previously-focused output, given the local waybar
+		// build with config/sway/waybar-onclick-output.patch (which threads
+		// WAYBAR_OUTPUT_NAME into on-click env). Degrades to a plain exec on
+		// an unpatched waybar, so the same config works either way.
+		{Src: core.ConfigPath("sway", "sway-bar-click"), Dst: core.HomeTarget(".local", "bin", "sway-bar-click")},
 	}
 }
 
 // Scripts that must be executable at the source, since a symlink inherits the
 // target's mode (same reason as devtools).
-var swayScripts = []string{"sway-powermenu", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle", "sway-controlcenter", "sway-tray-filter"}
+var swayScripts = []string{"sway-powermenu", "sway-brightness", "sway-calendar", "sway-fx", "sway-workspaces", "sway-monocle", "sway-controlcenter", "sway-tray-filter", "sway-bar-click"}
 
 // swayLegacyScripts are helpers this module used to link and no longer does.
 //

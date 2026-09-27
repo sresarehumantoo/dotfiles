@@ -23,7 +23,14 @@ StartLimitBurst=5
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/waybar
+# `env waybar` rather than a pinned path so a /usr/local/bin/waybar (a local
+# build carrying config/sway/waybar-onclick-output.patch) shadows the packaged
+# /usr/bin/waybar without a drop-in. systemd's user PATH is
+# /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin, so /usr/local wins where
+# it exists and the vendor package is used everywhere else. Same convention as
+# how swayosd/swaync's local builds work (they install to /usr/local/bin and
+# every launcher on this system finds them via PATH).
+ExecStart=/usr/bin/env waybar
 # Absolute path on purpose: the vendor unit's bare `kill` is not a valid
 # systemd ExecReload command.
 ExecReload=/usr/bin/kill -SIGUSR2 $MAINPID

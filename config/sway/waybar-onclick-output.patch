@@ -1,0 +1,100 @@
+diff --git a/include/AModule.hpp b/include/AModule.hpp
+index 2ffc429c..5da5c7e4 100644
+--- a/include/AModule.hpp
++++ b/include/AModule.hpp
+@@ -25,6 +25,12 @@ class AModule : public IModule {
+ 
+   bool expandEnabled() const;
+ 
++  // Set by Bar after construction; forwarded to on-click/on-scroll/on-update
++  // shell commands via the WAYBAR_OUTPUT_NAME env var, matching what
++  // custom-module exec already gets. Lets a handler route its action to the
++  // bar it was clicked on rather than the focused output.
++  void setOutputName(const std::string& n) { output_name_ = n; }
++
+  protected:
+   // Don't need to make an object directly
+   // Derived classes are able to use it
+@@ -39,6 +45,7 @@ class AModule : public IModule {
+   const std::string name_;
+   const Json::Value &config_;
+   Gtk::EventBox event_box_;
++  std::string output_name_;
+ 
+   virtual void setCursor(Gdk::CursorType const &c);
+ 
+diff --git a/include/util/command.hpp b/include/util/command.hpp
+index 4b9decaa..93806790 100644
+--- a/include/util/command.hpp
++++ b/include/util/command.hpp
+@@ -138,7 +138,7 @@ inline struct res execNoRead(const std::string& cmd) {
+   return {WEXITSTATUS(stat), ""};
+ }
+ 
+-inline int32_t forkExec(const std::string& cmd) {
++inline int32_t forkExec(const std::string& cmd, const std::string& output_name) {
+   if (cmd == "") return -1;
+ 
+   pid_t pid = fork();
+@@ -157,6 +157,9 @@ inline int32_t forkExec(const std::string& cmd) {
+     err = pthread_sigmask(SIG_UNBLOCK, &mask, nullptr);
+     if (err != 0) spdlog::error("pthread_sigmask in forkExec failed: {}", strerror(err));
+     setpgid(pid, pid);
++    if (!output_name.empty()) {
++      setenv("WAYBAR_OUTPUT_NAME", output_name.c_str(), 1);
++    }
+     execl("/bin/sh", "sh", "-c", cmd.c_str(), (char*)0);
+     exit(0);
+   } else {
+@@ -169,4 +172,6 @@ inline int32_t forkExec(const std::string& cmd) {
+   return pid;
+ }
+ 
++inline int32_t forkExec(const std::string& cmd) { return forkExec(cmd, ""); }
++
+ }  // namespace waybar::util::command
+diff --git a/src/AModule.cpp b/src/AModule.cpp
+index 5abb779a..b4d10d4a 100644
+--- a/src/AModule.cpp
++++ b/src/AModule.cpp
+@@ -93,7 +93,7 @@ AModule::~AModule() {
+ auto AModule::update() -> void {
+   // Run user-provided update handler if configured
+   if (config_["on-update"].isString()) {
+-    pid_.push_back(util::command::forkExec(config_["on-update"].asString()));
++    pid_.push_back(util::command::forkExec(config_["on-update"].asString(), output_name_));
+   }
+ }
+ // Get mapping between event name and module action name
+@@ -182,7 +182,7 @@ bool AModule::handleUserEvent(GdkEventButton* const& e) {
+       format.clear();
+   }
+   if (!format.empty()) {
+-    pid_.push_back(util::command::forkExec(format));
++    pid_.push_back(util::command::forkExec(format, output_name_));
+   }
+   dp.emit();
+   return true;
+@@ -267,7 +267,7 @@ bool AModule::handleScroll(GdkEventScroll* e) {
+   this->AModule::doAction(eventName);
+   // Second call user scripts
+   if (config_[eventName].isString())
+-    pid_.push_back(util::command::forkExec(config_[eventName].asString()));
++    pid_.push_back(util::command::forkExec(config_[eventName].asString(), output_name_));
+ 
+   dp.emit();
+   return true;
+diff --git a/src/bar.cpp b/src/bar.cpp
+index b7737d36..e93785a6 100644
+--- a/src/bar.cpp
++++ b/src/bar.cpp
+@@ -502,6 +502,9 @@ void waybar::Bar::getModules(const Factory& factory, const std::string& pos,
+         } else {
+           module = factory.makeModule(ref, pos);
+         }
++        if (module != nullptr) {
++          module->setOutputName(output->name);
++        }
+ 
+         std::shared_ptr<AModule> module_sp(module);
+         modules_all_.emplace_back(module_sp);
