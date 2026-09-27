@@ -35,7 +35,7 @@ const nerdFontsTag = "v3.4.0"
 type downloadedFont struct {
 	family  string   // fontconfig family name, used only for detection (fc-list -q)
 	archive string   // asset filename in the release, e.g. "IosevkaTerm.tar.xz"
-	dir     string   // subdir under $XDG_DATA_HOME/fonts, e.g. "IosevkaTerm"
+	dir     string   // subdir under fontsDir(), e.g. "IosevkaTerm"
 	faces   []string // exact basenames to extract — nothing else is written
 }
 
@@ -66,6 +66,15 @@ var downloadedFonts = []downloadedFont{iosevkaTerm}
 // the font (the documented "bump the tag" workflow did exactly nothing).
 const tagStamp = ".nerd-fonts-tag"
 
+// fontsDir is where this module installs fonts. macOS never reads the XDG data
+// dir and registers ~/Library/Fonts without fontconfig.
+func fontsDir(parts ...string) string {
+	if core.IsMac() {
+		return core.HomeTarget(append([]string{"Library", "Fonts"}, parts...)...)
+	}
+	return core.XDGDataTarget(append([]string{"fonts"}, parts...)...)
+}
+
 // fontInstalled reports whether *this module's own copy* of a family is present,
 // and which tag it came from.
 //
@@ -77,7 +86,7 @@ const tagStamp = ".nerd-fonts-tag"
 // leaving the family resolvable. It also made every machine without fontconfig
 // re-download ~28 MB on each run, since a missing fc-list reads as "absent".
 func fontInstalled(f downloadedFont) (present bool, tag string) {
-	dir := core.XDGDataTarget("fonts", f.dir)
+	dir := fontsDir(f.dir)
 	if dir == "" {
 		return false, ""
 	}
@@ -113,7 +122,7 @@ func (FontsModule) Links() core.LinkSet {
 	return core.LinkSet{
 		{
 			Src: core.ConfigPath("fonts", "MesloLGS NF Regular.ttf"),
-			Dst: core.XDGDataTarget("fonts", "MesloLGS NF Regular.ttf"),
+			Dst: fontsDir("MesloLGS NF Regular.ttf"),
 		},
 	}
 }
@@ -133,7 +142,7 @@ func (m FontsModule) Install(ctx context.Context) error {
 				core.Info("would update %s from %s to %s", f.family, tagOrUnknown(tag), nerdFontsTag)
 			default:
 				core.Info("would download %s (%s) to %s", f.family, nerdFontsTag,
-					core.XDGDataTarget("fonts", f.dir))
+					fontsDir(f.dir))
 			}
 		}
 		return nil
@@ -170,7 +179,7 @@ func (m FontsModule) Install(ctx context.Context) error {
 			// unmanaged copy stays behind and is the user's to remove.
 			core.Warn("%s is installed outside %s and unmanaged — installing a "+
 				"managed copy; remove the other to avoid duplicates",
-				f.family, core.XDGDataTarget("fonts", f.dir))
+				f.family, fontsDir(f.dir))
 		}
 		if err := installDownloadedFont(ctx, f); err != nil {
 			core.Warn("could not install %s: %v — MesloLGS floor remains in place", f.family, err)
@@ -196,7 +205,7 @@ func (m FontsModule) Uninstall(ctx context.Context) error {
 	}
 	// Downloaded families each own a subdir, so removal is bounded.
 	for _, f := range downloadedFonts {
-		dir := core.XDGDataTarget("fonts", f.dir)
+		dir := fontsDir(f.dir)
 		if dir == "" {
 			continue // $HOME unresolved; nothing we created to remove
 		}
@@ -240,7 +249,7 @@ func fontNotes() []string {
 		// duplicate face whether or not the managed one is present and current.
 		if extra := unmanagedFontCopies(f); len(extra) > 0 {
 			notes = append(notes, fmt.Sprintf("%d unmanaged file(s) for %s outside %s",
-				len(extra), f.family, core.XDGDataTarget("fonts", f.dir)))
+				len(extra), f.family, fontsDir(f.dir)))
 		}
 	}
 	return notes
@@ -273,7 +282,7 @@ func fontNotes() []string {
 // it over-matched, every box keeping the Mono build beside this one would be
 // nagged forever about a duplicate that is not one.
 func unmanagedFontCopies(f downloadedFont) []string {
-	managed := core.XDGDataTarget("fonts", f.dir)
+	managed := fontsDir(f.dir)
 	if managed == "" {
 		return nil
 	}
@@ -330,6 +339,8 @@ const legacyGlob = "HackNerdFont*.ttf"
 // still a live, registered copy of MesloLGS NF. Left alone, every upgraded
 // machine carries a permanent duplicate of the family.
 func (m FontsModule) legacyArtifacts() []string {
+	// The old module only ever ran on Linux. Hack faces in ~/Library/Fonts are
+	// the user's own, so the scan stays on the XDG dir rather than fontsDir.
 	dir := core.XDGDataTarget("fonts")
 	if dir == "" {
 		return nil
@@ -388,7 +399,7 @@ func (m FontsModule) cleanLegacyArtifacts() bool {
 // installDownloadedFont downloads, verifies and extracts one family into its own
 // subdirectory. It never touches the rest of the fonts dir.
 func installDownloadedFont(ctx context.Context, f downloadedFont) error {
-	destDir := core.XDGDataTarget("fonts", f.dir)
+	destDir := fontsDir(f.dir)
 	// destDir is assembled from $XDG_DATA_HOME/$HOME and then written to with
 	// os.* calls that bypass LinkFile's guard, so check it here.
 	if err := core.CheckTarget(destDir); err != nil {
@@ -606,7 +617,7 @@ func refreshFontCache(ctx context.Context) {
 	if _, err := exec.LookPath("fc-cache"); err != nil {
 		return
 	}
-	dir := core.XDGDataTarget("fonts")
+	dir := fontsDir()
 	if dir == "" {
 		return
 	}
