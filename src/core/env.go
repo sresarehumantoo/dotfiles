@@ -549,7 +549,9 @@ func HasSudoPass() bool {
 // DFINSTALL_SUDO_PASS is set (e.g. during bootstrap where the password is
 // known), it is piped to sudo -S so no interactive prompt is needed.
 func PromptSudo(ctx context.Context) {
-	if DryRun {
+	// Nothing dfinstall runs on macOS needs sudo: Homebrew refuses root, and
+	// chsh asks for the user's own password.
+	if DryRun || IsMac() {
 		return
 	}
 	// Check if sudo even needs a password (e.g. NOPASSWD configured)
