@@ -56,6 +56,16 @@ The wizard prompts for distro and username. To skip the prompts or trim the scop
 .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
 ```
 
+### Fresh Mac
+
+Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones to `~/dotfiles` and runs `make install`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/develop/bootstrap/macos-setup.sh | bash
+```
+
+From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS.
+
 ### Existing Linux system
 
 ```bash
@@ -252,7 +262,7 @@ See [Building from Source](docs/building.md) for dependencies, cross-compilation
 .github/                 # CI workflow + Dependabot config
 .mcp.json                # In-repo MCP server registration
 assets/                  # Logo SVG and generator script
-bootstrap/               # WSL bootstrap wizard (PowerShell + bash)
+bootstrap/               # WSL bootstrap wizard (PowerShell + bash), macOS bootstrap
 config/                  # Config files symlinked into ~
   shell/                 #   zsh/bash dotfiles
   devtools/              #   utility scripts -> ~/.local/bin/
@@ -306,9 +316,10 @@ make clean          # rm -rf bin/
 [GitHub Actions](.github/workflows/ci.yml) runs on every push and pull request to `main` and `develop`, and on manual dispatch:
 
 - **Go** — `gofmt -s` check, `go vet`, builds both binaries, `go test`, then the suite again under `-race`. The Go version tracks `go.mod`.
+- **Go on macOS** — builds both binaries and runs `go test` on `macos-latest`, and checks that `bootstrap/macos-setup.sh` parses under the stock `/bin/bash` 3.2.
 - **ShellCheck** — lints `config/devtools/` and `bootstrap/`.
 
-`main` is protected: both checks must pass before a PR can merge.
+`main` is protected: the Go and ShellCheck checks must pass before a PR can merge.
 
 [Dependabot](.github/dependabot.yml) opens weekly PRs against `develop` for Go modules and Actions bumps — minor/patch grouped into one PR per ecosystem, majors individually since they tend to need attention. The same checks gate them.
 
