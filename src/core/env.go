@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +48,11 @@ func DetectEnvironment() {
 		return
 	}
 
+	if IsMac() {
+		addBrewToPath()
+		return
+	}
+
 	// WSL detection via /proc/version
 	isWSL = checkWSL()
 
@@ -60,6 +66,22 @@ func checkWSL() bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(string(data)), "microsoft")
+}
+
+// addBrewToPath puts Homebrew on this process's PATH when it is installed but
+// not yet on PATH, as on a fresh Mac before any shell has run `brew shellenv`.
+// Without it every LookPath misses what brew installs, so each run reinstalls.
+// /opt/homebrew is the Apple Silicon prefix, /usr/local the Intel one.
+func addBrewToPath() {
+	if _, err := exec.LookPath("brew"); err == nil {
+		return
+	}
+	for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
+		if _, err := os.Stat(filepath.Join(dir, "brew")); err == nil {
+			os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			return
+		}
+	}
 }
 
 // ParseProcVersion checks whether content from /proc/version indicates WSL.
@@ -318,6 +340,11 @@ func EnableReadonly(ctx context.Context) error {
 // IsWSL returns true if running under Windows Subsystem for Linux.
 func IsWSL() bool {
 	return isWSL
+}
+
+// IsMac returns true on macOS.
+func IsMac() bool {
+	return runtime.GOOS == "darwin"
 }
 
 // IsGitBash returns true if running under Git Bash/MSYS/MinGW.
