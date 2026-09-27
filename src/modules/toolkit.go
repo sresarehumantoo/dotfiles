@@ -572,11 +572,16 @@ func installReleaseBinary(ctx context.Context, name, repo, pattern string) error
 	if err != nil {
 		return err
 	}
+	archTokens := currentArchTokens()
+	if core.IsMac() {
+		archTokens = append(archTokens, "universal") // fat binaries name no arch
+	}
 	asset, ok := pickAsset(assets, assetFilter{
-		ArchTokens:   currentArchTokens(),
+		ArchTokens:   archTokens,
 		Contains:     pattern,
 		SkipSidecars: true,
-		LinuxOnly:    true,
+		LinuxOnly:    !core.IsMac(),
+		DarwinOnly:   core.IsMac(),
 	})
 	if !ok {
 		return fmt.Errorf("no release asset matched for %s (arch=%s, pattern=%q)", name, runtime.GOARCH, pattern)
@@ -597,6 +602,17 @@ func installReleaseBinary(ctx context.Context, name, repo, pattern string) error
 	switch {
 	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
 		if err := runCmd(ctx, "tar", "-xzf", tmpPath, "-C", tmpDir); err != nil {
+			return fmt.Errorf("extract %s: %w", assetName, err)
+		}
+		found, ferr := findExtractedBinary(tmpDir, name)
+		if ferr != nil {
+			return ferr
+		}
+		if err := os.Rename(found, destPath); err != nil {
+			return fmt.Errorf("move %s: %w", name, err)
+		}
+	case strings.HasSuffix(lower, ".zip"):
+		if err := runCmd(ctx, "unzip", "-q", "-o", tmpPath, "-d", tmpDir); err != nil {
 			return fmt.Errorf("extract %s: %w", assetName, err)
 		}
 		found, ferr := findExtractedBinary(tmpDir, name)
