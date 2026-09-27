@@ -28,13 +28,28 @@ var devtoolsScripts = []string{
 	"ghostty-shader",
 }
 
+// linuxOnlyDevtools drive WSL or read /proc, /sys or /dev/dri, so they are not
+// linked on macOS.
+var linuxOnlyDevtools = map[string]bool{
+	"wsl-resize-disk": true,
+	"wsl-restart":     true,
+	"sysinfo":         true,
+	"clipboard-vm":    true,
+	"demorec":         true,
+	"wsl-ffmpeg":      true,
+	"ghostty-shader":  true,
+}
+
 func (DevtoolsModule) Links() core.LinkSet {
-	ls := make(core.LinkSet, len(devtoolsScripts))
-	for i, name := range devtoolsScripts {
-		ls[i] = core.LinkPair{
+	var ls core.LinkSet
+	for _, name := range devtoolsScripts {
+		if core.IsMac() && linuxOnlyDevtools[name] {
+			continue
+		}
+		ls = append(ls, core.LinkPair{
 			Src: core.ConfigPath("devtools", name),
 			Dst: core.HomeTarget(".local", "bin", name),
-		}
+		})
 	}
 	return ls
 }

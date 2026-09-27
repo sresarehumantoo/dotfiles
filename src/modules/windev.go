@@ -47,6 +47,9 @@ func windevZshPath() string {
 }
 
 func (WindevModule) Install(ctx context.Context) error {
+	if core.IsMac() {
+		return fmt.Errorf("windev is Linux/WSL only")
+	}
 	core.Info("Setting up Windows cross-development environment...")
 
 	if core.DryRun {

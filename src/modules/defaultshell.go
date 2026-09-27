@@ -13,7 +13,7 @@ type DefaultShellModule struct{}
 func (DefaultShellModule) Name() string { return "defaultshell" }
 
 func (DefaultShellModule) Install(ctx context.Context) error {
-	zshPath, err := exec.LookPath("zsh")
+	zshPath, err := loginZsh()
 	if err != nil {
 		core.Warn("zsh not found — install it first")
 		return nil
@@ -60,7 +60,7 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 
 func (DefaultShellModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "defaultshell"}
-	zshPath, err := exec.LookPath("zsh")
+	zshPath, err := loginZsh()
 	if err != nil {
 		s.Missing = 1
 		s.Extra = "zsh not found"
@@ -74,4 +74,14 @@ func (DefaultShellModule) Status() core.ModuleStatus {
 		s.Extra = os.Getenv("SHELL")
 	}
 	return s
+}
+
+// loginZsh is the zsh to make the login shell. On macOS that is the system
+// /bin/zsh: brew's zsh wins a PATH lookup but is not in /etc/shells, so chsh
+// refuses it.
+func loginZsh() (string, error) {
+	if core.IsMac() {
+		return "/bin/zsh", nil
+	}
+	return exec.LookPath("zsh")
 }

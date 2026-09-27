@@ -48,8 +48,12 @@ var distroIcons = map[string]string{
 }
 
 // detectDistroIcon reads /etc/os-release and returns the Nerd Font icon
-// for the current Linux distribution. Falls back to the generic Linux icon.
+// for the current Linux distribution, or the Apple icon on macOS. Falls back
+// to the generic Linux icon.
 func detectDistroIcon() string {
+	if core.IsMac() {
+		return "\uF179"
+	}
 	genericLinux := "\uF17C" //
 
 	data, err := os.ReadFile("/etc/os-release")

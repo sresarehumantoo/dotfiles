@@ -56,7 +56,7 @@ confirm() {
     local msg="${1:-Continue?}"
     printf "${_YELLOW}${_BOLD}  ? ${_RESET}%s [y/N] " "$msg"
     read -r answer
-    [[ "${answer,,}" == "y" ]]
+    [[ "$answer" == [yY] ]]
 }
 
 # ── Dotfiles root ───────────────────────────────────────────────

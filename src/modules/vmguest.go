@@ -36,6 +36,10 @@ func (VMGuestModule) Install(ctx context.Context) error {
 		core.Ok("Not a hardware VM (WSL), skipping vmguest")
 		return nil
 	}
+	if core.IsMac() {
+		core.Ok("Not a Linux VM guest (macOS), skipping vmguest")
+		return nil
+	}
 
 	virt := core.DetectVirt(ctx)
 	if !core.IsHardwareVirt(virt) {
@@ -132,6 +136,10 @@ func unitInstallState(ctx context.Context, svc string) string {
 
 func (VMGuestModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "vmguest"}
+	if core.IsMac() {
+		s.Extra = "macOS"
+		return s
+	}
 
 	// Status has no context to inherit — it's a synchronous read for display.
 	// DetectVirt applies its own ProbeTimeout, so this can't hang.
