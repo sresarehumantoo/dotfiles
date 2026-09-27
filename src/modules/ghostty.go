@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"os"
 	"os/exec"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -38,8 +39,18 @@ func (GhosttyModule) Links() core.LinkSet {
 }
 
 func ghosttyInstalled() bool {
-	_, err := exec.LookPath("ghostty")
-	return err == nil
+	if _, err := exec.LookPath("ghostty"); err == nil {
+		return true
+	}
+	// On macOS the binary lives inside the app bundle, off PATH.
+	if core.IsMac() {
+		for _, app := range []string{"/Applications/Ghostty.app", core.HomeTarget("Applications", "Ghostty.app")} {
+			if _, err := os.Stat(app); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (m GhosttyModule) Install(ctx context.Context) error {

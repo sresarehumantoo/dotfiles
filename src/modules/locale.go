@@ -19,10 +19,13 @@ func localeGenerated(name string) bool {
 	if err != nil {
 		return false
 	}
-	// locale -a outputs names like "en_US.utf8" (no hyphen, lowercase)
-	target := strings.ReplaceAll(strings.ToLower(name), "-", "")
+	// glibc prints "en_US.utf8", macOS "en_US.UTF-8"
+	normalize := func(s string) string {
+		return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), "-", "")
+	}
+	target := normalize(name)
 	for _, line := range strings.Split(string(out), "\n") {
-		if strings.ToLower(strings.TrimSpace(line)) == target {
+		if normalize(line) == target {
 			return true
 		}
 	}
@@ -37,6 +40,11 @@ func (LocaleModule) Install(ctx context.Context) error {
 
 	if localeGenerated("en_US.UTF-8") {
 		core.Ok("Locale en_US.UTF-8 already available")
+		return nil
+	}
+
+	if core.IsMac() {
+		core.Warn("en_US.UTF-8 is missing from `locale -a`, and macOS has no locale-gen to add it")
 		return nil
 	}
 
@@ -99,10 +107,12 @@ func (LocaleModule) Install(ctx context.Context) error {
 func (LocaleModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "locale"}
 
-	if _, err := exec.LookPath("locale-gen"); err == nil {
-		s.Linked++
-	} else {
-		s.Missing++
+	if !core.IsMac() {
+		if _, err := exec.LookPath("locale-gen"); err == nil {
+			s.Linked++
+		} else {
+			s.Missing++
+		}
 	}
 
 	if localeGenerated("en_US.UTF-8") {

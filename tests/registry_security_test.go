@@ -63,6 +63,22 @@ func TestValidateRegistry_RejectsHostileFields(t *testing.T) {
 			Method: "release_binary", Binary: "x", ReleaseRepo: "o/r", AssetPattern: "-rf",
 		},
 		why: "asset_pattern must not look like an option",
+	}, {
+		name: "brew formula option injection",
+		tool: core.RegistryTool{Method: "brew", Binary: "x", Package: "--HEAD"},
+		why:  "a brew method package reaches `brew install` as an argument",
+	}, {
+		name: "brew override option injection",
+		tool: core.RegistryTool{Method: "apt", Binary: "x", Package: "x", Brew: "--build-from-source"},
+		why:  "the brew field reaches `brew install` on macOS whatever the method",
+	}, {
+		name: "brew override with dot-dot",
+		tool: core.RegistryTool{Method: "apt", Binary: "x", Package: "x", Brew: "evil/../tap"},
+		why:  "brew must not contain dot-dot, like every other path-like field",
+	}, {
+		name: "brew method without a formula",
+		tool: core.RegistryTool{Method: "brew", Binary: "x"},
+		why:  "a brew method tool must name its formula",
 	}}
 
 	for _, tc := range cases {
@@ -93,6 +109,8 @@ func TestValidateRegistry_AcceptsRealWorldFields(t *testing.T) {
 		{"https git clone", core.RegistryTool{Method: "git_clone", Binary: "gef", GitRepo: "https://github.com/hugsy/gef.git"}},
 		{"repo slug", core.RegistryTool{Method: "appimage", Binary: "obsidian", AppRepo: "obsidianmd/obsidian-releases"}},
 		{"hyphenated binary", core.RegistryTool{Method: "apt", Binary: "bloodhound-python", Package: "bloodhound"}},
+		{"brew formula from a tap", core.RegistryTool{Method: "brew", Binary: "terraform", Package: "hashicorp/tap/terraform", Distros: []string{"macos"}}},
+		{"brew override with version", core.RegistryTool{Method: "apt", Binary: "python3", Package: "python3.12", Brew: "python@3.12"}},
 	}
 
 	for _, tc := range cases {

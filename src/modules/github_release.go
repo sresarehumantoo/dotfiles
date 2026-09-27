@@ -71,6 +71,10 @@ type assetFilter struct {
 	SkipSidecars bool
 	// LinuxOnly drops darwin/windows assets when a release ships several.
 	LinuxOnly bool
+	// DarwinOnly keeps only assets that name macOS. It can't mirror LinuxOnly
+	// by dropping other platforms: Linux builds often name no OS (a .deb, a
+	// -musl tarball), while macOS builds always do.
+	DarwinOnly bool
 }
 
 // pickAsset returns the first asset satisfying the filter.
@@ -88,6 +92,9 @@ func pickAsset(assets []ghAsset, f assetFilter) (ghAsset, bool) {
 			continue
 		}
 		if f.LinuxOnly && isNonLinuxAsset(lower) {
+			continue
+		}
+		if f.DarwinOnly && !containsAny(lower, darwinTokens) {
 			continue
 		}
 		if len(f.ArchTokens) > 0 && !containsAny(lower, f.ArchTokens) {
@@ -115,6 +122,8 @@ func containsAny(s string, subs []string) bool {
 	}
 	return false
 }
+
+var darwinTokens = []string{"darwin", "macos", "apple", "osx"}
 
 func isNonLinuxAsset(lower string) bool {
 	return strings.Contains(lower, "darwin") ||

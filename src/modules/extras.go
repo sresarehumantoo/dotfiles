@@ -1,8 +1,12 @@
 package modules
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
@@ -141,7 +145,29 @@ func pkgInstalled(pkg string) bool {
 		}
 		return pacmanInstalled(resolved)
 	}
+	if core.IsMac() {
+		resolved := resolvePkg("brew", pkg)
+		if resolved == "" {
+			return true // not needed on macOS
+		}
+		return brewInstalled(resolved)
+	}
 	return dpkgInstalled(pkg)
+}
+
+// brewInstalled checks if a Homebrew formula is installed.
+func brewInstalled(pkg string) bool {
+	_, err := runProbe(context.Background(), "brew", "list", "--versions", pkg)
+	return err == nil
+}
+
+// fdBatBins returns the binary names fd and bat install under. Debian renames
+// both to dodge older packages that already claimed the names.
+func fdBatBins() (fd, bat string) {
+	if core.IsArchBased() || core.IsMac() {
+		return "fd", "bat"
+	}
+	return "fdfind", "batcat"
 }
 
 // userInGroup checks if the current user belongs to the given group.
@@ -174,6 +200,7 @@ func (ExtrasModule) Install(ctx context.Context) error {
 
 	// --- CLI utils ---
 	core.Info("Installing CLI utilities...")
+	fdBin, batBin := fdBatBins()
 	cliWanted := []struct {
 		bin  string
 		pkgs []string
@@ -182,8 +209,8 @@ func (ExtrasModule) Install(ctx context.Context) error {
 		{"tree", []string{"tree"}},
 		{"fzf", []string{"fzf"}},
 		{"rg", []string{"ripgrep"}},
-		{"fdfind", []string{"fd-find"}},
-		{"batcat", []string{"bat"}},
+		{fdBin, []string{"fd-find"}},
+		{batBin, []string{"bat"}},
 		{"jq", []string{"jq"}},
 		{"unzip", []string{"unzip"}},
 		{"make", []string{"make"}},
@@ -218,7 +245,7 @@ func (ExtrasModule) Install(ctx context.Context) error {
 	core.Info("Installing Python tooling...")
 	var pythonPkgs []string
 	for _, pkg := range []string{"python3-pip", "python3-venv", "pipx"} {
-		if !dpkgInstalled(pkg) {
+		if !pkgInstalled(pkg) {
 			pythonPkgs = append(pythonPkgs, pkg)
 		}
 	}
@@ -251,10 +278,101 @@ func (ExtrasModule) Install(ctx context.Context) error {
 }
 
 func installDocker(ctx context.Context) error {
+	if core.IsMac() {
+		return installDockerColima(ctx)
+	}
 	if core.IsArchBased() {
 		return installDockerPacman(ctx)
 	}
 	return installDockerApt(ctx)
+}
+
+// installDockerColima installs the Docker CLI with Colima as its runtime:
+// Docker Engine only runs on Linux, and Docker Desktop carries license terms.
+func installDockerColima(ctx context.Context) error {
+	var missing []string
+	for _, f := range []string{"colima", "docker", "docker-compose", "docker-buildx"} {
+		if !brewInstalled(f) {
+			missing = append(missing, f)
+		}
+	}
+	if len(missing) > 0 {
+		if err := installPkg(ctx, missing...); err != nil {
+			return err
+		}
+	}
+
+	brew, err := exec.LookPath("brew")
+	if err != nil {
+		return err
+	}
+	pluginDir := filepath.Join(filepath.Dir(filepath.Dir(brew)), "lib", "docker", "cli-plugins")
+	if err := addDockerPluginDir(core.HomeTarget(".docker", "config.json"), pluginDir); err != nil {
+		return fmt.Errorf("registering compose/buildx with docker: %w", err)
+	}
+
+	if _, err := runProbe(ctx, "colima", "status"); err != nil {
+		core.Notice("Docker runs in Colima: start it with `colima start`, or `brew services start colima` to start it at login")
+	}
+	return nil
+}
+
+// addDockerPluginDir lists dir in cliPluginsExtraDirs of the docker CLI config
+// at cfgPath. Homebrew installs compose and buildx as CLI plugins under its own
+// prefix, which docker never searches otherwise, so `docker compose` would not
+// exist. The rest of the file (registry auths, contexts) is kept as it is, and
+// a file that does not parse is left untouched.
+func addDockerPluginDir(cfgPath, dir string) error {
+	if err := core.CheckTarget(cfgPath); err != nil {
+		return err
+	}
+	cfg := map[string]any{}
+	data, err := os.ReadFile(cfgPath)
+	switch {
+	case err == nil:
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
+		if err := dec.Decode(&cfg); err != nil {
+			return fmt.Errorf("%s: %w", cfgPath, err)
+		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return err
+	}
+
+	var dirs []any
+	if v, ok := cfg["cliPluginsExtraDirs"]; ok {
+		if dirs, ok = v.([]any); !ok {
+			return fmt.Errorf("%s: cliPluginsExtraDirs is not a list", cfgPath)
+		}
+	}
+	for _, d := range dirs {
+		if d == dir {
+			return nil
+		}
+	}
+	cfg["cliPluginsExtraDirs"] = append(dirs, dir)
+
+	out, err := json.MarshalIndent(cfg, "", "\t")
+	if err != nil {
+		return err
+	}
+	// 0700/0600: the file can hold registry credentials.
+	if err := os.MkdirAll(filepath.Dir(cfgPath), 0o700); err != nil {
+		return err
+	}
+	tmp, err := os.CreateTemp(filepath.Dir(cfgPath), ".config.json-*")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+	if _, err := tmp.Write(append(out, '\n')); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), cfgPath)
 }
 
 // DockerRepoBaseURL returns the Docker CE apt repo base for this distro family.
@@ -366,6 +484,13 @@ func addDockerGroup(ctx context.Context) {
 }
 
 func installHashicorp(ctx context.Context) error {
+	if core.IsMac() {
+		if _, err := exec.LookPath("terraform"); err == nil {
+			core.Ok("Terraform already installed")
+			return nil
+		}
+		return installPkg(ctx, "hashicorp/tap/terraform")
+	}
 	if core.IsArchBased() {
 		return installHashicorpBinary(ctx)
 	}
@@ -441,19 +566,17 @@ func installHashicorpBinary(ctx context.Context) error {
 func (ExtrasModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "extras"}
 
-	// CLI utils — binary names differ by distro
-	fdBin := "fdfind"
-	batBin := "batcat"
-	if core.IsArchBased() {
-		fdBin = "fd"
-		batBin = "bat"
+	fdBin, batBin := fdBatBins()
+	clipBin := "xclip"
+	if core.IsMac() {
+		clipBin = "pbcopy"
 	}
 
 	cliChecks := []struct {
 		binary string
 		pkg    bool // check via package manager instead of binary
 	}{
-		{"xclip", false},
+		{clipBin, false},
 		{"tree", false},
 		{"fzf", false},
 		{"rg", false},
@@ -496,13 +619,19 @@ func (ExtrasModule) Status() core.ModuleStatus {
 		s.Missing++
 	}
 
-	// Docker (2 checks: binary + group)
+	// Docker (2 checks: binary + group, or binary + Colima on macOS)
 	if _, err := exec.LookPath("docker"); err == nil {
 		s.Linked++
 	} else {
 		s.Missing++
 	}
-	if userInGroup("docker") {
+	if core.IsMac() {
+		if _, err := exec.LookPath("colima"); err == nil {
+			s.Linked++
+		} else {
+			s.Missing++
+		}
+	} else if userInGroup("docker") {
 		s.Linked++
 	} else {
 		s.Missing++
@@ -518,11 +647,12 @@ func (ExtrasModule) Status() core.ModuleStatus {
 	// Signing keys for the apt repos added above (1 check each). A present
 	// binary says nothing about whether the repo it came from can still be
 	// updated, which is how a dead keyring stays invisible. Arch hosts get
-	// these tools from binaries or the AUR and have no keyring to check.
+	// these tools from binaries or the AUR, and macOS from Homebrew, so neither
+	// has a keyring to check.
 	//
 	// This is deliberately offline, so it catches an absent, corrupt, or
 	// expired keyring but not a rotation — see aptKeyringUsable.
-	if !core.IsArchBased() {
+	if !core.IsArchBased() && !core.IsMac() {
 		for _, keyPath := range []string{
 			"/etc/apt/keyrings/docker.asc",
 			"/usr/share/keyrings/hashicorp-archive-keyring.asc",

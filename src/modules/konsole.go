@@ -15,6 +15,9 @@ func (KonsoleModule) Name() string { return "konsole" }
 // konsoleLinks[1:] slicing that Install/Uninstall/Links/Status each had to
 // remember — adding an entry at the front used to break all four.
 func (KonsoleModule) Links() core.LinkSet {
+	if core.IsMac() {
+		return nil
+	}
 	shareDir := func(name string) string {
 		return core.HomeTarget(".local", "share", "konsole", name)
 	}
@@ -26,6 +29,10 @@ func (KonsoleModule) Links() core.LinkSet {
 }
 
 func (m KonsoleModule) Install(ctx context.Context) error {
+	if core.IsMac() {
+		core.Ok("Konsole is Linux only, skipping")
+		return nil
+	}
 	core.Info("Linking Konsole config...")
 	if err := m.Links().Apply(); err != nil {
 		return err
