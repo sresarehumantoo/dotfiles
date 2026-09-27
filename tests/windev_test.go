@@ -15,7 +15,14 @@ func TestWindevModule_DryRunInstall_NoOp(t *testing.T) {
 	defer func() { core.DryRun = false }()
 
 	m := modules.WindevModule{}
-	if err := m.Install(context.Background()); err != nil {
+	err := m.Install(context.Background())
+	if core.IsMac() {
+		if err == nil {
+			t.Fatal("windev must refuse to install on macOS")
+		}
+		return
+	}
+	if err != nil {
 		t.Fatalf("dry-run Install: %v", err)
 	}
 }

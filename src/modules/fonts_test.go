@@ -167,9 +167,9 @@ func TestParseSHALine(t *testing.T) {
 
 // fakeInstall lays out a font directory exactly as installDownloadedFont leaves
 // it: the four faces plus the tag stamp. Returns the family dir.
-func fakeInstall(t *testing.T, dataHome, tag string) string {
+func fakeInstall(t *testing.T, tag string) string {
 	t.Helper()
-	dir := filepath.Join(dataHome, "fonts", iosevkaTerm.dir)
+	dir := fontsDir(iosevkaTerm.dir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestFontInstalled_ChecksOwnedArtifactNotFontconfig(t *testing.T) {
 
 	// A copy installed flat in the fonts dir — visible to fontconfig, but not
 	// the directory this module owns. Must still read as not installed.
-	flat := filepath.Join(data, "fonts")
+	flat := fontsDir()
 	if err := os.MkdirAll(flat, 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -218,7 +218,7 @@ func TestFontInstalled_ChecksOwnedArtifactNotFontconfig(t *testing.T) {
 	}
 
 	// Properly installed at the pinned tag.
-	dir := fakeInstall(t, data, nerdFontsTag)
+	dir := fakeInstall(t, nerdFontsTag)
 	present, tag := fontInstalled(iosevkaTerm)
 	if !present || tag != nerdFontsTag {
 		t.Errorf("fontInstalled = (%v, %q), want (true, %q)", present, tag, nerdFontsTag)
@@ -278,7 +278,7 @@ func TestDoctorFontsCheck_PassesOnCorrectInstall(t *testing.T) {
 
 	// Reproduce exactly what a correct install leaves behind: the vendored
 	// floor linked, and the downloaded family present at the pinned tag.
-	fakeInstall(t, data, nerdFontsTag)
+	fakeInstall(t, nerdFontsTag)
 	for _, l := range (FontsModule{}).Links() {
 		if err := os.MkdirAll(filepath.Dir(l.Dst), 0755); err != nil {
 			t.Fatal(err)
@@ -352,6 +352,9 @@ func TestLegacyArtifacts_NarrowAndContentChecked(t *testing.T) {
 	}
 	// A .bak byte-identical to the vendored font: ours, and a duplicate.
 	dupBak := link.Dst + ".bak"
+	if err := os.MkdirAll(filepath.Dir(dupBak), 0755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(dupBak, vendored, 0644); err != nil {
 		t.Fatal(err)
 	}

@@ -51,6 +51,30 @@ jobs:
       - name: Test (race detector)
         run: make test-race
 
+  go-macos:
+    name: Go on macOS (build · test)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build dfinstall + MCP binaries
+        run: make build-all
+
+      - name: Test
+        run: make test
+
+      # The bootstrap runs before Homebrew exists, so the stock /bin/bash (3.2)
+      # is the only interpreter it can count on.
+      - name: Bootstrap parses under /bin/bash 3.2
+        run: |
+          /bin/bash -n bootstrap/macos-setup.sh
+          /bin/bash bootstrap/macos-setup.sh --help
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
