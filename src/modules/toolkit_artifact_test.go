@@ -125,3 +125,36 @@ func TestArtifactFor_UnknownMethodFallsBackToPath(t *testing.T) {
 		t.Errorf("unknown method gave %+v, want a PATH lookup", art)
 	}
 }
+
+// On Linux a tool's brew override is inert: it keeps its Linux method and
+// location, and brew-only or macOS-only tools are not offered at all.
+func TestToolAvailable_Linux(t *testing.T) {
+	if core.IsMac() {
+		t.Skip("covers the Linux side of the brew override")
+	}
+	t.Setenv("HOME", t.TempDir())
+
+	withBrew := core.RegistryTool{Name: "chainsaw", Method: "release_binary", Binary: "chainsaw", Brew: "chainsaw"}
+	if got := toolMethod(withBrew); got != "release_binary" {
+		t.Errorf("toolMethod with a brew override on Linux = %q, want release_binary", got)
+	}
+	if art := artifactFor(withBrew); art.Path == "" {
+		t.Error("brew override must not change where the Linux install lives")
+	}
+
+	cases := []struct {
+		name string
+		tool core.RegistryTool
+		want bool
+	}{
+		{"apt", core.RegistryTool{Method: "apt", Binary: "nmap", Package: "nmap"}, true},
+		{"apt with brew override", core.RegistryTool{Method: "apt", Binary: "nmap", Package: "nmap", Brew: "nmap"}, true},
+		{"brew method", core.RegistryTool{Method: "brew", Binary: "terraform", Package: "hashicorp/tap/terraform"}, false},
+		{"macos distro filter", core.RegistryTool{Method: "go", Binary: "x", Package: "x", Distros: []string{"macos"}}, false},
+	}
+	for _, tc := range cases {
+		if got := toolAvailable(tc.tool); got != tc.want {
+			t.Errorf("%s: toolAvailable = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

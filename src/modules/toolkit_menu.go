@@ -43,7 +43,7 @@ func RunToolkitMenu(ctx context.Context) ([]string, error) {
 	catIndex := make(map[string]int)
 	var cats []catGroup
 	for _, t := range reg.Tools {
-		if !core.ToolMatchesDistro(t) {
+		if !toolAvailable(t) {
 			continue
 		}
 		idx, ok := catIndex[t.Category]

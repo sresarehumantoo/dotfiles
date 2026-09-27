@@ -24,9 +24,27 @@ type toolArtifact struct {
 	Bin   string // binary name to resolve on PATH
 }
 
+// toolMethod is how t installs on this OS. On macOS its brew formula, when it
+// has one, replaces the Linux method.
+func toolMethod(t core.RegistryTool) string {
+	if core.IsMac() && t.Brew != "" {
+		return "brew"
+	}
+	return t.Method
+}
+
+// brewFormula is the formula a brew-installed tool uses: its macOS override,
+// or the package of a tool whose method is brew.
+func brewFormula(t core.RegistryTool) string {
+	if t.Brew != "" {
+		return t.Brew
+	}
+	return t.Package
+}
+
 // artifactFor returns where the tool lives once installed.
 func artifactFor(t core.RegistryTool) toolArtifact {
-	return artifactForMethod(t.Method, t.Binary)
+	return artifactForMethod(toolMethod(t), t.Binary)
 }
 
 // artifactForMethod is artifactFor for callers that only have the method and
@@ -46,7 +64,7 @@ func artifactForMethod(method, binary string) toolArtifact {
 	case "rustup":
 		return toolArtifact{Path: core.HomeTarget(".cargo", "bin", "rustup")}
 	default:
-		// apt / go / cargo / pipx / deb — the package manager decides the
+		// apt / brew / go / cargo / pipx / deb — the package manager decides the
 		// location, so presence is a PATH lookup.
 		return toolArtifact{Bin: binary}
 	}

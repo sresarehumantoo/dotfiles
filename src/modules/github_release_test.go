@@ -248,3 +248,33 @@ func TestPickAsset_DeltaRelease(t *testing.T) {
 		}
 	})
 }
+
+// DarwinOnly has to require a macOS token rather than drop other platforms:
+// the fixture's .deb names no OS, so an exclusion rule would install it on a Mac.
+func TestPickAsset_DarwinOnly(t *testing.T) {
+	assets := fixtureAssets(t)
+
+	got, ok := pickAsset(assets, assetFilter{
+		ArchTokens: archTokensFor("arm64"), SkipSidecars: true, DarwinOnly: true,
+	})
+	if !ok || got.URL != "https://x/darwin" {
+		t.Errorf("DarwinOnly arm64 picked %q, want the darwin asset", got.Name)
+	}
+
+	if got, ok := pickAsset(assets, assetFilter{
+		ArchTokens: archTokensFor("amd64"), SkipSidecars: true, DarwinOnly: true,
+	}); ok {
+		t.Errorf("no darwin amd64 build exists, but DarwinOnly picked %q", got.Name)
+	}
+
+	universal := []ghAsset{
+		{Name: "tool-linux-x86_64.tar.gz", URL: "https://x/linux"},
+		{Name: "tool-macos-universal.zip", URL: "https://x/universal"},
+	}
+	got, ok = pickAsset(universal, assetFilter{
+		ArchTokens: append(archTokensFor("arm64"), "universal"), DarwinOnly: true,
+	})
+	if !ok || got.URL != "https://x/universal" {
+		t.Errorf("universal build not picked, got %q", got.Name)
+	}
+}
