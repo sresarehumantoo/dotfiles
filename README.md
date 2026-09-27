@@ -61,7 +61,7 @@ The wizard prompts for distro and username. To skip the prompts or trim the scop
 Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones to `~/dotfiles` and runs `make install`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/develop/bootstrap/macos-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 ```
 
 From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS.
@@ -319,7 +319,7 @@ make clean          # rm -rf bin/
 - **Go on macOS** — builds both binaries and runs `go test` on `macos-latest`, and checks that `bootstrap/macos-setup.sh` parses under the stock `/bin/bash` 3.2.
 - **ShellCheck** — lints `config/devtools/` and `bootstrap/`.
 
-`main` is protected: the Go and ShellCheck checks must pass before a PR can merge.
+`main` is protected: all three checks (Go, Go on macOS, ShellCheck) must pass before a PR can merge.
 
 [Dependabot](.github/dependabot.yml) opens weekly PRs against `develop` for Go modules and Actions bumps — minor/patch grouped into one PR per ecosystem, majors individually since they tend to need attention. The same checks gate them.
 

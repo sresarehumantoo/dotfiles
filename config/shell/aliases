@@ -7,12 +7,18 @@ if command -v apt-get &>/dev/null; then
   alias upgrade="sudo apt-get upgrade"
   alias updateDist="sudo apt-get dist-upgrade"
   alias updateAll="sudo apt-get update && sudo apt-get upgrade && sudo apt-get dist-upgrade"
+elif command -v brew &>/dev/null; then
+  alias update="brew update"
+  alias upgrade="brew upgrade"
+  alias updateAll="brew update && brew upgrade"
 fi
 
-# Clipboard (detect xclip vs wl-copy)
+# Clipboard (detect pbcopy vs wl-copy vs xclip)
 # xclip/wl-copy handle multiline content natively via the selection flag —
 # the previous `tr '\n' '\0'` step was mangling newlines into NUL bytes.
-if command -v wl-copy &>/dev/null; then
+if command -v pbcopy &>/dev/null; then
+  alias clip="pbcopy"
+elif command -v wl-copy &>/dev/null; then
   alias clip="wl-copy"
 elif command -v xclip &>/dev/null; then
   alias clip="xclip -selection clipboard"

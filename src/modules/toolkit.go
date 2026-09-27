@@ -338,7 +338,9 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 
 	for _, name := range core.Cfg.ToolkitTools {
 		info, ok := lookup[name]
-		if !ok {
+		// Unavailable here means install never ran for it, and its removal
+		// command (dpkg on macOS) may not exist either.
+		if !ok || !toolAvailable(info) {
 			continue
 		}
 
