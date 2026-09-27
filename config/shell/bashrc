@@ -47,6 +47,8 @@ esac
 if [ -x /usr/bin/dircolors ]; then
     test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
     alias ls='ls --color=auto'
+elif [ "$(uname -s)" = Darwin ]; then
+    alias ls='ls -G'
 fi
 
 # Alias definitions
