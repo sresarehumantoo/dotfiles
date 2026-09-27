@@ -120,6 +120,10 @@ confirm-close-surface = false
 
 app-notifications = no-clipboard-copy
 
+# macOS only: without it Option types accented characters and every Alt binding
+# in zsh, tmux and nvim is dead. Ignored on Linux.
+macos-option-as-alt = true
+
 title = "Terminal"
 
 background-opacity = .90
