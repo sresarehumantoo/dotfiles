@@ -199,5 +199,7 @@ for f in ~/.zsh.d/*.zsh(N); do source "$f"; done
 [[ -f ~/.config/dfinstall/windev.zsh ]] && source ~/.config/dfinstall/windev.zsh
 
 # Syntax highlighting
-[[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] && \
-  source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+for f in /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh \
+         ${HOMEBREW_PREFIX:+$HOMEBREW_PREFIX/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh}; do
+  [[ -f $f ]] && { source "$f"; break }
+done
