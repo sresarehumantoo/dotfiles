@@ -1,0 +1,73 @@
+--- a/b/src/configModel/configModel.vala	2026-09-27 17:57:50.313894781 -0400
++++ b/src/configModel/configModel.vala	2026-09-27 17:58:05.274089354 -0400
+@@ -349,6 +349,29 @@
+          */
+         public bool layer_shell_cover_screen { get; set; default = true; }
+ 
++        /**
++         * LOCAL DELTA — separates "cover the panel's own output" from "cover
++         * every other output". Upstream's layer_shell_cover_screen does both
++         * at once: it full-bleeds the ControlCenter surface on the panel's
++         * output (which is what makes click-outside-to-dismiss work) AND it
++         * spawns a BlankWindow layer-shell surface on every OTHER connected
++         * output to catch clicks and dismiss the panel from anywhere.
++         *
++         * On a single-output setup that is fine. On a multi-monitor setup
++         * those blank windows sit on top of the other outputs' waybars and
++         * eat the first click on any bar that is not the panel's — the
++         * click dismisses swaync instead of doing what the user aimed at.
++         *
++         * Setting this to false skips creating the blank windows entirely,
++         * so waybar on the other outputs stays clickable while the panel is
++         * open. The panel's own output still full-bleeds (via
++         * layer_shell_cover_screen) so click-outside there still dismisses.
++         *
++         * Defaults to true for backward compatibility with the upstream
++         * behavior — a fresh swaync install should behave the same as before.
++         */
++        public bool layer_shell_cover_other_outputs { get; set; default = true; }
++
+         /** The CSS loading priority */
+         public CssPriority cssPriority { // vala-lint=naming-convention
+             get; set; default = CssPriority.APPLICATION;
+--- a/b/src/configSchema.json	2026-09-27 17:57:50.317894836 -0400
++++ b/src/configSchema.json	2026-09-27 17:59:36.294642421 -0400
+@@ -30,6 +30,11 @@
+       "description": "Wether or not the windows should cover the whole screen when layer-shell is used. Fixes animations in compositors like Hyprland.",
+       "default": true
+     },
++    "layer-shell-cover-other-outputs": {
++      "type": "boolean",
++      "description": "LOCAL DELTA. When true (default), layer-shell-cover-screen also creates a BlankWindow layer-shell surface on every OTHER connected output to catch dismiss clicks. When false, only the panel's own output gets the full-bleed cover -- other outputs stay clickable, at the cost of losing click-anywhere-to-dismiss on those.",
++      "default": true
++    },
+     "cssPriority": {
+       "type": "string",
+       "description": "Which GTK priority to use when loading the default and user CSS files. Pick \"user\" to override XDG_CONFIG_HOME/gtk-3.0/gtk.css",
+--- a/b/src/config.json.in	2026-09-27 17:57:50.321894893 -0400
++++ b/src/config.json.in	2026-09-27 17:58:17.962229082 -0400
+@@ -6,6 +6,7 @@
+   "control-center-layer": "top",
+   "layer-shell": true,
+   "layer-shell-cover-screen": true,
++  "layer-shell-cover-other-outputs": true,
+   "cssPriority": "application",
+   "control-center-margin-top": 0,
+   "control-center-margin-bottom": 0,
+--- a/b/src/swayncDaemon/swayncDaemon.vala	2026-09-27 17:57:50.325894949 -0400
++++ b/src/swayncDaemon/swayncDaemon.vala	2026-09-27 17:58:27.322317952 -0400
+@@ -110,6 +110,14 @@
+ 
+         private void init_blank_windows (bool visible) {
+             clear_blank_windows ();
++            // LOCAL DELTA — layer_shell_cover_other_outputs: false skips
++            // creation of the per-monitor BlankWindow layer-shell surfaces
++            // altogether, so waybar on the other outputs stays clickable
++            // while the control center is open. See the property comment in
++            // configModel.vala for the full reasoning.
++            if (!ConfigModel.instance.layer_shell_cover_other_outputs) {
++                return;
++            }
+             // Add a window to all monitors
+             for (int i = 0; i < display.get_n_monitors (); i++) {
+                 unowned Gdk.Monitor ? monitor = display.get_monitor (i);
