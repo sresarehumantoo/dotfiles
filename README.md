@@ -319,7 +319,7 @@ make clean          # rm -rf bin/
 - **Go on macOS** — builds both binaries and runs `go test` on `macos-latest`, and checks that `bootstrap/macos-setup.sh` parses under the stock `/bin/bash` 3.2.
 - **ShellCheck** — lints `config/devtools/` and `bootstrap/`.
 
-`main` is protected: the Go and ShellCheck checks must pass before a PR can merge.
+`main` is protected: all three checks (Go, Go on macOS, ShellCheck) must pass before a PR can merge.
 
 [Dependabot](.github/dependabot.yml) opens weekly PRs against `develop` for Go modules and Actions bumps — minor/patch grouped into one PR per ecosystem, majors individually since they tend to need attention. The same checks gate them.
 
