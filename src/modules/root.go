@@ -51,6 +51,9 @@ func init() {
 
 // InstallRoot symlinks a curated set of configs into /root/ via sudo.
 func InstallRoot(ctx context.Context) error {
+	if core.IsMac() {
+		return fmt.Errorf("dfinstall root is Linux only")
+	}
 	core.Info("Linking configs into /root/ (via sudo)...")
 
 	// Collect unique parent directories to create
