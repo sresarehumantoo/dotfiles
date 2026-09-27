@@ -36,7 +36,7 @@ var (
 	// validGitURL matches an https:// clone URL.
 	validGitURL = regexp.MustCompile(`^https://[A-Za-z0-9][A-Za-z0-9.-]*/[A-Za-z0-9._/-]+$`)
 
-	// validPackage matches a package spec for apt/go/cargo/pipx. The charset
+	// validPackage matches a package spec for apt/go/cargo/pipx/brew. The charset
 	// covers real specs such as "github.com/OJ/gobuster/v3@latest" and
 	// "git+https://github.com/Pennyw0rth/NetExec".
 	validPackage = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/@+:-]*$`)
@@ -67,6 +67,7 @@ var validMethods = map[string]bool{
 	"deb":            true,
 	"release_binary": true,
 	"rustup":         true,
+	"brew":           true,
 }
 
 // validDistros lists the allowed distro filter strings.
@@ -74,6 +75,7 @@ var validDistros = map[string]bool{
 	"debian": true,
 	"arch":   true,
 	"fedora": true,
+	"macos":  true,
 }
 
 // RegistryTool describes a single toolkit tool's metadata.
@@ -90,6 +92,9 @@ type RegistryTool struct {
 	ReleaseRepo  string   `json:"release_repo,omitempty"`
 	AssetPattern string   `json:"asset_pattern,omitempty"`
 	Distros      []string `json:"distros,omitempty"`
+	// Brew is the Homebrew formula that replaces Method on macOS, so one entry
+	// can serve both platforms.
+	Brew string `json:"brew,omitempty"`
 }
 
 // Registry is the top-level structure of the toolkit registry JSON.
@@ -309,7 +314,7 @@ func ValidateRegistry(r *Registry) error {
 			re    *regexp.Regexp
 		)
 		switch t.Method {
-		case "apt", "go", "pipx", "cargo":
+		case "apt", "go", "pipx", "cargo", "brew":
 			field, value, re = "package", t.Package, validPackage
 		case "git_clone":
 			field, value, re = "git_repo", t.GitRepo, validGitURL
@@ -325,6 +330,13 @@ func ValidateRegistry(r *Registry) error {
 				return fmt.Errorf("tool %q: %s is required for %s method", t.Name, field, t.Method)
 			}
 			if err := checkField(t.Name, field, value, re); err != nil {
+				return err
+			}
+		}
+
+		// Brew reaches `brew install` on macOS whatever the method is.
+		if t.Brew != "" {
+			if err := checkField(t.Name, "brew", t.Brew, validPackage); err != nil {
 				return err
 			}
 		}
@@ -364,6 +376,10 @@ func ToolMatchesDistro(t RegistryTool) bool {
 			}
 		case "fedora":
 			if d == DistroFedora {
+				return true
+			}
+		case "macos":
+			if IsMac() {
 				return true
 			}
 		}

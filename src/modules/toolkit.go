@@ -62,6 +62,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	var gitCloneTools []core.RegistryTool
 	var debTools []core.RegistryTool
 	var releaseBinaryTools []core.RegistryTool
+	var brewTools []core.RegistryTool
 	rustupRequested := false
 
 	for _, name := range tools {
@@ -70,8 +71,8 @@ func (ToolkitModule) Install(ctx context.Context) error {
 			core.Warn("Unknown toolkit tool %q — skipping", name)
 			continue
 		}
-		if !core.ToolMatchesDistro(info) {
-			core.Debug("skipping %s — not available on this distro", name)
+		if !toolAvailable(info) {
+			core.Debug("skipping %s — not available on this system", name)
 			continue
 		}
 		// Skip already-installed tools at gather so we don't re-send them
@@ -82,9 +83,11 @@ func (ToolkitModule) Install(ctx context.Context) error {
 			core.Debug("skipping %s — already installed", name)
 			continue
 		}
-		switch info.Method {
+		switch toolMethod(info) {
 		case "apt":
 			aptPkgs = append(aptPkgs, info.Package)
+		case "brew":
+			brewTools = append(brewTools, info)
 		case "go":
 			goTools = append(goTools, info)
 		case "pipx":
@@ -111,6 +114,17 @@ func (ToolkitModule) Install(ctx context.Context) error {
 			core.Warn("Some apt packages may have failed: %v", err)
 		}
 		core.Ok("apt packages done")
+	}
+
+	// One formula at a time, so a single bad formula doesn't fail the rest.
+	for _, t := range brewTools {
+		formula := brewFormula(t)
+		core.Info("Installing %s via brew...", formula)
+		if err := runCmd(ctx, "brew", "install", formula); err != nil {
+			core.Warn("Failed to install %s: %v", formula, err)
+		} else {
+			core.Ok("%s installed", formula)
+		}
 	}
 
 	// Install rustup before cargo tools so any selected cargo crates
@@ -255,6 +269,21 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	return nil
 }
 
+// toolAvailable reports whether t can be installed here: its distro filter
+// matches and the method it would use exists on this OS.
+func toolAvailable(t core.RegistryTool) bool {
+	if !core.ToolMatchesDistro(t) {
+		return false
+	}
+	switch toolMethod(t) {
+	case "apt", "deb", "appimage":
+		return !core.IsMac()
+	case "brew":
+		return core.IsMac()
+	}
+	return true
+}
+
 func (ToolkitModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "toolkit"}
 
@@ -281,7 +310,7 @@ func (ToolkitModule) Status() core.ModuleStatus {
 			s.Missing++
 			continue
 		}
-		if !core.ToolMatchesDistro(info) {
+		if !toolAvailable(info) {
 			continue
 		}
 		if artifactFor(info).Installed() {
@@ -318,7 +347,8 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 			continue
 		}
 
-		switch info.Method {
+		// The same method artifactFor used, so each case removes the path it found.
+		switch toolMethod(info) {
 		case "appimage", "release_binary":
 			if core.DryRun {
 				core.Info("would remove %s", art.Path)
@@ -367,7 +397,7 @@ func (ToolkitModule) Uninstall(ctx context.Context) error {
 		}
 	}
 
-	core.Info("apt/go/cargo/pipx tools should be removed manually if no longer needed")
+	core.Info("apt/brew/go/cargo/pipx tools should be removed manually if no longer needed")
 	return nil
 }
 
