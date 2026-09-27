@@ -961,7 +961,7 @@ percent (`5..100`). Nothing else shows a number; the widget calls
 > forking Vala and carrying a build. Verified by diffing the 0.11.0 source
 > (`apt-get source sway-notification-center`) against upstream `main`.
 
-## ⚠ Four local builds carry patches — read this before upgrading anything
+## ⚠ Five local builds carry patches — read this before upgrading anything
 
 Three packages on this box are **local builds installed to `/usr/local/bin`,
 shadowing the Debian package**, and they carry patches that live in this repo.
@@ -974,10 +974,11 @@ re-applied.
 | `config/sway/swayosd-fade.patch` | SwayOSD v0.3.2 | fade in/out for the OSD overlay |
 | `config/sway/swaync-system-stats.patch` | swaync 0.11.0 | the `system-stats` widget (cpu / memory / temperature / **battery**) |
 | `config/sway/swaync-cc-fade.patch` | swaync 0.11.0 | fade in/out for the control center |
+| `config/sway/swaync-cc-per-output.patch` | swaync 0.11.0 | new `layer-shell-cover-other-outputs` option so the panel doesn't spawn click-catcher blank windows on OTHER outputs (keeps waybar on those outputs clickable) |
 | `config/sway/waybar-onclick-output.patch` | waybar 0.12.0 | threads `WAYBAR_OUTPUT_NAME` into `on-click`/`on-scroll`/`on-update` env, so `sway-bar-click` can route a click to the bar's own output |
 
-All four were verified to apply cleanly to a pristine upstream tree, and the
-two swaync patches touch disjoint files so their order does not matter.
+All five were verified to apply cleanly to a pristine upstream tree, and the
+three swaync patches touch disjoint files so their order does not matter.
 
 **Where the stock packages still matter:** all three Debian packages stay
 installed. They supply `/etc/xdg/swaync/*` and `/etc/xdg/waybar/`, the D-Bus
@@ -985,10 +986,10 @@ service files and the systemd units, and they are the fallback if
 `/usr/local/bin` is ever cleared.
 
 > [!NOTE]
-> **There is a fifth local build, and it is not in this table because it
+> **There is a sixth local build, and it is not in this table because it
 > carries no patches:** SwayFX, in `/opt/swayfx`, as an additional GDM session.
 > It is a fork of sway rather than a patched package, so it upgrades on its own
-> schedule and none of the four patches above apply to it. See
+> schedule and none of the five patches above apply to it. See
 > *SwayFX — the effects build* below.
 
 ### Rebuilding
@@ -1006,6 +1007,7 @@ sudo apt build-dep -y sway-notification-center
 apt-get source sway-notification-center && cd sway-notification-center-0.11.0
 patch -p1 < <dotfiles>/config/sway/swaync-system-stats.patch
 patch -p1 < <dotfiles>/config/sway/swaync-cc-fade.patch
+patch -p1 < <dotfiles>/config/sway/swaync-cc-per-output.patch
 meson setup build --prefix=/usr/local && ninja -C build
 sudo install -m0755 build/src/swaync{,-client} /usr/local/bin/
 
@@ -1047,7 +1049,7 @@ differential — unpatched renders **2** distinct opacity levels, patched render
 > `min_brightness` in 0.3.x is **not** used. swayosd never sets the brightness
 > here, so it would be inert config. The floor lives in `sway-brightness`.
 
-### swaync is a local build (0.11.0 + two patches)
+### swaync is a local build (0.11.0 + three patches)
 
 **`system-stats`** is the cpu/memory/temperature readout that used to be waybar's
 `group/system` drawer. It exists because swaync 0.11 has no widget that can show
@@ -1089,6 +1091,39 @@ reads as lag on something you opened to click. Two non-obvious hazards:
 
 Verified by differential against the stock Debian binary: stock renders **2**
 distinct opacity levels, patched renders **6** in and **5** out.
+
+**Per-output cover-screen** (`layer-shell-cover-other-outputs`) exists because
+`layer-shell-cover-screen: true` was doing *two* things at once. On the panel's
+own output it full-bleeds a transparent ControlCenter surface so a click
+anywhere outside the visible panel dismisses (the intent everyone actually
+wants). On every OTHER output it also spawns a `BlankWindow` layer-shell
+surface — measured on the 3-output dock: `1920x1200 @0,0` on eDP-1 +
+`2560x1440 @0,0` on HDMI-A-1 while the panel rendered only on DVI-I-1 — and
+those blanks sit on top of the other outputs' waybars. First tap on any bar
+on a screen that is not the panel's gets eaten to dismiss swaync instead of
+firing the on-click. The waybar patch (`sway-bar-click`, above) never runs
+because its on-click never gets invoked.
+
+swaync 0.11 has no upstream toggle between "full-bleed on this output only"
+and "full-bleed on every output" — the two are collapsed into
+`layer-shell-cover-screen`, and there is no monitor-selectivity anywhere in
+the source. The patch adds a new `layer-shell-cover-other-outputs` boolean
+(defaults to true = current behavior). When false, `init_blank_windows` skips
+creating the per-monitor blanks entirely; `show_blank_windows` then iterates
+an empty array and is a no-op. The panel's own output is unaffected — its
+full-bleed still comes from `layer-shell-cover-screen` — so click-outside
+still dismisses on the panel's own screen. **Trade-off**: click-outside on
+the OTHER screens no longer dismisses (there is no surface there to click
+into). Escape, the bell button, and interacting on the panel's own screen
+still all dismiss.
+
+Four files: `src/configModel/configModel.vala` adds the property (default
+true); `src/configSchema.json` declares it; `src/config.json.in` sets the
+default; `src/swayncDaemon/swayncDaemon.vala` gates `init_blank_windows` on
+it. 37 net added lines; verified compiling + applying cleanly to a pristine
+`0.11.0` tree. `layer-shell-cover-other-outputs: false` is set in
+`config/swaync/config.json`; the packaged 0.11.0 binary ignores the unknown
+key, so the config is safe on either build.
 
 ### waybar is a local build (0.12.0 + on-click output routing)
 
@@ -1152,7 +1187,7 @@ the shape is graceful in both directions.
 **Status 2026-08-08: built, validated, NOT YET LOGGED INTO.** The one untested
 thing is DisplayLink; see the go/no-go at the end of this section.
 
-This is the fifth local build, and unlike the four above it is not a patch —
+This is the sixth local build, and unlike the five above it is not a patch —
 it is a **fork of sway itself**, in its own prefix, offered as a **third GDM
 session**. Plain sway cannot blur or round corners at any setting; that has been
 recorded elsewhere in this file as the only thing that would ever justify a
