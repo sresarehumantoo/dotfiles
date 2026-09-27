@@ -61,7 +61,7 @@ The wizard prompts for distro and username. To skip the prompts or trim the scop
 Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones to `~/dotfiles` and runs `make install`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/develop/bootstrap/macos-setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 ```
 
 From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS.

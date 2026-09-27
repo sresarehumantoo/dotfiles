@@ -24,7 +24,7 @@ Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones
 (or reuses) the dotfiles and runs `make install`.
 
 Options:
-  --branch <branch>   Branch to clone (default: develop). An existing clone is
+  --branch <branch>   Branch to clone (default: main). An existing clone is
                       used as it is, on whatever branch it has checked out.
   --dir <path>        Where the clone lives (default: the clone this script is
                       in, else ~/dotfiles)
@@ -34,7 +34,7 @@ Options:
 
 Examples:
   ./bootstrap/macos-setup.sh
-  curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/develop/bootstrap/macos-setup.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 HELP
 }
 
@@ -125,7 +125,7 @@ install_dotfiles() {
 }
 
 main() {
-    local branch="develop" dir="" do_ghostty=true do_dotfiles=true
+    local branch="main" dir="" do_ghostty=true do_dotfiles=true
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --branch)        branch="${2:?--branch needs a value}"; shift 2 ;;
