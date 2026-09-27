@@ -43,10 +43,10 @@
 	amend = commit --amend --no-edit
 [credential "https://github.com"]
 	helper = 
-	helper = !/usr/bin/gh auth git-credential
+	helper = !gh auth git-credential
 [credential "https://gist.github.com"]
 	helper = 
-	helper = !/usr/bin/gh auth git-credential
+	helper = !gh auth git-credential
 # Site-specific git config (internal hosts, credential helpers for private
 # forges) belongs in ~/.gitconfig.local, which the [include] at the top of this
 # file already pulls in and which is NOT tracked here. This repo is public and
