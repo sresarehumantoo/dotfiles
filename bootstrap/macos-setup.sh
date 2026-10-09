@@ -84,7 +84,7 @@ install_brew() {
     local brew
     if ! brew="$(brew_bin)"; then
         info "Running the official installer (it asks for your password)..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" <&3
         brew="$(brew_bin)" || die "Homebrew installed, but brew is in neither /opt/homebrew nor /usr/local"
     fi
     eval "$("$brew" shellenv)"
@@ -121,7 +121,7 @@ install_dotfiles() {
     else
         git clone --branch "$branch" "$REPO_URL" "$dir"
     fi
-    make -C "$dir" install
+    make -C "$dir" install <&3
 }
 
 main() {
@@ -140,6 +140,16 @@ main() {
     [[ "$(uname -s)" == Darwin ]] || die "This script is for macOS. On WSL use bootstrap/wsl-setup.sh."
     [[ "$(id -u)" -ne 0 ]] || die "Run as your normal user, not root. Homebrew refuses to run as root."
     [[ -n "$dir" ]] || dir="$(default_dir)"
+
+    # Piped from curl, stdin is the script itself. Homebrew's installer then
+    # goes non-interactive and aborts unless sudo is already cached, and
+    # dfinstall's prompts read EOF. fd 3 is the terminal for the commands that
+    # need one; stdin itself is left alone, since bash is still reading it.
+    if [[ ! -t 0 ]] && { : </dev/tty; } 2>/dev/null; then
+        exec 3</dev/tty
+    else
+        exec 3<&0
+    fi
 
     install_clt
     install_brew
