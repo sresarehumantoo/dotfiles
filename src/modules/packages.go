@@ -80,6 +80,7 @@ var brewNames = map[string]string{
 	"fd-find":         "fd",
 	"build-essential": "", // Xcode Command Line Tools, a bootstrap prerequisite
 	"golang":          "go",
+	"cargo":           "rust",
 	"nodejs":          "node",
 	"npm":             "", // ships with node
 	"python3-pip":     "", // ships with python

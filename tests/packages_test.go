@@ -52,8 +52,8 @@ func TestResolvePkgs(t *testing.T) {
 		{
 			name: "brew renames",
 			mgr:  "brew",
-			pkgs: []string{"fd-find", "golang", "nodejs", "bat"},
-			want: []string{"fd", "go", "node", "bat"},
+			pkgs: []string{"fd-find", "golang", "nodejs", "bat", "cargo"},
+			want: []string{"fd", "go", "node", "bat", "rust"},
 		},
 		{
 			name: "brew skips what macOS provides",
