@@ -89,6 +89,17 @@ var brewNames = map[string]string{
 	"fontconfig":      "", // macOS registers fonts in ~/Library/Fonts without it
 }
 
+// macGNUFormulae replace macOS's BSD userland, bash 3.2, make 3.81 and openrsync
+// with what the Linux machines run. Checked by formula rather than by binary,
+// since Apple already ships a sed, a bash and an rsync under the same names.
+// The unprefixed GNU names come from each keg's libexec/gnubin, which
+// config/shell/profile and path.zsh put ahead of /usr/bin; that list must
+// stay in step with this one.
+var macGNUFormulae = []string{
+	"coreutils", "findutils", "gnu-sed", "grep", "gawk", "gnu-tar", "make",
+	"diffutils", "bash", "rsync",
+}
+
 var pkgNames = map[string]map[string]string{
 	"pacman": pacmanNames,
 	"brew":   brewNames,
@@ -434,6 +445,21 @@ func (PackagesModule) Install(ctx context.Context) error {
 		core.Info("Installing: %s", strings.Join(pkgs, ", "))
 		if err := installPkg(ctx, pkgs...); err != nil {
 			core.Warn("Some packages may have failed to install: %v", err)
+		}
+	}
+
+	if core.IsMac() {
+		var missing []string
+		for _, f := range macGNUFormulae {
+			if !brewInstalled(f) {
+				missing = append(missing, f)
+			}
+		}
+		if len(missing) > 0 {
+			core.Info("Installing GNU userland: %s", strings.Join(missing, ", "))
+			if err := installPkg(ctx, missing...); err != nil {
+				core.Warn("Some GNU tools may have failed to install: %v", err)
+			}
 		}
 	}
 
