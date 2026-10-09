@@ -43,12 +43,10 @@ xterm*|rxvt*)
     ;;
 esac
 
-# enable color support of ls
-if [ -x /usr/bin/dircolors ]; then
+# LS_COLORS for GNU ls; the ls alias itself is set in ~/.aliases. dircolors is
+# looked up on PATH because on macOS it lives in coreutils' gnubin.
+if command -v dircolors >/dev/null 2>&1; then
     test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
-    alias ls='ls --color=auto'
-elif [ "$(uname -s)" = Darwin ]; then
-    alias ls='ls -G'
 fi
 
 # Alias definitions

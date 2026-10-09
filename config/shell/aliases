@@ -158,6 +158,15 @@ if command -v agg &>/dev/null; then
 fi
 
 # Navigation
+# GNU ls takes --color; Apple's takes -G, which GNU ls reads as --no-group.
+# oh-my-zsh aliases `ls -G` on any Darwin box without checking which ls it
+# found, so with coreutils' gnubin on PATH it hid the group column and lost
+# color. Decide by what ls actually is.
+if command ls --version &>/dev/null; then
+  alias ls="ls --color=auto"
+elif [[ "$(uname -s)" == Darwin ]]; then
+  alias ls="ls -G"
+fi
 alias ..="cd .."
 alias ...="cd ../.."
 alias ll="ls -lAh"
