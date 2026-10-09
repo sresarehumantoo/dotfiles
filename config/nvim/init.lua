@@ -16,7 +16,16 @@ vim.o.showmode = false
 -- Pin clipboard provider to unix tools; nvim's auto-detect picks
 -- clip.exe / win32yank.exe on WSL which forks a Windows process per yank
 -- (~1–2s of latency). WSLg ships X11 + Wayland so xclip / wl-copy work.
-if vim.env.WAYLAND_DISPLAY and vim.fn.executable('wl-copy') == 1 then
+-- macOS has no DISPLAY, so without its own branch it fell through to OSC 52,
+-- whose paste a terminal refuses or prompts for.
+if vim.fn.has('mac') == 1 then
+  vim.g.clipboard = {
+    name = 'pbcopy',
+    copy = { ['+'] = { 'pbcopy' }, ['*'] = { 'pbcopy' } },
+    paste = { ['+'] = { 'pbpaste' }, ['*'] = { 'pbpaste' } },
+    cache_enabled = 0,
+  }
+elseif vim.env.WAYLAND_DISPLAY and vim.fn.executable('wl-copy') == 1 then
   vim.g.clipboard = {
     name = 'wl-clipboard',
     copy = {
