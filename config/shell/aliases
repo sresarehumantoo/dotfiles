@@ -231,5 +231,9 @@ if command -v tldr &>/dev/null; then
 fi
 
 # System
-alias ports="ss -tulnp"
+if command -v ss &>/dev/null; then
+  alias ports="ss -tulnp"
+else
+  alias ports="lsof -nP -iTCP -sTCP:LISTEN -iUDP"
+fi
 alias myip="curl -s ifconfig.me"
