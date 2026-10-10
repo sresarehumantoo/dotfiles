@@ -530,8 +530,7 @@ func (PackagesModule) Install(ctx context.Context) error {
 
 	// zsh-syntax-highlighting
 	syntaxHL := []string{"/usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh"}
-	if brew, err := exec.LookPath("brew"); err == nil {
-		prefix := filepath.Dir(filepath.Dir(brew))
+	if prefix := brewPrefix(); prefix != "" {
 		syntaxHL = append(syntaxHL, filepath.Join(prefix, "share", "zsh-syntax-highlighting", "zsh-syntax-highlighting.zsh"))
 	}
 	if !slices.ContainsFunc(syntaxHL, func(p string) bool { _, err := os.Stat(p); return err == nil }) {

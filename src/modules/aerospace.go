@@ -54,7 +54,7 @@ func (m AerospaceModule) Install(ctx context.Context) error {
 			core.Status("Would install AeroSpace (brew cask %s)", aerospaceCask)
 		} else {
 			core.Info("Installing AeroSpace...")
-			if err := runCmd(ctx, "brew", "install", "--cask", aerospaceCask); err != nil {
+			if err := runCmd(ctx, "brew", caskArgs(aerospaceCask)...); err != nil {
 				return fmt.Errorf("installing AeroSpace: %w", err)
 			}
 		}
