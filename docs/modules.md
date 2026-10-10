@@ -563,6 +563,22 @@ macOS only. Links `config/aerospace/aerospace.toml` to `$XDG_CONFIG_HOME/aerospa
 
 ---
 
+## sketchybar
+
+**File:** `modules/sketchybar.go`
+
+macOS only. The [SketchyBar](https://github.com/FelixKratz/SketchyBar) counterpart of waybar: links `config/sketchybar/sketchybarrc`, `colors.sh` and `plugins/*.sh` into `$XDG_CONFIG_HOME/sketchybar/`, then `brew services restart sketchybar`. Same gating as aerospace: `install all` only configures it when installed, `dfinstall install sketchybar` installs `FelixKratz/formulae/sketchybar` first. Uninstall stops the service and removes the links.
+
+The bar keeps waybar's glass strip, pills and Catppuccin colors. Workspaces 1 to 9 come from AeroSpace, whose config triggers `aerospace_workspace_change`, `aerospace_focus_change` and `aerospace_mode_change`, and reserves the bar's height in `gaps.outer.top`. Right side: VPN (only while a tunnel has an IPv4 address), a `caffeinate` toggle standing in for idle_inhibitor, volume, network, battery and the clock.
+
+Not carried over, for want of a macOS equivalent: one workspace row per output (every display shows the same row), the notification count and do-not-disturb, the privacy indicator, media and temperature. The clock is at the right edge because a centered item would sit under the MacBook notch. The tray stays in the native menu bar, which should be set to hide automatically so it appears on hover above this bar; the module prints a notice until it is.
+
+The plugins run under launchd with Homebrew's bin and the system dirs on PATH, so they are POSIX `sh` against Apple's BSD userland. Every plugin must be listed in `sketchybarPlugins`; `TestSketchybarPluginsListed` fails otherwise.
+
+**Status:** Checks 10 symlinks, and reports nothing when SketchyBar isn't installed.
+
+---
+
 ## htop
 
 **File:** `modules/htop.go`

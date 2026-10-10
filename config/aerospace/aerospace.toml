@@ -24,15 +24,27 @@ enable-normalization-opposite-orientation-for-nested-containers = false
 
 on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
 
+# Keep SketchyBar's workspace row (config/sketchybar) current. Each of these
+# fails harmlessly when SketchyBar is not installed.
+exec-on-workspace-change = ['/bin/sh', '-c',
+    'sketchybar --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE']
+on-focus-changed = ['exec-and-forget sketchybar --trigger aerospace_focus_change']
+on-mode-changed = ['exec-and-forget sketchybar --trigger aerospace_mode_change']
+
 # sway's edge gap is inner + outer = 10. AeroSpace's outer gap is the whole
-# distance from the screen edge, so it is 10 here. No negative top: there is no
-# waybar to tuck under, and the menu bar is outside the tiling area.
+# distance from the screen edge, so it is 10 here, and at the top it also
+# clears SketchyBar: its 6px offset plus 40px height, then the same 10.
 gaps.inner.horizontal = 8
 gaps.inner.vertical = 8
 gaps.outer.left = 10
 gaps.outer.bottom = 10
-gaps.outer.top = 10
+gaps.outer.top = 56
 gaps.outer.right = 10
+
+# AeroSpace's own default PATH has only Apple Silicon's /opt/homebrew, so
+# `sketchybar` above would not resolve on an Intel Mac's /usr/local.
+[exec.env-vars]
+    PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH}'
 
 [mode.main.binding]
     # `open -n` starts another Ghostty process; Ghostty has no CLI verb for a
