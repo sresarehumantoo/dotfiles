@@ -505,7 +505,7 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 
-**Uninstall:** Removes symlinks and deletes `~/.tmux/plugins/`.
+**Uninstall:** Removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
 
 **Status:** Checks 2 symlinks. Shows `tpm +N plugins` when TPM is installed with plugins.
 
