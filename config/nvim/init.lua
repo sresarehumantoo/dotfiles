@@ -16,7 +16,16 @@ vim.o.showmode = false
 -- Pin clipboard provider to unix tools; nvim's auto-detect picks
 -- clip.exe / win32yank.exe on WSL which forks a Windows process per yank
 -- (~1–2s of latency). WSLg ships X11 + Wayland so xclip / wl-copy work.
-if vim.env.WAYLAND_DISPLAY and vim.fn.executable('wl-copy') == 1 then
+-- macOS has no DISPLAY, so without its own branch it fell through to OSC 52,
+-- whose paste a terminal refuses or prompts for.
+if vim.fn.has('mac') == 1 then
+  vim.g.clipboard = {
+    name = 'pbcopy',
+    copy = { ['+'] = { 'pbcopy' }, ['*'] = { 'pbcopy' } },
+    paste = { ['+'] = { 'pbpaste' }, ['*'] = { 'pbpaste' } },
+    cache_enabled = 0,
+  }
+elseif vim.env.WAYLAND_DISPLAY and vim.fn.executable('wl-copy') == 1 then
   vim.g.clipboard = {
     name = 'wl-clipboard',
     copy = {
@@ -646,15 +655,23 @@ require('lazy').setup({
     end,
   },
   { -- Treesitter
+    -- main, not the frozen master. It needs Neovim 0.12+ and the tree-sitter
+    -- CLI, which the nvim module installs; it does not support lazy-loading.
     'nvim-treesitter/nvim-treesitter',
+    branch = 'main',
+    lazy = false,
     build = ':TSUpdate',
     config = function()
-      require('nvim-treesitter').setup()
+      local ts = require 'nvim-treesitter'
+      ts.setup()
       vim.treesitter.language.register('markdown', 'markdown_inline')
 
-      local ensure = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc' }
-      for _, lang in ipairs(ensure) do
-        pcall(function() vim.treesitter.language.add(lang) end)
+      -- Read by `dfinstall install nvim` too, which builds these synchronously.
+      vim.g.ts_parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc' }
+      -- Asynchronous, and a no-op for parsers that are already built. Absent
+      -- on a checkout still on master, until Lazy moves it to main.
+      if ts.install then
+        ts.install(vim.g.ts_parsers)
       end
 
       vim.api.nvim_create_autocmd('FileType', {
@@ -673,6 +690,8 @@ require('lazy').setup({
 
   { import = 'custom.plugins' },
 }, {
+  -- No plugin here needs luarocks; with it on, checkhealth errors over a missing hererocks.
+  rocks = { enabled = false },
   ui = {
     icons = vim.g.have_nerd_font and {} or {
       cmd = '⌘',

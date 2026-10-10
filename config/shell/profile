@@ -11,15 +11,40 @@ export XDG_DATA_HOME="$HOME/.local/share"
 export XDG_STATE_HOME="$HOME/.local/state"
 export XDG_CACHE_HOME="$HOME/.cache"
 
-# Homebrew on macOS: /opt/homebrew on Apple Silicon, /usr/local on Intel. Ahead
-# of the npm block, which needs brew's npm on PATH to find it.
-for _brew in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+# CA bundle for tools that ignore the macOS keychain, written by the macOS
+# bootstrap only when it finds a TLS-inspecting proxy. Ahead of Homebrew and
+# everything else here that may reach the network.
+if [ -r "$HOME/.config/dfinstall/ca.sh" ]; then
+    . "$HOME/.config/dfinstall/ca.sh"
+fi
+
+# Homebrew on macOS: /opt/homebrew on Apple Silicon, /usr/local on Intel, and
+# ~/homebrew for an account that cannot create either. Ahead of the npm block,
+# which needs brew's npm on PATH to find it.
+for _brew in /opt/homebrew/bin/brew /usr/local/bin/brew "$HOME/homebrew/bin/brew"; do
     if [ -x "$_brew" ]; then
         eval "$("$_brew" shellenv)"
         break
     fi
 done
 unset _brew
+
+# GNU userland ahead of Apple's BSD tools, so sed/grep/find/ls/tar/make behave
+# as on Linux. A named list, not opt/*/libexec/gnubin: libtool has a gnubin too,
+# and GNU libtool shadowing Apple's /usr/bin/libtool breaks native builds. Keep
+# in step with macGNUFormulae (src/modules/packages.go) and zsh/path.zsh.
+if [ -n "$HOMEBREW_PREFIX" ]; then
+    for _gnu in coreutils findutils gnu-sed grep gawk gnu-tar make; do
+        if [ -d "$HOMEBREW_PREFIX/opt/$_gnu/libexec/gnubin" ]; then
+            PATH="$HOMEBREW_PREFIX/opt/$_gnu/libexec/gnubin:$PATH"
+        fi
+    done
+    unset _gnu
+    # Homebrew's rustup is keg-only; its bin carries the cargo/rustc proxies.
+    if [ -d "$HOMEBREW_PREFIX/opt/rustup/bin" ]; then
+        PATH="$HOMEBREW_PREFIX/opt/rustup/bin:$PATH"
+    fi
+fi
 
 # npm: install global packages under a user-owned prefix (~/.local, on PATH) so
 # `npm i -g` and package self-updates don't need sudo — the default system
@@ -57,6 +82,11 @@ fi
 
 if [ -d "$HOME/go/bin" ] ; then
     PATH="$HOME/go/bin:$PATH"
+fi
+
+# Rust (rustup, installed with --no-modify-path)
+if [ -d "$HOME/.cargo/bin" ] ; then
+    PATH="$HOME/.cargo/bin:$PATH"
 fi
 
 # WSL-specific settings

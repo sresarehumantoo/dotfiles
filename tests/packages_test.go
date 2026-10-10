@@ -22,8 +22,8 @@ func TestResolvePkgs(t *testing.T) {
 		{
 			name: "pacman renames",
 			mgr:  "pacman",
-			pkgs: []string{"fd-find", "build-essential", "golang"},
-			want: []string{"fd", "base-devel", "go"},
+			pkgs: []string{"fd-find", "build-essential", "golang", "gh"},
+			want: []string{"fd", "base-devel", "go", "github-cli"},
 		},
 		{
 			name: "pacman skips empty mappings",
@@ -52,8 +52,8 @@ func TestResolvePkgs(t *testing.T) {
 		{
 			name: "brew renames",
 			mgr:  "brew",
-			pkgs: []string{"fd-find", "golang", "nodejs", "bat"},
-			want: []string{"fd", "go", "node", "bat"},
+			pkgs: []string{"fd-find", "golang", "nodejs", "bat", "cargo"},
+			want: []string{"fd", "go", "node", "bat", "rust"},
 		},
 		{
 			name: "brew skips what macOS provides",

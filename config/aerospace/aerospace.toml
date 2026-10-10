@@ -1,0 +1,127 @@
+# AeroSpace: the macOS counterpart of config/sway/config, with the same keys.
+#
+# $mod is ctrl-alt, not cmd and not alt. cmd is what macOS apps use the way
+# Linux apps use ctrl, so a cmd mod would take Paste, Save, Select All and
+# Close Tab from every app. alt is what Ghostty sends for Option, so an alt mod
+# would swallow tmux's M- root binds. sway's $mod+Ctrl chords become
+# ctrl-alt-cmd, since ctrl is already part of the mod.
+#
+# Not carried over, because AeroSpace has no equivalent: focus parent
+# ($mod+a), focus mode_toggle ($mod+space), the scratchpad ($mod+minus) and the
+# sway-* helpers (monocle, controlcenter, notifications, OSD, screenshots).
+
+config-version = 2
+
+start-at-login = true
+
+# sway creates workspaces on demand and drops them when empty.
+persistent-workspaces = []
+
+# Off so `split` behaves as $mod+b / $mod+v do in sway; with normalization on,
+# AeroSpace refuses `split` and expects `join-with` instead.
+enable-normalization-flatten-containers = false
+enable-normalization-opposite-orientation-for-nested-containers = false
+
+on-focused-monitor-changed = ['move-mouse monitor-lazy-center']
+
+# Keep SketchyBar's workspace row (config/sketchybar) current. Each of these
+# fails harmlessly when SketchyBar is not installed.
+exec-on-workspace-change = ['/bin/sh', '-c',
+    'sketchybar --trigger aerospace_workspace_change FOCUSED_WORKSPACE=$AEROSPACE_FOCUSED_WORKSPACE']
+on-focus-changed = ['exec-and-forget sketchybar --trigger aerospace_focus_change']
+on-mode-changed = ['exec-and-forget sketchybar --trigger aerospace_mode_change']
+
+# sway's edge gap is inner + outer = 10. AeroSpace's outer gap is the whole
+# distance from the screen edge, so it is 10 here, and at the top it also
+# clears SketchyBar: its 6px offset plus 40px height, then the same 10.
+gaps.inner.horizontal = 8
+gaps.inner.vertical = 8
+gaps.outer.left = 10
+gaps.outer.bottom = 10
+gaps.outer.top = 56
+gaps.outer.right = 10
+
+# AeroSpace's own default PATH has only Apple Silicon's /opt/homebrew, so
+# `sketchybar` above would not resolve on an Intel Mac's /usr/local.
+[exec.env-vars]
+    PATH = '/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:${PATH}'
+
+[mode.main.binding]
+    # `open -n` starts another Ghostty process; Ghostty has no CLI verb for a
+    # new window in the running one.
+    ctrl-alt-enter = 'exec-and-forget open -na Ghostty'
+    ctrl-alt-e = 'exec-and-forget open ~'
+
+    ctrl-alt-q = 'close'
+    ctrl-alt-shift-q = 'close'
+
+    ctrl-alt-h = 'focus left'
+    ctrl-alt-j = 'focus down'
+    ctrl-alt-k = 'focus up'
+    ctrl-alt-l = 'focus right'
+    ctrl-alt-left = 'focus left'
+    ctrl-alt-down = 'focus down'
+    ctrl-alt-up = 'focus up'
+    ctrl-alt-right = 'focus right'
+
+    ctrl-alt-shift-h = 'move left'
+    ctrl-alt-shift-j = 'move down'
+    ctrl-alt-shift-k = 'move up'
+    ctrl-alt-shift-l = 'move right'
+    ctrl-alt-shift-left = 'move left'
+    ctrl-alt-shift-down = 'move down'
+    ctrl-alt-shift-up = 'move up'
+    ctrl-alt-shift-right = 'move right'
+
+    ctrl-alt-cmd-h = 'focus-monitor left'
+    ctrl-alt-cmd-l = 'focus-monitor right'
+    ctrl-alt-cmd-left = 'focus-monitor left'
+    ctrl-alt-cmd-right = 'focus-monitor right'
+
+    ctrl-alt-cmd-shift-h = 'move-node-to-monitor left'
+    ctrl-alt-cmd-shift-l = 'move-node-to-monitor right'
+    ctrl-alt-cmd-shift-left = 'move-node-to-monitor left'
+    ctrl-alt-cmd-shift-right = 'move-node-to-monitor right'
+
+    ctrl-alt-cmd-comma = 'move-workspace-to-monitor left'
+    ctrl-alt-cmd-period = 'move-workspace-to-monitor right'
+
+    ctrl-alt-1 = 'workspace 1'
+    ctrl-alt-2 = 'workspace 2'
+    ctrl-alt-3 = 'workspace 3'
+    ctrl-alt-4 = 'workspace 4'
+    ctrl-alt-5 = 'workspace 5'
+    ctrl-alt-6 = 'workspace 6'
+    ctrl-alt-7 = 'workspace 7'
+    ctrl-alt-8 = 'workspace 8'
+    ctrl-alt-9 = 'workspace 9'
+
+    ctrl-alt-shift-1 = 'move-node-to-workspace 1'
+    ctrl-alt-shift-2 = 'move-node-to-workspace 2'
+    ctrl-alt-shift-3 = 'move-node-to-workspace 3'
+    ctrl-alt-shift-4 = 'move-node-to-workspace 4'
+    ctrl-alt-shift-5 = 'move-node-to-workspace 5'
+    ctrl-alt-shift-6 = 'move-node-to-workspace 6'
+    ctrl-alt-shift-7 = 'move-node-to-workspace 7'
+    ctrl-alt-shift-8 = 'move-node-to-workspace 8'
+    ctrl-alt-shift-9 = 'move-node-to-workspace 9'
+
+    ctrl-alt-b = 'split horizontal'
+    ctrl-alt-v = 'split vertical'
+    # stacking and tabbed are AeroSpace's vertical and horizontal accordions.
+    ctrl-alt-s = 'layout v_accordion'
+    ctrl-alt-w = 'layout h_accordion'
+    ctrl-alt-t = 'layout tiles accordion'
+    ctrl-alt-f = 'fullscreen'
+    ctrl-alt-shift-space = 'layout floating tiling'
+
+    ctrl-alt-r = 'mode resize'
+    ctrl-alt-shift-c = 'reload-config'
+
+[mode.resize.binding]
+    h = 'resize width -50'
+    j = 'resize height +50'
+    k = 'resize height -50'
+    l = 'resize width +50'
+    enter = 'mode main'
+    esc = 'mode main'

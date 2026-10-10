@@ -71,12 +71,16 @@ func checkWSL() bool {
 // addBrewToPath puts Homebrew on this process's PATH when it is installed but
 // not yet on PATH, as on a fresh Mac before any shell has run `brew shellenv`.
 // Without it every LookPath misses what brew installs, so each run reinstalls.
-// /opt/homebrew is the Apple Silicon prefix, /usr/local the Intel one.
+// /opt/homebrew is the Apple Silicon prefix, /usr/local the Intel one, and
+// ~/homebrew the one a standard account can create for itself.
 func addBrewToPath() {
 	if _, err := exec.LookPath("brew"); err == nil {
 		return
 	}
-	for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin"} {
+	for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin", HomeTarget("homebrew", "bin")} {
+		if dir == "" {
+			continue // $HOME unset; a relative path would probe the CWD
+		}
 		if _, err := os.Stat(filepath.Join(dir, "brew")); err == nil {
 			os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 			return
@@ -551,7 +555,11 @@ func HasSudoPass() bool {
 func PromptSudo(ctx context.Context) {
 	// Nothing dfinstall runs on macOS needs sudo: Homebrew refuses root, and
 	// chsh asks for the user's own password.
-	if DryRun || IsMac() {
+	if IsMac() {
+		os.Unsetenv("DFINSTALL_SUDO_PASS")
+		return
+	}
+	if DryRun {
 		return
 	}
 	// Check if sudo even needs a password (e.g. NOPASSWD configured)

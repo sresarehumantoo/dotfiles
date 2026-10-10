@@ -16,6 +16,9 @@ type SwayModule struct{}
 func (SwayModule) Name() string { return "sway" }
 
 func (SwayModule) Links() core.LinkSet {
+	if core.IsMac() {
+		return nil
+	}
 	return core.LinkSet{
 		{Src: core.ConfigPath("sway", "config"), Dst: core.XDGTarget("sway", "config")},
 		{Src: core.ConfigPath("waybar", "config"), Dst: core.XDGTarget("waybar", "config")},
@@ -318,6 +321,10 @@ func swayPkgBinary(pkg string) string {
 }
 
 func (m SwayModule) Install(ctx context.Context) error {
+	if core.IsMac() {
+		core.Ok("sway is Linux only, skipping")
+		return nil
+	}
 	// A compositor config is meaningless on WSL and on any box without sway;
 	// follow ghostty's precedent and no-op rather than littering ~/.config.
 	//

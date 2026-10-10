@@ -705,10 +705,14 @@ func confirmRustupInstall(failedCount int, oldVersion string) bool {
 
 // installRustup runs the official rustup installer non-interactively and
 // prepends ~/.cargo/bin to this process's PATH so subsequent cargo
-// invocations resolve to the new toolchain. Rustup itself updates the
-// user's shell profile for future shells. Idempotent — skips the
-// network install when ~/.cargo/bin/rustup already exists.
+// invocations resolve to the new toolchain. --no-modify-path because the rc
+// files rustup would append to are symlinks into this repo; ~/.profile and
+// path.zsh put ~/.cargo/bin on PATH instead. Idempotent — skips the network
+// install when ~/.cargo/bin/rustup already exists.
 func installRustup(ctx context.Context) bool {
+	if core.IsMac() {
+		return installRustupBrew(ctx)
+	}
 	cargoBin := core.HomeTarget(".cargo", "bin")
 	rustupBin := filepath.Join(cargoBin, "rustup")
 
@@ -730,7 +734,7 @@ func installRustup(ctx context.Context) bool {
 	}
 	core.Info("Installing rustup (downloads ~200MB)...")
 	err := runCmd(ctx, "sh", "-c",
-		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable")
 	if err != nil {
 		core.AlwaysWarn("rustup install failed: %v", err)
 		return false
@@ -785,4 +789,36 @@ func findExtractedBinary(root, name string) (string, error) {
 		return "", fmt.Errorf("binary %q not found in archive", name)
 	}
 	return found, nil
+}
+
+// installRustupBrew is installRustup for macOS: Homebrew's rustup rather than
+// curl | sh, which managed Macs commonly forbid and EDR flags. The formula is
+// keg-only (it conflicts with rust), so its bin, which also carries the
+// cargo/rustc proxies, is put on PATH here and by ~/.profile and path.zsh.
+func installRustupBrew(ctx context.Context) bool {
+	prefix := brewPrefix()
+	if prefix == "" {
+		core.AlwaysWarn("Homebrew not found — cannot install rustup")
+		return false
+	}
+	bin := filepath.Join(prefix, "opt", "rustup", "bin")
+	if _, err := os.Stat(filepath.Join(bin, "rustup")); err != nil {
+		core.Info("Installing rustup via Homebrew...")
+		if err := installPkg(ctx, "rustup"); err != nil {
+			core.AlwaysWarn("brew install rustup failed: %v", err)
+			return false
+		}
+	}
+	if curr := os.Getenv("PATH"); !strings.Contains(curr, bin) {
+		os.Setenv("PATH", bin+string(os.PathListSeparator)+curr)
+	}
+	// A fresh rustup has no toolchain; `rustup default` fails until one is set.
+	if _, err := runProbe(ctx, "rustup", "default"); err != nil {
+		if err := runCmd(ctx, "rustup", "default", "stable"); err != nil {
+			core.AlwaysWarn("rustup default stable failed: %v", err)
+			return false
+		}
+	}
+	core.Ok("rustup installed (cargo: %s)", cargoVersion(ctx))
+	return true
 }

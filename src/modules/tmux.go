@@ -160,9 +160,10 @@ func (TmuxModule) Install(ctx context.Context) error {
 	installScript := filepath.Join(tpmDir, "bin", "install_plugins")
 	if _, err := os.Stat(installScript); err == nil {
 		core.Info("Installing tmux plugins...")
-		// TPM resolves its plugin path from tmux's global environment.
-		// Set it so install_plugins works outside a running tmux session.
-		pluginsDir := core.HomeTarget(".tmux", "plugins") + "/"
+		// TPM resolves its plugin path from tmux's global environment, and
+		// with the config in ~/.config/tmux it picks ~/.config/tmux/plugins.
+		// Set the same path here so install_plugins agrees with a live server.
+		pluginsDir := core.XDGTarget("tmux", "plugins") + "/"
 		setEnv := exec.CommandContext(ctx, "tmux", "start-server", ";",
 			"set-environment", "-g", "TMUX_PLUGIN_MANAGER_PATH", pluginsDir)
 		if err := setEnv.Run(); err != nil {
@@ -183,17 +184,19 @@ func (m TmuxModule) Uninstall(ctx context.Context) error {
 		return err
 	}
 
-	// Remove TPM and plugins
-	if !core.DryRun {
-		pluginsDir := core.HomeTarget(".tmux", "plugins")
+	// Remove TPM (~/.tmux/plugins) and the plugins it installed
+	// (~/.config/tmux/plugins).
+	for _, pluginsDir := range []string{core.HomeTarget(".tmux", "plugins"), core.XDGTarget("tmux", "plugins")} {
+		if core.DryRun {
+			core.Info("would remove %s", pluginsDir)
+			continue
+		}
 		if _, err := os.Stat(pluginsDir); err == nil {
-			core.Info("Removing TPM and plugins...")
+			core.Info("Removing %s...", pluginsDir)
 			if err := core.RemoveManagedDir(pluginsDir); err != nil {
 				core.Warn("could not remove %s: %v", pluginsDir, err)
 			}
 		}
-	} else {
-		core.Info("would remove ~/.tmux/plugins/")
 	}
 
 	core.Ok("tmux config uninstalled")
