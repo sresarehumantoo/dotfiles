@@ -74,8 +74,17 @@ func (m SketchybarModule) Install(ctx context.Context) error {
 		return nil
 	}
 
-	// restart also starts a stopped service, and is what rereads the config.
-	if err := runCmd(ctx, "brew", "services", "restart", "sketchybar"); err != nil {
+	// The brew service is a login item (a LaunchAgent, which macOS announces
+	// and an MDM may forbid), so only an explicit `install sketchybar` creates
+	// it. `install all` just reloads a bar that is already running.
+	if core.InstallingAll {
+		if _, err := runProbe(ctx, "pgrep", "-x", "sketchybar"); err == nil {
+			if err := runCmd(ctx, "sketchybar", "--reload"); err != nil {
+				core.Warn("sketchybar --reload: %v", err)
+			}
+		}
+	} else if err := runCmd(ctx, "brew", "services", "restart", "sketchybar"); err != nil {
+		// restart also starts a stopped service, and is what rereads the config.
 		core.Warn("Could not start the sketchybar service: %v", err)
 	}
 
