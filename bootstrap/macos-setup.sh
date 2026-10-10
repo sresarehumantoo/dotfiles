@@ -12,7 +12,20 @@ info()   { printf "${_BLUE}${_BOLD}  [>]${_RESET} %s\n" "$*"; }
 ok()     { printf "${_GREEN}${_BOLD}  [+]${_RESET} %s\n" "$*"; }
 warn()   { printf "${_YELLOW}${_BOLD}  [!]${_RESET} %s\n" "$*" >&2; }
 die()    { printf "${_RED}${_BOLD}  [x]${_RESET} %s\n" "$*" >&2; exit 1; }
-header() { printf "\n${_BOLD}${_CYAN}== %s ==${_RESET}\n\n" "$*"; }
+header() { STEP="$*"; printf "\n${_BOLD}${_CYAN}== %s ==${_RESET}\n\n" "$*"; }
+
+STEP="startup"
+
+# Whatever stops the run, say where, so a failure on a managed Mac can be
+# reported without re-running with tracing.
+on_exit() {
+    local rc=$?
+    if [[ $rc -ne 0 ]]; then
+        printf "\n${_RED}${_BOLD}  [x]${_RESET} Bootstrap stopped during: %s (exit %s)\n" "$STEP" "$rc" >&2
+        printf "      Once dfinstall is built, 'dfinstall doctor' reports admin, Homebrew, MDM, Santa and Gatekeeper state.\n" >&2
+    fi
+}
+trap on_exit EXIT
 
 REPO_URL="https://github.com/sresarehumantoo/dotfiles.git"
 
@@ -52,10 +65,11 @@ default_dir() {
 }
 
 # Homebrew is off PATH until something runs `brew shellenv`: /opt/homebrew on
-# Apple Silicon, /usr/local on Intel.
+# Apple Silicon, /usr/local on Intel, ~/homebrew for an account that cannot
+# create either.
 brew_bin() {
     local b
-    for b in /opt/homebrew/bin/brew /usr/local/bin/brew; do
+    for b in /opt/homebrew/bin/brew /usr/local/bin/brew "$HOME/homebrew/bin/brew"; do
         if [[ -x "$b" ]]; then
             echo "$b"
             return 0
@@ -64,6 +78,42 @@ brew_bin() {
     return 1
 }
 
+is_admin() {
+    id -Gn | tr ' ' '\n' | grep -qx admin
+}
+
+# Everything here runs as the user. On a managed Mac the things that can stop
+# it are known up front, so check them before installing anything.
+preflight() {
+    header "Preflight"
+    if is_admin; then
+        ok "Admin account"
+    else
+        info "Standard account: apps go to ~/Applications, and Homebrew must already exist or be installable with temporary admin"
+    fi
+    if profiles status -type enrollment 2>/dev/null | grep -q 'MDM enrollment: Yes'; then
+        info "MDM enrolled"
+    fi
+    if command -v santactl &>/dev/null && santactl status 2>/dev/null | grep -Eq 'Mode +\| +Lockdown'; then
+        warn "Santa is in Lockdown: the dfinstall binary 'make install' builds, and other locally built tools, stay blocked until IT allowlists them"
+    fi
+
+    local brew prefix
+    if brew="$(brew_bin)"; then
+        prefix="$("$brew" --prefix)"
+        if [[ ! -w "$prefix/Cellar" && ! -w "$prefix" ]]; then
+            die "Homebrew at ${prefix} belongs to another account, and Homebrew supports only one. Ask IT to give this account ownership of it, or to install Homebrew for this account."
+        fi
+        ok "Homebrew at ${prefix} is writable"
+    elif ! is_admin; then
+        die "Homebrew is not installed, and its installer needs admin to create /opt/homebrew. Get temporary admin (e.g. Privileges or Admin By Request) and re-run, or have IT install Homebrew for this account."
+    fi
+}
+
+# Long enough for the download on a slow link; a policy-blocked install never
+# finishes, and without a limit this waited forever.
+CLT_WAIT_SECS=2700
+
 install_clt() {
     header "Xcode Command Line Tools"
     if xcode-select -p &>/dev/null; then
@@ -71,10 +121,18 @@ install_clt() {
         return
     fi
     # --install only opens a GUI dialog and returns immediately.
-    xcode-select --install 2>/dev/null || true
-    info "Accept the installer dialog. Waiting for it to finish (Ctrl-C to abort)..."
+    local out
+    if ! out="$(xcode-select --install 2>&1)"; then
+        warn "xcode-select --install: ${out}"
+    fi
+    info "Accept the installer dialog. Waiting up to $((CLT_WAIT_SECS / 60)) minutes (Ctrl-C to abort)..."
+    local waited=0
     until xcode-select -p &>/dev/null; do
+        if [[ $waited -ge $CLT_WAIT_SECS ]]; then
+            die "The Command Line Tools did not install. On a managed Mac they usually come from IT or Self Service; install them that way and re-run."
+        fi
         sleep 5
+        waited=$((waited + 5))
     done
     ok "Installed"
 }
@@ -107,7 +165,12 @@ install_ghostty() {
         ok "Already installed"
         return
     fi
-    brew install --cask ghostty
+    # /Applications is admin-only; a standard account installs per user.
+    if [[ -w /Applications ]]; then
+        brew install --cask ghostty
+    else
+        brew install --cask --appdir="$HOME/Applications" ghostty
+    fi
     ok "Installed"
 }
 
@@ -122,6 +185,16 @@ install_dotfiles() {
         git clone --branch "$branch" "$REPO_URL" "$dir"
     fi
     make -C "$dir" install <&3
+
+    # A record of the environment to share if anything on this Mac misbehaves.
+    local report
+    report="$HOME/Library/Logs/dotfiles-doctor-$(date +%Y%m%d-%H%M%S).log"
+    mkdir -p "$HOME/Library/Logs"
+    if "$dir/bin/dfinstall" doctor >"$report" 2>&1; then
+        ok "Environment report: ${report}"
+    else
+        warn "dfinstall doctor found problems; see ${report}"
+    fi
 }
 
 main() {
@@ -151,6 +224,7 @@ main() {
         exec 3<&0
     fi
 
+    preflight
     install_clt
     install_brew
     install_go
