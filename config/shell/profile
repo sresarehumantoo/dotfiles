@@ -18,16 +18,36 @@ if [ -r "$HOME/.config/dfinstall/ca.sh" ]; then
     . "$HOME/.config/dfinstall/ca.sh"
 fi
 
-# Homebrew on macOS: /opt/homebrew on Apple Silicon, /usr/local on Intel, and
-# ~/homebrew for an account that cannot create either. Ahead of the npm block,
-# which needs brew's npm on PATH to find it.
-for _brew in /opt/homebrew/bin/brew /usr/local/bin/brew "$HOME/homebrew/bin/brew"; do
-    if [ -x "$_brew" ]; then
-        eval "$("$_brew" shellenv)"
-        break
+# Homebrew on macOS: the prefix the bootstrap recorded, else the first standard
+# one this account can write to, else the first that exists (a read-only one,
+# say IT's, still runs what is installed in it). A managed Mac can have both an
+# IT-owned /opt/homebrew and one of the user's own, and the writable one has to
+# win. Ahead of the npm block, which needs brew's npm on PATH to find it.
+_brew_prefix="" _brew_fallback=""
+if [ -r "$HOME/.config/dfinstall/brew-prefix" ]; then
+    read -r _brew_prefix <"$HOME/.config/dfinstall/brew-prefix" || :
+    [ -x "$_brew_prefix/bin/brew" ] || _brew_prefix=""
+fi
+if [ -z "$_brew_prefix" ]; then
+    for _p in /opt/homebrew /usr/local "$HOME/homebrew"; do
+        [ -x "$_p/bin/brew" ] || continue
+        if [ -w "$_p/Cellar" ] || [ -w "$_p" ]; then
+            _brew_prefix="$_p"
+            break
+        fi
+        [ -n "$_brew_fallback" ] || _brew_fallback="$_p"
+    done
+    _brew_prefix="${_brew_prefix:-$_brew_fallback}"
+fi
+if [ -n "$_brew_prefix" ]; then
+    eval "$("$_brew_prefix/bin/brew" shellenv)"
+    # A standard account cannot write /Applications; send casks installed by
+    # hand to ~/Applications too, as dfinstall's own are.
+    if [ -d /Applications ] && [ ! -w /Applications ] && [ -z "${HOMEBREW_CASK_OPTS:-}" ]; then
+        export HOMEBREW_CASK_OPTS="--appdir=$HOME/Applications"
     fi
-done
-unset _brew
+fi
+unset _brew_prefix _brew_fallback _p
 
 # GNU userland ahead of Apple's BSD tools, so sed/grep/find/ls/tar/make behave
 # as on Linux. A named list, not opt/*/libexec/gnubin: libtool has a gnubin too,

@@ -68,24 +68,21 @@ func checkWSL() bool {
 	return strings.Contains(strings.ToLower(string(data)), "microsoft")
 }
 
-// addBrewToPath puts Homebrew on this process's PATH when it is installed but
-// not yet on PATH, as on a fresh Mac before any shell has run `brew shellenv`.
-// Without it every LookPath misses what brew installs, so each run reinstalls.
-// /opt/homebrew is the Apple Silicon prefix, /usr/local the Intel one, and
-// ~/homebrew the one a standard account can create for itself.
+// addBrewToPath puts the chosen Homebrew (BrewPrefix) first on this process's
+// PATH: on a fresh Mac no shell has run `brew shellenv` yet, and on a managed
+// one a read-only IT Homebrew can be on PATH ahead of the user's. Without it
+// every LookPath misses what brew installs, so each run reinstalls, or every
+// install runs a brew that cannot write.
 func addBrewToPath() {
-	if _, err := exec.LookPath("brew"); err == nil {
+	prefix := BrewPrefix()
+	if prefix == "" {
 		return
 	}
-	for _, dir := range []string{"/opt/homebrew/bin", "/usr/local/bin", HomeTarget("homebrew", "bin")} {
-		if dir == "" {
-			continue // $HOME unset; a relative path would probe the CWD
-		}
-		if _, err := os.Stat(filepath.Join(dir, "brew")); err == nil {
-			os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-			return
-		}
+	bin := filepath.Join(prefix, "bin")
+	if brew, err := exec.LookPath("brew"); err == nil && filepath.Dir(brew) == bin {
+		return
 	}
+	os.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // ParseProcVersion checks whether content from /proc/version indicates WSL.
