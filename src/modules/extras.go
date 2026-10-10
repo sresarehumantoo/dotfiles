@@ -206,6 +206,9 @@ func (ExtrasModule) Install(ctx context.Context) error {
 		pkgs []string
 	}{
 		{"xclip", []string{"xclip"}},
+		// nvim, the clip alias and tmux-yank all prefer wl-copy under
+		// Wayland (sway, WSLg); xclip only works while XWayland is up.
+		{"wl-copy", []string{"wl-clipboard"}},
 		{"tree", []string{"tree"}},
 		{"fzf", []string{"fzf"}},
 		{"rg", []string{"ripgrep"}},

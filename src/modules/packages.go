@@ -88,6 +88,7 @@ var brewNames = map[string]string{
 	"python3-venv":    "",
 	"locales":         "", // macOS ships en_US.UTF-8
 	"xclip":           "", // pbcopy/pbpaste are built in
+	"wl-clipboard":    "",
 	"fontconfig":      "", // macOS registers fonts in ~/Library/Fonts without it
 }
 
