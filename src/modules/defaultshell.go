@@ -33,17 +33,24 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 	// Bare chsh prompts for the user's password on stdin. Under the MCP server
 	// stdin is the JSON-RPC stream, so reading it would consume protocol bytes
 	// and wedge the session — there is no password to supply there anyway.
-	if !core.HasSudoPass() && !core.Interactive {
+	// With passwordless sudo (a NOPASSWD rule, a container) sudo chsh needs no
+	// password at all, where bare chsh asks for the user's own and fails
+	// without a terminal.
+	useSudo := core.HasSudoPass()
+	if !useSudo {
+		_, err := runProbe(ctx, "sudo", "-n", "true")
+		useSudo = err == nil
+	}
+
+	if !useSudo && !core.Interactive {
 		core.Warn("cannot change shell non-interactively — run: chsh -s %s", zshPath)
 		return nil
 	}
 
 	core.Info("Changing default shell to zsh...")
 	core.PauseSpinner()
-	// Use sudo chsh when the password is known (bootstrap) to avoid an
-	// interactive prompt.
 	var cmd *exec.Cmd
-	if core.HasSudoPass() {
+	if useSudo {
 		cmd = core.SudoCmd(ctx, "chsh", "-s", zshPath, os.Getenv("USER"))
 	} else {
 		cmd = exec.CommandContext(ctx, "chsh", "-s", zshPath)
