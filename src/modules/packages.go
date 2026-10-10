@@ -72,6 +72,7 @@ var pacmanNames = map[string]string{
 	"containerd.io":           "",
 	"docker-buildx-plugin":    "docker-buildx",
 	"docker-compose-plugin":   "docker-compose",
+	"gh":                      "github-cli",
 }
 
 // brewNames maps canonical (apt) package names to Homebrew formulae.
@@ -397,7 +398,7 @@ func tailLines(s string, n int) []string {
 
 func (PackagesModule) Install(ctx context.Context) error {
 	if core.DryRun {
-		core.Info("would install packages: git, zsh, curl, wget, htop, rsync, ...")
+		core.Info("would install packages: git, zsh, curl, wget, htop, rsync, gh, ...")
 		return nil
 	}
 
@@ -427,6 +428,10 @@ func (PackagesModule) Install(ctx context.Context) error {
 		{"node", []string{"nodejs", "npm"}},
 		{"python3", []string{"python3"}},
 		{"go", []string{"golang"}},
+		// config/git/gitconfig's github.com credential helper is
+		// `gh auth git-credential`; without gh, https pushes prompt for a
+		// password GitHub no longer accepts.
+		{"gh", []string{"gh"}},
 	}
 
 	var pkgs []string
@@ -482,7 +487,7 @@ func (PackagesModule) Install(ctx context.Context) error {
 
 func (PackagesModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "packages"}
-	tools := []string{"git", "zsh", "curl", "wget", "htop", "rsync", "nvim", "tmux", "node", "python3", "go"}
+	tools := []string{"git", "zsh", "curl", "wget", "htop", "rsync", "nvim", "tmux", "node", "python3", "go", "gh"}
 	for _, t := range tools {
 		if _, err := exec.LookPath(t); err == nil {
 			s.Linked++
