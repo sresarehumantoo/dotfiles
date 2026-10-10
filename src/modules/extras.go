@@ -237,7 +237,7 @@ func (ExtrasModule) Install(ctx context.Context) error {
 	// Update tldr page cache (best-effort — may fail on spotty networks)
 	if _, err := exec.LookPath("tldr"); err == nil {
 		core.Info("Updating tldr page cache...")
-		if _, err := exec.CommandContext(ctx, "tldr", "--update").CombinedOutput(); err != nil {
+		if _, err := runNetProbe(ctx, "tldr", "--update"); err != nil {
 			core.Info("tldr cache update skipped (network unavailable — run 'tldr --update' later)")
 		}
 	}
