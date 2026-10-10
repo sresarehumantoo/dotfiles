@@ -710,6 +710,9 @@ func confirmRustupInstall(failedCount int, oldVersion string) bool {
 // path.zsh put ~/.cargo/bin on PATH instead. Idempotent — skips the network
 // install when ~/.cargo/bin/rustup already exists.
 func installRustup(ctx context.Context) bool {
+	if core.IsMac() {
+		return installRustupBrew(ctx)
+	}
 	cargoBin := core.HomeTarget(".cargo", "bin")
 	rustupBin := filepath.Join(cargoBin, "rustup")
 
@@ -786,4 +789,36 @@ func findExtractedBinary(root, name string) (string, error) {
 		return "", fmt.Errorf("binary %q not found in archive", name)
 	}
 	return found, nil
+}
+
+// installRustupBrew is installRustup for macOS: Homebrew's rustup rather than
+// curl | sh, which managed Macs commonly forbid and EDR flags. The formula is
+// keg-only (it conflicts with rust), so its bin, which also carries the
+// cargo/rustc proxies, is put on PATH here and by ~/.profile and path.zsh.
+func installRustupBrew(ctx context.Context) bool {
+	prefix := brewPrefix()
+	if prefix == "" {
+		core.AlwaysWarn("Homebrew not found — cannot install rustup")
+		return false
+	}
+	bin := filepath.Join(prefix, "opt", "rustup", "bin")
+	if _, err := os.Stat(filepath.Join(bin, "rustup")); err != nil {
+		core.Info("Installing rustup via Homebrew...")
+		if err := installPkg(ctx, "rustup"); err != nil {
+			core.AlwaysWarn("brew install rustup failed: %v", err)
+			return false
+		}
+	}
+	if curr := os.Getenv("PATH"); !strings.Contains(curr, bin) {
+		os.Setenv("PATH", bin+string(os.PathListSeparator)+curr)
+	}
+	// A fresh rustup has no toolchain; `rustup default` fails until one is set.
+	if _, err := runProbe(ctx, "rustup", "default"); err != nil {
+		if err := runCmd(ctx, "rustup", "default", "stable"); err != nil {
+			core.AlwaysWarn("rustup default stable failed: %v", err)
+			return false
+		}
+	}
+	core.Ok("rustup installed (cargo: %s)", cargoVersion(ctx))
+	return true
 }

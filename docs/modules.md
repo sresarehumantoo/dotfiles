@@ -51,6 +51,11 @@ Three groups of additional tooling:
 - Installs docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin
 - Adds current user to the `docker` group
 
+**Rust:**
+- rustup with the stable toolchain and `rust-src`, which rust-analyzer needs
+- Linux: the official installer with `--no-modify-path`, because the rc files it would append to are symlinks into this repo; `~/.profile` and `path.zsh` put `~/.cargo/bin` on PATH
+- macOS: Homebrew's keg-only `rustup` instead of `curl | sh`, which managed Macs often forbid; its `bin` (with the cargo/rustc proxies) goes on PATH the same way
+
 **Terraform:**
 - Adds HashiCorp apt repository (signed with GPG key)
 - Installs terraform
@@ -557,7 +562,7 @@ restart, not just a reload.
 
 macOS only. Links `config/aerospace/aerospace.toml` to `$XDG_CONFIG_HOME/aerospace/aerospace.toml`: the [AeroSpace](https://github.com/nikitabobko/AeroSpace) counterpart of the sway config, with the same keys on `ctrl-alt` instead of Super (cmd would take Paste, Save and Select All from every app; alt would swallow tmux's `M-` binds, since Ghostty sends Option as Alt). sway's `$mod+Ctrl` chords are `ctrl-alt-cmd`.
 
-`install all` only configures an AeroSpace that is already installed; `dfinstall install aerospace` installs the cask (`nikitabobko/tap/aerospace`) first. Warns if `~/.aerospace.toml` also exists, because AeroSpace then loads neither. Uninstall removes the link and leaves the app.
+`install all` only configures an AeroSpace that is already installed; `dfinstall install aerospace` installs the cask (`nikitabobko/tap/aerospace`) first, into `~/Applications` when `/Applications` is not writable. Warns if `~/.aerospace.toml` also exists, because AeroSpace then loads neither. Uninstall removes the link and leaves the app.
 
 **Status:** Checks 1 symlink, and reports nothing when AeroSpace isn't installed.
 
@@ -567,7 +572,7 @@ macOS only. Links `config/aerospace/aerospace.toml` to `$XDG_CONFIG_HOME/aerospa
 
 **File:** `modules/sketchybar.go`
 
-macOS only. The [SketchyBar](https://github.com/FelixKratz/SketchyBar) counterpart of waybar: links `config/sketchybar/sketchybarrc`, `colors.sh` and `plugins/*.sh` into `$XDG_CONFIG_HOME/sketchybar/`, then `brew services restart sketchybar`. Same gating as aerospace: `install all` only configures it when installed, `dfinstall install sketchybar` installs `FelixKratz/formulae/sketchybar` first. Uninstall stops the service and removes the links.
+macOS only. The [SketchyBar](https://github.com/FelixKratz/SketchyBar) counterpart of waybar: links `config/sketchybar/sketchybarrc`, `colors.sh` and `plugins/*.sh` into `$XDG_CONFIG_HOME/sketchybar/`. Same gating as aerospace: `install all` only configures it when installed, `dfinstall install sketchybar` installs `FelixKratz/formulae/sketchybar` first. Only the by-name install runs `brew services restart sketchybar`: the service is a login item, which macOS announces and an MDM may forbid, so `install all` never creates one and only reloads a bar that is already running. Uninstall stops the service and removes the links.
 
 The bar keeps waybar's glass strip, pills and Catppuccin colors. Workspaces 1 to 9 come from AeroSpace, whose config triggers `aerospace_workspace_change`, `aerospace_focus_change` and `aerospace_mode_change`, and reserves the bar's height in `gaps.outer.top`. Right side: VPN (only while a tunnel has an IPv4 address), a `caffeinate` toggle standing in for idle_inhibitor, volume, network, battery and the clock.
 

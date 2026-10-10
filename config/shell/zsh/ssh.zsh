@@ -5,6 +5,15 @@ SSH_AGENT_SOCK="$HOME/.ssh/agent.sock"
 # Bail if the key doesn't exist
 [[ -f "$SSH_KEY" ]] || return
 
+# macOS always provides an agent (launchd's, backed by the keychain), and a
+# managed Mac may point SSH_AUTH_SOCK at a corporate one (smart card,
+# 1Password, Secretive). Use whatever is there instead of replacing it; exit
+# status 2 means nothing answered.
+if [[ $OSTYPE == darwin* && -n "$SSH_AUTH_SOCK" ]]; then
+  ssh-add -l &>/dev/null
+  (( $? != 2 )) && SSH_AGENT_SOCK="$SSH_AUTH_SOCK"
+fi
+
 # Reuse existing agent or start a new one
 export SSH_AUTH_SOCK="$SSH_AGENT_SOCK"
 ssh-add -l &>/dev/null
