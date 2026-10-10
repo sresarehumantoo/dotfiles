@@ -192,10 +192,10 @@ func ensureNvim(ctx context.Context) error {
 		}
 		// Always-visible breadcrumb so the user sees that we noticed the
 		// outdated nvim, regardless of whether the prompt fires or skips.
-		core.AlwaysWarn("Neovim %s at %s is older than required %d.%d (telescope.nvim and other kickstart plugins require it)", shown, info.path, minNvimMajor, minNvimMinor)
+		core.AlwaysWarn("Neovim %s at %s is older than required %d.%d (nvim-treesitter's main branch requires it)", shown, info.path, minNvimMajor, minNvimMinor)
 
 		if !confirmNvimUpgrade(shown, info.path, owner) {
-			core.AlwaysWarn("Skipping Neovim upgrade — kickstart plugins requiring %d.%d may fail", minNvimMajor, minNvimMinor)
+			core.AlwaysWarn("Skipping Neovim upgrade — treesitter highlighting needs %d.%d and will not load", minNvimMajor, minNvimMinor)
 			return nil
 		}
 		if err := removeOldNvim(ctx, info.path, owner); err != nil {
@@ -230,7 +230,7 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 	}
 
 	title := fmt.Sprintf("Upgrade Neovim from %s?", version)
-	desc := fmt.Sprintf("Telescope.nvim and other kickstart plugins require >= %d.%d.\nIf you confirm, %s, then the latest prebuilt is installed to /opt and symlinked into /usr/local/bin/nvim.",
+	desc := fmt.Sprintf("nvim-treesitter's main branch requires >= %d.%d.\nIf you confirm, %s, then the latest prebuilt is installed to /opt and symlinked into /usr/local/bin/nvim.",
 		minNvimMajor, minNvimMinor, srcDesc)
 
 	var confirm bool

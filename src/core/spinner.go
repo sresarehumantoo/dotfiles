@@ -10,7 +10,10 @@ import (
 	"golang.org/x/term"
 )
 
-var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+// A 4-dot snake round all 8 dots of a braille cell. The common 10-frame set
+// only uses the top three rows, so it never reaches the bottom of the cell and
+// sits high beside the text.
+var spinFrames = []string{"⠹", "⢸", "⣰", "⣤", "⣆", "⡇", "⠏", "⠛"}
 
 var (
 	spinColor = color.New(color.FgCyan, color.Bold).SprintFunc()
