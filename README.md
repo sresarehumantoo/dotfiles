@@ -66,6 +66,8 @@ curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/boots
 
 From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS.
 
+On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up front and stops with a reason rather than failing halfway: a standard account with no Homebrew needs temporary admin (Privileges, Admin By Request) or a Homebrew IT installed for it, a Homebrew owned by another account cannot be used, and Santa in Lockdown is warned about because it blocks the locally built `dfinstall`. Apps go to `~/Applications` when `/Applications` is not writable, `install all` creates no login items (only `install sketchybar` and AeroSpace's own setting do), Rust comes from Homebrew's rustup rather than `curl | sh`, and an SSH agent that is already running is kept. Bootstrap ends by saving `dfinstall doctor` to `~/Library/Logs/`, which reports admin, Homebrew ownership, the app folder, MDM enrollment, Santa and Gatekeeper; run `dfinstall doctor` again any time to see the same.
+
 ### Existing Linux system
 
 ```bash
