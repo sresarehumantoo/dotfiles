@@ -113,6 +113,10 @@ func RunDoctorChecks() []DoctorResult {
 		results = append(results, DoctorResult{Name: c.name, OK: msg == "", Detail: msg})
 	}
 
+	if core.IsMac() {
+		results = append(results, macDoctorResults()...)
+	}
+
 	// Alias collisions between managed and preserved shell files.
 	if len(core.Cfg.PreservedFiles) > 0 {
 		if collisions := CheckAliasCollisions(); len(collisions) > 0 {
