@@ -28,27 +28,64 @@ on_exit() {
 trap on_exit EXIT
 
 REPO_URL="https://github.com/sresarehumantoo/dotfiles.git"
+BREW_INSTALL_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+
+ASSUME_YES=false
+BREW_PREFIX_REQ=""
 
 show_help() {
     cat <<'HELP'
 Usage: macos-setup.sh [options]
 
 Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones
-(or reuses) the dotfiles and runs `make install`.
+(or reuses) the dotfiles and runs `make install`. Asks before each step that
+changes the machine; declining one stops there and changes nothing further.
 
 Options:
-  --branch <branch>   Branch to clone (default: main). An existing clone is
-                      used as it is, on whatever branch it has checked out.
-  --dir <path>        Where the clone lives (default: the clone this script is
-                      in, else ~/dotfiles)
-  --skip-ghostty      Don't install Ghostty
-  --skip-dotfiles     Stop after the prerequisites
-  -h, --help          Show this help
+  --branch <branch>     Branch to clone (default: main). An existing clone is
+                        used as it is, on whatever branch it has checked out.
+  --dir <path>          Where the clone lives (default: the clone this script
+                        is in, else ~/dotfiles)
+  --brew-prefix <path>  Use, or install, a Homebrew at this path, for when the
+                        default one cannot be written by this account. At most
+                        13 characters (as long as /opt/homebrew) and every
+                        prebuilt bottle works there; longer, and the ones that
+                        are not relocatable compile from source.
+  --skip-ghostty        Don't install Ghostty
+  --skip-dotfiles       Stop after the prerequisites
+  -y, --yes             Answer yes to every confirmation
+  -h, --help            Show this help
 
 Examples:
   ./bootstrap/macos-setup.sh
+  ./bootstrap/macos-setup.sh --brew-prefix ~/homebrew
   curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 HELP
+}
+
+# Asks before a step that changes the machine. Reads the terminal on fd 3, so
+# it works when the script is piped from curl.
+confirm() {
+    local reply
+    if [[ "$ASSUME_YES" == true ]]; then
+        return 0
+    fi
+    if [[ ! -t 3 ]]; then
+        die "No terminal to answer \"$1\". Run it from a terminal, or pass --yes."
+    fi
+    printf "${_YELLOW}${_BOLD}  [?]${_RESET} %s [Y/n] " "$1"
+    read -r reply <&3 || reply=n
+    case "$reply" in
+        "" | [Yy] | [Yy][Ee][Ss]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# A declined confirmation ends the run cleanly: nothing after it has happened,
+# and re-running picks up where this left off.
+stop_here() {
+    info "Stopped before: ${STEP}. Nothing past this point was changed; re-run to continue."
+    exit 0
 }
 
 # The clone this script sits in, when it is run from one rather than piped in.
@@ -64,17 +101,47 @@ default_dir() {
     fi
 }
 
-# Homebrew is off PATH until something runs `brew shellenv`: /opt/homebrew on
-# Apple Silicon, /usr/local on Intel, ~/homebrew for an account that cannot
-# create either.
-brew_bin() {
-    local b
-    for b in /opt/homebrew/bin/brew /usr/local/bin/brew "$HOME/homebrew/bin/brew"; do
-        if [[ -x "$b" ]]; then
-            echo "$b"
+# Which Homebrew to use is discovered, not assumed: a managed Mac may have an
+# IT-owned /opt/homebrew this account cannot write to, a Homebrew handed to the
+# user at enrollment, or one the user installed somewhere of their own. The
+# prefix a run settles on is recorded, and ~/.profile and dfinstall read it
+# back first, so a read-only Homebrew earlier on PATH never wins over it.
+BREW_PREFIX_FILE="$HOME/.config/dfinstall/brew-prefix"
+BREW_PREFIX=""
+READONLY_BREW=""
+
+# Prefixes in the order they are considered; may repeat.
+brew_candidates() {
+    if [[ -n "$BREW_PREFIX_REQ" ]]; then
+        echo "$BREW_PREFIX_REQ"
+    fi
+    if [[ -r "$BREW_PREFIX_FILE" ]]; then
+        head -n1 "$BREW_PREFIX_FILE"
+    fi
+    if command -v brew &>/dev/null; then
+        dirname "$(dirname "$(command -v brew)")"
+    fi
+    printf '%s\n' /opt/homebrew /usr/local "$HOME/homebrew"
+}
+
+# Homebrew supports one owning account; anyone else gets permission errors.
+brew_writable() {
+    [[ -w "$1/Cellar" ]] || { [[ ! -e "$1/Cellar" ]] && [[ -w "$1" ]]; }
+}
+
+# Sets BREW_PREFIX to the first Homebrew this account can install with, and
+# READONLY_BREW to the first one found that it cannot.
+find_brew() {
+    local p
+    BREW_PREFIX="" READONLY_BREW=""
+    while IFS= read -r p; do
+        [[ -n "$p" && -x "$p/bin/brew" ]] || continue
+        if brew_writable "$p"; then
+            BREW_PREFIX="$p"
             return 0
         fi
-    done
+        [[ -n "$READONLY_BREW" ]] || READONLY_BREW="$p"
+    done < <(brew_candidates)
     return 1
 }
 
@@ -83,13 +150,13 @@ is_admin() {
 }
 
 # Everything here runs as the user. On a managed Mac the things that can stop
-# it are known up front, so check them before installing anything.
+# it are known up front, so report them before installing anything.
 preflight() {
     header "Preflight"
     if is_admin; then
         ok "Admin account"
     else
-        info "Standard account: apps go to ~/Applications, and Homebrew must already exist or be installable with temporary admin"
+        info "Standard account: apps go to ~/Applications when /Applications is not writable"
     fi
     if profiles status -type enrollment 2>/dev/null | grep -q 'MDM enrollment: Yes'; then
         info "MDM enrolled"
@@ -97,16 +164,12 @@ preflight() {
     if command -v santactl &>/dev/null && santactl status 2>/dev/null | grep -Eq 'Mode +\| +Lockdown'; then
         warn "Santa is in Lockdown: the dfinstall binary 'make install' builds, and other locally built tools, stay blocked until IT allowlists them"
     fi
-
-    local brew prefix
-    if brew="$(brew_bin)"; then
-        prefix="$("$brew" --prefix)"
-        if [[ ! -w "$prefix/Cellar" && ! -w "$prefix" ]]; then
-            die "Homebrew at ${prefix} belongs to another account, and Homebrew supports only one. Ask IT to give this account ownership of it, or to install Homebrew for this account."
-        fi
-        ok "Homebrew at ${prefix} is writable"
-    elif ! is_admin; then
-        die "Homebrew is not installed, and its installer needs admin to create /opt/homebrew. Get temporary admin (e.g. Privileges or Admin By Request) and re-run, or have IT install Homebrew for this account."
+    if find_brew; then
+        ok "Homebrew at ${BREW_PREFIX} is writable"
+    elif [[ -n "$READONLY_BREW" ]]; then
+        warn "Homebrew at ${READONLY_BREW} is not writable by this account"
+    else
+        info "Homebrew is not installed yet"
     fi
 }
 
@@ -154,6 +217,15 @@ wire_tls_trust() {
         ok "No TLS inspection seen; nothing to wire"
         return
     fi
+    if [[ -n "$hosts" ]]; then
+        info "TLS inspection on: ${hosts% }. Those fail verification in curl, git, Node, Python, cargo and Homebrew until they trust the System keychain's certificates."
+    fi
+    info "This writes ${CA_BUNDLE}, ${CA_ENV} (sourced by ~/.profile) and http.sslCAInfo in ~/.gitconfig.local."
+    if ! confirm "Point those tools at the System keychain's certificates?"; then
+        rm -f "$CA_BUNDLE.new"
+        warn "Skipped. Downloads through the proxy may fail with certificate errors from here on."
+        return
+    fi
     mv "$CA_BUNDLE.new" "$CA_BUNDLE"
     printf 'cacert = "%s"\n' "$CA_BUNDLE" >"$CA_CURLRC"
     cat >"$CA_ENV" <<ENVFILE
@@ -188,6 +260,8 @@ install_clt() {
         ok "Already installed"
         return
     fi
+    info "Needed for git, make and a C compiler. On a managed Mac IT or Self Service may provide them instead."
+    confirm "Open Apple's Command Line Tools installer?" || stop_here
     # --install only opens a GUI dialog and returns immediately.
     local out
     if ! out="$(xcode-select --install 2>&1)"; then
@@ -205,16 +279,85 @@ install_clt() {
     ok "Installed"
 }
 
+brew_options() {
+    die "No Homebrew this account can install with. Options:
+      - get temporary admin (e.g. Privileges or Admin By Request) and re-run, so the official installer can finish
+      - ask IT for a Homebrew this account owns
+      - re-run with --brew-prefix <path> for a separate Homebrew this account owns, e.g. --brew-prefix ~/homebrew"
+}
+
+# The official installer, at its default prefix or at $1. NONINTERACTIVE only
+# under --yes: otherwise it shows its own plan and asks before acting.
+run_brew_installer() {
+    local script
+    script="$(curl -fsSL "$BREW_INSTALL_URL")" || return 1
+    (
+        if [[ "$ASSUME_YES" == true ]]; then
+            export NONINTERACTIVE=1
+        fi
+        if [[ $# -gt 0 ]]; then
+            /bin/bash -c "$script" install.sh --path "$1" <&3
+        else
+            /bin/bash -c "$script" <&3
+        fi
+    )
+}
+
+# Homebrew patches /opt/homebrew inside prebuilt bottles in place, so a prefix
+# no longer than that can use every bottle, and its installer only accepts
+# those. A longer one needs the release tarball, and the bottles that are not
+# relocatable then compile from source.
+install_brew_at() {
+    local prefix="${1%/}"
+    [[ "$prefix" == /* ]] || die "--brew-prefix must be an absolute path"
+    if [[ -e "$prefix" && -n "$(ls -A "$prefix")" ]]; then
+        die "${prefix} exists, is not empty and has no Homebrew in it; pick another --brew-prefix"
+    fi
+    if [[ ${#prefix} -le ${#HOMEBREW_DEFAULT_PREFIX} ]]; then
+        info "${prefix} is no longer than ${HOMEBREW_DEFAULT_PREFIX}, so every prebuilt bottle works there."
+        confirm "Install Homebrew into ${prefix} with the official installer?" || stop_here
+        run_brew_installer "$prefix" || die "The Homebrew installer failed for ${prefix}"
+    else
+        warn "${prefix} is longer than ${HOMEBREW_DEFAULT_PREFIX}. Bottles that are not relocatable (coreutils, gawk, make, bash, node, neovim, wget, openssl, gettext, ...) compile from source there, which can take an hour or more the first time."
+        confirm "Install Homebrew into ${prefix} from its release tarball (Homebrew's unsupported alternative install)?" || stop_here
+        mkdir -p "$prefix"
+        curl -fsSL https://github.com/Homebrew/brew/tarball/main | tar xz --strip-components 1 -C "$prefix"
+        "$prefix/bin/brew" update --force --quiet
+    fi
+    [[ -x "$prefix/bin/brew" ]] || die "No brew at ${prefix}/bin/brew after installing"
+    brew_writable "$prefix" || die "Homebrew at ${prefix} is not writable by this account"
+    BREW_PREFIX="$prefix"
+}
+
+HOMEBREW_DEFAULT_PREFIX=/opt/homebrew
+if [[ "$(uname -m)" != arm64 ]]; then
+    HOMEBREW_DEFAULT_PREFIX=/usr/local
+fi
+
 install_brew() {
     header "Homebrew"
-    local brew
-    if ! brew="$(brew_bin)"; then
-        info "Running the official installer (it asks for your password)..."
-        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)" <&3
-        brew="$(brew_bin)" || die "Homebrew installed, but brew is in neither /opt/homebrew nor /usr/local"
+    if [[ -n "$BREW_PREFIX_REQ" ]]; then
+        if [[ -x "$BREW_PREFIX_REQ/bin/brew" ]]; then
+            brew_writable "$BREW_PREFIX_REQ" || die "Homebrew at ${BREW_PREFIX_REQ} is not writable by this account"
+            BREW_PREFIX="$BREW_PREFIX_REQ"
+        else
+            install_brew_at "$BREW_PREFIX_REQ"
+        fi
+    elif find_brew; then
+        ok "Using Homebrew at ${BREW_PREFIX}"
+    else
+        if [[ -n "$READONLY_BREW" ]]; then
+            warn "Homebrew at ${READONLY_BREW} is not writable by this account. With admin, the official installer offers to make this account its owner; if IT manages that Homebrew, that may conflict with them, and --brew-prefix avoids it."
+        fi
+        info "The official installer uses ${HOMEBREW_DEFAULT_PREFIX}, shows what it will do, and asks for your password if that needs admin."
+        confirm "Run the official Homebrew installer?" || stop_here
+        run_brew_installer || brew_options
+        find_brew || brew_options
     fi
-    eval "$("$brew" shellenv)"
-    ok "$(brew --version | head -1)"
+    eval "$("$BREW_PREFIX/bin/brew" shellenv)"
+    mkdir -p "$(dirname "$BREW_PREFIX_FILE")"
+    printf '%s\n' "$BREW_PREFIX" >"$BREW_PREFIX_FILE"
+    ok "$(brew --version | head -1) at ${BREW_PREFIX}"
 }
 
 install_go() {
@@ -223,6 +366,7 @@ install_go() {
         ok "Already installed: $(go version)"
         return
     fi
+    confirm "brew install go (needed to build dfinstall)?" || stop_here
     brew install go
     ok "$(go version)"
 }
@@ -231,6 +375,10 @@ install_ghostty() {
     header "Ghostty"
     if [[ -d /Applications/Ghostty.app || -d "$HOME/Applications/Ghostty.app" ]]; then
         ok "Already installed"
+        return
+    fi
+    if ! confirm "brew install --cask ghostty?"; then
+        info "Skipped Ghostty"
         return
     fi
     # /Applications is admin-only; a standard account installs per user.
@@ -250,8 +398,11 @@ install_dotfiles() {
     elif [[ -e "$dir" ]]; then
         die "${dir} exists but is not a git clone; move it or pass --dir"
     else
+        confirm "Clone the dotfiles (${branch}) into ${dir}?" || stop_here
         git clone --branch "$branch" "$REPO_URL" "$dir"
     fi
+    info "make install builds dfinstall and runs 'dfinstall install all': Homebrew packages, then symlinks for the shell, git, nvim, tmux and Ghostty configs into your home folder. 'dfinstall install all --dry-run' shows the full list first."
+    confirm "Run make install?" || stop_here
     make -C "$dir" install <&3
 
     # A record of the environment to share if anything on this Mac misbehaves.
@@ -271,8 +422,10 @@ main() {
         case "$1" in
             --branch)        branch="${2:?--branch needs a value}"; shift 2 ;;
             --dir)           dir="${2:?--dir needs a value}"; shift 2 ;;
+            --brew-prefix)   BREW_PREFIX_REQ="${2:?--brew-prefix needs a value}"; BREW_PREFIX_REQ="${BREW_PREFIX_REQ%/}"; shift 2 ;;
             --skip-ghostty)  do_ghostty=false; shift ;;
             --skip-dotfiles) do_dotfiles=false; shift ;;
+            -y|--yes)        ASSUME_YES=true; shift ;;
             -h|--help)       show_help; exit 0 ;;
             *)               show_help >&2; die "Unknown option: $1" ;;
         esac
@@ -293,6 +446,18 @@ main() {
     fi
 
     preflight
+
+    header "Plan"
+    info "1. Xcode Command Line Tools, if missing"
+    info "2. Check for TLS inspection, and trust the System keychain's certificates if found"
+    info "3. Homebrew: ${BREW_PREFIX:-${BREW_PREFIX_REQ:-install with the official installer}}"
+    info "4. Go$([[ "$do_ghostty" == true ]] && printf ' and Ghostty')"
+    if [[ "$do_dotfiles" == true ]]; then
+        info "5. Dotfiles in ${dir}, then make install"
+    fi
+    info "Each step that changes something asks first."
+    confirm "Continue?" || stop_here
+
     install_clt
     wire_tls_trust
     install_brew
