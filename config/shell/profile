@@ -72,6 +72,11 @@ if [ -d "$HOME/go/bin" ] ; then
     PATH="$HOME/go/bin:$PATH"
 fi
 
+# Rust (rustup, installed with --no-modify-path)
+if [ -d "$HOME/.cargo/bin" ] ; then
+    PATH="$HOME/.cargo/bin:$PATH"
+fi
+
 # WSL-specific settings
 if [ -n "$WSL_DISTRO_NAME" ]; then
     # Fix WSLg cursor size/rendering issues

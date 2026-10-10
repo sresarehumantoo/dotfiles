@@ -194,7 +194,7 @@ func userInGroup(group string) bool {
 
 func (ExtrasModule) Install(ctx context.Context) error {
 	if core.DryRun {
-		core.Info("would install: CLI utils, Python tooling, Docker, Terraform")
+		core.Info("would install: CLI utils, Python tooling, Rust, Docker, Terraform")
 		return nil
 	}
 
@@ -259,6 +259,19 @@ func (ExtrasModule) Install(ctx context.Context) error {
 			core.Warn("Some Python packages may have failed: %v", err)
 		}
 		core.Ok("Python tooling done")
+	}
+
+	// --- Rust ---
+	// rust-analyzer (Mason) needs a toolchain and the std sources, which only
+	// rustup provides; distro and brew rust ship neither rust-src nor a way
+	// to add it.
+	core.Info("Installing Rust...")
+	if installRustup(ctx) {
+		if err := runCmd(ctx, rustupExe(), "component", "add", "rust-src"); err != nil {
+			core.Warn("rustup component add rust-src failed: %v", err)
+		} else {
+			core.Ok("Rust done")
+		}
 	}
 
 	// --- Docker ---

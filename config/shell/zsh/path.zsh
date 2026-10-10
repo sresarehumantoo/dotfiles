@@ -11,6 +11,7 @@ if [[ -n "$HOMEBREW_PREFIX" ]]; then
   path=($HOMEBREW_PREFIX/opt/{coreutils,findutils,gnu-sed,grep,gawk,gnu-tar,make}/libexec/gnubin(N)
         $HOMEBREW_PREFIX/bin $HOMEBREW_PREFIX/sbin $path)
 fi
+[[ -d "$HOME/.cargo/bin" ]] && path=("$HOME/.cargo/bin" $path)
 export PATH="$HOME/.local/bin:$PATH"
 export PATH="$PATH:/usr/local/go/bin"
 
