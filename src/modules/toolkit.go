@@ -705,9 +705,10 @@ func confirmRustupInstall(failedCount int, oldVersion string) bool {
 
 // installRustup runs the official rustup installer non-interactively and
 // prepends ~/.cargo/bin to this process's PATH so subsequent cargo
-// invocations resolve to the new toolchain. Rustup itself updates the
-// user's shell profile for future shells. Idempotent — skips the
-// network install when ~/.cargo/bin/rustup already exists.
+// invocations resolve to the new toolchain. --no-modify-path because the rc
+// files rustup would append to are symlinks into this repo; ~/.profile and
+// path.zsh put ~/.cargo/bin on PATH instead. Idempotent — skips the network
+// install when ~/.cargo/bin/rustup already exists.
 func installRustup(ctx context.Context) bool {
 	cargoBin := core.HomeTarget(".cargo", "bin")
 	rustupBin := filepath.Join(cargoBin, "rustup")
@@ -730,7 +731,7 @@ func installRustup(ctx context.Context) bool {
 	}
 	core.Info("Installing rustup (downloads ~200MB)...")
 	err := runCmd(ctx, "sh", "-c",
-		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable")
+		"curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --default-toolchain stable")
 	if err != nil {
 		core.AlwaysWarn("rustup install failed: %v", err)
 		return false

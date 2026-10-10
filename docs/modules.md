@@ -22,13 +22,17 @@ If `locale-gen` is missing, installs the `locales` package first. Then uncomment
 
 Installs core system packages using the detected package manager (apt-get, dnf, pacman, or brew).
 
-**Packages:** git, zsh, curl, wget, htop, rsync, tmux, nodejs, npm, python3, golang, locales, zsh-syntax-highlighting
+**Packages:** git, zsh, curl, wget, htop, rsync, tmux, nodejs, npm, python3, golang, gh, locales, zsh-syntax-highlighting
+
+`gh` is here because `config/git/gitconfig` uses `gh auth git-credential` as the github.com credential helper.
+
+On macOS it also installs the GNU userland from Homebrew (`macGNUFormulae`): coreutils, findutils, gnu-sed, grep, gawk, gnu-tar, make, diffutils, bash and rsync, checked by formula since Apple ships its own `sed`, `bash` and `rsync`. `~/.profile` and `~/.zsh.d/path.zsh` put each keg's `libexec/gnubin` ahead of `/usr/bin`, so the unprefixed names are the GNU ones, as on Linux. The gnubin list is named rather than globbed: libtool has a gnubin too, and GNU libtool in front of Apple's breaks native builds. `path.zsh` also re-prepends Homebrew itself, because `/etc/zprofile`'s `path_helper` moves `/usr/bin` back to the front in every login shell, which includes each tmux pane.
 
 Neovim is deliberately **not** installed here — apt's neovim is too old (Debian stable ships 0.7–0.10, telescope.nvim needs >= 0.11), so the nvim module installs the official prebuilt tarball instead.
 
 Skips packages that are already installed. External command output is suppressed in default mode (shown with `-v`). Spinner pauses automatically for sudo password prompts.
 
-**Status:** Checks 11 tool binaries via `$PATH`.
+**Status:** Checks 12 tool binaries via `$PATH`.
 
 ---
 
@@ -501,7 +505,7 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 
-**Uninstall:** Removes symlinks and deletes `~/.tmux/plugins/`.
+**Uninstall:** Removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
 
 **Status:** Checks 2 symlinks. Shows `tpm +N plugins` when TPM is installed with plugins.
 
@@ -544,6 +548,34 @@ insurance for the case where that config is ever a real file. Config changes nee
 restart, not just a reload.
 
 **Status:** Checks 4 symlinks.
+
+---
+
+## aerospace
+
+**File:** `modules/aerospace.go`
+
+macOS only. Links `config/aerospace/aerospace.toml` to `$XDG_CONFIG_HOME/aerospace/aerospace.toml`: the [AeroSpace](https://github.com/nikitabobko/AeroSpace) counterpart of the sway config, with the same keys on `ctrl-alt` instead of Super (cmd would take Paste, Save and Select All from every app; alt would swallow tmux's `M-` binds, since Ghostty sends Option as Alt). sway's `$mod+Ctrl` chords are `ctrl-alt-cmd`.
+
+`install all` only configures an AeroSpace that is already installed; `dfinstall install aerospace` installs the cask (`nikitabobko/tap/aerospace`) first. Warns if `~/.aerospace.toml` also exists, because AeroSpace then loads neither. Uninstall removes the link and leaves the app.
+
+**Status:** Checks 1 symlink, and reports nothing when AeroSpace isn't installed.
+
+---
+
+## sketchybar
+
+**File:** `modules/sketchybar.go`
+
+macOS only. The [SketchyBar](https://github.com/FelixKratz/SketchyBar) counterpart of waybar: links `config/sketchybar/sketchybarrc`, `colors.sh` and `plugins/*.sh` into `$XDG_CONFIG_HOME/sketchybar/`, then `brew services restart sketchybar`. Same gating as aerospace: `install all` only configures it when installed, `dfinstall install sketchybar` installs `FelixKratz/formulae/sketchybar` first. Uninstall stops the service and removes the links.
+
+The bar keeps waybar's glass strip, pills and Catppuccin colors. Workspaces 1 to 9 come from AeroSpace, whose config triggers `aerospace_workspace_change`, `aerospace_focus_change` and `aerospace_mode_change`, and reserves the bar's height in `gaps.outer.top`. Right side: VPN (only while a tunnel has an IPv4 address), a `caffeinate` toggle standing in for idle_inhibitor, volume, network, battery and the clock.
+
+Not carried over, for want of a macOS equivalent: one workspace row per output (every display shows the same row), the notification count and do-not-disturb, the privacy indicator, media and temperature. The clock is at the right edge because a centered item would sit under the MacBook notch. The tray stays in the native menu bar, which should be set to hide automatically so it appears on hover above this bar; the module prints a notice until it is.
+
+The plugins run under launchd with Homebrew's bin and the system dirs on PATH, so they are POSIX `sh` against Apple's BSD userland. Every plugin must be listed in `sketchybarPlugins`; `TestSketchybarPluginsListed` fails otherwise.
+
+**Status:** Checks 10 symlinks, and reports nothing when SketchyBar isn't installed.
 
 ---
 

@@ -9,7 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -72,6 +75,7 @@ var pacmanNames = map[string]string{
 	"containerd.io":           "",
 	"docker-buildx-plugin":    "docker-buildx",
 	"docker-compose-plugin":   "docker-compose",
+	"gh":                      "github-cli",
 }
 
 // brewNames maps canonical (apt) package names to Homebrew formulae.
@@ -80,13 +84,26 @@ var brewNames = map[string]string{
 	"fd-find":         "fd",
 	"build-essential": "", // Xcode Command Line Tools, a bootstrap prerequisite
 	"golang":          "go",
+	"cargo":           "rust",
 	"nodejs":          "node",
 	"npm":             "", // ships with node
 	"python3-pip":     "", // ships with python
 	"python3-venv":    "",
 	"locales":         "", // macOS ships en_US.UTF-8
 	"xclip":           "", // pbcopy/pbpaste are built in
+	"wl-clipboard":    "",
 	"fontconfig":      "", // macOS registers fonts in ~/Library/Fonts without it
+}
+
+// macGNUFormulae replace macOS's BSD userland, bash 3.2, make 3.81 and openrsync
+// with what the Linux machines run. Checked by formula rather than by binary,
+// since Apple already ships a sed, a bash and an rsync under the same names.
+// The unprefixed GNU names come from each keg's libexec/gnubin, which
+// config/shell/profile and path.zsh put ahead of /usr/bin; that list must
+// stay in step with this one.
+var macGNUFormulae = []string{
+	"coreutils", "findutils", "gnu-sed", "grep", "gawk", "gnu-tar", "make",
+	"diffutils", "bash", "rsync",
 }
 
 var pkgNames = map[string]map[string]string{
@@ -383,9 +400,52 @@ func tailLines(s string, n int) []string {
 	return append(out, lines[len(lines)-n:]...)
 }
 
+// minNodeMajor is what Mason's markdownlint-cli2 declares (node >= 22); it
+// dies on Ubuntu 24.04's Node 18 and only happens to run on Debian trixie's 20.
+const minNodeMajor = 22
+
+var nodeVersionRe = regexp.MustCompile(`^v(\d+)\.`)
+
+// nodeTooOld reports whether node is missing or older than minNodeMajor.
+func nodeTooOld(ctx context.Context) bool {
+	out, err := runProbe(ctx, "node", "--version")
+	if err != nil {
+		return true
+	}
+	m := nodeVersionRe.FindSubmatch(bytes.TrimSpace(out))
+	if m == nil {
+		return true
+	}
+	major, _ := strconv.Atoi(string(m[1]))
+	return major < minNodeMajor
+}
+
+// addNodeSourceRepo mirrors what NodeSource's setup_22.x script configures,
+// without piping a remote script into a root shell: the signed repo plus a pin
+// so its nodejs wins over the distro's.
+func addNodeSourceRepo(ctx context.Context) error {
+	repo := fmt.Sprintf(`Types: deb
+URIs: https://deb.nodesource.com/node_%d.x
+Suites: nodistro
+Components: main
+Architectures: %s
+Signed-By: /etc/apt/keyrings/nodesource.asc`, minNodeMajor, runtime.GOARCH)
+	pin := "Package: nodejs\nPin: origin deb.nodesource.com\nPin-Priority: 600\n"
+	if err := writeFileAsRoot(ctx, "/etc/apt/preferences.d/nodesource", []byte(pin), 0644); err != nil {
+		return fmt.Errorf("writing apt pin: %w", err)
+	}
+	return addAptRepo(ctx,
+		"NodeSource",
+		"https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key",
+		"/etc/apt/keyrings/nodesource.asc",
+		repo,
+		"/etc/apt/sources.list.d/nodesource.sources",
+	)
+}
+
 func (PackagesModule) Install(ctx context.Context) error {
 	if core.DryRun {
-		core.Info("would install packages: git, zsh, curl, wget, htop, rsync, ...")
+		core.Info("would install packages: git, zsh, curl, wget, htop, rsync, gh, ...")
 		return nil
 	}
 
@@ -415,6 +475,10 @@ func (PackagesModule) Install(ctx context.Context) error {
 		{"node", []string{"nodejs", "npm"}},
 		{"python3", []string{"python3"}},
 		{"go", []string{"golang"}},
+		// config/git/gitconfig's github.com credential helper is
+		// `gh auth git-credential`; without gh, https pushes prompt for a
+		// password GitHub no longer accepts.
+		{"gh", []string{"gh"}},
 	}
 
 	var pkgs []string
@@ -428,12 +492,39 @@ func (PackagesModule) Install(ctx context.Context) error {
 		pkgs = append(pkgs, "locales")
 	}
 
+	// Distro Node is too old for Mason's markdownlint-cli2 on Debian-family
+	// systems, so it comes from NodeSource there. Its nodejs bundles npm and
+	// conflicts with the distro npm, which apt then removes.
+	if core.AptBin() != "" && nodeTooOld(ctx) {
+		if err := addNodeSourceRepo(ctx); err != nil {
+			core.Warn("NodeSource repo: %v — keeping the distro Node.js", err)
+		} else {
+			pkgs = slices.DeleteFunc(pkgs, func(p string) bool { return p == "nodejs" || p == "npm" })
+			pkgs = append(pkgs, "nodejs")
+		}
+	}
+
 	if len(pkgs) == 0 {
 		core.Ok("All core packages already installed")
 	} else {
 		core.Info("Installing: %s", strings.Join(pkgs, ", "))
 		if err := installPkg(ctx, pkgs...); err != nil {
 			core.Warn("Some packages may have failed to install: %v", err)
+		}
+	}
+
+	if core.IsMac() {
+		var missing []string
+		for _, f := range macGNUFormulae {
+			if !brewInstalled(f) {
+				missing = append(missing, f)
+			}
+		}
+		if len(missing) > 0 {
+			core.Info("Installing GNU userland: %s", strings.Join(missing, ", "))
+			if err := installPkg(ctx, missing...); err != nil {
+				core.Warn("Some GNU tools may have failed to install: %v", err)
+			}
 		}
 	}
 
@@ -455,7 +546,7 @@ func (PackagesModule) Install(ctx context.Context) error {
 
 func (PackagesModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "packages"}
-	tools := []string{"git", "zsh", "curl", "wget", "htop", "rsync", "nvim", "tmux", "node", "python3", "go"}
+	tools := []string{"git", "zsh", "curl", "wget", "htop", "rsync", "nvim", "tmux", "node", "python3", "go", "gh"}
 	for _, t := range tools {
 		if _, err := exec.LookPath(t); err == nil {
 			s.Linked++

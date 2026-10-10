@@ -278,3 +278,27 @@ func TestPickAsset_DarwinOnly(t *testing.T) {
 		t.Errorf("universal build not picked, got %q", got.Name)
 	}
 }
+
+// The tree-sitter v0.27.1 asset list. Its 32-bit builds are named "arm" and
+// "x86", which must not satisfy the arm64 and amd64 tokens.
+func TestTreeSitterAsset(t *testing.T) {
+	var assets []ghAsset
+	for _, n := range []string{
+		"tree-sitter-cli-linux-arm.zip", "tree-sitter-cli-linux-arm64.zip", "tree-sitter-cli-linux-x64.zip",
+		"tree-sitter-cli-linux-x86.zip", "tree-sitter-cli-macos-arm64.zip", "tree-sitter-cli-windows-x64.zip",
+		"tree-sitter-linux-arm.gz", "tree-sitter-linux-arm64.gz", "tree-sitter-linux-powerpc64.gz",
+		"tree-sitter-linux-x64.gz", "tree-sitter-linux-x86.gz", "tree-sitter-macos-arm64.gz",
+		"tree-sitter-macos-x64.gz", "tree-sitter-windows-x64.gz", "web-tree-sitter.tar.gz",
+	} {
+		assets = append(assets, ghAsset{Name: n, URL: "https://x/" + n})
+	}
+	for goarch, want := range map[string]string{
+		"amd64": "tree-sitter-linux-x64.gz",
+		"arm64": "tree-sitter-linux-arm64.gz",
+	} {
+		got, ok := pickAsset(assets, treeSitterFilter(goarch))
+		if !ok || got.Name != want {
+			t.Errorf("%s: got %q (ok=%v), want %q", goarch, got.Name, ok, want)
+		}
+	}
+}

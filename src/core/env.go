@@ -551,7 +551,11 @@ func HasSudoPass() bool {
 func PromptSudo(ctx context.Context) {
 	// Nothing dfinstall runs on macOS needs sudo: Homebrew refuses root, and
 	// chsh asks for the user's own password.
-	if DryRun || IsMac() {
+	if IsMac() {
+		os.Unsetenv("DFINSTALL_SUDO_PASS")
+		return
+	}
+	if DryRun {
 		return
 	}
 	// Check if sudo even needs a password (e.g. NOPASSWD configured)

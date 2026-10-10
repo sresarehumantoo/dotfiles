@@ -24,6 +24,9 @@ func withFakeBins(t *testing.T, names ...string) string {
 }
 
 func TestAptBin_PrefersAptGet(t *testing.T) {
+	if core.IsMac() {
+		t.Skip("AptBin never answers on macOS; see TestAptBin_EmptyOnMac")
+	}
 	withFakeBins(t, "apt-get", "apt")
 	if got := core.AptBin(); got != "apt-get" {
 		t.Errorf("expected apt-get when both are present, got %q", got)
@@ -31,6 +34,9 @@ func TestAptBin_PrefersAptGet(t *testing.T) {
 }
 
 func TestAptBin_FallsBackToApt(t *testing.T) {
+	if core.IsMac() {
+		t.Skip("AptBin never answers on macOS; see TestAptBin_EmptyOnMac")
+	}
 	withFakeBins(t, "apt")
 	if got := core.AptBin(); got != "apt" {
 		t.Errorf("expected apt when apt-get is absent, got %q", got)
@@ -41,5 +47,17 @@ func TestAptBin_EmptyWhenNeitherPresent(t *testing.T) {
 	withFakeBins(t) // empty dir on PATH
 	if got := core.AptBin(); got != "" {
 		t.Errorf("expected empty string when neither is on PATH, got %q", got)
+	}
+}
+
+// macOS has had an `apt` on PATH (a Java annotation-tool stub), which must not
+// be mistaken for the package manager.
+func TestAptBin_EmptyOnMac(t *testing.T) {
+	if !core.IsMac() {
+		t.Skip("macOS only")
+	}
+	withFakeBins(t, "apt-get", "apt")
+	if got := core.AptBin(); got != "" {
+		t.Errorf("expected empty string on macOS, got %q", got)
 	}
 }

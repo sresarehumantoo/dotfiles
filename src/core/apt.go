@@ -5,8 +5,12 @@ import "os/exec"
 // AptBin returns the preferred apt-family binary on the current system.
 // Prefers apt-get because it has a stable CLI explicitly intended for
 // scripts; falls back to apt for distros that ship only the newer wrapper.
-// Returns "" when neither is on PATH.
+// Returns "" when neither is on PATH, and always on macOS, where an `apt` on
+// PATH is Apple's old Java annotation-tool stub, not a package manager.
 func AptBin() string {
+	if IsMac() {
+		return ""
+	}
 	if _, err := exec.LookPath("apt-get"); err == nil {
 		return "apt-get"
 	}

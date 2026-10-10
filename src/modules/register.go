@@ -25,6 +25,8 @@ func RegisterAllModules() {
 	core.RegisterModule(&KonsoleModule{})
 	core.RegisterModule(&GhosttyModule{})
 	core.RegisterModule(&SwayModule{})
+	core.RegisterModule(&AerospaceModule{})
+	core.RegisterModule(&SketchybarModule{})
 	core.RegisterModule(&HtopModule{})
 	core.RegisterModule(&WslModule{})
 	core.RegisterModule(&VMGuestModule{})
