@@ -682,6 +682,8 @@ require('lazy').setup({
 
   { import = 'custom.plugins' },
 }, {
+  -- No plugin here needs luarocks; with it on, checkhealth errors over a missing hererocks.
+  rocks = { enabled = false },
   ui = {
     icons = vim.g.have_nerd_font and {} or {
       cmd = '⌘',
