@@ -17,14 +17,86 @@ import (
 	"golang.org/x/term"
 )
 
-// minNvim* is the lowest acceptable Neovim version. Bumped to 0.11 because
-// telescope.nvim and other kickstart plugins now require it; Debian/Ubuntu
-// apt repos still ship 0.7–0.10, so we install the official prebuilt tarball
-// when the system package is too old.
+// minNvim* is the lowest acceptable Neovim version: nvim-treesitter's main
+// branch requires 0.12. Debian/Ubuntu apt repos ship far older, so we install
+// the official prebuilt tarball when the system package is too old.
 const (
 	minNvimMajor = 0
-	minNvimMinor = 11
+	minNvimMinor = 12
 )
+
+// minTreeSitter* is the lowest tree-sitter CLI nvim-treesitter's main branch
+// accepts; it shells out to the CLI to build every parser. Distro packages lag
+// well behind (trixie 0.22, noble 0.20).
+const (
+	minTreeSitterMajor = 0
+	minTreeSitterMinor = 26
+)
+
+var treeSitterVersionRe = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
+
+func treeSitterCurrent(ctx context.Context) bool {
+	out, err := runProbe(ctx, "tree-sitter", "--version")
+	if err != nil {
+		return false
+	}
+	m := treeSitterVersionRe.FindSubmatch(out)
+	if m == nil {
+		return false
+	}
+	major, _ := strconv.Atoi(string(m[1]))
+	minor, _ := strconv.Atoi(string(m[2]))
+	return major > minTreeSitterMajor || (major == minTreeSitterMajor && minor >= minTreeSitterMinor)
+}
+
+// treeSitterFilter selects the bare gzipped Linux binary, not the
+// tree-sitter-cli-*.zip bundle beside it.
+func treeSitterFilter(goarch string) assetFilter {
+	return assetFilter{
+		Contains:   "tree-sitter-linux-",
+		ArchTokens: archTokensFor(goarch),
+		Suffix:     ".gz",
+		LinuxOnly:  true,
+	}
+}
+
+// ensureTreeSitterCLI installs a current tree-sitter CLI: brew on macOS, the
+// release binary into /usr/local/bin on Linux, beside the prebuilt nvim.
+func ensureTreeSitterCLI(ctx context.Context) error {
+	if treeSitterCurrent(ctx) {
+		return nil
+	}
+	if core.IsMac() {
+		return installPkg(ctx, "tree-sitter-cli")
+	}
+
+	assets, err := latestAssets(ctx, "tree-sitter/tree-sitter")
+	if err != nil {
+		return err
+	}
+	asset, ok := pickAsset(assets, treeSitterFilter(runtime.GOARCH))
+	if !ok {
+		return fmt.Errorf("no tree-sitter release binary for %s", runtime.GOARCH)
+	}
+
+	tmp, err := os.MkdirTemp("", "tree-sitter-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	gz := filepath.Join(tmp, "tree-sitter.gz")
+	if err := runNetCmd(ctx, "curl", "-fsSL", "-o", gz, asset.URL); err != nil {
+		return fmt.Errorf("download tree-sitter: %w", err)
+	}
+	if err := runCmd(ctx, "gunzip", gz); err != nil {
+		return fmt.Errorf("decompress tree-sitter: %w", err)
+	}
+	if err := runCmd(ctx, "sudo", "install", "-m", "0755", filepath.Join(tmp, "tree-sitter"), "/usr/local/bin/tree-sitter"); err != nil {
+		return fmt.Errorf("install tree-sitter: %w", err)
+	}
+	core.Ok("Installed tree-sitter CLI from %s", asset.Name)
+	return nil
+}
 
 var nvimVersionRe = regexp.MustCompile(`v(\d+)\.(\d+)\.(\d+)`)
 
@@ -320,12 +392,25 @@ func (NvimModule) Install(ctx context.Context) error {
 		return err
 	}
 
-	// Sync plugins headlessly
+	if core.DryRun {
+		core.Info("would ensure tree-sitter CLI >= %d.%d", minTreeSitterMajor, minTreeSitterMinor)
+	} else if err := ensureTreeSitterCLI(ctx); err != nil {
+		core.AlwaysWarn("tree-sitter CLI: %v — treesitter parsers will not build", err)
+	}
+
+	// Sync plugins headlessly, then build the parsers init.lua lists in
+	// vim.g.ts_parsers. nvim-treesitter's install is asynchronous, and a plain
+	// `+qa` would quit before a single parser compiled.
 	if !core.DryRun {
 		if _, err := exec.LookPath("nvim"); err == nil {
 			core.Info("Syncing Neovim plugins...")
 			if err := runCmd(ctx, "nvim", "--headless", "+Lazy! sync", "+qa"); err != nil {
 				core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
+			}
+			core.Info("Building treesitter parsers...")
+			if err := runCmd(ctx, "nvim", "--headless",
+				"+lua require('nvim-treesitter').install(vim.g.ts_parsers):wait(300000)", "+qa"); err != nil {
+				core.Warn("Treesitter parser build failed — run :TSUpdate in nvim")
 			}
 		}
 	}

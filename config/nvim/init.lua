@@ -655,15 +655,23 @@ require('lazy').setup({
     end,
   },
   { -- Treesitter
+    -- main, not the frozen master. It needs Neovim 0.12+ and the tree-sitter
+    -- CLI, which the nvim module installs; it does not support lazy-loading.
     'nvim-treesitter/nvim-treesitter',
+    branch = 'main',
+    lazy = false,
     build = ':TSUpdate',
     config = function()
-      require('nvim-treesitter').setup()
+      local ts = require 'nvim-treesitter'
+      ts.setup()
       vim.treesitter.language.register('markdown', 'markdown_inline')
 
-      local ensure = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc' }
-      for _, lang in ipairs(ensure) do
-        pcall(function() vim.treesitter.language.add(lang) end)
+      -- Read by `dfinstall install nvim` too, which builds these synchronously.
+      vim.g.ts_parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc' }
+      -- Asynchronous, and a no-op for parsers that are already built. Absent
+      -- on a checkout still on master, until Lazy moves it to main.
+      if ts.install then
+        ts.install(vim.g.ts_parsers)
       end
 
       vim.api.nvim_create_autocmd('FileType', {
