@@ -9,7 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -397,6 +400,49 @@ func tailLines(s string, n int) []string {
 	return append(out, lines[len(lines)-n:]...)
 }
 
+// minNodeMajor is what Mason's markdownlint-cli2 declares (node >= 22); it
+// dies on Ubuntu 24.04's Node 18 and only happens to run on Debian trixie's 20.
+const minNodeMajor = 22
+
+var nodeVersionRe = regexp.MustCompile(`^v(\d+)\.`)
+
+// nodeTooOld reports whether node is missing or older than minNodeMajor.
+func nodeTooOld(ctx context.Context) bool {
+	out, err := runProbe(ctx, "node", "--version")
+	if err != nil {
+		return true
+	}
+	m := nodeVersionRe.FindSubmatch(bytes.TrimSpace(out))
+	if m == nil {
+		return true
+	}
+	major, _ := strconv.Atoi(string(m[1]))
+	return major < minNodeMajor
+}
+
+// addNodeSourceRepo mirrors what NodeSource's setup_22.x script configures,
+// without piping a remote script into a root shell: the signed repo plus a pin
+// so its nodejs wins over the distro's.
+func addNodeSourceRepo(ctx context.Context) error {
+	repo := fmt.Sprintf(`Types: deb
+URIs: https://deb.nodesource.com/node_%d.x
+Suites: nodistro
+Components: main
+Architectures: %s
+Signed-By: /etc/apt/keyrings/nodesource.asc`, minNodeMajor, runtime.GOARCH)
+	pin := "Package: nodejs\nPin: origin deb.nodesource.com\nPin-Priority: 600\n"
+	if err := writeFileAsRoot(ctx, "/etc/apt/preferences.d/nodesource", []byte(pin), 0644); err != nil {
+		return fmt.Errorf("writing apt pin: %w", err)
+	}
+	return addAptRepo(ctx,
+		"NodeSource",
+		"https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key",
+		"/etc/apt/keyrings/nodesource.asc",
+		repo,
+		"/etc/apt/sources.list.d/nodesource.sources",
+	)
+}
+
 func (PackagesModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would install packages: git, zsh, curl, wget, htop, rsync, gh, ...")
@@ -444,6 +490,18 @@ func (PackagesModule) Install(ctx context.Context) error {
 	// locales has no binary to check — ensure the package is present
 	if !pkgInstalled("locales") {
 		pkgs = append(pkgs, "locales")
+	}
+
+	// Distro Node is too old for Mason's markdownlint-cli2 on Debian-family
+	// systems, so it comes from NodeSource there. Its nodejs bundles npm and
+	// conflicts with the distro npm, which apt then removes.
+	if core.AptBin() != "" && nodeTooOld(ctx) {
+		if err := addNodeSourceRepo(ctx); err != nil {
+			core.Warn("NodeSource repo: %v — keeping the distro Node.js", err)
+		} else {
+			pkgs = slices.DeleteFunc(pkgs, func(p string) bool { return p == "nodejs" || p == "npm" })
+			pkgs = append(pkgs, "nodejs")
+		}
 	}
 
 	if len(pkgs) == 0 {
