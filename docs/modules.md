@@ -22,13 +22,17 @@ If `locale-gen` is missing, installs the `locales` package first. Then uncomment
 
 Installs core system packages using the detected package manager (apt-get, dnf, pacman, or brew).
 
-**Packages:** git, zsh, curl, wget, htop, rsync, tmux, nodejs, npm, python3, golang, locales, zsh-syntax-highlighting
+**Packages:** git, zsh, curl, wget, htop, rsync, tmux, nodejs, npm, python3, golang, gh, locales, zsh-syntax-highlighting
+
+`gh` is here because `config/git/gitconfig` uses `gh auth git-credential` as the github.com credential helper.
+
+On macOS it also installs the GNU userland from Homebrew (`macGNUFormulae`): coreutils, findutils, gnu-sed, grep, gawk, gnu-tar, make, diffutils, bash and rsync, checked by formula since Apple ships its own `sed`, `bash` and `rsync`. `~/.profile` and `~/.zsh.d/path.zsh` put each keg's `libexec/gnubin` ahead of `/usr/bin`, so the unprefixed names are the GNU ones, as on Linux. The gnubin list is named rather than globbed: libtool has a gnubin too, and GNU libtool in front of Apple's breaks native builds. `path.zsh` also re-prepends Homebrew itself, because `/etc/zprofile`'s `path_helper` moves `/usr/bin` back to the front in every login shell, which includes each tmux pane.
 
 Neovim is deliberately **not** installed here — apt's neovim is too old (Debian stable ships 0.7–0.10, telescope.nvim needs >= 0.11), so the nvim module installs the official prebuilt tarball instead.
 
 Skips packages that are already installed. External command output is suppressed in default mode (shown with `-v`). Spinner pauses automatically for sudo password prompts.
 
-**Status:** Checks 11 tool binaries via `$PATH`.
+**Status:** Checks 12 tool binaries via `$PATH`.
 
 ---
 
