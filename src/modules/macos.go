@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -134,6 +135,8 @@ func macDoctorResults() []DoctorResult {
 		}
 	}
 
+	results = append(results, tlsTrustResult(probe))
+
 	gk := "unknown"
 	if out, _ := probe("spctl", "--status"); out != "" {
 		gk = out
@@ -141,4 +144,46 @@ func macDoctorResults() []DoctorResult {
 	results = append(results, DoctorResult{Name: "gatekeeper", OK: true, Detail: gk})
 
 	return results
+}
+
+// tlsTrustResult checks the CA wiring the bootstrap writes when it finds a
+// TLS-inspecting proxy. It cannot tell whether traffic is being intercepted
+// without the network, which doctor never touches, so it only checks that a
+// bundle in use still holds every certificate in the System keychain: a proxy
+// root that rotated since the bootstrap is missing from it, and every tool
+// pointed at the bundle then fails verification.
+func tlsTrustResult(probe func(string, ...string) (string, bool)) DoctorResult {
+	const name = "tls trust"
+	bundlePath := core.HomeTarget(".local", "share", "dfinstall", "ca-bundle.pem")
+	if _, err := os.Stat(core.HomeTarget(".config", "dfinstall", "ca.sh")); err != nil {
+		return DoctorResult{Name: name, OK: true, Detail: "no CA bundle wired (bootstrap saw no TLS inspection)"}
+	}
+	bundle, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return DoctorResult{Name: name, OK: false, Detail: "ca.sh is wired but the bundle is unreadable: " + err.Error(),
+			Extra: []string{"re-run bootstrap/macos-setup.sh --skip-ghostty --skip-dotfiles to rebuild it"}}
+	}
+	local, ok := probe("security", "find-certificate", "-a", "-p", "/Library/Keychains/System.keychain")
+	if !ok {
+		return DoctorResult{Name: name, OK: true, Detail: "bundle " + bundlePath + " (could not read the System keychain to compare)"}
+	}
+	if missing := missingPEMs(local, string(bundle)); missing > 0 {
+		return DoctorResult{Name: name, OK: false,
+			Detail: fmt.Sprintf("%d System keychain certificate(s) are not in %s", missing, bundlePath),
+			Extra:  []string{"the proxy's root CA probably changed", "re-run bootstrap/macos-setup.sh --skip-ghostty --skip-dotfiles to rebuild it"}}
+	}
+	return DoctorResult{Name: name, OK: true, Detail: "bundle " + bundlePath + " covers the System keychain"}
+}
+
+// missingPEMs counts the PEM certificates in have that want does not contain.
+func missingPEMs(have, want string) int {
+	const end = "-----END CERTIFICATE-----"
+	n := 0
+	for _, block := range strings.SplitAfter(have, end) {
+		block = strings.TrimSpace(block)
+		if strings.HasSuffix(block, end) && !strings.Contains(want, block) {
+			n++
+		}
+	}
+	return n
 }
