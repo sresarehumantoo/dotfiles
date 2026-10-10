@@ -551,6 +551,18 @@ restart, not just a reload.
 
 ---
 
+## aerospace
+
+**File:** `modules/aerospace.go`
+
+macOS only. Links `config/aerospace/aerospace.toml` to `$XDG_CONFIG_HOME/aerospace/aerospace.toml`: the [AeroSpace](https://github.com/nikitabobko/AeroSpace) counterpart of the sway config, with the same keys on `ctrl-alt` instead of Super (cmd would take Paste, Save and Select All from every app; alt would swallow tmux's `M-` binds, since Ghostty sends Option as Alt). sway's `$mod+Ctrl` chords are `ctrl-alt-cmd`.
+
+`install all` only configures an AeroSpace that is already installed; `dfinstall install aerospace` installs the cask (`nikitabobko/tap/aerospace`) first. Warns if `~/.aerospace.toml` also exists, because AeroSpace then loads neither. Uninstall removes the link and leaves the app.
+
+**Status:** Checks 1 symlink, and reports nothing when AeroSpace isn't installed.
+
+---
+
 ## htop
 
 **File:** `modules/htop.go`
