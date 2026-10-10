@@ -11,6 +11,13 @@ export XDG_DATA_HOME="$HOME/.local/share"
 export XDG_STATE_HOME="$HOME/.local/state"
 export XDG_CACHE_HOME="$HOME/.cache"
 
+# CA bundle for tools that ignore the macOS keychain, written by the macOS
+# bootstrap only when it finds a TLS-inspecting proxy. Ahead of Homebrew and
+# everything else here that may reach the network.
+if [ -r "$HOME/.config/dfinstall/ca.sh" ]; then
+    . "$HOME/.config/dfinstall/ca.sh"
+fi
+
 # Homebrew on macOS: /opt/homebrew on Apple Silicon, /usr/local on Intel, and
 # ~/homebrew for an account that cannot create either. Ahead of the npm block,
 # which needs brew's npm on PATH to find it.
