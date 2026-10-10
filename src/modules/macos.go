@@ -4,11 +4,8 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -18,42 +15,12 @@ import (
 // and other admin-owned paths are not writable, and Homebrew may have been
 // installed by someone else.
 
-const wOK = 0x2 // access(2) W_OK
-
-func writable(path string) bool {
-	return path != "" && syscall.Access(path, wOK) == nil
-}
-
-// brewPrefix returns Homebrew's prefix, or "" when brew is not installed.
-func brewPrefix() string {
-	if p := os.Getenv("HOMEBREW_PREFIX"); p != "" {
-		return p
-	}
-	brew, err := exec.LookPath("brew")
-	if err != nil {
-		return ""
-	}
-	return filepath.Dir(filepath.Dir(brew))
-}
-
-// brewUsable reports whether this user can install into the Homebrew prefix.
-// Homebrew supports one owning account; anyone else gets permission errors
-// from every install.
-func brewUsable() bool {
-	prefix := brewPrefix()
-	if prefix == "" {
-		return false
-	}
-	if cellar := filepath.Join(prefix, "Cellar"); writable(cellar) {
-		return true
-	}
-	return writable(prefix)
-}
+func brewPrefix() string { return core.BrewPrefix() }
 
 // caskAppDir is where a cask's .app should go: /Applications when this user
 // can write it, otherwise ~/Applications, which needs no admin.
 func caskAppDir() string {
-	if writable("/Applications") {
+	if core.Writable("/Applications") {
 		return "/Applications"
 	}
 	return core.HomeTarget("Applications")
@@ -94,12 +61,17 @@ func macDoctorResults() []DoctorResult {
 	case prefix == "":
 		results = append(results, DoctorResult{Name: "homebrew", OK: false,
 			Detail: "not installed", Extra: []string{"run bootstrap/macos-setup.sh, or have IT install Homebrew for this account"}})
-	case !brewUsable():
+	case !core.BrewWritable(prefix):
 		results = append(results, DoctorResult{Name: "homebrew", OK: false,
 			Detail: prefix + " is not writable by this user",
-			Extra:  []string{"Homebrew supports one owning account; every brew install will fail with permission errors", "ask IT to chown the prefix to you, or use a Homebrew installed for your account"}})
+			Extra: []string{"Homebrew supports one owning account; every brew install will fail with permission errors",
+				"re-run bootstrap/macos-setup.sh: with admin the official installer can take ownership, or --brew-prefix <path> installs one of your own"}})
 	default:
-		results = append(results, DoctorResult{Name: "homebrew", OK: true, Detail: prefix})
+		how := "found"
+		if data, err := os.ReadFile(core.BrewPrefixFile()); err == nil && strings.TrimSpace(string(data)) == prefix {
+			how = "recorded in " + core.BrewPrefixFile()
+		}
+		results = append(results, DoctorResult{Name: "homebrew", OK: true, Detail: prefix + " (" + how + ")"})
 	}
 
 	results = append(results, DoctorResult{Name: "app folder", OK: true, Detail: "casks install to " + caskAppDir()})
