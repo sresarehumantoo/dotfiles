@@ -123,7 +123,7 @@ vim.g.markdown_folding = 1
 
 -- The notes vault (obsidian.nvim workspace). Markdown inside it gets relaxed
 -- linting and no format-on-save; see lua/custom/plugins/notes.lua.
-vim.g.notes_dir = vim.fs.normalize(vim.env.NOTES_DIR or '~/notes')
+vim.g.notes_dir = vim.fs.normalize(vim.fn.fnamemodify(vim.fn.expand(vim.env.NOTES_DIR or '~/notes'), ':p'))
 
 -- This repo's source for ~/.gitconfig matches none of the built-in gitconfig
 -- patterns, so it opened with no filetype and no 'commentstring'.
