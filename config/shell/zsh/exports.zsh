@@ -20,3 +20,15 @@ export EDITOR='nvim'
 if [[ -z "$NVM_DIR" ]] && (( $+commands[npm] )) && [[ "$commands[npm]" != "$HOME/.nvm/"* ]]; then
   export NPM_CONFIG_PREFIX="$HOME/.local"
 fi
+
+# The tmux server outlives a sway restart, so a pane's SWAYSOCK can name a dead
+# socket. Attaching from the new session refreshes tmux's copy (update-environment
+# in tmux.conf); this pulls it into shells that were already running.
+if [[ -n $TMUX ]]; then
+  _df_refresh_wayland_env() {
+    [[ -n $SWAYSOCK && ! -S $SWAYSOCK ]] || return 0
+    eval "$(tmux show-environment -s SWAYSOCK 2>/dev/null; tmux show-environment -s WAYLAND_DISPLAY 2>/dev/null)"
+  }
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _df_refresh_wayland_env
+fi
