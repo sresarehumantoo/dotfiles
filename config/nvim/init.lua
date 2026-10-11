@@ -425,7 +425,7 @@ require('lazy').setup({
       -- Open the full diagnostic for the current line in a wrapped float.
       vim.keymap.set('n', '<leader>e', vim.diagnostic.open_float, { desc = 'Show diagnostic [E]rror float' })
 
-      local capabilities = require('blink.cmp').get_lsp_capabilities()
+      vim.lsp.config('*', { capabilities = require('blink.cmp').get_lsp_capabilities() })
 
       local servers = {
         -- --query-driver lets clangd run the mingw-w64 cross compilers to
@@ -445,6 +445,15 @@ require('lazy').setup({
               disableOrganizeImports = true,
             },
           },
+          -- pyright only sees the interpreter on PATH, so a project's uv/venv
+          -- .venv is invisible unless activated: every import then reads as
+          -- unresolved. Point it at the project's .venv when there is one.
+          before_init = function(_, config)
+            local python = config.root_dir and config.root_dir .. '/.venv/bin/python'
+            if python and vim.fn.executable(python) == 1 then
+              config.settings.python = vim.tbl_extend('force', config.settings.python or {}, { pythonPath = python })
+            end
+          end,
         },
         ruff = {
           -- Defer hover to pyright so a single source answers `K`.
@@ -464,6 +473,10 @@ require('lazy').setup({
         },
       }
 
+      for name, config in pairs(servers) do
+        vim.lsp.config(name, config)
+      end
+
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua',
@@ -473,16 +486,12 @@ require('lazy').setup({
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
+      -- mason-lspconfig v2 enables every installed server with vim.lsp.enable,
+      -- picking up the vim.lsp.config above. Mason's stylua also ships an LSP
+      -- mode; conform already runs it as a formatter.
       require('mason-lspconfig').setup {
         ensure_installed = {},
-        automatic_installation = false,
-        handlers = {
-          function(server_name)
-            local server = servers[server_name] or {}
-            server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
-          end,
-        },
+        automatic_enable = { exclude = { 'stylua' } },
       }
     end,
   },
