@@ -108,6 +108,8 @@ Prefix: **Alt+a**
 
 Leader: **Space**
 
+For a hands-on walkthrough of these, opened in nvim and practiced as you read, see the [Neovim tutorial](nvim-tutorial/README.md).
+
 ### Core
 
 | Key | Action |

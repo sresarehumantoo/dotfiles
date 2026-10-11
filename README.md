@@ -343,6 +343,7 @@ make clean          # rm -rf bin/
 | [Building from Source](docs/building.md) | Requirements, dependencies, cross-compilation |
 | [Devtools Scripts](docs/devtools.md) | Utility scripts and shared helpers |
 | [Keybindings](docs/keybindings.md) | Custom bindings across tmux, nvim, zsh, and the menus |
+| [Neovim Tutorial](docs/nvim-tutorial/README.md) | Hands-on chapters to work through in nvim: editing, search, LSP, debugging, notes |
 | [Sway Desktop](docs/sway.md) | The `sway` module — waybar, swaync, outputs, and the Alt reservation |
 | [Windows Cross-Development](docs/windev.md) | The opt-in `windev` module — toolchains, nvim, `winbuild` |
 | [Contributing](docs/contributing.md) | Adding modules, conventions, testing |
