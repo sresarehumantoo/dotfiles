@@ -7,7 +7,7 @@ return {
       local lint = require 'lint'
       lint.linters_by_ft = {
         markdown = { 'markdownlint-cli2' },
-        go = { 'golangci-lint' },
+        go = { 'golangcilint' },
       }
 
       -- Notes in the vault are prose, not published docs: lint them only for
