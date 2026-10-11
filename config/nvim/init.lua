@@ -636,7 +636,7 @@ require('lazy').setup({
       -- Sort spelling suggestions alphabetically among themselves (they have no
       -- meaningful fuzzy score), everything else by score as usual.
       fuzzy = {
-        implementation = 'lua',
+        implementation = 'prefer_rust_with_warning',
         sorts = {
           function(a, b)
             local sort = require 'blink.cmp.fuzzy.sort'
