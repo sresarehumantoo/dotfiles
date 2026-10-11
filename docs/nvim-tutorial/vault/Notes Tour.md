@@ -1,6 +1,6 @@
 # Notes Tour
 
-This note lives in the tutorial's sample vault. If `Enter` on the first link below does nothing, nvim isn't using this vault: reopen it with the command in `Getting Here.md`, next to this file.
+This note lives in the tutorial's sample vault, which nvim registers alongside your own notes vault.
 
 ## Links
 

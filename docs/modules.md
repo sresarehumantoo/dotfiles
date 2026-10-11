@@ -425,7 +425,7 @@ Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
 **Custom plugins:** colorizer, comment, flash, harpoon, markdown (render-markdown, bullets.vim), notes (obsidian.nvim), oil, smear-cursor, undotree
 
-notes turns the directory in `$NOTES_DIR` (default `~/notes`) into an Obsidian-compatible vault and loads only once that directory exists. Markdown inside it gets relaxed linting and no format-on-save.
+notes turns the directory in `$NOTES_DIR` (default `~/notes`) into an Obsidian-compatible vault, alongside the tutorial's sample vault at `docs/nvim-tutorial/vault` (found through the symlinked `init.lua`); vaults that don't exist are skipped. Markdown inside a vault gets relaxed linting and no format-on-save.
 
 smear-cursor draws a cursor trail inside nvim. It disables itself when running under
 Ghostty, whose `custom-shader` already draws one across the whole terminal — otherwise the

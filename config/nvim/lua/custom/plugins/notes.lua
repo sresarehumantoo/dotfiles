@@ -1,9 +1,12 @@
 -- Obsidian-style vault in nvim: [[wikilink]] completion and following, backlinks,
--- tags, daily notes, image paste. The vault is vim.g.notes_dir ($NOTES_DIR,
--- default ~/notes), and the plugin loads only once that directory exists. Lint
--- and format-on-save treat it differently (init.lua, kickstart/plugins/lint.lua).
+-- tags, daily notes, image paste. The vaults are vim.g.notes_dirs ($NOTES_DIR,
+-- default ~/notes, plus the tutorial's sample vault); one that doesn't exist is
+-- skipped, and the plugin loads only once one does. Lint and format-on-save
+-- treat them differently (init.lua, kickstart/plugins/lint.lua).
 -- render-markdown draws the buffer, so this plugin's own UI layer is off.
-local dir = vim.g.notes_dir
+local dirs = vim.tbl_filter(function(dir)
+  return vim.fn.isdirectory(dir) == 1
+end, vim.g.notes_dirs)
 
 local function cmd(sub)
   return '<cmd>Obsidian ' .. sub .. '<CR>'
@@ -12,10 +15,17 @@ end
 return {
   'obsidian-nvim/obsidian.nvim',
   version = '*',
-  -- Without the vault, setup aborts and every <leader>n key is a stack trace.
-  cond = vim.fn.isdirectory(dir) == 1,
+  -- With no vault, setup aborts and every <leader>n key is a stack trace.
+  cond = #dirs > 0,
   cmd = 'Obsidian',
-  event = { 'BufReadPre ' .. dir .. '/*.md', 'BufNewFile ' .. dir .. '/*.md' },
+  event = {
+    {
+      event = { 'BufReadPre', 'BufNewFile' },
+      pattern = vim.tbl_map(function(dir)
+        return dir .. '/*.md'
+      end, dirs),
+    },
+  },
   keys = {
     { '<leader>nn', cmd 'new', desc = '[N]otes: [N]ew' },
     { '<leader>nd', cmd 'today', desc = '[N]otes: to[D]ay' },
@@ -32,7 +42,9 @@ return {
   ---@type obsidian.config
   opts = {
     legacy_commands = false,
-    workspaces = { { name = 'notes', path = dir } },
+    workspaces = vim.tbl_map(function(dir)
+      return { name = vim.fs.basename(dir), path = dir }
+    end, dirs),
     -- Name the file after the title, as the Obsidian app does, rather than the
     -- plugin's default random zettel ID.
     note_id_func = function(title)
@@ -47,4 +59,22 @@ return {
     daily_notes = { folder = 'daily', workdays_only = false },
     checkbox = { order = { ' ', 'x' } },
   },
+  config = function(_, opts)
+    require('obsidian').setup(opts)
+    -- The plugin switches workspace only on entering a note in another vault,
+    -- so after a visit to the tutorial vault, <leader>nd from a code file would
+    -- still write today's note there. Leaving the vaults restores the default.
+    vim.api.nvim_create_autocmd('BufEnter', {
+      group = vim.api.nvim_create_augroup('custom-notes-default-workspace', { clear = true }),
+      callback = function(ev)
+        if vim.bo[ev.buf].buftype ~= '' or ev.file == '' or ev.file:match '^%a+://' then
+          return
+        end
+        local default = Obsidian.workspaces[1]
+        if Obsidian.workspace ~= default and not require('obsidian.api').find_workspace(ev.file) then
+          require('obsidian.workspace').set(default)
+        end
+      end,
+    })
+  end,
 }
