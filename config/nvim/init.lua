@@ -134,9 +134,17 @@ if tutorial_vault ~= notes_dirs[1] and vim.fn.isdirectory(tutorial_vault) == 1 t
 end
 vim.g.notes_dirs = notes_dirs
 
--- This repo's source for ~/.gitconfig matches none of the built-in gitconfig
--- patterns, so it opened with no filetype and no 'commentstring'.
-vim.filetype.add { pattern = { ['.*/config/git/gitconfig'] = 'gitconfig' } }
+-- Files with no built-in detection, which opened with no filetype and no
+-- 'commentstring': this repo's source for ~/.gitconfig, and Konsole's KDE-style
+-- INI files, here and where Konsole keeps them.
+vim.filetype.add {
+  filename = { konsolerc = 'confini' },
+  pattern = {
+    ['.*/config/git/gitconfig'] = 'gitconfig',
+    ['.*/konsole/.*%.profile'] = 'confini',
+    ['.*/konsole/.*%.colorscheme'] = 'confini',
+  },
+}
 
 -- [[ Basic Keymaps ]]
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
