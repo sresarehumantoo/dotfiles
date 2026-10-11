@@ -121,6 +121,10 @@ vim.o.foldlevel = 99
 -- linting and no format-on-save; see lua/custom/plugins/notes.lua.
 vim.g.notes_dir = vim.fs.normalize(vim.env.NOTES_DIR or '~/notes')
 
+-- This repo's source for ~/.gitconfig matches none of the built-in gitconfig
+-- patterns, so it opened with no filetype and no 'commentstring'.
+vim.filetype.add { pattern = { ['.*/config/git/gitconfig'] = 'gitconfig' } }
+
 -- [[ Basic Keymaps ]]
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
