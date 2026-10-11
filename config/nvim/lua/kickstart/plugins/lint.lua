@@ -7,7 +7,23 @@ return {
       local lint = require 'lint'
       lint.linters_by_ft = {
         markdown = { 'markdownlint-cli2' },
+        go = { 'golangci-lint' },
       }
+
+      -- Notes in the vault are prose, not published docs: lint them only for
+      -- markup that renders wrong. markdownlint-cli2 reads stdin here, so it
+      -- would otherwise only find a config in Neovim's cwd.
+      lint.linters['markdownlint-notes'] = vim.tbl_extend('force', lint.linters['markdownlint-cli2'], {
+        args = { '--config', vim.fn.stdpath 'config' .. '/notes.markdownlint.yaml', '-' },
+      })
+
+      -- Style lint is reference material, not something to read while typing:
+      -- a sign in the gutter, details on demand with <leader>e. The global
+      -- virtual_lines would otherwise unfold every finding under the cursor
+      -- line and shove the text down on each j/k.
+      for _, name in ipairs { 'markdownlint-cli2', 'markdownlint-notes' } do
+        vim.diagnostic.config({ virtual_lines = false, virtual_text = false, underline = false }, lint.get_namespace(name))
+      end
 
       -- To allow other plugins to add linters to require('lint').linters_by_ft,
       -- instead set linters_by_ft like this:
@@ -60,6 +76,9 @@ return {
           -- nonexistent binary and spam "ENOENT: no such file or directory" on
           -- every BufEnter.
           local names = lint.linters_by_ft[vim.bo.filetype] or {}
+          if vim.bo.filetype == 'markdown' and vim.startswith(vim.api.nvim_buf_get_name(0), vim.g.notes_dir .. '/') then
+            names = { 'markdownlint-notes' }
+          end
           local runnable = {}
           for _, name in ipairs(names) do
             local linter = lint.linters[name]

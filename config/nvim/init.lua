@@ -91,7 +91,10 @@ vim.o.signcolumn = 'yes'
 
 vim.o.updatetime = 250
 
-vim.o.timeoutlen = 300
+-- How long a key that is also a prefix (gc vs gcc, <leader>b vs <leader>bn)
+-- waits for the rest. At 300 a brief pause before the last c of gcc ran the
+-- gc operator instead, and gc + c does nothing.
+vim.o.timeoutlen = 500
 
 vim.o.splitright = true
 vim.o.splitbelow = true
@@ -106,6 +109,25 @@ vim.o.cursorline = true
 vim.o.scrolloff = 10
 
 vim.o.confirm = true
+
+-- Folds come from treesitter where a parser exists; everything starts open.
+vim.o.foldmethod = 'expr'
+vim.o.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+vim.o.foldtext = ''
+vim.o.foldlevel = 99
+-- Markdown folds by heading with the runtime ftplugin's regex folder instead.
+-- Its treesitter fold query uses #trim!, which on 0.12.6 reads a stale tree
+-- after an edit that shortens the buffer: J on a heading line raised "Index
+-- out of bounds" from the async fold update (reproduced with --clean too).
+vim.g.markdown_folding = 1
+
+-- The notes vault (obsidian.nvim workspace). Markdown inside it gets relaxed
+-- linting and no format-on-save; see lua/custom/plugins/notes.lua.
+vim.g.notes_dir = vim.fs.normalize(vim.fn.fnamemodify(vim.fn.expand(vim.env.NOTES_DIR or '~/notes'), ':p'))
+
+-- This repo's source for ~/.gitconfig matches none of the built-in gitconfig
+-- patterns, so it opened with no filetype and no 'commentstring'.
+vim.filetype.add { pattern = { ['.*/config/git/gitconfig'] = 'gitconfig' } }
 
 -- [[ Basic Keymaps ]]
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
@@ -425,7 +447,7 @@ require('lazy').setup({
       -- Open the full diagnostic for the current line in a wrapped float.
       vim.keymap.set('n', '<leader>e', vim.diagnostic.open_float, { desc = 'Show diagnostic [E]rror float' })
 
-      local capabilities = require('blink.cmp').get_lsp_capabilities()
+      vim.lsp.config('*', { capabilities = require('blink.cmp').get_lsp_capabilities() })
 
       local servers = {
         -- --query-driver lets clangd run the mingw-w64 cross compilers to
@@ -435,7 +457,24 @@ require('lazy').setup({
         clangd = {
           cmd = { 'clangd', '--query-driver=/usr/bin/*-w64-mingw32-*' },
         },
-        gopls = {},
+        gopls = {
+          settings = {
+            gopls = {
+              gofumpt = true,
+              staticcheck = true,
+              usePlaceholders = true,
+              analyses = { unusedparams = true, unusedwrite = true, nilness = true },
+              hints = {
+                assignVariableTypes = true,
+                compositeLiteralFields = true,
+                constantValues = true,
+                functionTypeParameters = true,
+                parameterNames = true,
+                rangeVariableTypes = true,
+              },
+            },
+          },
+        },
         -- Python: pyright owns types/hover/completion; ruff owns
         -- linting, import sorting and code actions (one fast binary).
         pyright = {
@@ -445,6 +484,15 @@ require('lazy').setup({
               disableOrganizeImports = true,
             },
           },
+          -- pyright only sees the interpreter on PATH, so a project's uv/venv
+          -- .venv is invisible unless activated: every import then reads as
+          -- unresolved. Point it at the project's .venv when there is one.
+          before_init = function(_, config)
+            local python = config.root_dir and config.root_dir .. '/.venv/bin/python'
+            if python and vim.fn.executable(python) == 1 then
+              config.settings.python = vim.tbl_extend('force', config.settings.python or {}, { pythonPath = python })
+            end
+          end,
         },
         ruff = {
           -- Defer hover to pyright so a single source answers `K`.
@@ -464,25 +512,30 @@ require('lazy').setup({
         },
       }
 
+      for name, config in pairs(servers) do
+        vim.lsp.config(name, config)
+      end
+
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua',
+        'goimports',
+        'gofumpt',
+        'golangci-lint',
+        'delve', -- debug adapters (kickstart/plugins/debug.lua), here so they
+        'debugpy', -- exist before the first <F5> rather than installing on it
         'markdownlint-cli2', -- markdown linter (nvim-lint, see kickstart/plugins/lint.lua)
         'prettierd', -- markdown formatter daemon (conform) — avoids node cold-start
         'prettier', -- fallback if the prettierd daemon isn't available
       })
       require('mason-tool-installer').setup { ensure_installed = ensure_installed }
 
+      -- mason-lspconfig v2 enables every installed server with vim.lsp.enable,
+      -- picking up the vim.lsp.config above. Mason's stylua also ships an LSP
+      -- mode; conform already runs it as a formatter.
       require('mason-lspconfig').setup {
         ensure_installed = {},
-        automatic_installation = false,
-        handlers = {
-          function(server_name)
-            local server = servers[server_name] or {}
-            server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
-          end,
-        },
+        automatic_enable = { exclude = { 'stylua' } },
       }
     end,
   },
@@ -505,7 +558,12 @@ require('lazy').setup({
       notify_on_error = false,
       format_on_save = function(bufnr)
         local disable_filetypes = { c = true, cpp = true }
-        if disable_filetypes[vim.bo[bufnr].filetype] then
+        local ft = vim.bo[bufnr].filetype
+        if disable_filetypes[ft] then
+          return nil
+        elseif ft == 'markdown' and vim.startswith(vim.api.nvim_buf_get_name(bufnr), vim.g.notes_dir .. '/') then
+          -- Notes are written the way they're written; prettier re-flowing
+          -- bullets and spacing on every save is churn. <leader>f still works.
           return nil
         else
           -- Generous timeout: a bare `prettier` is a cold Node process (~600ms
@@ -522,6 +580,7 @@ require('lazy').setup({
         lua = { 'stylua' },
         -- Organize imports first, then format — both run by ruff on save.
         python = { 'ruff_organize_imports', 'ruff_format' },
+        go = { 'goimports', 'gofumpt' },
         -- Prefer the persistent daemon; fall back to one-shot prettier.
         markdown = { 'prettierd', 'prettier', stop_after_first = true },
       },
@@ -604,7 +663,7 @@ require('lazy').setup({
       -- Sort spelling suggestions alphabetically among themselves (they have no
       -- meaningful fuzzy score), everything else by score as usual.
       fuzzy = {
-        implementation = 'lua',
+        implementation = 'prefer_rust_with_warning',
         sorts = {
           function(a, b)
             local sort = require 'blink.cmp.fuzzy.sort'
@@ -667,7 +726,27 @@ require('lazy').setup({
       vim.treesitter.language.register('markdown', 'markdown_inline')
 
       -- Read by `dfinstall install nvim` too, which builds these synchronously.
-      vim.g.ts_parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc' }
+      vim.g.ts_parsers = {
+        'bash',
+        'c',
+        'diff',
+        'go',
+        'gomod',
+        'gosum',
+        'gowork',
+        'html',
+        'json',
+        'lua',
+        'luadoc',
+        'markdown',
+        'markdown_inline',
+        'python',
+        'query',
+        'toml',
+        'vim',
+        'vimdoc',
+        'yaml',
+      }
       -- Asynchronous, and a no-op for parsers that are already built. Absent
       -- on a checkout still on master, until Lazy moves it to main.
       if ts.install then
@@ -682,6 +761,7 @@ require('lazy').setup({
     end,
   },
 
+  require 'kickstart.plugins.debug',
   require 'kickstart.plugins.indent_line',
   require 'kickstart.plugins.lint',
   require 'kickstart.plugins.autopairs',

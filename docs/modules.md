@@ -417,13 +417,15 @@ Key settings:
 
 Sets up a full Neovim configuration under `~/.config/nvim/`:
 
-- **21 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
+- **23 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, `notes.markdownlint.yaml` (the vault's relaxed lint rules), lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
 - **Plugin sync:** Runs `nvim --headless "+Lazy! sync" "+qa"` after linking
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
 
 Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
-**Custom plugins:** colorizer, comment, flash, harpoon, markdown, oil, smear-cursor, undotree
+**Custom plugins:** colorizer, comment, flash, harpoon, markdown (render-markdown, bullets.vim), notes (obsidian.nvim), oil, smear-cursor, undotree
+
+notes turns the directory in `$NOTES_DIR` (default `~/notes`) into an Obsidian-compatible vault and loads only once that directory exists. Markdown inside it gets relaxed linting and no format-on-save.
 
 smear-cursor draws a cursor trail inside nvim. It disables itself when running under
 Ghostty, whose `custom-shader` already draws one across the whole terminal — otherwise the
@@ -432,7 +434,7 @@ force it off on a terminal without its own trail.
 
 **Kickstart plugins:** autopairs, debug, gitsigns, indent_line, lint, neo-tree
 
-**Status:** Checks 21 symlinks.
+**Status:** Checks 23 symlinks.
 
 ---
 
@@ -458,8 +460,8 @@ Each language is best-effort: a failure warns but doesn't abort the rest, so a s
 Symlinks `config/nvim/windev/windev.lua` to `~/.config/nvim/lua/custom/plugins/windev.lua` — kickstart's `{ import = 'custom.plugins' }` picks it up automatically. The file:
 
 - Sets up the **OmniSharp** LSP for C# (init.lua's `servers` table already covers `clangd`, `gopls`, and `rust_analyzer` — they attach as soon as the binaries are on PATH).
-- Adds **conform formatters**: `clang-format` (c/cpp), `csharpier` (cs), `goimports`+`gofmt` (go), `rustfmt` (rust).
-- Adds **nvim-lint linters**: `cpplint` (c/cpp), `golangci-lint` (go), `clippy` (rust).
+- Adds **conform formatters**: `clang-format` (c/cpp), `csharpier` (cs), `rustfmt` (rust). Go formatting (`goimports`+`gofumpt`) and linting are in the base config.
+- Adds **nvim-lint linters**: `cpplint` (c/cpp), `clippy` (rust).
 - Wires **DAP** adapters: `codelldb` for C/C++/Rust (if on PATH) and `netcoredbg` for C# (from `~/.local/share/windev/`).
 
 The file uses dependencies + live runtime-table mutation so it extends conform/nvim-lint/nvim-dap without clobbering init.lua's existing config functions. Defers loading via `ft = { cs, c, cpp, go, rust }` to keep startup fast.

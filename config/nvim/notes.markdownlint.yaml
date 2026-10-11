@@ -1,0 +1,14 @@
+# markdownlint rules for the notes vault (see lua/kickstart/plugins/lint.lua).
+# Style rules are off; what's left catches markup that renders wrong.
+# MD018 stays off even though it's a correctness rule: it reads an Obsidian
+# #tag at the start of a line as a heading missing its space.
+default: false
+
+MD011: true # reversed link syntax (text)[url]
+MD037: true # spaces inside emphasis markers
+MD039: true # spaces inside link text
+MD042: true # empty link
+MD051: true # link fragment points at no heading
+MD052: true # reference link with no definition
+MD056: true # table row with the wrong number of cells
+MD058: true # table not surrounded by blank lines
