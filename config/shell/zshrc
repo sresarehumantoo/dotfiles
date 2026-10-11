@@ -135,8 +135,8 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
     _df_after=(\; display-message -d 4000 "new session '$_df_sess': nothing was restored")
     if ! tmux has-session 2>/dev/null; then
       # No server at all, so this shell is about to start one. Otherwise it
-      # forks into whatever cgroup this terminal lives in (one Ghostty window's
-      # scope, measured) and dies with anything that stops that scope. In
+      # forks into whatever cgroup this terminal lives in (under Ghostty, one
+      # window's scope) and dies with anything that stops that scope. In
       # tmux-server.scope it is covered by the tmux-.scope.d drop-in, which
       # makes shutdown wait for tmux-save.service to save first. On failure (no
       # user manager, macOS) `new-session -A` below starts it in place as before.
@@ -145,7 +145,7 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
           tmux new-session -d -s "$_df_sess" 2>/dev/null
       fi
 
-      # ⚠ WITH AUTO-RESTORE OFF, A FRESH SERVER WOULD OVERWRITE THE LAST SAVE
+      # WITH AUTO-RESTORE OFF, A FRESH SERVER WOULD OVERWRITE THE LAST SAVE
       # WITHIN 15 MINUTES. continuum's first autosave points resurrect's `last`
       # at this empty session and replaces pane_contents.tar.gz, which is a
       # single file not kept per snapshot, so after that `prefix C-r` restores

@@ -267,7 +267,7 @@ Marker file: `~/.config/tmux/restore-off` (present = OFF, absent = ON). Any run 
 
 | Command | Description |
 |---------|-------------|
-| `on` | Enable auto-restore at the next tmux server start (removes the marker) — the default |
+| `on` | Enable auto-restore at the next tmux server start (removes the marker); the default |
 | `off` | Disable auto-restore (creates the marker) |
 | `toggle` | Flip whichever way it's currently set |
 | `status` | Show current state, the marker path, and (if a server is running) the live `@continuum-restore` value, warning on mismatch. This is the default when no command is given. |
