@@ -112,7 +112,12 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   # client exits 0, measured on tmux 3.5a, and the `exit` below fires on 0. So
   # every new terminal you opened would CLOSE the previous one. `-D` only made
   # sense while this block was an `exec` into a shell nobody could return to.
-  _df_sess="${DF_TMUX_SESSION:-main}"
+  #
+  # tmux rewrites `.` and `:` in a session name to `_`, and a target reads them
+  # as window and pane separators, so `has-session -t =foo.bar` never matched
+  # the `foo_bar` that `-s foo.bar` created and every attach claimed nothing
+  # was restored. Apply the same rewrite up front.
+  _df_sess="${${DF_TMUX_SESSION:-main}//[.:]/_}"
 
   # ⚠ RESUME AND FRESH START ARE OTHERWISE INDISTINGUISHABLE. `-A` attaches if
   # the session exists and silently creates it if not, so when the server has
