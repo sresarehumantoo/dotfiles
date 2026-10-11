@@ -322,6 +322,7 @@ var nvimLinks = []nvimLink{
 	{"nvim/init.lua", "init.lua"},
 	{"nvim/lazy-lock.json", "lazy-lock.json"},
 	{"nvim/.stylua.toml", ".stylua.toml"},
+	{"nvim/notes.markdownlint.yaml", "notes.markdownlint.yaml"},
 
 	// Custom lua
 	{"nvim/lua/custom/keybinds.lua", "lua/custom/keybinds.lua"},
@@ -333,6 +334,7 @@ var nvimLinks = []nvimLink{
 	{"nvim/lua/custom/plugins/oil.lua", "lua/custom/plugins/oil.lua"},
 	{"nvim/lua/custom/plugins/flash.lua", "lua/custom/plugins/flash.lua"},
 	{"nvim/lua/custom/plugins/markdown.lua", "lua/custom/plugins/markdown.lua"},
+	{"nvim/lua/custom/plugins/notes.lua", "lua/custom/plugins/notes.lua"},
 	{"nvim/lua/custom/plugins/smear-cursor.lua", "lua/custom/plugins/smear-cursor.lua"},
 
 	// Filetype-specific editor options (native after/ftplugin)

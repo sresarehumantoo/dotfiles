@@ -252,8 +252,30 @@ Leader: **Space**
 | `leader zs` | Jump to previous misspelling + open `z=` suggestions |
 | `z=` | Spell suggestions for word under cursor |
 | `zg` | Add word to dictionary |
+| `Enter` / `o` (on a list item) | Continue the list or checkbox; `Enter` on an empty item ends it |
+| `leader x` | Toggle the checkbox under the cursor |
 
-Markdown buffers enable spell-check (`en_us`, CamelCase-aware); misspellings are only highlighted, never auto-corrected.
+Markdown buffers enable spell-check (`en_us`, CamelCase-aware); misspellings are only highlighted, never auto-corrected. markdownlint findings show as gutter signs only; read one with `leader e`. Headings fold with `za`/`zc`/`zo` (treesitter folds, all open by default).
+
+### Notes (obsidian.nvim)
+
+The vault is `$NOTES_DIR`, default `~/notes`. The plugin and these keys exist only once that directory does.
+
+| Key | Action |
+|-----|--------|
+| `leader nn` | New note (filename is the title, as in the Obsidian app) |
+| `leader nd` / `leader nD` | Today's daily note / pick a daily note |
+| `leader nf` | Find a note by name |
+| `leader ns` | Search note text |
+| `leader nt` | Notes by tag |
+| `leader nb` | Backlinks to this note |
+| `leader nl` | Links in this note |
+| `leader nr` | Rename the note, updating links to it |
+| `leader np` | Paste the clipboard image into `attachments/` |
+| `Enter` (normal) | Follow the link, open the tag, or toggle the checkbox under the cursor |
+| `]o` / `[o` | Next/previous link |
+
+Type `[[` for note-name completion. Inside the vault, Markdown is linted only for markup that renders wrong (`config/nvim/notes.markdownlint.yaml`) and is not reformatted on save; `leader f` still formats on demand.
 
 ### Debugging (nvim-dap)
 

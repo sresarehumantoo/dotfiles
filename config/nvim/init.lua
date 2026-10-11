@@ -107,6 +107,17 @@ vim.o.scrolloff = 10
 
 vim.o.confirm = true
 
+-- Folds come from treesitter where a parser exists (markdown folds by heading
+-- section); everything starts open.
+vim.o.foldmethod = 'expr'
+vim.o.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+vim.o.foldtext = ''
+vim.o.foldlevel = 99
+
+-- The notes vault (obsidian.nvim workspace). Markdown inside it gets relaxed
+-- linting and no format-on-save; see lua/custom/plugins/notes.lua.
+vim.g.notes_dir = vim.fs.normalize(vim.env.NOTES_DIR or '~/notes')
+
 -- [[ Basic Keymaps ]]
 vim.keymap.set('n', '<Esc>', '<cmd>nohlsearch<CR>')
 
@@ -536,7 +547,12 @@ require('lazy').setup({
       notify_on_error = false,
       format_on_save = function(bufnr)
         local disable_filetypes = { c = true, cpp = true }
-        if disable_filetypes[vim.bo[bufnr].filetype] then
+        local ft = vim.bo[bufnr].filetype
+        if disable_filetypes[ft] then
+          return nil
+        elseif ft == 'markdown' and vim.startswith(vim.api.nvim_buf_get_name(bufnr), vim.g.notes_dir .. '/') then
+          -- Notes are written the way they're written; prettier re-flowing
+          -- bullets and spacing on every save is churn. <leader>f still works.
           return nil
         else
           -- Generous timeout: a bare `prettier` is a cold Node process (~600ms
