@@ -334,7 +334,11 @@ DF_TMUX_SESSION=review ghostty
 > [!CAUTION]
 > **A resume and a fresh start are otherwise indistinguishable.** `new-session -A` attaches if the session exists and silently creates it if not, so when the server has gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty session with nothing to say the old one is not coming back — and `@continuum-restore` is `'off'` by default in `config/tmux/tmux.conf`, so nothing is restoring it either. `has-session` is now checked first, and a newly created session announces itself on the status line for 4s.
 >
-> **`=` makes the match exact, and it is required.** tmux target names are *prefix* matches, so a plain `has-session -t main` is satisfied by a session called `mainwork` (measured) and would report a resume that is not happening.
+> **`=` makes the match exact, and it is required.** tmux target names are *prefix* matches, so a plain `has-session -t main` is satisfied by a session called `mainwork` (measured) and would report a resume that is not happening. `DF_TMUX_SESSION` also has `.` and `:` rewritten to `_` first, as tmux does to the name it creates; otherwise `=foo.bar` is parsed as a pane target and never matches.
+>
+> **A fresh server pauses autosave.** Left alone, continuum's first autosave (15 minutes after the server starts) points resurrect's `last` at the empty session and overwrites `pane_contents.tar.gz`, which is one file rather than one per snapshot, so `prefix C-r` would restore nothing and the old scrollback would be gone. When a save exists, the block sets `@continuum-save-interval 0`, the banner names the window count and save time, and the status bar shows **SAVE PAUSED**. Restoring (`prefix C-r`) or saving deliberately (`prefix C-s`) resumes it, via resurrect's post-restore/post-save hooks in `tmux.conf`.
+>
+> **The server is started in `tmux-server.scope`** (`systemd-run --user --scope`) rather than inheriting the terminal's cgroup, which was one Ghostty window's scope. Without a user manager it falls back to starting in place.
 
 > [!CAUTION]
 > **The tmux SERVER gets the environment too, not just the panes.** The server is forked from the shell that starts it, which has not reached the `~/.zsh.d/*.zsh` sourcing yet, so `path.zsh`, `exports.zsh`, `locale.zsh` and `ssh.zsh` are now sourced explicitly just before `tmux new-session`. Panes always recovered on their own; anything spawned from the *server's* environment did not, and that is `run-shell`, `display-popup`, `tmux new-window <cmd>` and TPM. Measured before the fix: the server's `PATH` had no `~/.local/bin` at all (no `dfinstall`, no `sway-*` helper, nothing user-installed), and its `SSH_AUTH_SOCK` was `/run/user/1000/gcr/ssh` — gnome-keyring — while every pane used `~/.ssh/agent.sock`, so anything git-ish run from the server authenticated against a different agent holding different keys. It is a list rather than a glob of `~/.zsh.d` because `options.zsh` and `keybinds.zsh` configure this shell's own line editing and would be wasted work in a shell about to hand over; sourcing the four twice is harmless by construction, since `path.zsh` ends in `typeset -U path PATH` and the others only assign.
@@ -510,9 +514,13 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 
-**Uninstall:** Removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
+**Save on shutdown** (where `systemctl` exists): links `tmux-save.service` and a `tmux-.scope.d/save-first.conf` drop-in into `~/.config/systemd/user/`, then enables the service. Its `ExecStop` runs resurrect's save when the user manager stops, and the drop-in orders every `tmux-*.scope` (tmux's per-pane `tmux-spawn-*` scopes and the `tmux-server` scope) after it, so nothing in tmux is signalled until the save is done. It skips the save while autosave is paused (see the shell section).
 
-**Status:** Checks 2 symlinks. Shows `tpm +N plugins` when TPM is installed with plugins.
+**Compositor restarts:** `update-environment` adds `SWAYSOCK` and `WAYLAND_DISPLAY`, and `exports.zsh` refreshes a pane's `SWAYSOCK` from tmux when the socket it names is gone, because the server outlives sway. A forward clock jump that leaves continuum's last-save stamp in the future is reset on client attach or focus.
+
+**Uninstall:** Disables `tmux-save.service`, removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
+
+**Status:** Checks the symlinks (4 with systemd, 2 without). Shows `tpm +N plugins` counted in `~/.config/tmux/plugins/`.
 
 ---
 

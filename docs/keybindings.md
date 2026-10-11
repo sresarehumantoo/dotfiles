@@ -90,8 +90,8 @@ Prefix: **Alt+a**
 
 | Key | Action |
 |-----|--------|
-| `prefix C-s` | Save session |
-| `prefix C-r` | Restore session |
+| `prefix C-s` | Save session (also resumes a paused autosave) |
+| `prefix C-r` | Restore session (also resumes a paused autosave) |
 
 ### Logging Aliases
 
