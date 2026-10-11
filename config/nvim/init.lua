@@ -91,7 +91,10 @@ vim.o.signcolumn = 'yes'
 
 vim.o.updatetime = 250
 
-vim.o.timeoutlen = 300
+-- How long a key that is also a prefix (gc vs gcc, <leader>b vs <leader>bn)
+-- waits for the rest. At 300 a brief pause before the last c of gcc ran the
+-- gc operator instead, and gc + c does nothing.
+vim.o.timeoutlen = 500
 
 vim.o.splitright = true
 vim.o.splitbelow = true
