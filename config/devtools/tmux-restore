@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 # Toggle tmux session auto-restore (continuum + resurrect).
 #
-# Auto-restore is OFF by default in this dotfiles config — when ON, every
-# tmux server start replays the previously-captured pane contents over the
-# current panes, which clobbers in-progress output (test runs, watchers,
-# scrollback). Use this script to flip the marker file that tmux.conf
-# checks. The change applies the next time the tmux server starts.
+# Auto-restore is ON by default: a new tmux server restores the last save
+# within its first seconds. `off` creates the marker file tmux.conf checks
+# to opt out. The change applies the next time the tmux server starts.
 #
-# Manual restore (without enabling auto-restore) is still available
-# inside tmux via: prefix + Ctrl-r
+# Manual restore is always available inside tmux via: prefix + Ctrl-r
 set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 
-MARKER="$HOME/.config/tmux/restore-on"
+MARKER="$HOME/.config/tmux/restore-off"
+# The opt-in marker from when auto-restore defaulted to off. Nothing reads it
+# now, so any run removes it.
+rm -f "$HOME/.config/tmux/restore-on"
 
 usage() {
     header "tmux-restore"
     echo "Usage: tmux-restore [on|off|status|toggle]"
     echo ""
-    echo "  on       Enable auto-restore at next tmux server start."
-    echo "  off      Disable auto-restore (default)."
+    echo "  on       Enable auto-restore at next tmux server start (default)."
+    echo "  off      Disable auto-restore."
     echo "  toggle   Flip whichever way it's currently set."
     echo "  status   Show current state and the marker path."
     echo ""
@@ -31,7 +31,7 @@ usage() {
 }
 
 current_state() {
-    [[ -f "$MARKER" ]] && echo "on" || echo "off"
+    [[ -f "$MARKER" ]] && echo "off" || echo "on"
 }
 
 case "${1:-status}" in
@@ -39,21 +39,21 @@ case "${1:-status}" in
         usage
         ;;
     on)
-        mkdir -p "$(dirname "$MARKER")"
-        : > "$MARKER"
-        ok "Auto-restore: ON  (marker: $MARKER)"
+        rm -f "$MARKER"
+        ok "Auto-restore: ON  (marker removed)"
         info "Effect lands at the next tmux server start."
         ;;
     off)
-        rm -f "$MARKER"
-        ok "Auto-restore: OFF  (marker removed)"
+        mkdir -p "$(dirname "$MARKER")"
+        : > "$MARKER"
+        ok "Auto-restore: OFF  (marker: $MARKER)"
         info "Effect lands at the next tmux server start."
         ;;
     toggle)
         if [[ -f "$MARKER" ]]; then
-            "$0" off
-        else
             "$0" on
+        else
+            "$0" off
         fi
         ;;
     status)

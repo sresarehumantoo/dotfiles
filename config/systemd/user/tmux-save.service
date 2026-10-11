@@ -1,0 +1,23 @@
+# Saves the tmux sessions (tmux-resurrect) when the user manager stops, i.e. at
+# shutdown, reboot or logout. Without it a shutdown SIGTERMs the server and
+# everything since continuum's last 15-minute autosave is lost.
+#
+# Starting does nothing; the work is ExecStop. Ordering comes from
+# tmux-.scope.d/save-first.conf, which puts After=tmux-save.service on every
+# tmux-*.scope (each pane's tmux-spawn-*.scope and zshrc's tmux-server.scope).
+# Stop order is the reverse of start order, so those scopes are not signalled
+# until this save has finished and the snapshot holds the intact layout.
+[Unit]
+Description=Save tmux sessions before tmux is stopped
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+# Skipped while autosave is paused (@continuum-save-interval 0, set by zshrc on
+# a fresh server): saving then would replace the snapshot nobody restored yet.
+ExecStop=/bin/sh -c 's=$$(tmux show-options -gqv @resurrect-save-script-path) && [ -n "$$s" ] || exit 0; [ "$$(tmux show-options -gqv @continuum-save-interval)" = 0 ] && exit 0; exec "$$s" quiet'
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

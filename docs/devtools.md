@@ -261,24 +261,24 @@ $ tlog-clean session.log | grep -i error
 
 ### tmux-restore
 
-Toggles tmux session auto-restore (tmux-continuum + tmux-resurrect). Auto-restore is OFF by default in this config — when ON, every tmux server start replays previously-captured pane contents over the current panes, clobbering in-progress output. The script flips a marker file that `tmux.conf` checks; the change applies the next time the tmux server starts. Manual restore is always available inside tmux via `prefix + Ctrl-r`.
+Toggles tmux session auto-restore (tmux-continuum + tmux-resurrect). Auto-restore is ON by default: a new tmux server restores the last save within its first seconds, which is the only time continuum restores, so nothing running is overwritten. `off` creates a marker file that `tmux.conf` checks; the change applies the next time the tmux server starts. Manual restore is always available inside tmux via `prefix + Ctrl-r`. With auto-restore off, a fresh server pauses autosave (SAVE PAUSED) so it cannot replace the save nobody restored; see the shell section of [modules.md](modules.md).
 
-Marker file: `~/.config/tmux/restore-on` (present = ON, absent = OFF).
+Marker file: `~/.config/tmux/restore-off` (present = OFF, absent = ON). Any run also removes the obsolete opt-in marker `~/.config/tmux/restore-on`.
 
 | Command | Description |
 |---------|-------------|
-| `on` | Enable auto-restore at the next tmux server start (creates the marker) |
-| `off` | Disable auto-restore (removes the marker) — the default |
+| `on` | Enable auto-restore at the next tmux server start (removes the marker); the default |
+| `off` | Disable auto-restore (creates the marker) |
 | `toggle` | Flip whichever way it's currently set |
 | `status` | Show current state, the marker path, and (if a server is running) the live `@continuum-restore` value, warning on mismatch. This is the default when no command is given. |
 
 ```
 $ tmux-restore status
-  ▸ Auto-restore: off
-  ▸ Marker: /home/owen/.config/tmux/restore-on
+  ▸ Auto-restore: on
+  ▸ Marker: /home/owen/.config/tmux/restore-off
 
-$ tmux-restore on
-  ✓ Auto-restore: ON  (marker: /home/owen/.config/tmux/restore-on)
+$ tmux-restore off
+  ✓ Auto-restore: OFF  (marker: /home/owen/.config/tmux/restore-off)
   ▸ Effect lands at the next tmux server start.
 ```
 

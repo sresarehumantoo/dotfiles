@@ -23,6 +23,7 @@ return {
 
     -- Add your own debuggers here
     'leoluz/nvim-dap-go',
+    'mfussenegger/nvim-dap-python',
   },
   keys = {
     -- Basic debugging keymaps, feel free to change to your liking!
@@ -86,15 +87,19 @@ return {
       -- reasonable debug configurations
       automatic_installation = true,
 
-      -- You can provide additional configuration to the handlers,
-      -- see mason-nvim-dap README for more information
-      handlers = {},
+      -- nvim-dap-go and nvim-dap-python configure these two below; the
+      -- default handler would add a second, duplicate set of launch entries.
+      handlers = {
+        delve = function() end,
+        python = function() end,
+      },
 
       -- You'll need to check that you have the required things installed
       -- online, please don't ask me how to install them :)
       ensure_installed = {
         -- Update this to ensure that you have the debuggers for the langs you want
         'delve',
+        'python',
       },
     }
 
@@ -144,5 +149,9 @@ return {
         detached = vim.fn.has 'win32' == 0,
       },
     }
+
+    -- The adapter runs from Mason's debugpy venv; the program being debugged
+    -- uses $VIRTUAL_ENV, or the project's .venv/venv when nothing is active.
+    require('dap-python').setup(vim.fn.stdpath 'data' .. '/mason/packages/debugpy/venv/bin/python')
   end,
 }

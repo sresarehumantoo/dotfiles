@@ -112,14 +112,19 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   # client exits 0, measured on tmux 3.5a, and the `exit` below fires on 0. So
   # every new terminal you opened would CLOSE the previous one. `-D` only made
   # sense while this block was an `exec` into a shell nobody could return to.
-  _df_sess="${DF_TMUX_SESSION:-main}"
+  #
+  # tmux rewrites `.` and `:` in a session name to `_`, and a target reads them
+  # as window and pane separators, so `has-session -t =foo.bar` never matched
+  # the `foo_bar` that `-s foo.bar` created and every attach claimed nothing
+  # was restored. Apply the same rewrite up front.
+  _df_sess="${${DF_TMUX_SESSION:-main}//[.:]/_}"
 
   # ⚠ RESUME AND FRESH START ARE OTHERWISE INDISTINGUISHABLE. `-A` attaches if
   # the session exists and silently creates it if not, so when the server has
   # gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty
-  # session and nothing says the old one is not coming back. @continuum-restore
-  # is 'off' by default in config/tmux/tmux.conf, so nothing is restoring it
-  # either. Ask first, and say so on the status line when it is a new one.
+  # session and nothing says the old one is not coming back unless continuum's
+  # auto-restore (on by default, `tmux-restore off` disables it) brings it back.
+  # Say on the status line which of the two is happening.
   #
   # ⚠ `=` MAKES THE MATCH EXACT. tmux target names are PREFIX matches, so a
   # plain `has-session -t main` is satisfied by a session called `mainwork`
@@ -127,11 +132,41 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   if tmux has-session -t "=$_df_sess" 2>/dev/null; then
     tmux new-session -A -s "$_df_sess"
   else
-    tmux new-session -A -s "$_df_sess" \; \
-      display-message -d 4000 "new session '$_df_sess': nothing was restored"
+    _df_after=(\; display-message -d 4000 "new session '$_df_sess': nothing was restored")
+    if ! tmux has-session 2>/dev/null; then
+      # No server at all, so this shell is about to start one. Otherwise it
+      # forks into whatever cgroup this terminal lives in (under Ghostty, one
+      # window's scope) and dies with anything that stops that scope. In
+      # tmux-server.scope it is covered by the tmux-.scope.d drop-in, which
+      # makes shutdown wait for tmux-save.service to save first. On failure (no
+      # user manager, macOS) `new-session -A` below starts it in place as before.
+      if (( $+commands[systemd-run] )); then
+        systemd-run --user --scope --quiet --collect --unit=tmux-server \
+          tmux new-session -d -s "$_df_sess" 2>/dev/null
+      fi
+
+      # WITH AUTO-RESTORE OFF, A FRESH SERVER WOULD OVERWRITE THE LAST SAVE
+      # WITHIN 15 MINUTES. continuum's first autosave points resurrect's `last`
+      # at this empty session and replaces pane_contents.tar.gz, which is a
+      # single file not kept per snapshot, so after that `prefix C-r` restores
+      # nothing and the old scrollback is gone. Pause autosave until the save is
+      # restored or deliberately replaced; the resurrect hooks in tmux.conf
+      # resume it.
+      _df_last="${XDG_DATA_HOME:-$HOME/.local/share}/tmux/resurrect/last"
+      [[ -d ~/.tmux/resurrect ]] && _df_last=~/.tmux/resurrect/last
+      if [[ ! -f ~/.config/tmux/restore-off ]]; then
+        [[ -f $_df_last ]] && _df_after=(\; display-message -d 4000 "new server: restoring the last save")
+      elif [[ -f $_df_last ]]; then
+        zmodload -F zsh/stat b:zstat
+        _df_after=(\; set -g @continuum-save-interval 0 \; display-message -d 10000
+          "nothing restored · prefix C-r brings back $(grep -c '^window' "$_df_last") windows saved $(zstat -F '%H:%M %d %b' +mtime -- "$_df_last") · autosave paused until then or prefix C-s")
+      fi
+      unset _df_last
+    fi
+    tmux new-session -A -s "$_df_sess" "${_df_after[@]}"
   fi
   tmux_rc=$?
-  unset _df_sess
+  unset _df_sess _df_after
   if (( tmux_rc == 0 )); then
     # Normal end: the session was detached or its last window closed. Match the
     # old behaviour and take the terminal with it.

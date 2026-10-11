@@ -332,9 +332,13 @@ DF_TMUX_SESSION=review ghostty
 > **Do not "fix" the mirroring with `-D`.** It is the obvious answer — a new client detaches the old one — and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
 
 > [!CAUTION]
-> **A resume and a fresh start are otherwise indistinguishable.** `new-session -A` attaches if the session exists and silently creates it if not, so when the server has gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty session with nothing to say the old one is not coming back — and `@continuum-restore` is `'off'` by default in `config/tmux/tmux.conf`, so nothing is restoring it either. `has-session` is now checked first, and a newly created session announces itself on the status line for 4s.
+> **A resume and a fresh start are otherwise indistinguishable.** `new-session -A` attaches if the session exists and silently creates it if not, so when the server has gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty session with nothing to say the old one is not coming back. `has-session` is now checked first, and a newly created session announces itself on the status line for 4s: either that the last save is being restored (continuum's auto-restore, on by default) or that nothing was.
 >
-> **`=` makes the match exact, and it is required.** tmux target names are *prefix* matches, so a plain `has-session -t main` is satisfied by a session called `mainwork` (measured) and would report a resume that is not happening.
+> **`=` makes the match exact, and it is required.** tmux target names are *prefix* matches, so a plain `has-session -t main` is satisfied by a session called `mainwork` (measured) and would report a resume that is not happening. `DF_TMUX_SESSION` also has `.` and `:` rewritten to `_` first, as tmux does to the name it creates; otherwise `=foo.bar` is parsed as a pane target and never matches.
+>
+> **With auto-restore off (`tmux-restore off`), a fresh server pauses autosave.** Left alone, continuum's first autosave (15 minutes after the server starts) points resurrect's `last` at the empty session and overwrites `pane_contents.tar.gz`, which is one file rather than one per snapshot, so `prefix C-r` would restore nothing and the old scrollback would be gone. When a save exists, the block sets `@continuum-save-interval 0`, the banner names the window count and save time, and the status bar shows **SAVE PAUSED**. Restoring (`prefix C-r`) or saving deliberately (`prefix C-s`) resumes it, via resurrect's post-restore/post-save hooks in `tmux.conf`.
+>
+> **The server is started in `tmux-server.scope`** (`systemd-run --user --scope`) rather than inheriting the terminal's cgroup, which was one Ghostty window's scope. Without a user manager it falls back to starting in place.
 
 > [!CAUTION]
 > **The tmux SERVER gets the environment too, not just the panes.** The server is forked from the shell that starts it, which has not reached the `~/.zsh.d/*.zsh` sourcing yet, so `path.zsh`, `exports.zsh`, `locale.zsh` and `ssh.zsh` are now sourced explicitly just before `tmux new-session`. Panes always recovered on their own; anything spawned from the *server's* environment did not, and that is `run-shell`, `display-popup`, `tmux new-window <cmd>` and TPM. Measured before the fix: the server's `PATH` had no `~/.local/bin` at all (no `dfinstall`, no `sway-*` helper, nothing user-installed), and its `SSH_AUTH_SOCK` was `/run/user/1000/gcr/ssh` — gnome-keyring — while every pane used `~/.ssh/agent.sock`, so anything git-ish run from the server authenticated against a different agent holding different keys. It is a list rather than a glob of `~/.zsh.d` because `options.zsh` and `keybinds.zsh` configure this shell's own line editing and would be wasted work in a shell about to hand over; sourcing the four twice is harmless by construction, since `path.zsh` ends in `typeset -U path PATH` and the others only assign.
@@ -413,13 +417,15 @@ Key settings:
 
 Sets up a full Neovim configuration under `~/.config/nvim/`:
 
-- **21 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
+- **23 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, `notes.markdownlint.yaml` (the vault's relaxed lint rules), lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
 - **Plugin sync:** Runs `nvim --headless "+Lazy! sync" "+qa"` after linking
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
 
 Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
-**Custom plugins:** colorizer, comment, flash, harpoon, markdown, oil, smear-cursor, undotree
+**Custom plugins:** colorizer, comment, flash, harpoon, markdown (render-markdown, bullets.vim), notes (obsidian.nvim), oil, smear-cursor, undotree
+
+notes turns the directory in `$NOTES_DIR` (default `~/notes`) into an Obsidian-compatible vault, alongside the tutorial's sample vault at `docs/nvim-tutorial/vault` (found through the symlinked `init.lua`); vaults that don't exist are skipped. Markdown inside a vault gets relaxed linting and no format-on-save.
 
 smear-cursor draws a cursor trail inside nvim. It disables itself when running under
 Ghostty, whose `custom-shader` already draws one across the whole terminal — otherwise the
@@ -428,7 +434,7 @@ force it off on a terminal without its own trail.
 
 **Kickstart plugins:** autopairs, debug, gitsigns, indent_line, lint, neo-tree
 
-**Status:** Checks 21 symlinks.
+**Status:** Checks 23 symlinks.
 
 ---
 
@@ -454,8 +460,8 @@ Each language is best-effort: a failure warns but doesn't abort the rest, so a s
 Symlinks `config/nvim/windev/windev.lua` to `~/.config/nvim/lua/custom/plugins/windev.lua` — kickstart's `{ import = 'custom.plugins' }` picks it up automatically. The file:
 
 - Sets up the **OmniSharp** LSP for C# (init.lua's `servers` table already covers `clangd`, `gopls`, and `rust_analyzer` — they attach as soon as the binaries are on PATH).
-- Adds **conform formatters**: `clang-format` (c/cpp), `csharpier` (cs), `goimports`+`gofmt` (go), `rustfmt` (rust).
-- Adds **nvim-lint linters**: `cpplint` (c/cpp), `golangci-lint` (go), `clippy` (rust).
+- Adds **conform formatters**: `clang-format` (c/cpp), `csharpier` (cs), `rustfmt` (rust). Go formatting (`goimports`+`gofumpt`) and linting are in the base config.
+- Adds **nvim-lint linters**: `cpplint` (c/cpp), `clippy` (rust).
 - Wires **DAP** adapters: `codelldb` for C/C++/Rust (if on PATH) and `netcoredbg` for C# (from `~/.local/share/windev/`).
 
 The file uses dependencies + live runtime-table mutation so it extends conform/nvim-lint/nvim-dap without clobbering init.lua's existing config functions. Defers loading via `ft = { cs, c, cpp, go, rust }` to keep startup fast.
@@ -510,9 +516,13 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 
-**Uninstall:** Removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
+**Save on shutdown** (where `systemctl` exists): links `tmux-save.service` and a `tmux-.scope.d/save-first.conf` drop-in into `~/.config/systemd/user/`, then enables the service. Its `ExecStop` runs resurrect's save when the user manager stops, and the drop-in orders every `tmux-*.scope` (tmux's per-pane `tmux-spawn-*` scopes and the `tmux-server` scope) after it, so nothing in tmux is signalled until the save is done. It skips the save while autosave is paused (see the shell section).
 
-**Status:** Checks 2 symlinks. Shows `tpm +N plugins` when TPM is installed with plugins.
+**Compositor restarts:** `update-environment` adds `SWAYSOCK` and `WAYLAND_DISPLAY`, and `exports.zsh` refreshes a pane's `SWAYSOCK` from tmux when the socket it names is gone, because the server outlives sway. A forward clock jump that leaves continuum's last-save stamp in the future is reset on client attach or focus.
+
+**Uninstall:** Disables `tmux-save.service`, removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
+
+**Status:** Checks the symlinks (4 with systemd, 2 without). Shows `tpm +N plugins` counted in `~/.config/tmux/plugins/`.
 
 ---
 

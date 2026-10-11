@@ -6,9 +6,10 @@
 --
 -- clangd, gopls, and rust_analyzer are already enabled in init.lua's `servers`
 -- table and attach automatically once their binaries (installed by the windev
--- module) are on PATH. This file deliberately mutates the live runtime tables
--- of conform / nvim-lint / nvim-dap after they load instead of re-running their
--- setup — that's the documented non-clobbering way to extend them.
+-- module) are on PATH; Go formatting and linting are configured there too. This
+-- file deliberately mutates the live runtime tables of conform / nvim-lint /
+-- nvim-dap after they load instead of re-running their setup, which is the
+-- documented non-clobbering way to extend them.
 
 local home = vim.fn.expand('$HOME')
 local windev_dir = home .. '/.local/share/windev'
@@ -33,14 +34,14 @@ return {
     config = function()
       -- ─── C# LSP (OmniSharp) ──────────────────────────────────────────
       local omnisharp_bin = windev_dir .. '/omnisharp/OmniSharp'
-      local lsp_ok, lspconfig = pcall(require, 'lspconfig')
-      if lsp_ok and vim.fn.executable(omnisharp_bin) == 1 then
-        lspconfig.omnisharp.setup({
+      if vim.fn.executable(omnisharp_bin) == 1 then
+        vim.lsp.config('omnisharp', {
           cmd = { omnisharp_bin, '--languageserver', '--hostPID', tostring(vim.fn.getpid()) },
           handlers = {
             ['textDocument/definition'] = require('omnisharp_extended').handler,
           },
         })
+        vim.lsp.enable('omnisharp')
       end
 
       -- ─── Formatters (conform reads formatters_by_ft at format time) ──
@@ -50,7 +51,6 @@ return {
           c    = { 'clang-format' },
           cpp  = { 'clang-format' },
           cs   = { 'csharpier' },
-          go   = { 'goimports', 'gofmt' },
           rust = { 'rustfmt' },
         })
       end
@@ -61,7 +61,6 @@ return {
         lint.linters_by_ft = vim.tbl_extend('force', lint.linters_by_ft or {}, {
           c    = { 'cpplint' },
           cpp  = { 'cpplint' },
-          go   = { 'golangci-lint' },
           rust = { 'clippy' },
         })
       end

@@ -90,8 +90,8 @@ Prefix: **Alt+a**
 
 | Key | Action |
 |-----|--------|
-| `prefix C-s` | Save session |
-| `prefix C-r` | Restore session |
+| `prefix C-s` | Save session (also resumes a paused autosave) |
+| `prefix C-r` | Restore session (also resumes a paused autosave) |
 
 ### Logging Aliases
 
@@ -107,6 +107,8 @@ Prefix: **Alt+a**
 ## Neovim
 
 Leader: **Space**
+
+For a hands-on walkthrough of these, opened in nvim and practiced as you read, see the [Neovim tutorial](nvim-tutorial/README.md).
 
 ### Core
 
@@ -198,7 +200,7 @@ Leader: **Space**
 | Key | Action |
 |-----|--------|
 | `leader a` | Add file to harpoon |
-| `leader e` | Toggle harpoon menu |
+| `leader m` | Toggle harpoon menu |
 | `leader 1-4` | Jump to harpoon file 1-4 |
 
 ### Flash
@@ -221,6 +223,8 @@ Leader: **Space**
 |-----|--------|
 | `leader u` | Toggle undotree |
 | `leader q` | Open diagnostic quickfix list |
+| `leader e` | Show the full diagnostic for the line in a float |
+| `leader td` | Toggle inline diagnostics: cursor line / every line |
 | `q` | Disabled (mapped to `<Nop>`) — stops accidental macro recording |
 | `Q` | Record macro (register) — the relocated `q`, replacing Ex mode |
 
@@ -250,8 +254,39 @@ Leader: **Space**
 | `leader zs` | Jump to previous misspelling + open `z=` suggestions |
 | `z=` | Spell suggestions for word under cursor |
 | `zg` | Add word to dictionary |
+| `Enter` / `o` (on a list item) | Continue the list or checkbox; `Enter` on an empty item ends it |
+| `leader x` | Toggle the checkbox under the cursor |
 
-Markdown buffers enable spell-check (`en_us`, CamelCase-aware); misspellings are only highlighted, never auto-corrected.
+Markdown buffers enable spell-check (`en_us`, CamelCase-aware); misspellings are only highlighted, never auto-corrected. markdownlint findings show as gutter signs only; read one with `leader e`. Headings fold with `za`/`zc`/`zo` (treesitter folds, all open by default).
+
+### Notes (obsidian.nvim)
+
+The vault is `$NOTES_DIR`, default `~/notes`; the [tutorial's](nvim-tutorial/06-notes.md) sample vault is registered as a second one. The keys act on whichever vault the current note is in, and on your own vault from anywhere else.
+
+| Key | Action |
+|-----|--------|
+| `leader nn` | New note (filename is the title, as in the Obsidian app) |
+| `leader nd` / `leader nD` | Today's daily note / pick a daily note |
+| `leader nf` | Find a note by name |
+| `leader ns` | Search note text |
+| `leader nt` | Notes by tag |
+| `leader nb` | Backlinks to this note |
+| `leader nl` | Links in this note |
+| `leader nr` | Rename the note, updating links to it |
+| `leader np` | Paste the clipboard image into `attachments/` |
+| `Enter` (normal) | Follow the link, open the tag, or toggle the checkbox under the cursor |
+| `]o` / `[o` | Next/previous link |
+
+Type `[[` for note-name completion. Inside the vault, Markdown is linted only for markup that renders wrong (`config/nvim/notes.markdownlint.yaml`) and is not reformatted on save; `leader f` still formats on demand.
+
+### Debugging (nvim-dap)
+
+| Key | Action |
+|-----|--------|
+| `F5` | Start/continue (Go via delve, Python via debugpy using the project's `.venv`) |
+| `F1` / `F2` / `F3` | Step into / over / out |
+| `leader b` / `leader B` | Toggle breakpoint / conditional breakpoint |
+| `F7` | Toggle the DAP UI |
 
 ---
 
