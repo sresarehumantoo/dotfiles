@@ -216,11 +216,11 @@ func (TmuxModule) Links() core.LinkSet {
 func (m TmuxModule) Status() core.ModuleStatus {
 	s := m.Links().Status("tmux")
 
-	// Check TPM
+	// TPM itself is cloned to ~/.tmux/plugins, but the plugins it installs land
+	// in ~/.config/tmux/plugins (see Install), so count them there.
 	tpmDir := core.HomeTarget(".tmux", "plugins", "tpm")
 	if _, err := os.Stat(tpmDir); err == nil {
-		pluginsDir := core.HomeTarget(".tmux", "plugins")
-		entries, _ := os.ReadDir(pluginsDir)
+		entries, _ := os.ReadDir(core.XDGTarget("tmux", "plugins"))
 		count := 0
 		for _, e := range entries {
 			if e.IsDir() && e.Name() != "tpm" {
