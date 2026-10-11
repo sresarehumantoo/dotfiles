@@ -113,7 +113,7 @@ func (TmuxModule) Name() string { return "tmux" }
 
 func (TmuxModule) Install(ctx context.Context) error {
 	if core.DryRun {
-		core.Info("would link tmux.conf, write distro icon, clone TPM, install plugins")
+		core.Info("would link tmux.conf and tmux-save.service, write distro icon, clone TPM, install plugins, enable tmux-save.service")
 		return nil
 	}
 
@@ -142,6 +142,7 @@ func (TmuxModule) Install(ctx context.Context) error {
 	if err := (TmuxModule{}).Links().Apply(); err != nil {
 		return err
 	}
+	enableTmuxSave(ctx)
 
 	// Install TPM (Tmux Plugin Manager)
 	tpmDir := core.HomeTarget(".tmux", "plugins", "tpm")
@@ -180,6 +181,7 @@ func (TmuxModule) Install(ctx context.Context) error {
 }
 
 func (m TmuxModule) Uninstall(ctx context.Context) error {
+	disableTmuxSave(ctx)
 	if err := m.Links().Remove(); err != nil {
 		return err
 	}
@@ -207,20 +209,58 @@ func (m TmuxModule) Uninstall(ctx context.Context) error {
 // the repo. tmux <3.1 only reads ~/.tmux.conf.
 func (TmuxModule) Links() core.LinkSet {
 	tmuxConf := core.XDGTarget("tmux", "tmux.conf")
-	return core.LinkSet{
+	links := core.LinkSet{
 		{Src: core.ConfigPath("tmux", "tmux.conf"), Dst: tmuxConf},
 		{Src: tmuxConf, Dst: core.HomeTarget(".tmux.conf")},
+	}
+	if systemdAvailable() {
+		links = append(links,
+			core.LinkPair{Src: core.ConfigPath("systemd", "user", "tmux-save.service"),
+				Dst: core.XDGTarget("systemd", "user", "tmux-save.service")},
+			core.LinkPair{Src: core.ConfigPath("systemd", "user", "tmux-.scope.d", "save-first.conf"),
+				Dst: core.XDGTarget("systemd", "user", "tmux-.scope.d", "save-first.conf")},
+		)
+	}
+	return links
+}
+
+// enableTmuxSave arms the save-on-shutdown unit. Best-effort like the sway
+// module's daemon-reload: with no user manager (a container, WSL without
+// systemd) there is nothing to enable, and continuum's autosave still runs.
+func enableTmuxSave(ctx context.Context) {
+	if !systemdAvailable() {
+		return
+	}
+	if err := runCmd(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		core.Debug("user daemon-reload failed (no user manager?): %v", err)
+		return
+	}
+	if err := runCmd(ctx, "systemctl", "--user", "enable", "--now", "tmux-save.service"); err != nil {
+		core.Warn("could not enable tmux-save.service: %v", err)
+	}
+}
+
+func disableTmuxSave(ctx context.Context) {
+	if !systemdAvailable() {
+		return
+	}
+	if core.DryRun {
+		core.Info("would disable tmux-save.service")
+		return
+	}
+	if err := runCmd(ctx, "systemctl", "--user", "disable", "--now", "tmux-save.service"); err != nil {
+		core.Debug("disable tmux-save.service: %v", err)
 	}
 }
 
 func (m TmuxModule) Status() core.ModuleStatus {
 	s := m.Links().Status("tmux")
 
-	// Check TPM
+	// TPM itself is cloned to ~/.tmux/plugins, but the plugins it installs land
+	// in ~/.config/tmux/plugins (see Install), so count them there.
 	tpmDir := core.HomeTarget(".tmux", "plugins", "tpm")
 	if _, err := os.Stat(tpmDir); err == nil {
-		pluginsDir := core.HomeTarget(".tmux", "plugins")
-		entries, _ := os.ReadDir(pluginsDir)
+		entries, _ := os.ReadDir(core.XDGTarget("tmux", "plugins"))
 		count := 0
 		for _, e := range entries {
 			if e.IsDir() && e.Name() != "tpm" {
