@@ -435,7 +435,24 @@ require('lazy').setup({
         clangd = {
           cmd = { 'clangd', '--query-driver=/usr/bin/*-w64-mingw32-*' },
         },
-        gopls = {},
+        gopls = {
+          settings = {
+            gopls = {
+              gofumpt = true,
+              staticcheck = true,
+              usePlaceholders = true,
+              analyses = { unusedparams = true, unusedwrite = true, nilness = true },
+              hints = {
+                assignVariableTypes = true,
+                compositeLiteralFields = true,
+                constantValues = true,
+                functionTypeParameters = true,
+                parameterNames = true,
+                rangeVariableTypes = true,
+              },
+            },
+          },
+        },
         -- Python: pyright owns types/hover/completion; ruff owns
         -- linting, import sorting and code actions (one fast binary).
         pyright = {
@@ -480,6 +497,11 @@ require('lazy').setup({
       local ensure_installed = vim.tbl_keys(servers or {})
       vim.list_extend(ensure_installed, {
         'stylua',
+        'goimports',
+        'gofumpt',
+        'golangci-lint',
+        'delve', -- debug adapters (kickstart/plugins/debug.lua), here so they
+        'debugpy', -- exist before the first <F5> rather than installing on it
         'markdownlint-cli2', -- markdown linter (nvim-lint, see kickstart/plugins/lint.lua)
         'prettierd', -- markdown formatter daemon (conform) — avoids node cold-start
         'prettier', -- fallback if the prettierd daemon isn't available
@@ -531,6 +553,7 @@ require('lazy').setup({
         lua = { 'stylua' },
         -- Organize imports first, then format — both run by ruff on save.
         python = { 'ruff_organize_imports', 'ruff_format' },
+        go = { 'goimports', 'gofumpt' },
         -- Prefer the persistent daemon; fall back to one-shot prettier.
         markdown = { 'prettierd', 'prettier', stop_after_first = true },
       },
@@ -676,7 +699,27 @@ require('lazy').setup({
       vim.treesitter.language.register('markdown', 'markdown_inline')
 
       -- Read by `dfinstall install nvim` too, which builds these synchronously.
-      vim.g.ts_parsers = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'python', 'query', 'vim', 'vimdoc' }
+      vim.g.ts_parsers = {
+        'bash',
+        'c',
+        'diff',
+        'go',
+        'gomod',
+        'gosum',
+        'gowork',
+        'html',
+        'json',
+        'lua',
+        'luadoc',
+        'markdown',
+        'markdown_inline',
+        'python',
+        'query',
+        'toml',
+        'vim',
+        'vimdoc',
+        'yaml',
+      }
       -- Asynchronous, and a no-op for parsers that are already built. Absent
       -- on a checkout still on master, until Lazy moves it to main.
       if ts.install then
@@ -691,6 +734,7 @@ require('lazy').setup({
     end,
   },
 
+  require 'kickstart.plugins.debug',
   require 'kickstart.plugins.indent_line',
   require 'kickstart.plugins.lint',
   require 'kickstart.plugins.autopairs',

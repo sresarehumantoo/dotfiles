@@ -68,9 +68,9 @@ The windev file adds:
 
 - **C# LSP** via OmniSharp (binary from `~/.local/share/windev/omnisharp/`).
 - **Formatters** (conform): `clang-format` (c/cpp), `csharpier` (cs),
-  `goimports`+`gofmt` (go), `rustfmt` (rust).
-- **Linters** (nvim-lint): `cpplint` (c/cpp), `golangci-lint` (go),
-  `clippy` (rust).
+  `rustfmt` (rust). Go formatting (`goimports`+`gofumpt`) and linting
+  (`golangci-lint`) are part of the base nvim config.
+- **Linters** (nvim-lint): `cpplint` (c/cpp), `clippy` (rust).
 - **DAP adapters**: `codelldb` for C/C++/Rust (if on PATH) and `netcoredbg`
   for C# (from `~/.local/share/windev/`).
 
