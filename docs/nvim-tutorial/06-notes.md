@@ -8,7 +8,7 @@ Neovim doubles as an Obsidian replacement through [obsidian.nvim](https://github
 
 ## The vault
 
-The vault is `$NOTES_DIR`, or `~/notes` when that's unset. Everything in this chapter only exists once that directory does: create it with `mkdir ~/notes`, or point `NOTES_DIR` at an existing vault (an Obsidian vault, a synced or mounted share) in your shell config.
+Your vault is `$NOTES_DIR`, or `~/notes` when that's unset. Create it with `mkdir ~/notes`, or point `NOTES_DIR` at an existing vault (an Obsidian vault, a synced or mounted share) in your shell config. This tutorial's sample vault is always registered as a second one, so you can try everything below before you have a vault of your own.
 
 Inside the vault, Markdown is treated as notes rather than published docs:
 
@@ -37,11 +37,13 @@ The `<leader>n` keys work from anywhere, so you can jump into today's note from 
 
 ## Try it on the sample vault
 
-This tutorial ships a tiny vault in [vault/](vault/). Point a session at it with `NOTES_DIR`, from the repo root:
+This tutorial ships a tiny vault in [vault/](vault/). Open its tour, either with `gf` on the path in the [vault/](vault/) listing or from the repo root:
 
 ```sh
-NOTES_DIR=docs/nvim-tutorial/vault nvim "docs/nvim-tutorial/vault/Notes Tour.md"
+nvim "docs/nvim-tutorial/vault/Notes Tour.md"
 ```
+
+Notes features switch to whichever vault the open file is in, so the `<leader>n` keys act on the sample vault while you're in it and on your own one everywhere else.
 
 The tour inside walks through links, backlinks, tags, daily notes and the relaxed linting. Daily notes and pasted images are gitignored there. A note you create with `<leader>nn` shows up as an untracked file: `git clean -n docs/nvim-tutorial/vault` lists what you've added, and `git checkout -- docs/nvim-tutorial/vault` restores the tour notes if you've edited them.
 

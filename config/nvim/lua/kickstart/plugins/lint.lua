@@ -76,7 +76,11 @@ return {
           -- nonexistent binary and spam "ENOENT: no such file or directory" on
           -- every BufEnter.
           local names = lint.linters_by_ft[vim.bo.filetype] or {}
-          if vim.bo.filetype == 'markdown' and vim.startswith(vim.api.nvim_buf_get_name(0), vim.g.notes_dir .. '/') then
+          local name = vim.api.nvim_buf_get_name(0)
+          local in_vault = vim.iter(vim.g.notes_dirs):any(function(dir)
+            return vim.startswith(name, dir .. '/')
+          end)
+          if vim.bo.filetype == 'markdown' and in_vault then
             names = { 'markdownlint-notes' }
           end
           local runnable = {}

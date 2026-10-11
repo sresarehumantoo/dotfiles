@@ -261,7 +261,7 @@ Markdown buffers enable spell-check (`en_us`, CamelCase-aware); misspellings are
 
 ### Notes (obsidian.nvim)
 
-The vault is `$NOTES_DIR`, default `~/notes`. The plugin and these keys exist only once that directory does.
+The vault is `$NOTES_DIR`, default `~/notes`; the [tutorial's](nvim-tutorial/06-notes.md) sample vault is registered as a second one. The keys act on whichever vault the current note is in, and on your own vault from anywhere else.
 
 | Key | Action |
 |-----|--------|

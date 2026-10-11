@@ -121,9 +121,18 @@ vim.o.foldlevel = 99
 -- out of bounds" from the async fold update (reproduced with --clean too).
 vim.g.markdown_folding = 1
 
--- The notes vault (obsidian.nvim workspace). Markdown inside it gets relaxed
--- linting and no format-on-save; see lua/custom/plugins/notes.lua.
-vim.g.notes_dir = vim.fs.normalize(vim.fn.fnamemodify(vim.fn.expand(vim.env.NOTES_DIR or '~/notes'), ':p'))
+-- Notes vaults (obsidian.nvim workspaces), the first being the default. Markdown
+-- inside one gets relaxed linting and no format-on-save; see
+-- lua/custom/plugins/notes.lua. The tutorial's sample vault is located through
+-- the symlinked init.lua so it works without NOTES_DIR; a config not linked from
+-- this repo just doesn't get it.
+local notes_dirs = { vim.fs.normalize(vim.fn.fnamemodify(vim.fn.expand(vim.env.NOTES_DIR or '~/notes'), ':p')) }
+local repo_root = vim.fn.fnamemodify(vim.fn.resolve(vim.fn.stdpath 'config' .. '/init.lua'), ':h:h:h')
+local tutorial_vault = repo_root .. '/docs/nvim-tutorial/vault'
+if tutorial_vault ~= notes_dirs[1] and vim.fn.isdirectory(tutorial_vault) == 1 then
+  table.insert(notes_dirs, tutorial_vault)
+end
+vim.g.notes_dirs = notes_dirs
 
 -- This repo's source for ~/.gitconfig matches none of the built-in gitconfig
 -- patterns, so it opened with no filetype and no 'commentstring'.
@@ -559,9 +568,13 @@ require('lazy').setup({
       format_on_save = function(bufnr)
         local disable_filetypes = { c = true, cpp = true }
         local ft = vim.bo[bufnr].filetype
+        local name = vim.api.nvim_buf_get_name(bufnr)
+        local in_vault = vim.iter(vim.g.notes_dirs):any(function(dir)
+          return vim.startswith(name, dir .. '/')
+        end)
         if disable_filetypes[ft] then
           return nil
-        elseif ft == 'markdown' and vim.startswith(vim.api.nvim_buf_get_name(bufnr), vim.g.notes_dir .. '/') then
+        elseif ft == 'markdown' and in_vault then
           -- Notes are written the way they're written; prettier re-flowing
           -- bullets and spacing on every save is churn. <leader>f still works.
           return nil
