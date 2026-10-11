@@ -110,12 +110,16 @@ vim.o.scrolloff = 10
 
 vim.o.confirm = true
 
--- Folds come from treesitter where a parser exists (markdown folds by heading
--- section); everything starts open.
+-- Folds come from treesitter where a parser exists; everything starts open.
 vim.o.foldmethod = 'expr'
 vim.o.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
 vim.o.foldtext = ''
 vim.o.foldlevel = 99
+-- Markdown folds by heading with the runtime ftplugin's regex folder instead.
+-- Its treesitter fold query uses #trim!, which on 0.12.6 reads a stale tree
+-- after an edit that shortens the buffer: J on a heading line raised "Index
+-- out of bounds" from the async fold update (reproduced with --clean too).
+vim.g.markdown_folding = 1
 
 -- The notes vault (obsidian.nvim workspace). Markdown inside it gets relaxed
 -- linting and no format-on-save; see lua/custom/plugins/notes.lua.
