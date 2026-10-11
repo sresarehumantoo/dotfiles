@@ -198,7 +198,7 @@ Leader: **Space**
 | Key | Action |
 |-----|--------|
 | `leader a` | Add file to harpoon |
-| `leader e` | Toggle harpoon menu |
+| `leader m` | Toggle harpoon menu |
 | `leader 1-4` | Jump to harpoon file 1-4 |
 
 ### Flash
@@ -221,6 +221,8 @@ Leader: **Space**
 |-----|--------|
 | `leader u` | Toggle undotree |
 | `leader q` | Open diagnostic quickfix list |
+| `leader e` | Show the full diagnostic for the line in a float |
+| `leader td` | Toggle inline diagnostics: cursor line / every line |
 | `q` | Disabled (mapped to `<Nop>`) — stops accidental macro recording |
 | `Q` | Record macro (register) — the relocated `q`, replacing Ex mode |
 
@@ -252,6 +254,15 @@ Leader: **Space**
 | `zg` | Add word to dictionary |
 
 Markdown buffers enable spell-check (`en_us`, CamelCase-aware); misspellings are only highlighted, never auto-corrected.
+
+### Debugging (nvim-dap)
+
+| Key | Action |
+|-----|--------|
+| `F5` | Start/continue (Go via delve, Python via debugpy using the project's `.venv`) |
+| `F1` / `F2` / `F3` | Step into / over / out |
+| `leader b` / `leader B` | Toggle breakpoint / conditional breakpoint |
+| `F7` | Toggle the DAP UI |
 
 ---
 
