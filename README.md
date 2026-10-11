@@ -1,12 +1,13 @@
 <p align="center">
-  <img src="assets/logo.svg?v=2" alt="dfinstall logo" width="800">
+  <img src="assets/logo.svg?v=3" alt="dfinstall logo" width="820">
 </p>
 
 <p align="center">
-  <a href="https://github.com/sresarehumantoo/dotfiles/actions/workflows/ci.yml"><img src="https://github.com/sresarehumantoo/dotfiles/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://github.com/sresarehumantoo/dotfiles/releases/latest"><img src="https://img.shields.io/github/v/release/sresarehumantoo/dotfiles?color=blue" alt="Latest release"></a>
-  <img src="https://img.shields.io/github/go-mod/go-version/sresarehumantoo/dotfiles" alt="Go version">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue" alt="MIT License"></a>
+  <a href="https://github.com/sresarehumantoo/dotfiles/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/sresarehumantoo/dotfiles/ci.yml?branch=main&style=flat-square&label=CI" alt="CI"></a>
+  <a href="https://github.com/sresarehumantoo/dotfiles/releases/latest"><img src="https://img.shields.io/github/v/release/sresarehumantoo/dotfiles?style=flat-square&color=blue" alt="Latest release"></a>
+  <img src="https://img.shields.io/github/go-mod/go-version/sresarehumantoo/dotfiles?style=flat-square" alt="Go version">
+  <img src="https://img.shields.io/badge/platform-Linux%20%C2%B7%20WSL%20%C2%B7%20macOS-73DACA?style=flat-square" alt="Platforms: Linux, WSL, macOS">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="MIT License"></a>
 </p>
 
 <p align="center">
@@ -14,7 +15,11 @@
 </p>
 
 <p align="center">
-  Built in Go for WSL2 (Debian/Ubuntu) — works on native Linux with apt, dnf, pacman, or brew.
+  One static Go binary for <b>Linux</b>, <b>WSL2</b>, and <b>macOS</b>. Packages via apt, dnf, pacman, or Homebrew; no runtime dependencies.
+</p>
+
+<p align="center">
+  <img src="assets/demo.gif?v=1" alt="dfinstall status, doctor, and a dry-run install" width="760">
 </p>
 
 ---
@@ -28,6 +33,7 @@ Most dotfiles repos are a pile of symlinks and a `bootstrap.sh` that nobody dare
 - **Previewable.** `--dry-run` shows every change without writing a byte.
 - **Honest.** `status`, `diff` and `doctor` tell you what drifted, not what you hoped.
 - **Multi-machine safe.** One clone is recorded as canonical, so two checkouts can't fight over your symlinks.
+- **Cross-platform.** The same binary, modules, and config run on Linux, WSL2, and macOS; platform-specific modules skip themselves where they don't apply.
 
 ## Contents
 
@@ -207,10 +213,12 @@ Modules run in this order — dependencies first:
 | 14 | **konsole** | Konsole profile and color scheme |
 | 15 | **ghostty** | Ghostty terminal config |
 | 16 | **sway** | Sway + waybar + swaync desktop — see [docs](docs/sway.md). No-ops without `sway` |
-| 17 | **htop** | htop config |
-| 18 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 19 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 20 | **defaultshell** | Sets zsh as the default login shell |
+| 17 | **aerospace** | macOS tiling window manager (AeroSpace). No-ops off macOS |
+| 18 | **sketchybar** | macOS status bar (SketchyBar). No-ops off macOS |
+| 19 | **htop** | htop config |
+| 20 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 21 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 22 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
 > **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's just **windev**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
@@ -272,7 +280,7 @@ See [Building from Source](docs/building.md) for dependencies, cross-compilation
 .config.yaml.example     # Documented example of every config key
 .github/                 # CI workflow + Dependabot config
 .mcp.json                # In-repo MCP server registration
-assets/                  # Logo SVG and generator script
+assets/                  # Logo SVG (+ generator) and the demo GIF
 bootstrap/               # WSL bootstrap wizard (PowerShell + bash), macOS bootstrap
 config/                  # Config files symlinked into ~
   shell/                 #   zsh/bash dotfiles
@@ -311,7 +319,8 @@ make test-race      # run the suite under the race detector
 make lint           # go vet
 make fmt            # gofmt -s -w (in place)
 make fmt-check      # gofmt -s check (non-mutating, same as CI)
-make ci             # everything CI runs (fmt-check + lint + build-all + test + test-race)
+make check-decoupling  # guard against site-coupled content in this public repo
+make ci             # everything CI runs (fmt-check + lint + check-decoupling + build-all + test + test-race)
 make install        # build + dfinstall install all
 make uninstall      # build + dfinstall uninstall all
 make install-bin    # install both binaries onto PATH (~/.local/bin)
@@ -326,9 +335,9 @@ make clean          # rm -rf bin/
 
 [GitHub Actions](.github/workflows/ci.yml) runs on every push and pull request to `main` and `develop`, and on manual dispatch:
 
-- **Go** — `gofmt -s` check, `go vet`, builds both binaries, `go test`, then the suite again under `-race`. The Go version tracks `go.mod`.
+- **Go** — `gofmt -s` check, `go vet`, a decoupling guard, builds both binaries, `go test`, then the suite again under `-race`. The Go version tracks `go.mod`.
 - **Go on macOS** — builds both binaries and runs `go test` on `macos-latest`, and checks that `bootstrap/macos-setup.sh` parses under the stock `/bin/bash` 3.2.
-- **ShellCheck** — lints `config/devtools/` and `bootstrap/`.
+- **ShellCheck** — lints `config/devtools/`, `bootstrap/`, and `scripts/` (three separate scandirs).
 
 `main` is protected: all three checks (Go, Go on macOS, ShellCheck) must pass before a PR can merge.
 
