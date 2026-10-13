@@ -5,7 +5,11 @@ package modules
 // hitting the GitHub API, so none of it was covered.
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -300,5 +304,126 @@ func TestTreeSitterAsset(t *testing.T) {
 		if !ok || got.Name != want {
 			t.Errorf("%s: got %q (ok=%v), want %q", goarch, got.Name, ok, want)
 		}
+	}
+}
+
+func TestDownloadVerified(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "asset.deb")
+	if err := os.WriteFile(src, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const sum = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
+	url := "file://" + src
+
+	cases := []struct {
+		name    string
+		digest  string
+		wantErr string
+	}{
+		{"match", "sha256:" + sum, ""},
+		{"uppercase hex", "sha256:" + strings.ToUpper(sum), ""},
+		{"mismatch", "sha256:" + strings.Repeat("0", 64), "sha256 mismatch"},
+		{"no digest", "", "no published sha256 digest"},
+		{"other algorithm", "sha512:" + sum, "no published sha256 digest"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dst := filepath.Join(t.TempDir(), "out")
+			err := downloadVerified(context.Background(), ghAsset{Name: "asset.deb", URL: url, Digest: c.digest}, dst)
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("got %v, want error containing %q", err, c.wantErr)
+			}
+		})
+	}
+}
+
+func TestGhAssetDigestParsed(t *testing.T) {
+	var release struct {
+		Assets []ghAsset `json:"assets"`
+	}
+	in := `{"assets":[{"name":"a","browser_download_url":"u","digest":"sha256:abc"},{"name":"b","browser_download_url":"u","digest":null}]}`
+	if err := json.Unmarshal([]byte(in), &release); err != nil {
+		t.Fatal(err)
+	}
+	if release.Assets[0].Digest != "sha256:abc" || release.Assets[1].Digest != "" {
+		t.Fatalf("digests = %q, %q", release.Assets[0].Digest, release.Assets[1].Digest)
+	}
+}
+
+// The ghostty-debian 1.3.1+6 release as published: debug-symbol packages
+// listed first, then one build per distro release, among source artifacts.
+var ghosttyDebianRelease = []string{
+	"ghostty-dbgsym_1.3.1-6.forky_amd64.deb",
+	"ghostty-dbgsym_1.3.1-6.questing_amd64.deb",
+	"ghostty-dbgsym_1.3.1-6.resolute_amd64.deb",
+	"ghostty-dbgsym_1.3.1-6.trixie_amd64.deb",
+	"ghostty_1.3.1-6.forky.debian.tar.xz",
+	"ghostty_1.3.1-6.forky.dsc",
+	"ghostty_1.3.1-6.forky_amd64.deb",
+	"ghostty_1.3.1-6.noble_amd64.deb",
+	"ghostty_1.3.1-6.questing_amd64.deb",
+	"ghostty_1.3.1-6.resolute_amd64.deb",
+	"ghostty_1.3.1-6.sid.dsc",
+	"ghostty_1.3.1-6.trixie.debian.tar.xz",
+	"ghostty_1.3.1-6.trixie_amd64.deb",
+	"ghostty_1.3.1.orig.tar.gz",
+}
+
+func TestPickDebForDistro(t *testing.T) {
+	var assets []ghAsset
+	for _, n := range ghosttyDebianRelease {
+		assets = append(assets, ghAsset{Name: n})
+	}
+	candidates := filterAssets(assets, assetFilter{
+		ArchTokens: archTokensFor("amd64"),
+		Suffix:     ".deb",
+		Exclude:    debugPackageMarkers,
+	})
+	for _, c := range candidates {
+		if strings.Contains(c.Name, "dbgsym") {
+			t.Fatalf("debug package survived the filter: %s", c.Name)
+		}
+	}
+
+	cases := []struct {
+		name      string
+		codenames []string
+		want      string
+	}{
+		{"debian trixie", []string{"trixie", "trixie"}, "ghostty_1.3.1-6.trixie_amd64.deb"},
+		{"ubuntu resolute is not an upstream codename", []string{"resolute", "trixie"}, "ghostty_1.3.1-6.resolute_amd64.deb"},
+		{"ubuntu noble", []string{"noble", "noble"}, "ghostty_1.3.1-6.noble_amd64.deb"},
+		{"kali falls back to upstream", []string{"kali-rolling", "trixie"}, "ghostty_1.3.1-6.trixie_amd64.deb"},
+		{"sid has no binary build", []string{"sid", "sid"}, ""},
+		{"bookworm has no build", []string{"bookworm", "bookworm"}, ""},
+		{"no codename known", []string{"", ""}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := pickDebForDistro(candidates, c.codenames)
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("picked %s, want an error", got.Name)
+				}
+				return
+			}
+			if err != nil || got.Name != c.want {
+				t.Fatalf("got %q, %v; want %s", got.Name, err, c.want)
+			}
+		})
+	}
+}
+
+func TestPickDebForDistro_SingleDebNamesNoDistro(t *testing.T) {
+	got, err := pickDebForDistro([]ghAsset{{Name: "tool_1.0_amd64.deb"}}, []string{"trixie"})
+	if err != nil || got.Name != "tool_1.0_amd64.deb" {
+		t.Fatalf("got %q, %v", got.Name, err)
 	}
 }

@@ -354,12 +354,6 @@ func runCmdTimeout(ctx context.Context, timeout time.Duration, name string, args
 		}
 	}
 
-	// When the sudo password was captured at startup it is piped to sudo -S,
-	// so no TTY is needed and no spinner interference is possible.
-	if directSudo && core.HasSudoPass() {
-		return cmd.Run()
-	}
-
 	// Hold the spinner pause across the full run, not just the fork. The
 	// previous Start/Resume/Wait pattern resumed the spinner while sudo
 	// was still trying to prompt, overdrawing the prompt line.

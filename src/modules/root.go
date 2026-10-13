@@ -5,17 +5,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
-// rootLink defines a symlink from a config source to a destination under /root/.
-type rootLink struct {
+// rootFile is a config source installed as a root-owned copy under /root/.
+type rootFile struct {
 	src string // relative to config/
 	dst string // absolute path under /root/
 }
 
-var rootLinks []rootLink
+var rootFiles []rootFile
 
 func init() {
 	// Shell
@@ -30,83 +31,93 @@ func init() {
 		{"shell/zsh/path.zsh", ".zsh.d/path.zsh"},
 		{"shell/zsh/exports.zsh", ".zsh.d/exports.zsh"},
 	} {
-		rootLinks = append(rootLinks, rootLink{l.src, filepath.Join("/root", l.dst)})
+		rootFiles = append(rootFiles, rootFile{l.src, filepath.Join("/root", l.dst)})
 	}
 
 	// Git
-	rootLinks = append(rootLinks, rootLink{"git/gitconfig", "/root/.gitconfig"})
+	rootFiles = append(rootFiles, rootFile{"git/gitconfig", "/root/.gitconfig"})
 
 	// Nvim
 	for _, l := range nvimLinks {
-		rootLinks = append(rootLinks, rootLink{l.Src, filepath.Join("/root/.config/nvim", l.Dst)})
+		rootFiles = append(rootFiles, rootFile{l.Src, filepath.Join("/root/.config/nvim", l.Dst)})
 	}
 
 	// Tmux
-	rootLinks = append(rootLinks, rootLink{"tmux/tmux.conf", "/root/.config/tmux/tmux.conf"})
-	rootLinks = append(rootLinks, rootLink{"tmux/tmux.conf", "/root/.tmux.conf"})
+	rootFiles = append(rootFiles, rootFile{"tmux/tmux.conf", "/root/.config/tmux/tmux.conf"})
+	rootFiles = append(rootFiles, rootFile{"tmux/tmux.conf", "/root/.tmux.conf"})
 
 	// Htop
-	rootLinks = append(rootLinks, rootLink{"htop/htoprc", "/root/.config/htop/htoprc"})
+	rootFiles = append(rootFiles, rootFile{"htop/htoprc", "/root/.config/htop/htoprc"})
 }
 
-// InstallRoot symlinks a curated set of configs into /root/ via sudo.
+// InstallRoot installs root-owned copies of a curated set of configs into
+// /root/ via sudo.
+//
+// These are copies, not symlinks into the clone: root's shell and nvim would
+// otherwise execute files the invoking user can edit, so anything running as
+// that user could get root the next time root opened a shell. Re-run after
+// editing the sources to bring /root up to date.
 func InstallRoot(ctx context.Context) error {
 	if core.IsMac() {
 		return fmt.Errorf("dfinstall root is Linux only")
 	}
-	core.Info("Linking configs into /root/ (via sudo)...")
-
-	// Collect unique parent directories to create
-	dirs := make(map[string]bool)
-	for _, l := range rootLinks {
-		dirs[filepath.Dir(l.dst)] = true
-	}
-	for d := range dirs {
-		if err := sudoMkdir(ctx, d); err != nil {
-			return fmt.Errorf("mkdir %s: %w", d, err)
+	if core.DryRun {
+		for _, f := range rootFiles {
+			core.Info("would install %s -> %s", core.ConfigPath(f.src), f.dst)
 		}
+		return nil
 	}
+	core.Info("Installing configs into /root/ (via sudo)...")
 
 	var failures int
-	for _, l := range rootLinks {
-		src := core.ConfigPath(l.src)
+	for _, f := range rootFiles {
+		src := core.ConfigPath(f.src)
 		if _, err := os.Stat(src); err != nil {
 			core.Warn("source missing, skipping: %s", src)
 			failures++
 			continue
 		}
-		if err := sudoLink(ctx, src, l.dst); err != nil {
-			core.Warn("failed to link %s -> %s: %v", l.dst, src, err)
+		// install unlinks an existing destination before writing, so a
+		// symlink left by an older dfinstall is replaced, not written through.
+		if err := runCmd(ctx, "sudo", "install", "-D", "-o", "root", "-g", "root", "-m", "0644", src, f.dst); err != nil {
+			core.Warn("failed to install %s: %v", f.dst, err)
 			failures++
 			continue
 		}
-		core.Ok("linked: %s -> %s", l.dst, src)
+		core.Ok("installed: %s", f.dst)
 	}
 
 	if failures > 0 {
-		core.Warn("%d link(s) failed", failures)
+		core.Warn("%d file(s) failed", failures)
 	}
-	core.Ok("Root configs done (%d/%d linked)", len(rootLinks)-failures, len(rootLinks))
+	core.Ok("Root configs done (%d/%d installed)", len(rootFiles)-failures, len(rootFiles))
 	return nil
 }
 
-// RootStatus checks which root links are in place.
-func RootStatus() (linked, missing int) {
-	for _, l := range rootLinks {
-		src := core.ConfigPath(l.src)
-		if core.CheckLink(src, l.dst) == "ok" {
-			linked++
+// RootStatus reports how many /root copies match their source. /root is not
+// readable by the invoking user, so the hashes are taken through sudo.
+func RootStatus(ctx context.Context) (current, stale int) {
+	args := []string{"sha256sum", "--"}
+	for _, f := range rootFiles {
+		args = append(args, f.dst)
+	}
+	// Missing files make sha256sum exit non-zero; the ones it could read are
+	// still on stdout.
+	out, _ := core.SudoCmd(ctx, args...).Output()
+	installed := make(map[string]string)
+	for _, line := range strings.Split(string(out), "\n") {
+		if sum, path, ok := strings.Cut(line, "  "); ok {
+			installed[path] = sum
+		}
+	}
+
+	for _, f := range rootFiles {
+		want, err := core.FileHash(core.ConfigPath(f.src))
+		if err == nil && installed[f.dst] == want {
+			current++
 		} else {
-			missing++
+			stale++
 		}
 	}
 	return
-}
-
-func sudoMkdir(ctx context.Context, dir string) error {
-	return runCmd(ctx, "sudo", "mkdir", "-p", dir)
-}
-
-func sudoLink(ctx context.Context, src, dst string) error {
-	return runCmd(ctx, "sudo", "ln", "-sfn", src, dst)
 }

@@ -455,134 +455,137 @@ function Main {
     $confirm = Read-Host "  ? Proceed with setup? [Y/n]"
     if ($confirm -eq "n" -or $confirm -eq "N") { exit 0 }
 
-    # Step 2: Copy helper script
-    Write-Header "Preparing"
-    Copy-SetupScript -DistroName $selectedDistro
-
-    # Step 3: Root setup (packages, user, wsl.conf)
-    Write-Header "Root Setup"
-    $rootOk = Invoke-Phase `
-        -Name "Root setup" `
-        -DistroName $selectedDistro `
-        -User "root" `
-        -Command "/tmp/wsl-setup.sh setup-root $linuxUser"
-
-    if ($rootOk) {
-        # Terminate just this distro to apply wsl.conf (default user, interop, systemd)
-        # Other running WSL distros are unaffected.
-        Write-Step "Terminating '$selectedDistro' to apply wsl.conf changes..."
-        wsl.exe --terminate $selectedDistro
-        Start-Sleep -Seconds 3
-        Write-Ok "Distro restarted - interop and systemd now active"
-
-        # Re-copy setup script and hooks (/tmp may not survive terminate)
+    try {
+        # Step 2: Copy helper script
+        Write-Header "Preparing"
         Copy-SetupScript -DistroName $selectedDistro
-        if ($PreHook)  { $preHookDest  = Copy-HookScript -DistroName $selectedDistro -HookPath $PreHook  -DestName "pre-hook.sh" }
-        if ($PostHook) { $postHookDest = Copy-HookScript -DistroName $selectedDistro -HookPath $PostHook -DestName "post-hook.sh" }
 
-        # Install the corporate CA (if supplied) BEFORE any network phase, so
-        # hooks, Neovim, Ghostty and dotfiles all inherit the trust.
-        if ($CorpCert) {
-            Install-CorpCert -DistroName $selectedDistro -CertPath $CorpCert
-        }
+        # Step 3: Root setup (packages, user, wsl.conf)
+        Write-Header "Root Setup"
+        $rootOk = Invoke-Phase `
+            -Name "Root setup" `
+            -DistroName $selectedDistro `
+            -User "root" `
+            -Command "/tmp/wsl-setup.sh setup-root $linuxUser"
 
-        # Detect the classic corporate-proxy failure: apt works (internal mirror
-        # / pre-trusted) while direct HTTPS fails to verify. Only worth checking
-        # when something later actually reaches the network.
-        $needsNetwork = (-not $SkipNeovim) -or (-not $SkipGhostty) -or (-not $SkipDotfiles) -or $PreHook -or $PostHook
-        if ($needsNetwork) {
-            $tls = Test-CertHealth -DistroName $selectedDistro
-            if ($tls -eq 2) {
-                Write-Err "HTTPS certificate verification failed inside the distro."
-                if ($CorpCert) {
-                    Write-Info "The supplied cert did not establish trust. Check that it is the"
-                    Write-Info "root CA your proxy presents (export the full chain, PEM or DER)."
-                } else {
-                    Write-Info "apt works but direct HTTPS does not - the signature of a"
-                    Write-Info "TLS-inspecting corporate proxy. Re-run with the corporate root CA:"
-                    Write-Info "  .\wsl-bootstrap.ps1 -CorpCert <path-to-corp-root-ca.crt>"
+        if ($rootOk) {
+            # Terminate just this distro to apply wsl.conf (default user, interop, systemd)
+            # Other running WSL distros are unaffected.
+            Write-Step "Terminating '$selectedDistro' to apply wsl.conf changes..."
+            wsl.exe --terminate $selectedDistro
+            Start-Sleep -Seconds 3
+            Write-Ok "Distro restarted - interop and systemd now active"
+
+            # Re-copy setup script and hooks (/tmp may not survive terminate)
+            Copy-SetupScript -DistroName $selectedDistro
+            if ($PreHook)  { $preHookDest  = Copy-HookScript -DistroName $selectedDistro -HookPath $PreHook  -DestName "pre-hook.sh" }
+            if ($PostHook) { $postHookDest = Copy-HookScript -DistroName $selectedDistro -HookPath $PostHook -DestName "post-hook.sh" }
+
+            # Install the corporate CA (if supplied) BEFORE any network phase, so
+            # hooks, Neovim, Ghostty and dotfiles all inherit the trust.
+            if ($CorpCert) {
+                Install-CorpCert -DistroName $selectedDistro -CertPath $CorpCert
+            }
+
+            # Detect the classic corporate-proxy failure: apt works (internal mirror
+            # / pre-trusted) while direct HTTPS fails to verify. Only worth checking
+            # when something later actually reaches the network.
+            $needsNetwork = (-not $SkipNeovim) -or (-not $SkipGhostty) -or (-not $SkipDotfiles) -or $PreHook -or $PostHook
+            if ($needsNetwork) {
+                $tls = Test-CertHealth -DistroName $selectedDistro
+                if ($tls -eq 2) {
+                    Write-Err "HTTPS certificate verification failed inside the distro."
+                    if ($CorpCert) {
+                        Write-Info "The supplied cert did not establish trust. Check that it is the"
+                        Write-Info "root CA your proxy presents (export the full chain, PEM or DER)."
+                    } else {
+                        Write-Info "apt works but direct HTTPS does not - the signature of a"
+                        Write-Info "TLS-inspecting corporate proxy. Re-run with the corporate root CA:"
+                        Write-Info "  .\wsl-bootstrap.ps1 -CorpCert <path-to-corp-root-ca.crt>"
+                    }
+                    exit 1
                 }
-                exit 1
             }
         }
-    }
 
-    # Step 4: Run pre-hook
-    if ($preHookDest) {
-        Write-Header "Pre-hook"
-        Invoke-Phase `
-            -Name "Pre-hook" `
-            -DistroName $selectedDistro `
-            -User "root" `
-            -Command "$preHookDest"
-    }
-
-    # Step 5: Build Neovim
-    if (-not $SkipNeovim) {
-        Write-Header "Neovim"
-        Invoke-Phase `
-            -Name "Neovim build" `
-            -DistroName $selectedDistro `
-            -User "root" `
-            -Command "/tmp/wsl-setup.sh build-neovim"
-    }
-
-    # Step 5: Install Ghostty
-    if (-not $SkipGhostty) {
-        Write-Header "Ghostty"
-        Invoke-Phase `
-            -Name "Ghostty install" `
-            -DistroName $selectedDistro `
-            -User "root" `
-            -Command "/tmp/wsl-setup.sh install-ghostty"
-    }
-
-    # Step 6: Copy repo into distro and install dotfiles
-    if (-not $SkipDotfiles) {
-        Write-Header "Dotfiles"
-        $repoPath = Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser
-        if ($repoPath) {
+        # Step 4: Run pre-hook
+        if ($preHookDest) {
+            Write-Header "Pre-hook"
             Invoke-Phase `
-                -Name "Install dotfiles" `
+                -Name "Pre-hook" `
                 -DistroName $selectedDistro `
-                -User "user" `
-                -Command "DFINSTALL_SUDO_PASS=root /tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
-        } else {
-            Invoke-Phase `
-                -Name "Install dotfiles" `
-                -DistroName $selectedDistro `
-                -User "user" `
-                -Command "DFINSTALL_SUDO_PASS=root /tmp/wsl-setup.sh install-dotfiles $Branch"
+                -User "root" `
+                -Command "$preHookDest"
         }
-    }
 
-    # Step 8: Run post-hook
-    if ($postHookDest) {
-        Write-Header "Post-hook"
-        Invoke-Phase `
-            -Name "Post-hook" `
-            -DistroName $selectedDistro `
-            -User "user" `
-            -Command "$postHookDest"
-    }
+        # Step 5: Build Neovim
+        if (-not $SkipNeovim) {
+            Write-Header "Neovim"
+            Invoke-Phase `
+                -Name "Neovim build" `
+                -DistroName $selectedDistro `
+                -User "root" `
+                -Command "/tmp/wsl-setup.sh build-neovim"
+        }
 
-    # Cleanup
-    wsl.exe -d $selectedDistro -u root -- rm -f /tmp/wsl-setup.sh /tmp/pre-hook.sh /tmp/post-hook.sh /tmp/corp-ca.input 2>$null
+        # Step 5: Install Ghostty
+        if (-not $SkipGhostty) {
+            Write-Header "Ghostty"
+            Invoke-Phase `
+                -Name "Ghostty install" `
+                -DistroName $selectedDistro `
+                -User "root" `
+                -Command "/tmp/wsl-setup.sh install-ghostty"
+        }
+
+        # Step 6: Copy repo into distro and install dotfiles
+        if (-not $SkipDotfiles) {
+            Write-Header "Dotfiles"
+            $repoPath = Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser
+            if ($repoPath) {
+                Invoke-Phase `
+                    -Name "Install dotfiles" `
+                    -DistroName $selectedDistro `
+                    -User "user" `
+                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
+            } else {
+                Invoke-Phase `
+                    -Name "Install dotfiles" `
+                    -DistroName $selectedDistro `
+                    -User "user" `
+                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch"
+            }
+        }
+
+        # Step 8: Run post-hook
+        if ($postHookDest) {
+            Write-Header "Post-hook"
+            Invoke-Phase `
+                -Name "Post-hook" `
+                -DistroName $selectedDistro `
+                -User "user" `
+                -Command "$postHookDest"
+        }
+    } finally {
+        # Runs on abort too: setup-root grants passwordless sudo for the
+        # bootstrap, and it must not outlive it.
+        Write-Header "Finishing"
+        Copy-SetupScript -DistroName $selectedDistro
+        wsl.exe -d $selectedDistro -u root -- /tmp/wsl-setup.sh finish-bootstrap $linuxUser
+        wsl.exe -d $selectedDistro -u root -- rm -f /tmp/wsl-setup.sh /tmp/pre-hook.sh /tmp/post-hook.sh /tmp/corp-ca.input 2>$null
+    }
 
     # Summary
     Write-Header "Done"
     Write-Ok "WSL distro '$selectedDistro' is ready"
     Write-Host ""
-    Write-Warn "Your password is 'root' - change it after setup with: passwd"
-    Write-Host ""
     Write-Info "Next steps:"
     Write-Host "    1. Open a new terminal for $selectedDistro"
-    Write-Host "    2. Change your password when prompted"
     if ($SkipDotfiles) {
-        Write-Host "    3. Install dotfiles: git clone https://github.com/sresarehumantoo/dotfiles ~/dotfiles"
+        Write-Host "    2. Install dotfiles: git clone https://github.com/sresarehumantoo/dotfiles ~/dotfiles"
         Write-Host "       cd ~/dotfiles && make build && ./bin/dfinstall install all"
     } else {
-        Write-Host "    3. Open a new shell or run: exec zsh"
+        Write-Host "    2. Open a new shell or run: exec zsh"
     }
     Write-Host ""
 }

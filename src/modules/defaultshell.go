@@ -36,11 +36,8 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 	// With passwordless sudo (a NOPASSWD rule, a container) sudo chsh needs no
 	// password at all, where bare chsh asks for the user's own and fails
 	// without a terminal.
-	useSudo := core.HasSudoPass()
-	if !useSudo {
-		_, err := runProbe(ctx, "sudo", "-n", "true")
-		useSudo = err == nil
-	}
+	_, probeErr := runProbe(ctx, "sudo", "-n", "true")
+	useSudo := probeErr == nil
 
 	if !useSudo && !core.Interactive {
 		core.Warn("cannot change shell non-interactively — run: chsh -s %s", zshPath)

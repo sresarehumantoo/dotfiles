@@ -124,9 +124,7 @@ setup_root() {
     usermod -aG sudo "$username"
     ok "Added ${username} to sudo group"
 
-    # Set initial password
-    echo "${username}:root" | chpasswd
-    warn "Password set to 'root' - change it after setup with: passwd"
+    grant_bootstrap_sudo "$username"
 
     if is_wsl; then
         header "Writing /etc/wsl.conf"
@@ -175,6 +173,45 @@ WSLCONF
 }
 
 # ── Phase: Build Neovim ──────────────────────────────────────────
+# The bootstrap's sudo access comes from a temporary NOPASSWD drop-in rather
+# than a known password, so the account never has a password anyone else
+# chose. finish_bootstrap removes it.
+bootstrap_sudoers=/etc/sudoers.d/90-dfinstall-bootstrap
+
+grant_bootstrap_sudo() {
+    local username="$1" tmp
+    tmp="$(mktemp)"
+    printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$username" > "$tmp"
+    visudo -cqf "$tmp" || { rm -f "$tmp"; die "generated sudoers drop-in failed validation"; }
+    install -m 0440 -o root -g root "$tmp" "$bootstrap_sudoers"
+    rm -f "$tmp"
+    ok "Temporary passwordless sudo for ${username} (removed when setup finishes)"
+}
+
+# finish_bootstrap revokes the bootstrap's sudo grant and, if the account has
+# no usable password yet, has the user choose one. Never touches an account
+# that already has a password.
+finish_bootstrap() {
+    local username="$1"
+    rm -f "$bootstrap_sudoers"
+    ok "Removed temporary passwordless sudo"
+
+    id "$username" &>/dev/null || return 0
+    [[ "$(passwd -S "$username" | awk '{print $2}')" == "P" ]] && return 0
+
+    if [[ -t 0 ]]; then
+        header "Set a password for ${username}"
+        info "Used for sudo. Nothing else knows it."
+        until passwd "$username"; do warn "Try again"; done
+    else
+        # No terminal to prompt on: fall back to a known password, expired so
+        # the first sudo forces a change.
+        echo "${username}:root" | chpasswd
+        passwd -e "$username" >/dev/null
+        warn "Password for ${username} is 'root' and must be changed on first use"
+    fi
+}
+
 build_neovim() {
     header "Building Neovim from source"
 
@@ -224,38 +261,36 @@ install_ghostty() {
     local releases_json
     releases_json="$(curl -sL "$api_url")"
 
-    # Search all releases (not just latest) for a .deb matching our codename + arch
-    local deb_url
-    deb_url="$(echo "$releases_json" | jq -r \
+    # Search all releases (not just latest) for a .deb matching our codename +
+    # arch. The -dbgsym packages match both and are listed first; they only
+    # carry debug symbols for the real package.
+    local deb_url digest
+    read -r deb_url digest < <(echo "$releases_json" | jq -r \
         --arg codename "$codename" \
         --arg arch "$arch" \
         '[ .[] | .assets[] |
            select(.name | endswith(".deb")) |
+           select(.name | test("-dbg(sym)?_") | not) |
            select(.name | contains($codename)) |
            select(.name | contains($arch))
-         ] | first | .browser_download_url // empty')"
-
-    # Fallback: try matching just the codename (any arch)
-    if [[ -z "$deb_url" ]]; then
-        deb_url="$(echo "$releases_json" | jq -r \
-            --arg codename "$codename" \
-            '[ .[] | .assets[] |
-               select(.name | endswith(".deb")) |
-               select(.name | contains($codename))
-             ] | first | .browser_download_url // empty')"
-    fi
+         ] | first | "\(.browser_download_url // "") \(.digest // "")"')
 
     if [[ -z "$deb_url" ]]; then
         die "No Ghostty .deb found for ${codename}/${arch}. Check https://github.com/dariogriffo/ghostty-debian/releases"
     fi
+    [[ "$digest" == sha256:* ]] || die "$(basename "$deb_url") has no published sha256 digest; refusing to install it as root"
 
-    local deb_file="/tmp/ghostty-latest.deb"
+    local tmp_dir deb_file
+    tmp_dir="$(mktemp -d)"
+    deb_file="${tmp_dir}/$(basename "$deb_url")"
     step "Downloading: $(basename "$deb_url")..."
-    curl -sL -o "$deb_file" "$deb_url"
+    curl -fsSL -o "$deb_file" "$deb_url"
+    echo "${digest#sha256:}  ${deb_file}" | sha256sum -c --quiet - \
+        || { rm -rf "$tmp_dir"; die "sha256 mismatch for $(basename "$deb_url")"; }
 
     step "Installing..."
     gdebi -n "$deb_file"
-    rm -f "$deb_file"
+    rm -rf "$tmp_dir"
 
     ok "Ghostty installed"
 }
@@ -410,6 +445,9 @@ setup() {
 
     # Root setup (needs root)
     if [[ "$(id -u)" -eq 0 ]]; then
+        # A global: the trap runs after setup's locals are gone.
+        bootstrap_user="$username"
+        trap 'spin_stop; finish_bootstrap "$bootstrap_user"' EXIT
         setup_root "$username"
     else
         info "Not running as root - skipping system setup"
@@ -445,7 +483,7 @@ setup() {
     if [[ "$do_dotfiles" == true ]]; then
         if [[ "$(id -u)" -eq 0 ]]; then
             info "Switching to ${username} for dotfiles install..."
-            su - "$username" -c "DFINSTALL_SUDO_PASS=root $(readlink -f "$0") install-dotfiles '$branch'"
+            su - "$username" -c "$(readlink -f "$0") install-dotfiles '$branch'"
         else
             install_dotfiles "$branch"
         fi
@@ -456,7 +494,6 @@ setup() {
 
     header "Done"
     ok "Setup complete"
-    warn "Password is 'root' - change it with: passwd"
     info "Open a new terminal or run: exec zsh"
 }
 
@@ -472,6 +509,8 @@ Commands:
   build-neovim        Build and install Neovim from source
   install-ghostty     Install latest Ghostty .deb for this distro
   install-dotfiles    Clone, build, and run dfinstall install all
+  finish-bootstrap <user>
+                      Revoke bootstrap sudo; set a password if the user has none
 
 Setup options:
   --username <name>   Linux username (prompted if omitted)
@@ -501,6 +540,7 @@ case "${1:-}" in
     build-neovim)     build_neovim ;;
     install-ghostty)  install_ghostty ;;
     install-dotfiles) shift; install_dotfiles "$@" ;;
+    finish-bootstrap) shift; finish_bootstrap "$@" ;;
     -h|--help|help)   show_help ;;
     *)
         if [[ -n "${1:-}" ]]; then

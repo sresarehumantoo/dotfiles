@@ -161,7 +161,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `status` | Print table of link counts per module |
 | `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) |
 | `restore [timestamp]` | Restore files from a backup snapshot |
-| `root` | Symlink configs into `/root/` via sudo |
+| `root` | Install root-owned copies of configs into `/root/` via sudo |
 | `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
 
 ### Install / Update Flags
