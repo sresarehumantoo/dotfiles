@@ -604,6 +604,18 @@ Symlinks `config/htop/htoprc` to `$XDG_CONFIG_HOME/htop/htoprc`.
 
 ---
 
+## claude
+
+**File:** `modules/claude.go`
+
+Symlinks `config/claude/CLAUDE.md` to `~/.claude/CLAUDE.md`, the global Claude Code instructions loaded in every session. It ends with `@~/.claude/CLAUDE.local.md`, so each machine can layer untracked, host-specific instructions on top; Claude Code skips the import when the file is absent.
+
+`~/.claude/settings.json` is **merged, not linked**, because Claude Code rewrites it itself (`/config`, `/model`, plugin toggles). Each top-level key in `config/claude/settings.json` (commit/PR attribution off, `includeCoAuthoredBy: false`, the update channel) replaces the live value; every other key is left untouched. Keep anything machine-specific (permissions, `autoMode.environment`, `env`) out of the tracked file: this repo is public. An unparsable live file is never rewritten. Uninstall removes the link and leaves the merged keys in place.
+
+**Status:** Checks 1 symlink; stale managed settings keys are listed alongside.
+
+---
+
 ## wsl
 
 **File:** `modules/wsl.go`, `modules/wsl_interop.go`, `modules/wsl_shader.go`

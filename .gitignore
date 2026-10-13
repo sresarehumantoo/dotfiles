@@ -14,6 +14,8 @@ powershell/
 # AI assistants
 .claude/
 CLAUDE.md
+# The global instructions the claude module links to ~/.claude/CLAUDE.md
+!config/claude/CLAUDE.md
 .continue/
 .cursorrules
 .cursorignore
