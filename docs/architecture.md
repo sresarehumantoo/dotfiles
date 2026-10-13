@@ -25,15 +25,14 @@ dfinstall install all [--backup]
         |                     - decides whether to back up (first run/--backup/config)
         |                     - StartBackup() if so
         v
-  core.PromptSudo(ctx)     <- core/env.go (primes credentials before the spinner)
-        |
-        v
   for each module:
     if core.SkipInAll(name) -> skip   <- user skip_modules + un-enabled opt-ins
     module.Install(ctx)    <- modules/<name>.go
       -> m.Links().Apply() <- core/module.go -> core.LinkFile()
         -> BackupFile()    <- core/backup.go (records pre-install state)
       -> runCmd(ctx, ...)  <- modules/packages.go (deadline-bounded subprocess)
+        -> core.EnsureSudo <- core/env.go (first sudo command only: prompts once,
+                              then keeps credentials fresh until ReleaseSudo)
       -> core.Info/Ok()    <- core/output.go (respects log level)
         |
         v

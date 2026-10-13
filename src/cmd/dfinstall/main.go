@@ -112,9 +112,7 @@ func main() {
 			core.Cfg.ToolkitTools = selected
 		}
 
-		// Prompt for sudo before spinner starts so the password prompt is visible
-		core.PromptSudo(ctx)
-		defer core.StopSudoKeepAlive()
+		defer core.ReleaseSudo()
 
 		// Infer module from standalone flags when no positional arg given
 		var target string
@@ -253,10 +251,7 @@ func main() {
 
 			core.DetectEnvironment()
 
-			// Prime sudo before any spinner starts so the password prompt
-			// (if any) is visible — this command is sudo-heavy.
-			core.PromptSudo(ctx)
-			defer core.StopSudoKeepAlive()
+			defer core.ReleaseSudo()
 
 			if core.Level >= core.LogVerbose {
 				return modules.InstallRoot(ctx)
@@ -311,10 +306,7 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			core.DetectEnvironment()
-			// Prime sudo — modules that installed system packages (delta,
-			// toolkit) shell out to sudo when uninstalling.
-			core.PromptSudo(ctx)
-			defer core.StopSudoKeepAlive()
+			defer core.ReleaseSudo()
 			target := args[0]
 			if target == "all" {
 				return uninstallAll(ctx)

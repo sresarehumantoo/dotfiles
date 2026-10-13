@@ -333,6 +333,9 @@ func runCmdTimeout(ctx context.Context, timeout time.Duration, name string, args
 
 	if directSudo {
 		cmd = core.SudoCmd(ctx, args...)
+	} else if needsTTY {
+		// sudo inside a script string never goes through SudoCmd.
+		core.EnsureSudo(ctx)
 	}
 
 	// Output routing:
