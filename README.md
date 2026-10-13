@@ -216,9 +216,10 @@ Modules run in this order — dependencies first:
 | 17 | **aerospace** | macOS tiling window manager (AeroSpace). No-ops off macOS |
 | 18 | **sketchybar** | macOS status bar (SketchyBar). No-ops off macOS |
 | 19 | **htop** | htop config |
-| 20 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 21 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 22 | **defaultshell** | Sets zsh as the default login shell |
+| 20 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
+| 21 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 22 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 23 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
 > **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's just **windev**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
