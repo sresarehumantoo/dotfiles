@@ -1,5 +1,8 @@
 export VISUAL='nvim'
 export EDITOR='nvim'
+if (( $+commands[nvim] && $+commands[man] )); then
+  export MANPAGER='nvim +Man!'
+fi
 
 # CA bundle exports (REQUESTS_CA_BUNDLE / SSL_CERT_FILE / CURL_CA_BUNDLE)
 # moved to ~/.profile so non-zsh shells (bash subshells, ansible-playbook from
