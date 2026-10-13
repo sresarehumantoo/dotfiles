@@ -3,7 +3,6 @@ package modules
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -16,7 +15,7 @@ type DeltaModule struct{}
 func (DeltaModule) Name() string { return "delta" }
 
 func (DeltaModule) Install(ctx context.Context) error {
-	if deltaInstalled() {
+	if localBinInstalled("delta") {
 		core.Ok("delta already installed")
 		return nil
 	}
@@ -41,20 +40,6 @@ func (DeltaModule) Install(ctx context.Context) error {
 
 // deltaLocal is where installDeltaRelease puts the binary.
 func deltaLocal() string { return core.HomeTarget(".local", "bin", "delta") }
-
-// deltaInstalled checks ~/.local/bin by path as well as PATH, which on a first
-// run may not include it yet.
-func deltaInstalled() bool {
-	if _, err := exec.LookPath("delta"); err == nil {
-		return true
-	}
-	p := deltaLocal()
-	if p == "" {
-		return false
-	}
-	fi, err := os.Stat(p)
-	return err == nil && !fi.IsDir()
-}
 
 // deltaReleaseAsset picks the release tarball for goarch: the static musl
 // build where one is published (x86_64 only, today), so it runs on any libc,
@@ -126,7 +111,7 @@ func deltaPkgFallback(ctx context.Context) error {
 
 func (DeltaModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "delta"}
-	if deltaInstalled() {
+	if localBinInstalled("delta") {
 		s.Linked = 1
 		s.Extra = "installed"
 	} else {

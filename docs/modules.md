@@ -57,16 +57,16 @@ Three groups of additional tooling:
 - macOS: Homebrew's keg-only `rustup` instead of `curl | sh`, which managed Macs often forbid; its `bin` (with the cargo/rustc proxies) goes on PATH the same way
 
 **Terraform:**
-- Adds HashiCorp apt repository (signed with GPG key)
-- Installs terraform
+- Linux: the latest release binary into `~/.local/bin`, no root. `SHA256SUMS` is verified against its detached signature, which must come from HashiCorp's release key (fingerprint pinned in `extras.go`); without `gpg` it falls back to the checksum alone and says so. Earlier versions added HashiCorp's apt repo instead; on those machines the repo and package are left as they are.
+- macOS: Homebrew's `hashicorp/tap/terraform`
 
-Reads `/etc/os-release` for `VERSION_CODENAME` to construct apt repo URLs.
+Reads `/etc/os-release` for `VERSION_CODENAME` to construct the Docker apt repo URL.
 
-**Signing key refresh:** both repos above are re-checked on every converge, not just when first added. Upstreams rotate signing keys on their own schedule, and a stale key makes `apt update` reject the index (exit 100) while the repo file, the key file, and the installed binary all still look fine. Each converge fetches the repo's `InRelease` and verifies it against the keyring on disk; if that fails, the upstream key is downloaded and **appended** to the keyring, keeping the outgoing certificate for the duration of the rotation window. A key that fails to verify even after refresh is left alone and reported as a warning rather than overwritten. Offline or unreachable upstreams skip the check entirely, so no network blip can trigger a keyring rewrite.
+**Signing key refresh:** the Docker repo is re-checked on every converge, not just when first added. Upstreams rotate signing keys on their own schedule, and a stale key makes `apt update` reject the index (exit 100) while the repo file, the key file, and the installed binary all still look fine. Each converge fetches the repo's `InRelease` and verifies it against the keyring on disk; if that fails, the upstream key is downloaded and **appended** to the keyring, keeping the outgoing certificate for the duration of the rotation window. A key that fails to verify even after refresh is left alone and reported as a warning rather than overwritten. Offline or unreachable upstreams skip the check entirely, so no network blip can trigger a keyring rewrite.
 
 After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
 
-**Status:** Checks 20 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, terraform, and the Docker and HashiCorp apt keyrings). The keyring checks are offline: they catch an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
+**Status:** Checks 19 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, terraform, and the Docker apt keyring). The keyring check is offline: it catches an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
 
 ---
 
@@ -138,7 +138,7 @@ uninstall deleting the wrong path.
 
 Installs [delta](https://github.com/dandavison/delta), a syntax-highlighting pager for git diffs.
 
-Tries the latest `.deb` release from GitHub first (auto-detects architecture via `dpkg --print-architecture`). Falls back to the system package manager if the download fails.
+Linux: the release binary into `~/.local/bin`, no root and no dpkg. The static musl build is preferred (it runs on any libc), with the glibc build where no musl one is published (aarch64). The download is checked against GitHub's sha256 digest. Falls back to the system package manager only if the release cannot be used. macOS: Homebrew.
 
 **Status:** Reports "installed" or "not found".
 
@@ -418,6 +418,7 @@ Key settings:
 Sets up a full Neovim configuration under `~/.config/nvim/`:
 
 - **23 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, `notes.markdownlint.yaml` (the vault's relaxed lint rules), lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
+- **Neovim itself:** if nvim is missing or older than nvim-treesitter needs, installs the official prebuilt into `~/.local/opt` and links `~/.local/bin/nvim`, no root. An older distro or `/opt` copy is left installed (it is shadowed on PATH) and the command to remove it is printed. The tree-sitter CLI goes to `~/.local/bin` the same way.
 - **Plugin sync:** Runs `nvim --headless "+Lazy! sync" "+qa"` after linking
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
 
