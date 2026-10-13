@@ -29,18 +29,17 @@ type ghAsset struct {
 }
 
 // downloadVerified fetches a release asset to dst and checks it against the
-// sha256 GitHub recorded at upload. Used for anything that goes on to run as
-// root (dpkg -i, an extraction under /opt), so an asset with no digest is
-// refused rather than trusted.
+// sha256 GitHub recorded at upload. An asset with no digest is refused rather
+// than trusted: several callers go on to run it as root (dpkg -i).
 //
 // The digest comes from the same API as the asset, so it does not defend
-// against a compromised upstream. What it does pin is that the bytes root
-// consumes are the bytes the release listing described: not a truncated
-// download, an error page, or a file swapped between the fetch and the install.
+// against a compromised upstream. What it does pin is that the bytes installed
+// are the bytes the release listing described: not a truncated download, an
+// error page, or a file swapped between the fetch and the install.
 func downloadVerified(ctx context.Context, a ghAsset, dst string) error {
 	want, ok := strings.CutPrefix(a.Digest, "sha256:")
 	if !ok || want == "" {
-		return fmt.Errorf("%s has no published sha256 digest; refusing to install it as root", a.Name)
+		return fmt.Errorf("%s has no published sha256 digest; refusing to install it", a.Name)
 	}
 	if err := runNetCmd(ctx, "curl", "-fsSL", "-o", dst, a.URL); err != nil {
 		return fmt.Errorf("download %s: %w", a.Name, err)

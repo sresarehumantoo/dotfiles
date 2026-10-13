@@ -36,8 +36,10 @@ const (
 
 var treeSitterVersionRe = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
 
-func treeSitterCurrent(ctx context.Context) bool {
-	out, err := runProbe(ctx, "tree-sitter", "--version")
+// treeSitterCurrent reports whether bin (a name to look up on PATH, or a path)
+// is a tree-sitter CLI new enough for nvim-treesitter.
+func treeSitterCurrent(ctx context.Context, bin string) bool {
+	out, err := runProbe(ctx, bin, "--version")
 	if err != nil {
 		return false
 	}
@@ -62,13 +64,20 @@ func treeSitterFilter(goarch string) assetFilter {
 }
 
 // ensureTreeSitterCLI installs a current tree-sitter CLI: brew on macOS, the
-// release binary into /usr/local/bin on Linux, beside the prebuilt nvim.
+// release binary into ~/.local/bin on Linux. It is one static binary, so it
+// needs no root; ~/.local/bin is ahead of /usr/local/bin on PATH, so it also
+// shadows a copy an older dfinstall put there.
 func ensureTreeSitterCLI(ctx context.Context) error {
-	if treeSitterCurrent(ctx) {
+	// Checked by path too: on a first run ~/.local/bin may not be on PATH yet.
+	dst := core.HomeTarget(".local", "bin", "tree-sitter")
+	if treeSitterCurrent(ctx, "tree-sitter") || (dst != "" && treeSitterCurrent(ctx, dst)) {
 		return nil
 	}
 	if core.IsMac() {
 		return installPkg(ctx, "tree-sitter-cli")
+	}
+	if err := core.CheckTarget(dst); err != nil {
+		return err
 	}
 
 	assets, err := latestAssets(ctx, "tree-sitter/tree-sitter")
@@ -92,7 +101,7 @@ func ensureTreeSitterCLI(ctx context.Context) error {
 	if err := runCmd(ctx, "gunzip", gz); err != nil {
 		return fmt.Errorf("decompress tree-sitter: %w", err)
 	}
-	if err := runCmd(ctx, "sudo", "install", "-m", "0755", filepath.Join(tmp, "tree-sitter"), "/usr/local/bin/tree-sitter"); err != nil {
+	if err := runCmd(ctx, "install", "-D", "-m", "0755", filepath.Join(tmp, "tree-sitter"), dst); err != nil {
 		return fmt.Errorf("install tree-sitter: %w", err)
 	}
 	core.Ok("Installed tree-sitter CLI from %s", asset.Name)
