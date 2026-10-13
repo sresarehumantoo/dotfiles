@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -85,7 +86,7 @@ func ensureTreeSitterCLI(ctx context.Context) error {
 	}
 	defer os.RemoveAll(tmp)
 	gz := filepath.Join(tmp, "tree-sitter.gz")
-	if err := runNetCmd(ctx, "curl", "-fsSL", "-o", gz, asset.URL); err != nil {
+	if err := downloadVerified(ctx, asset, gz); err != nil {
 		return fmt.Errorf("download tree-sitter: %w", err)
 	}
 	if err := runCmd(ctx, "gunzip", gz); err != nil {
@@ -284,19 +285,37 @@ func installPrebuiltNvimLinux(ctx context.Context) error {
 		core.Warn("no prebuilt Neovim for arch %s — install manually", runtime.GOARCH)
 		return nil
 	}
-	url := "https://github.com/neovim/neovim/releases/latest/download/" + asset
 	dir := strings.TrimSuffix(asset, ".tar.gz") // e.g. nvim-linux-x86_64
-	tmp := filepath.Join(os.TempDir(), asset)
+
+	assets, err := latestAssets(ctx, "neovim/neovim")
+	if err != nil {
+		return err
+	}
+	i := slices.IndexFunc(assets, func(a ghAsset) bool { return a.Name == asset })
+	if i < 0 {
+		return fmt.Errorf("latest Neovim release has no %s", asset)
+	}
+
+	// A private directory, so nothing else on the machine can replace the
+	// tarball between the download and root extracting it.
+	tmpDir, err := os.MkdirTemp("", "nvim-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+	tmp := filepath.Join(tmpDir, asset)
 
 	core.Info("Installing prebuilt Neovim (%s)...", asset)
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmp, url); err != nil {
+	if err := downloadVerified(ctx, assets[i], tmp); err != nil {
 		return fmt.Errorf("download nvim: %w", err)
 	}
-	defer os.Remove(tmp)
 
 	// Wipe any prior extraction so a partial download doesn't leak in.
 	_ = runCmd(ctx, "sudo", "rm", "-rf", filepath.Join("/opt", dir))
-	if err := runCmd(ctx, "sudo", "tar", "-xzf", tmp, "-C", "/opt"); err != nil {
+	// tar running as root keeps the archive's owners by default, which left
+	// the binary root runs owned by uid 1001 (GitHub's build user), i.e.
+	// whichever local account happens to hold that uid.
+	if err := runCmd(ctx, "sudo", "tar", "--no-same-owner", "--no-same-permissions", "-xzf", tmp, "-C", "/opt"); err != nil {
 		return fmt.Errorf("extract nvim: %w", err)
 	}
 
