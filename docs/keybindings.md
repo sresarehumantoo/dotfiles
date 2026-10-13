@@ -63,6 +63,11 @@ Prefix: **Alt+a**
 | `prefix J` | Resize down 5 |
 | `prefix K` | Resize up 5 |
 | `prefix L` | Resize right 5 |
+| `prefix M-←↓↑→` | Resize 5 (tmux default) |
+| `prefix C-←↓↑→` | Resize 1 (tmux default) |
+| Drag pane border | Resize with the mouse (mouse on by default) |
+
+All of these repeat: after the prefix, keep pressing `H`/`J`/`K`/`L` (or the arrows) within 600ms (`repeat-time`) without pressing the prefix again. Holding `Shift` and tapping `H` grows a pane in steps of 5.
 
 ### Window Management
 
