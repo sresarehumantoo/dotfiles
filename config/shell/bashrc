@@ -68,3 +68,6 @@ set -o vi
 
 export VISUAL='nvim'
 export EDITOR='nvim'
+if command -v nvim >/dev/null && command -v man >/dev/null; then
+  export MANPAGER='nvim +Man!'
+fi
