@@ -261,38 +261,36 @@ install_ghostty() {
     local releases_json
     releases_json="$(curl -sL "$api_url")"
 
-    # Search all releases (not just latest) for a .deb matching our codename + arch
-    local deb_url
-    deb_url="$(echo "$releases_json" | jq -r \
+    # Search all releases (not just latest) for a .deb matching our codename +
+    # arch. The -dbgsym packages match both and are listed first; they only
+    # carry debug symbols for the real package.
+    local deb_url digest
+    read -r deb_url digest < <(echo "$releases_json" | jq -r \
         --arg codename "$codename" \
         --arg arch "$arch" \
         '[ .[] | .assets[] |
            select(.name | endswith(".deb")) |
+           select(.name | test("-dbg(sym)?_") | not) |
            select(.name | contains($codename)) |
            select(.name | contains($arch))
-         ] | first | .browser_download_url // empty')"
-
-    # Fallback: try matching just the codename (any arch)
-    if [[ -z "$deb_url" ]]; then
-        deb_url="$(echo "$releases_json" | jq -r \
-            --arg codename "$codename" \
-            '[ .[] | .assets[] |
-               select(.name | endswith(".deb")) |
-               select(.name | contains($codename))
-             ] | first | .browser_download_url // empty')"
-    fi
+         ] | first | "\(.browser_download_url // "") \(.digest // "")"')
 
     if [[ -z "$deb_url" ]]; then
         die "No Ghostty .deb found for ${codename}/${arch}. Check https://github.com/dariogriffo/ghostty-debian/releases"
     fi
+    [[ "$digest" == sha256:* ]] || die "$(basename "$deb_url") has no published sha256 digest; refusing to install it as root"
 
-    local deb_file="/tmp/ghostty-latest.deb"
+    local tmp_dir deb_file
+    tmp_dir="$(mktemp -d)"
+    deb_file="${tmp_dir}/$(basename "$deb_url")"
     step "Downloading: $(basename "$deb_url")..."
-    curl -sL -o "$deb_file" "$deb_url"
+    curl -fsSL -o "$deb_file" "$deb_url"
+    echo "${digest#sha256:}  ${deb_file}" | sha256sum -c --quiet - \
+        || { rm -rf "$tmp_dir"; die "sha256 mismatch for $(basename "$deb_url")"; }
 
     step "Installing..."
     gdebi -n "$deb_file"
-    rm -f "$deb_file"
+    rm -rf "$tmp_dir"
 
     ok "Ghostty installed"
 }
