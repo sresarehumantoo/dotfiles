@@ -198,6 +198,19 @@ var debianVersionToCodename = map[string]string{
 	"13": "trixie",
 }
 
+// DistroCodename returns VERSION_CODENAME from /etc/os-release as the distro
+// itself names it ("trixie", "resolute", "kali-rolling"), or "" if unset.
+// Unlike UpstreamDebianCodename it is not mapped onto a known upstream release.
+func DistroCodename() string {
+	osRelease, _ := os.ReadFile("/etc/os-release")
+	for _, line := range strings.Split(string(osRelease), "\n") {
+		if v, ok := strings.CutPrefix(line, "VERSION_CODENAME="); ok {
+			return strings.Trim(v, "\"'")
+		}
+	}
+	return ""
+}
+
 // UpstreamDebianCodename returns the Debian/Ubuntu codename to use when
 // configuring third-party apt repos. Reads /etc/os-release and
 // /etc/debian_version. Defaults to "bookworm" if nothing usable is found.

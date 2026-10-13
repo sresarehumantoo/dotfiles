@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -99,6 +100,8 @@ type assetFilter struct {
 	// Contains, when set, is a required substring — the registry's
 	// asset_pattern, e.g. "linux-musl".
 	Contains string
+	// Exclude drops any asset whose name contains one of these substrings.
+	Exclude []string
 	// SkipSidecars drops checksums, signatures and SBOMs.
 	SkipSidecars bool
 	// LinuxOnly drops darwin/windows assets when a release ships several.
@@ -111,6 +114,16 @@ type assetFilter struct {
 
 // pickAsset returns the first asset satisfying the filter.
 func pickAsset(assets []ghAsset, f assetFilter) (ghAsset, bool) {
+	matches := filterAssets(assets, f)
+	if len(matches) == 0 {
+		return ghAsset{}, false
+	}
+	return matches[0], true
+}
+
+// filterAssets returns every asset satisfying the filter, in listing order.
+func filterAssets(assets []ghAsset, f assetFilter) []ghAsset {
+	var out []ghAsset
 	for _, a := range assets {
 		lower := strings.ToLower(a.Name)
 
@@ -132,9 +145,57 @@ func pickAsset(assets []ghAsset, f assetFilter) (ghAsset, bool) {
 		if len(f.ArchTokens) > 0 && !containsAny(lower, f.ArchTokens) {
 			continue
 		}
-		return a, true
+		if containsAny(lower, f.Exclude) {
+			continue
+		}
+		out = append(out, a)
 	}
-	return ghAsset{}, false
+	return out
+}
+
+// debugPackageMarkers name Debian debug-symbol packages, which releases list
+// beside (and often before) the real package and which only make sense
+// installed on top of it.
+var debugPackageMarkers = []string{"-dbgsym_", "-dbg_"}
+
+// pickDebForDistro chooses among a release's .deb candidates for this arch.
+// Repackagers like ghostty-debian publish one build per distro release
+// (ghostty_1.3.1-6.trixie_amd64.deb, ...noble_amd64.deb), and another
+// release's build either fails its dependencies or links against the wrong
+// libraries. codenames are tried in order; a lone candidate is taken as is,
+// since a project shipping a single .deb names no distro at all.
+func pickDebForDistro(candidates []ghAsset, codenames []string) (ghAsset, error) {
+	switch len(candidates) {
+	case 0:
+		return ghAsset{}, fmt.Errorf("no .deb in the release")
+	case 1:
+		return candidates[0], nil
+	}
+	var tried []string
+	for _, c := range codenames {
+		if c == "" {
+			continue
+		}
+		tried = append(tried, c)
+		for _, a := range candidates {
+			if slices.Contains(nameTokens(a.Name), c) {
+				return a, nil
+			}
+		}
+	}
+	names := make([]string, len(candidates))
+	for i, a := range candidates {
+		names[i] = a.Name
+	}
+	return ghAsset{}, fmt.Errorf("no .deb for %s among: %s", strings.Join(tried, "/"), strings.Join(names, ", "))
+}
+
+// nameTokens splits an asset name on everything but letters and digits, so a
+// codename matches as a whole word ("sid" does not match "inside").
+func nameTokens(name string) []string {
+	return strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	})
 }
 
 func hasAnySuffix(s string, suffixes []string) bool {

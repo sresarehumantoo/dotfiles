@@ -356,3 +356,74 @@ func TestGhAssetDigestParsed(t *testing.T) {
 		t.Fatalf("digests = %q, %q", release.Assets[0].Digest, release.Assets[1].Digest)
 	}
 }
+
+// The ghostty-debian 1.3.1+6 release as published: debug-symbol packages
+// listed first, then one build per distro release, among source artifacts.
+var ghosttyDebianRelease = []string{
+	"ghostty-dbgsym_1.3.1-6.forky_amd64.deb",
+	"ghostty-dbgsym_1.3.1-6.questing_amd64.deb",
+	"ghostty-dbgsym_1.3.1-6.resolute_amd64.deb",
+	"ghostty-dbgsym_1.3.1-6.trixie_amd64.deb",
+	"ghostty_1.3.1-6.forky.debian.tar.xz",
+	"ghostty_1.3.1-6.forky.dsc",
+	"ghostty_1.3.1-6.forky_amd64.deb",
+	"ghostty_1.3.1-6.noble_amd64.deb",
+	"ghostty_1.3.1-6.questing_amd64.deb",
+	"ghostty_1.3.1-6.resolute_amd64.deb",
+	"ghostty_1.3.1-6.sid.dsc",
+	"ghostty_1.3.1-6.trixie.debian.tar.xz",
+	"ghostty_1.3.1-6.trixie_amd64.deb",
+	"ghostty_1.3.1.orig.tar.gz",
+}
+
+func TestPickDebForDistro(t *testing.T) {
+	var assets []ghAsset
+	for _, n := range ghosttyDebianRelease {
+		assets = append(assets, ghAsset{Name: n})
+	}
+	candidates := filterAssets(assets, assetFilter{
+		ArchTokens: archTokensFor("amd64"),
+		Suffix:     ".deb",
+		Exclude:    debugPackageMarkers,
+	})
+	for _, c := range candidates {
+		if strings.Contains(c.Name, "dbgsym") {
+			t.Fatalf("debug package survived the filter: %s", c.Name)
+		}
+	}
+
+	cases := []struct {
+		name      string
+		codenames []string
+		want      string
+	}{
+		{"debian trixie", []string{"trixie", "trixie"}, "ghostty_1.3.1-6.trixie_amd64.deb"},
+		{"ubuntu resolute is not an upstream codename", []string{"resolute", "trixie"}, "ghostty_1.3.1-6.resolute_amd64.deb"},
+		{"ubuntu noble", []string{"noble", "noble"}, "ghostty_1.3.1-6.noble_amd64.deb"},
+		{"kali falls back to upstream", []string{"kali-rolling", "trixie"}, "ghostty_1.3.1-6.trixie_amd64.deb"},
+		{"sid has no binary build", []string{"sid", "sid"}, ""},
+		{"bookworm has no build", []string{"bookworm", "bookworm"}, ""},
+		{"no codename known", []string{"", ""}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := pickDebForDistro(candidates, c.codenames)
+			if c.want == "" {
+				if err == nil {
+					t.Fatalf("picked %s, want an error", got.Name)
+				}
+				return
+			}
+			if err != nil || got.Name != c.want {
+				t.Fatalf("got %q, %v; want %s", got.Name, err, c.want)
+			}
+		})
+	}
+}
+
+func TestPickDebForDistro_SingleDebNamesNoDistro(t *testing.T) {
+	got, err := pickDebForDistro([]ghAsset{{Name: "tool_1.0_amd64.deb"}}, []string{"trixie"})
+	if err != nil || got.Name != "tool_1.0_amd64.deb" {
+		t.Fatalf("got %q, %v", got.Name, err)
+	}
+}
