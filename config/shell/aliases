@@ -231,6 +231,12 @@ if command -v tldr &>/dev/null; then
   fi
 fi
 
+# A fixed MANWIDTH would overflow panes narrower than it, so cap at the pane width.
+man() {
+  local w=${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}
+  MANWIDTH=$(( w < 80 ? w : 80 )) command man "$@"
+}
+
 # System
 if command -v ss &>/dev/null; then
   alias ports="ss -tulnp"
