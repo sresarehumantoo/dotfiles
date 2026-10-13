@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // GitHub release asset handling, shared by the deb, AppImage and
@@ -20,6 +22,36 @@ import (
 type ghAsset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
+	// Digest is GitHub's "sha256:<hex>" for the uploaded file. Assets uploaded
+	// before mid-2025 have none.
+	Digest string `json:"digest"`
+}
+
+// downloadVerified fetches a release asset to dst and checks it against the
+// sha256 GitHub recorded at upload. Used for anything that goes on to run as
+// root (dpkg -i, an extraction under /opt), so an asset with no digest is
+// refused rather than trusted.
+//
+// The digest comes from the same API as the asset, so it does not defend
+// against a compromised upstream. What it does pin is that the bytes root
+// consumes are the bytes the release listing described: not a truncated
+// download, an error page, or a file swapped between the fetch and the install.
+func downloadVerified(ctx context.Context, a ghAsset, dst string) error {
+	want, ok := strings.CutPrefix(a.Digest, "sha256:")
+	if !ok || want == "" {
+		return fmt.Errorf("%s has no published sha256 digest; refusing to install it as root", a.Name)
+	}
+	if err := runNetCmd(ctx, "curl", "-fsSL", "-o", dst, a.URL); err != nil {
+		return fmt.Errorf("download %s: %w", a.Name, err)
+	}
+	got, err := core.FileHash(dst)
+	if err != nil {
+		return fmt.Errorf("hash %s: %w", a.Name, err)
+	}
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("sha256 mismatch for %s: want %s, got %s", a.Name, want, got)
+	}
+	return nil
 }
 
 // latestAssets returns the assets attached to a repo's latest release.

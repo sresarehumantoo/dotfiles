@@ -5,7 +5,11 @@ package modules
 // hitting the GitHub API, so none of it was covered.
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -300,5 +304,55 @@ func TestTreeSitterAsset(t *testing.T) {
 		if !ok || got.Name != want {
 			t.Errorf("%s: got %q (ok=%v), want %q", goarch, got.Name, ok, want)
 		}
+	}
+}
+
+func TestDownloadVerified(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "asset.deb")
+	if err := os.WriteFile(src, []byte("payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	const sum = "239f59ed55e737c77147cf55ad0c1b030b6d7ee748a7426952f9b852d5a935e5"
+	url := "file://" + src
+
+	cases := []struct {
+		name    string
+		digest  string
+		wantErr string
+	}{
+		{"match", "sha256:" + sum, ""},
+		{"uppercase hex", "sha256:" + strings.ToUpper(sum), ""},
+		{"mismatch", "sha256:" + strings.Repeat("0", 64), "sha256 mismatch"},
+		{"no digest", "", "no published sha256 digest"},
+		{"other algorithm", "sha512:" + sum, "no published sha256 digest"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dst := filepath.Join(t.TempDir(), "out")
+			err := downloadVerified(context.Background(), ghAsset{Name: "asset.deb", URL: url, Digest: c.digest}, dst)
+			if c.wantErr == "" {
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+				t.Fatalf("got %v, want error containing %q", err, c.wantErr)
+			}
+		})
+	}
+}
+
+func TestGhAssetDigestParsed(t *testing.T) {
+	var release struct {
+		Assets []ghAsset `json:"assets"`
+	}
+	in := `{"assets":[{"name":"a","browser_download_url":"u","digest":"sha256:abc"},{"name":"b","browser_download_url":"u","digest":null}]}`
+	if err := json.Unmarshal([]byte(in), &release); err != nil {
+		t.Fatal(err)
+	}
+	if release.Assets[0].Digest != "sha256:abc" || release.Assets[1].Digest != "" {
+		t.Fatalf("digests = %q, %q", release.Assets[0].Digest, release.Assets[1].Digest)
 	}
 }

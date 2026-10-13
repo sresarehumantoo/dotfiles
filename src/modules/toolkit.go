@@ -486,8 +486,8 @@ func installDeb(ctx context.Context, name, repo string) error {
 	tmpFile.Close()
 	defer os.Remove(tmpPath)
 
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, asset.URL); err != nil {
-		return fmt.Errorf("download %s: %w", name, err)
+	if err := downloadVerified(ctx, asset, tmpPath); err != nil {
+		return err
 	}
 
 	// Install with dpkg, then fix any missing dependencies with apt

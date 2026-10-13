@@ -83,7 +83,8 @@ func installDeltaDeb(ctx context.Context) error {
 	}
 
 	debPath := filepath.Join(tmp, "git-delta.deb")
-	if err := runCmd(ctx, "curl", "-fsSL", asset.URL, "-o", debPath); err != nil {
+	if err := downloadVerified(ctx, asset, debPath); err != nil {
+		core.Warn("%v", err)
 		return deltaPkgFallback(ctx)
 	}
 
