@@ -28,7 +28,14 @@ func (ExtrasModule) Name() string { return "extras" }
 // writeFileAsRoot writes data to a root-owned file via a tmp-then-install
 // dance. Replaces the `cat <<EOF | sudo tee` pattern so the sudo invocation
 // goes through the proper sudo handling (spinner pause, stderr connected).
+// A file that already holds data with that mode is left alone, so a re-run
+// does not ask for a password.
 func writeFileAsRoot(ctx context.Context, dst string, data []byte, mode os.FileMode) error {
+	if fi, err := os.Stat(dst); err == nil && fi.Mode().Perm() == mode.Perm() {
+		if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, data) {
+			return nil
+		}
+	}
 	tmp, err := os.CreateTemp("", "dfinstall-asroot-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -420,6 +427,9 @@ Components: stable
 Architectures: %s
 Signed-By: /etc/apt/keyrings/docker.asc`, base, codename, arch)
 
+	if err := writeFileAsRoot(ctx, "/etc/apt/preferences.d/docker", []byte(aptOriginPin("download.docker.com")), 0644); err != nil {
+		return fmt.Errorf("writing apt pin: %w", err)
+	}
 	if err := addAptRepo(ctx,
 		"Docker",
 		base+"/gpg",
