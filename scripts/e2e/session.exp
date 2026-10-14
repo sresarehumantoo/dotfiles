@@ -1,0 +1,48 @@
+#!/usr/bin/expect -f
+# Usage: session.exp STEPS_FILE PASSWORD
+#
+# Runs each "label|command" line of STEPS_FILE in one shell on one pty, so
+# sudo's per-terminal credential cache carries from step to step exactly as it
+# would for a person. Prints "STEP <label> prompts=<n> rc=<exit>" per step,
+# where n counts sudo password prompts actually shown. dfinstall's own
+# questions are answered with their defaults (git identity with a placeholder).
+
+set timeout 1200
+log_user 0
+lassign $argv steps_file password
+
+spawn bash --norc --noprofile
+# Built from a variable so the echoed command line never contains the prompt
+# text itself, which would let the first match fire early.
+set prompt_re {E2E> $}
+send "p=E2E; export PS1=\"\$p> \" TERM=dumb NO_COLOR=1\r"
+expect -re $prompt_re
+
+set f [open $steps_file]
+while {[gets $f line] >= 0} {
+    if {$line eq "" || [string index $line 0] eq "#"} continue
+    set sep [string first "|" $line]
+    set label [string range $line 0 [expr {$sep - 1}]]
+    set cmd [string range $line [expr {$sep + 1}] end]
+
+    set prompts 0
+    set rc "?"
+    send "$cmd; echo E2E_RC=\$?\r"
+    expect {
+        -re {password for [^:\r\n]*: ?$} { incr prompts; send "$password\r"; exp_continue }
+        -re {Git user\.name: $} { send "e2e\r"; exp_continue }
+        -re {Git user\.email: $} { send "e2e@example.invalid\r"; exp_continue }
+        -re {\[[yY]/[nN]\]: $} { send "\r"; exp_continue }
+        -re {E2E_RC=([0-9]+)} { set rc $expect_out(1,string); exp_continue }
+        -re $prompt_re {}
+        timeout {
+            set rc timeout
+            send "\003"
+            expect -re $prompt_re
+        }
+    }
+    puts "STEP $label prompts=$prompts rc=$rc"
+}
+close $f
+send "exit\r"
+expect eof
