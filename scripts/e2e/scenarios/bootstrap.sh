@@ -29,6 +29,6 @@ check "drop-in removed" test ! -e /etc/sudoers.d/90-dfinstall-bootstrap
 # No terminal here, so the fallback applies: a known password, already expired.
 check "fallback password is expired" test "$(passwd -S "$U" | awk '{print $3}')" = 1970-01-01
 check "sudo now demands a password change" bash -c "su - $U -c 'sudo -n true' 2>&1 | grep -q 'change your password'"
-check "login shell is zsh" test "$(getent passwd "$U" | cut -d: -f7)" = /usr/bin/zsh
+check "login shell is zsh (sudo chsh, no terminal)" test "$(getent passwd "$U" | cut -d: -f7)" = /usr/bin/zsh
 
 finish

@@ -3,8 +3,9 @@
 #
 # Runs each "label|command" line of STEPS_FILE in one shell on one pty, so
 # sudo's per-terminal credential cache carries from step to step exactly as it
-# would for a person. Prints "STEP <label> prompts=<n> rc=<exit>" per step,
-# where n counts sudo password prompts actually shown. dfinstall's own
+# would for a person. Prints "STEP <label> prompts=<n> auth=<m> rc=<exit>" per
+# step: n counts sudo password prompts actually shown, m other password prompts
+# (PAM's "Password: ", as from chsh). Both get PASSWORD. dfinstall's own
 # questions are answered with their defaults (git identity with a placeholder).
 
 set timeout 1200
@@ -26,10 +27,12 @@ while {[gets $f line] >= 0} {
     set cmd [string range $line [expr {$sep + 1}] end]
 
     set prompts 0
+    set auth 0
     set rc "?"
     send "$cmd; echo E2E_RC=\$?\r"
     expect {
         -re {password for [^:\r\n]*: ?$} { incr prompts; send "$password\r"; exp_continue }
+        -re {Password: $} { incr auth; send "$password\r"; exp_continue }
         -re {Git user\.name: $} { send "e2e\r"; exp_continue }
         -re {Git user\.email: $} { send "e2e@example.invalid\r"; exp_continue }
         -re {\[[yY]/[nN]\]: $} { send "\r"; exp_continue }
@@ -41,7 +44,7 @@ while {[gets $f line] >= 0} {
             expect -re $prompt_re
         }
     }
-    puts "STEP $label prompts=$prompts rc=$rc"
+    puts "STEP $label prompts=$prompts auth=$auth rc=$rc"
 }
 close $f
 send "exit\r"

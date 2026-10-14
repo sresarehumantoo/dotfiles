@@ -8,11 +8,9 @@ Most modules are a single Go file in `src/modules/`. They run in the order liste
 
 **File:** `modules/locale.go`
 
-Configures the system locale (`en_US.UTF-8`). Skips if the locale is already available.
+Reports which UTF-8 locale shells will get, and changes nothing on the system. `config/shell/zsh/locale.zsh` sets `LANG` (when it is unset, `C` or `POSIX`) to `en_US.UTF-8` if that locale has been generated, else to `C.UTF-8`, which glibc 2.35+ ships built in. So a fresh machine gets UTF-8 with no root; what it does not get without generating `en_US.UTF-8` is en_US date formats and sorting. The module prints the Debian command for that rather than running it. The WSL bootstrap, which runs as root anyway, still generates `en_US.UTF-8`.
 
-If `locale-gen` is missing, installs the `locales` package first. Then uncomments `en_US.UTF-8 UTF-8` in `/etc/locale.gen` (appending it if absent), runs `sudo locale-gen` to generate the locale, and sets it as the system default with `sudo update-locale LANG=en_US.UTF-8`.
-
-**Status:** Checks for `locale-gen` on `$PATH` and whether `en_US.UTF-8` is available (2 checks).
+**Status:** One check: a UTF-8 locale is available, naming which (`en_US.UTF-8`, or `C.UTF-8` when en_US is not generated).
 
 ---
 
@@ -763,7 +761,7 @@ Installs hypervisor guest tools when running inside a hardware VM. Skips entirel
 | VirtualBox | virtualbox-guest-utils |
 | Hyper-V | hyperv-daemons |
 
-After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
+After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. A unit that is already running and enabled (or static) is left alone, and guest packages already installed are skipped, so a re-run needs no sudo. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
 
 **Status:** Reports the detected virtualization type and checks the guest packages for that hypervisor. Returns empty on WSL and non-VM systems.
 
@@ -773,8 +771,8 @@ After installing, enables/starts the relevant systemd units (`qemu-guest-agent`,
 
 **File:** `modules/defaultshell.go`
 
-Sets zsh as the default login shell via `chsh -s $(which zsh)`. Skips if `$SHELL` is exactly the zsh path resolved from `$PATH` — a `$SHELL` of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
+Sets zsh as the default login shell. Skips when the account's recorded login shell (`getent passwd`, or `dscl` on macOS) is already the zsh path resolved from `$PATH`; `$SHELL` is not used, because it only changes at the next login. A shell of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
 
-If no sudo password was captured at startup and the session is non-interactive (e.g. under the MCP server, where stdin is the JSON-RPC stream), it warns with the `chsh -s <path>` command to run and does nothing. When a sudo password is available it runs `chsh` through `core.SudoCmd` with no stdin wiring; only the interactive fallback attaches stdin/stdout and may prompt for a password.
+With a terminal it runs plain `chsh -s <zsh>`, which asks for the user's own password and needs no root. Without one (under the MCP server, where stdin is the JSON-RPC stream, or a piped bootstrap), or when plain `chsh` fails, it uses `sudo chsh` only if sudo needs no password (a NOPASSWD rule, cached credentials, the bootstrap drop-in). Otherwise it warns with the `chsh -s <path>` command to run.
 
-**Status:** Reports "zsh" if default, or the current shell path.
+**Status:** Reports "zsh" if the account's login shell is zsh, or that shell's path.

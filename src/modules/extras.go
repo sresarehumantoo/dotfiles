@@ -125,13 +125,15 @@ func addAptRepo(ctx context.Context, name, keyURL, keyPath, repoContent, repoPat
 	return nil
 }
 
-// dpkgInstalled checks if a Debian package is installed.
+// dpkgInstalled checks if a Debian package is installed. Not `dpkg -s`, which
+// also succeeds for a package removed with its config files left behind
+// (dpkg -l state "rc").
 // dpkgInstalled and pacmanInstalled are called from Status() as well as the
 // install path, so they have no context to inherit. runProbe bounds them with
 // ProbeTimeout, which is what stops a wedged dpkg from hanging the run.
 func dpkgInstalled(pkg string) bool {
-	_, err := runProbe(context.Background(), "dpkg", "-s", pkg)
-	return err == nil
+	out, err := runProbe(context.Background(), "dpkg-query", "-W", "-f=${db:Status-Status}", pkg)
+	return err == nil && string(out) == "installed"
 }
 
 // pacmanInstalled checks if a pacman package is installed.
