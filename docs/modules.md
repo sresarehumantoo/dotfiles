@@ -761,7 +761,7 @@ Installs hypervisor guest tools when running inside a hardware VM. Skips entirel
 | VirtualBox | virtualbox-guest-utils |
 | Hyper-V | hyperv-daemons |
 
-After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
+After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. A unit that is already running and enabled (or static) is left alone, and guest packages already installed are skipped, so a re-run needs no sudo. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
 
 **Status:** Reports the detected virtualization type and checks the guest packages for that hypervisor. Returns empty on WSL and non-VM systems.
 
@@ -771,8 +771,8 @@ After installing, enables/starts the relevant systemd units (`qemu-guest-agent`,
 
 **File:** `modules/defaultshell.go`
 
-Sets zsh as the default login shell via `chsh -s $(which zsh)`. Skips if `$SHELL` is exactly the zsh path resolved from `$PATH` — a `$SHELL` of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
+Sets zsh as the default login shell. Skips when the account's recorded login shell (`getent passwd`, or `dscl` on macOS) is already the zsh path resolved from `$PATH`; `$SHELL` is not used, because it only changes at the next login. A shell of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
 
-If no sudo password was captured at startup and the session is non-interactive (e.g. under the MCP server, where stdin is the JSON-RPC stream), it warns with the `chsh -s <path>` command to run and does nothing. When a sudo password is available it runs `chsh` through `core.SudoCmd` with no stdin wiring; only the interactive fallback attaches stdin/stdout and may prompt for a password.
+With a terminal it runs plain `chsh -s <zsh>`, which asks for the user's own password and needs no root. Without one (under the MCP server, where stdin is the JSON-RPC stream, or a piped bootstrap), or when plain `chsh` fails, it uses `sudo chsh` only if sudo needs no password (a NOPASSWD rule, cached credentials, the bootstrap drop-in). Otherwise it warns with the `chsh -s <path>` command to run.
 
-**Status:** Reports "zsh" if default, or the current shell path.
+**Status:** Reports "zsh" if the account's login shell is zsh, or that shell's path.
