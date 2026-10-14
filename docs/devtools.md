@@ -284,6 +284,18 @@ $ tmux-restore off
 
 After flipping, reload a running session's config with `tmux source-file ~/.tmux.conf`, though `@continuum-restore` is only fully consulted at server start.
 
+### claude-tmux
+
+Brings Claude Code conversations back when tmux-resurrect restores a server. Resurrect saves each pane's command line, which never holds a session id, so it cannot tell which conversation a pane had. This keeps that mapping in three steps, none of which you run by hand:
+
+| Command | Run by | Does |
+|---------|--------|------|
+| `record` | Claude Code's SessionStart hook (claude module) | Sets the `@claude-session` option on `$TMUX_PANE` from the hook's JSON. Fires on startup, resume, `/clear` and compaction, so it follows the pane's current conversation. Prints nothing, since SessionStart stdout is added to the conversation. |
+| `save` | resurrect's post-save-all hook (`tmux.conf`) | Writes `session:window.pane`, session id and directory for every tagged pane to `~/.local/state/claude-tmux/panes`. |
+| `resume` | resurrect, in a restored pane whose saved command started with `claude` | `claude --resume <id>` for that pane's position, or `claude --continue` when there is no entry or the directory does not match. |
+
+The id is stored on the pane and only turned into a position at save time because `renumber-windows` moves windows during a session, while a restore preserves the saved positions exactly.
+
 ### winbuild
 
 Dispatches a build to a Windows compilation server over SSH: rsyncs the project up, runs a configurable build command remotely, and rsyncs artifacts back. Installed by the [windev](modules.md#windev) module (not by devtools), but lives here so it picks up `_lib.sh` and the standard shellcheck scope. For end-to-end setup including SSH config and BUILD_CMD recipes, see the [Windows Cross-Development guide](windev.md#remote-windows-build-server).
