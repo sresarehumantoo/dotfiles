@@ -8,11 +8,9 @@ Most modules are a single Go file in `src/modules/`. They run in the order liste
 
 **File:** `modules/locale.go`
 
-Configures the system locale (`en_US.UTF-8`). Skips if the locale is already available.
+Reports which UTF-8 locale shells will get, and changes nothing on the system. `config/shell/zsh/locale.zsh` sets `LANG` (when it is unset, `C` or `POSIX`) to `en_US.UTF-8` if that locale has been generated, else to `C.UTF-8`, which glibc 2.35+ ships built in. So a fresh machine gets UTF-8 with no root; what it does not get without generating `en_US.UTF-8` is en_US date formats and sorting. The module prints the Debian command for that rather than running it. The WSL bootstrap, which runs as root anyway, still generates `en_US.UTF-8`.
 
-If `locale-gen` is missing, installs the `locales` package first. Then uncomments `en_US.UTF-8 UTF-8` in `/etc/locale.gen` (appending it if absent), runs `sudo locale-gen` to generate the locale, and sets it as the system default with `sudo update-locale LANG=en_US.UTF-8`.
-
-**Status:** Checks for `locale-gen` on `$PATH` and whether `en_US.UTF-8` is available (2 checks).
+**Status:** One check: a UTF-8 locale is available, naming which (`en_US.UTF-8`, or `C.UTF-8` when en_US is not generated).
 
 ---
 

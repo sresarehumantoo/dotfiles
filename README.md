@@ -197,7 +197,7 @@ Modules run in this order — dependencies first:
 
 | # | Module | What it does |
 |---|--------|--------------|
-| 1 | **locale** | Ensures `en_US.UTF-8` is generated and set |
+| 1 | **locale** | Reports the UTF-8 locale shells get (`en_US.UTF-8`, else built-in `C.UTF-8`); no root |
 | 2 | **packages** | Core system packages via apt/dnf/pacman/brew (only what's missing) |
 | 3 | **extras** | CLI utilities (fzf, ripgrep, bat, jq, fd), Python tooling, Docker, Terraform |
 | 4 | **toolkit** | External registry of security/CTF/dev tools (`--toolkit`) |
