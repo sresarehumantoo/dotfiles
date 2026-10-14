@@ -328,6 +328,7 @@ DF_TMUX_SESSION=review ghostty
 
 **Sharing means mirroring, and that is the default.** Each terminal attaches another *client* to the same session, so both show the same window and both move when either one does, and `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it) resizes the window to whichever client was used last, reflowing panes in the other. That is a preference rather than a defect, so the default is unchanged and `DF_TMUX_SESSION` is the way out. `aggressive-resize on` is the other available lever, and it only helps for clients viewing *different* windows.
 
+**`tm` moves a session to this terminal without nesting** (defined in `aliases`). From a shell outside tmux (`DF_NO_TMUX`, or the plain shell left after tmux failed to start) it attaches; inside tmux it switches this client instead of starting a tmux in the pane. `tm work` names another session. `tm -d` also detaches the session's other clients, which **closes those terminals**, for the reason in the caution below. It is not `ta` because oh-my-zsh's tmux plugin defines that as an alias, and zsh refuses a function whose name is an alias.
 
 > [!CAUTION]
 > **Do not "fix" the mirroring with `-D`.** It is the obvious answer — a new client detaches the old one — and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
