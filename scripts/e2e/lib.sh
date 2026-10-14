@@ -13,15 +13,16 @@ check() {
     if "$@"; then pass "$desc"; else fail "$desc"; fi
 }
 
-# expect_step RESULTS LABEL PROMPTS RC: the step ran with exactly that many
-# sudo prompts and that exit code.
+# expect_step RESULTS LABEL PROMPTS RC [AUTH]: the step ran with exactly that
+# many sudo prompts, AUTH other password prompts (default 0) and that exit code.
 expect_step() {
-    local results="$1" label="$2" prompts="$3" rc="$4" got
+    local results="$1" label="$2" prompts="$3" rc="$4" auth="${5:-0}" got want
     got="$(grep "^STEP ${label} " "$results" || true)"
-    if [[ "$got" == "STEP ${label} prompts=${prompts} rc=${rc}" ]]; then
-        pass "${label}: ${prompts} sudo prompt(s), rc ${rc}"
+    want="prompts=${prompts} auth=${auth} rc=${rc}"
+    if [[ "${got#STEP "${label}" }" == "$want" ]]; then
+        pass "${label}: ${want}"
     else
-        fail "${label}: want prompts=${prompts} rc=${rc}, got '${got#STEP "${label}" }'"
+        fail "${label}: want ${want}, got '${got#STEP "${label}" }'"
     fi
 }
 
