@@ -378,3 +378,24 @@ func TestPickDebForDistro_SingleDebNamesNoDistro(t *testing.T) {
 		t.Fatalf("got %q, %v", got.Name, err)
 	}
 }
+
+func TestSameRelease(t *testing.T) {
+	cases := []struct {
+		out, tag string
+		want     bool
+	}{
+		{"delta 0.18.2\n", "0.18.2", true},
+		{"tree-sitter 0.26.3 (abc123)\n", "v0.26.3", true},
+		{"Terraform v1.13.4\non linux_amd64\n", "1.13.4", true},
+		{"NVIM v0.12.1\nBuild type: Release\n", "v0.12.1", true},
+		{"delta 0.18.1\n", "0.18.2", false},
+		{"tree-sitter 0.26.3\n", "v0.26.30", false},
+		{"", "0.18.2", false},
+		{"delta 0.18.2\n", "", false},
+	}
+	for _, c := range cases {
+		if got := sameRelease([]byte(c.out), c.tag); got != c.want {
+			t.Errorf("sameRelease(%q, %q) = %v, want %v", c.out, c.tag, got, c.want)
+		}
+	}
+}

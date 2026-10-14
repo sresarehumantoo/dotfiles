@@ -83,6 +83,12 @@ var ExtendedMode bool
 // ToolkitMode is set by the --toolkit CLI flag.
 var ToolkitMode bool
 
+// UpgradeMode is set by --upgrade: modules refresh what they installed
+// earlier (release binaries in ~/.local, cloned plugins) instead of stopping
+// at "already installed". Packages from the system package manager are left
+// to it.
+var UpgradeMode bool
+
 // WindevMode is set when the windev module is the explicit install target.
 // Like ExtendedMode/ToolkitMode, it gates persisting the windev opt-in to config.
 var WindevMode bool

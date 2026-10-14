@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -56,19 +58,57 @@ func downloadVerified(ctx context.Context, a ghAsset, dst string) error {
 
 // latestAssets returns the assets attached to a repo's latest release.
 func latestAssets(ctx context.Context, repo string) ([]ghAsset, error) {
+	_, assets, err := latestRelease(ctx, repo)
+	return assets, err
+}
+
+// latestRelease returns the tag and assets of a repo's latest release.
+func latestRelease(ctx context.Context, repo string) (string, []ghAsset, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
 	if err != nil {
-		return nil, fmt.Errorf("fetch releases for %s: %w", repo, err)
+		return "", nil, fmt.Errorf("fetch releases for %s: %w", repo, err)
 	}
 
 	var release struct {
+		Tag    string    `json:"tag_name"`
 		Assets []ghAsset `json:"assets"`
 	}
 	if err := json.Unmarshal(out, &release); err != nil {
-		return nil, fmt.Errorf("parse releases JSON for %s: %w", repo, err)
+		return "", nil, fmt.Errorf("parse releases JSON for %s: %w", repo, err)
 	}
-	return release.Assets, nil
+	return release.Tag, release.Assets, nil
+}
+
+var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
+// sameRelease reports whether a binary's --version output names the release
+// tagged tag. Tags and version strings disagree on a leading "v", so both are
+// reduced to their first x.y.z.
+func sameRelease(versionOutput []byte, tag string) bool {
+	have := semverRe.Find(versionOutput)
+	want := semverRe.FindString(tag)
+	return have != nil && want != "" && string(have) == want
+}
+
+// releaseCurrent reports whether the binary at bin already is the release
+// tagged tag. A binary that will not run is not current.
+func releaseCurrent(ctx context.Context, bin, tag string, versionArgs ...string) bool {
+	if len(versionArgs) == 0 {
+		versionArgs = []string{"--version"}
+	}
+	out, err := runProbe(ctx, bin, versionArgs...)
+	return err == nil && sameRelease(out, tag)
+}
+
+// upgradeable reports whether --upgrade should check path, a release binary
+// dfinstall installed earlier, against the latest release.
+func upgradeable(path string) bool {
+	if !core.UpgradeMode || path == "" {
+		return false
+	}
+	fi, err := os.Stat(path)
+	return err == nil && !fi.IsDir()
 }
 
 // archTokensFor returns the substrings release assets use to name goarch.
