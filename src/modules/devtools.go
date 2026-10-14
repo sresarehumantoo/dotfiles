@@ -23,6 +23,7 @@ var devtoolsScripts = []string{
 	"tlog-clean",
 	"clipboard-vm",
 	"tmux-restore",
+	"claude-tmux",
 	"demorec",
 	"wsl-ffmpeg",
 	"ghostty-shader",

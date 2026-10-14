@@ -328,6 +328,7 @@ DF_TMUX_SESSION=review ghostty
 
 **Sharing means mirroring, and that is the default.** Each terminal attaches another *client* to the same session, so both show the same window and both move when either one does, and `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it) resizes the window to whichever client was used last, reflowing panes in the other. That is a preference rather than a defect, so the default is unchanged and `DF_TMUX_SESSION` is the way out. `aggressive-resize on` is the other available lever, and it only helps for clients viewing *different* windows.
 
+
 > [!CAUTION]
 > **Do not "fix" the mirroring with `-D`.** It is the obvious answer — a new client detaches the old one — and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
 
@@ -379,6 +380,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `tlog-clean` | Strip ANSI escapes and powerline glyphs from tmux log captures |
 | `clipboard-vm` | Diagnose and fix SPICE clipboard sharing in a QEMU/KVM guest (`--reset`) |
 | `tmux-restore` | Toggle tmux session auto-restore (continuum + resurrect) on/off |
+| `claude-tmux` | Resume each pane's Claude Code conversation when resurrect restores a server (`record`/`save`/`resume`) |
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 | `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
@@ -519,6 +521,8 @@ Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane na
 
 **Save on shutdown** (where `systemctl` exists): links `tmux-save.service` and a `tmux-.scope.d/save-first.conf` drop-in into `~/.config/systemd/user/`, then enables the service. Its `ExecStop` runs resurrect's save when the user manager stops, and the drop-in orders every `tmux-*.scope` (tmux's per-pane `tmux-spawn-*` scopes and the `tmux-server` scope) after it, so nothing in tmux is signalled until the save is done. It skips the save while autosave is paused (see the shell section).
 
+**Claude Code panes come back running Claude.** Resurrect only restarts commands on `@resurrect-processes`, and `claude` is not on its default list, so before this every Claude pane was restored as a bare shell. The saved command line carries no session id either (`claude --resume` reopens the picker, `claude` starts empty), so a pane that was running `claude` is restored with `claude-tmux resume`, which looks the conversation up by pane position in a map written by resurrect's post-save hook from the `@claude-session` pane option that the claude module's SessionStart hook sets. Without an entry, or when the pane's directory disagrees with the map, it falls back to `claude --continue`. The pattern has no `~`, so `doas claude` is not restored. See [claude-tmux](devtools.md#claude-tmux).
+
 **Compositor restarts:** `update-environment` adds `SWAYSOCK` and `WAYLAND_DISPLAY`, and `exports.zsh` refreshes a pane's `SWAYSOCK` from tmux when the socket it names is gone, because the server outlives sway. A forward clock jump that leaves continuum's last-save stamp in the future is reset on client attach or focus.
 
 **Uninstall:** Disables `tmux-save.service`, removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
@@ -611,7 +615,7 @@ Symlinks `config/htop/htoprc` to `$XDG_CONFIG_HOME/htop/htoprc`.
 
 Symlinks `config/claude/CLAUDE.md` to `~/.claude/CLAUDE.md`, the global Claude Code instructions loaded in every session. It ends with `@~/.claude/CLAUDE.local.md`, so each machine can layer untracked, host-specific instructions on top; Claude Code skips the import when the file is absent.
 
-`~/.claude/settings.json` is **merged, not linked**, because Claude Code rewrites it itself (`/config`, `/model`, plugin toggles). Each top-level key in `config/claude/settings.json` (commit/PR attribution off, `includeCoAuthoredBy: false`, the update channel) replaces the live value; every other key is left untouched. Keep anything machine-specific (permissions, `autoMode.environment`, `env`) out of the tracked file: this repo is public. An unparsable live file is never rewritten. Uninstall removes the link and leaves the merged keys in place.
+`~/.claude/settings.json` is **merged, not linked**, because Claude Code rewrites it itself (`/config`, `/model`, plugin toggles). Each top-level key in `config/claude/settings.json` (commit/PR attribution off, `includeCoAuthoredBy: false`, the update channel, a SessionStart hook running `claude-tmux record`) replaces the live value; every other key is left untouched. That includes `hooks` as a whole, so a hook added by hand to the live file is replaced on the next install; add it to the tracked file instead. Keep anything machine-specific (permissions, `autoMode.environment`, `env`) out of the tracked file: this repo is public. An unparsable live file is never rewritten. Uninstall removes the link and leaves the merged keys in place.
 
 **Status:** Checks 1 symlink; stale managed settings keys are listed alongside.
 

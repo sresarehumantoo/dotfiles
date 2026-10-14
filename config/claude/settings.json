@@ -5,5 +5,17 @@
     "sessionUrl": false
   },
   "includeCoAuthoredBy": false,
-  "autoUpdatesChannel": "latest"
+  "autoUpdatesChannel": "latest",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -x \"$HOME/.local/bin/claude-tmux\" ] || \"$HOME/.local/bin/claude-tmux\" record"
+          }
+        ]
+      }
+    ]
+  }
 }
