@@ -17,7 +17,8 @@ check() {
 # many sudo prompts, AUTH other password prompts (default 0) and that exit code.
 expect_step() {
     local results="$1" label="$2" prompts="$3" rc="$4" auth="${5:-0}" got want
-    got="$(grep "^STEP ${label} " "$results" || true)"
+    # Fixed string up to "prompts=", so "extras" does not also match "extras again".
+    got="$(grep -F "STEP ${label} prompts=" "$results" || true)"
     want="prompts=${prompts} auth=${auth} rc=${rc}"
     if [[ "${got#STEP "${label}" }" == "$want" ]]; then
         pass "${label}: ${want}"
