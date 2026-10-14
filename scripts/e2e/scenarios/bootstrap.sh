@@ -22,6 +22,9 @@ check "install-dotfiles succeeds without a password" \
 # install all turns a failed sudo step into a warning, so the exit code alone
 # would not notice a drop-in that did not work. These needed root.
 check "extras' apt packages were installed via sudo" dpkg -s ripgrep
+check "$U is not in the docker group" bash -c "! id -nG $U | grep -qw docker"
+check "NodeSource repo pinned to 100" bash -c "apt-cache policy | grep -q '^ *100 https://deb.nodesource.com'"
+check "nodejs still comes from NodeSource" bash -c "apt-cache policy nodejs | grep -q 'Candidate: .*nodesource'"
 
 echo "== finish-bootstrap"
 check "finish-bootstrap succeeds" "$setup" finish-bootstrap "$U" </dev/null
