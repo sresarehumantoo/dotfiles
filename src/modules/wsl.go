@@ -133,14 +133,16 @@ func installSysctl(ctx context.Context) {
 		return
 	}
 
-	sudoRun(ctx, "mkdir", "-p", "/etc/sysctl.d")
-
 	dstPath := "/etc/sysctl.d/99-wsl.conf"
 	if dstData, err := os.ReadFile(dstPath); err == nil {
 		if bytes.Equal(srcData, dstData) {
 			core.Ok("sysctl config already up to date")
 			return
 		}
+	}
+
+	if _, err := os.Stat(filepath.Dir(dstPath)); err != nil {
+		sudoRun(ctx, "mkdir", "-p", filepath.Dir(dstPath))
 	}
 
 	if err := sudoCopy(ctx, sysctlSrc, dstPath); err != nil {

@@ -198,6 +198,19 @@ var debianVersionToCodename = map[string]string{
 	"13": "trixie",
 }
 
+// DistroCodename returns VERSION_CODENAME from /etc/os-release as the distro
+// itself names it ("trixie", "resolute", "kali-rolling"), or "" if unset.
+// Unlike UpstreamDebianCodename it is not mapped onto a known upstream release.
+func DistroCodename() string {
+	osRelease, _ := os.ReadFile("/etc/os-release")
+	for _, line := range strings.Split(string(osRelease), "\n") {
+		if v, ok := strings.CutPrefix(line, "VERSION_CODENAME="); ok {
+			return strings.Trim(v, "\"'")
+		}
+	}
+	return ""
+}
+
 // UpstreamDebianCodename returns the Debian/Ubuntu codename to use when
 // configuring third-party apt repos. Reads /etc/os-release and
 // /etc/debian_version. Defaults to "bookworm" if nothing usable is found.
@@ -507,9 +520,17 @@ func warnNoHome(err error) {
 
 // ── Sudo credential management ─────────────────────────────────
 
-var sudoKeepAliveStop chan struct{}
-var sudoOnce sync.Once
-var sudoStopOnce sync.Once
+// sudoState tracks this process's sudo session. Guarded by sudoMu.
+var (
+	sudoMu sync.Mutex
+	// sudoPrimed is set once credentials have been checked this session, so a
+	// failed or declined prompt is not repeated before every command.
+	sudoPrimed bool
+	// sudoPrompted records that dfinstall itself asked for the password, which
+	// is what makes the cached credentials ours to drop in ReleaseSudo.
+	sudoPrompted  bool
+	sudoKeepAlive chan struct{}
+)
 
 // Interactive reports whether it is safe to prompt on stdin. True for the CLI;
 // the MCP server sets it false because there os.Stdin carries the JSON-RPC
@@ -517,84 +538,40 @@ var sudoStopOnce sync.Once
 // session. Code that would prompt must check this and pick a safe default.
 var Interactive = true
 
-// sudoPass holds the password captured from DFINSTALL_SUDO_PASS at startup.
-// It is deliberately kept out of the process environment: anything in
-// os.Environ() is inherited by every child process we spawn (apt, curl, git,
-// go install, ...) and is readable via /proc/<pid>/environ.
-var (
-	sudoPassMu sync.Mutex
-	sudoPass   string
-)
-
-func setSudoPass(p string) {
-	sudoPassMu.Lock()
-	defer sudoPassMu.Unlock()
-	sudoPass = p
-}
-
-func getSudoPass() string {
-	sudoPassMu.Lock()
-	defer sudoPassMu.Unlock()
-	return sudoPass
-}
-
-// HasSudoPass reports whether a sudo password was captured at startup, meaning
-// SudoCmd can run non-interactively and needs no TTY. The password itself is
-// never exposed outside this package.
-func HasSudoPass() bool {
-	return getSudoPass() != ""
-}
-
-// PromptSudo validates sudo credentials before the spinner starts and launches
-// a background goroutine that refreshes them every 60 seconds. If
-// DFINSTALL_SUDO_PASS is set (e.g. during bootstrap where the password is
-// known), it is piped to sudo -S so no interactive prompt is needed.
-func PromptSudo(ctx context.Context) {
+// EnsureSudo makes sure sudo credentials are cached before a command that needs
+// them, prompting at most once per session, then keeps them fresh in the
+// background so a long install does not outlive sudo's timestamp. It is called
+// from SudoCmd, so a run that never escalates never asks for a password.
+func EnsureSudo(ctx context.Context) {
+	sudoMu.Lock()
+	defer sudoMu.Unlock()
 	// Nothing dfinstall runs on macOS needs sudo: Homebrew refuses root, and
 	// chsh asks for the user's own password.
-	if IsMac() {
-		os.Unsetenv("DFINSTALL_SUDO_PASS")
+	if sudoPrimed || IsMac() || DryRun || os.Geteuid() == 0 {
 		return
 	}
-	if DryRun {
-		return
-	}
+	sudoPrimed = true
+
 	// Check if sudo even needs a password (e.g. NOPASSWD configured)
 	probeCtx, cancel := context.WithTimeout(ctx, ProbeTimeout)
 	defer cancel()
 	if exec.CommandContext(probeCtx, "sudo", "-n", "true").Run() == nil {
-		Debug("sudo: passwordless access available")
+		Debug("sudo: credentials available without a prompt")
 		startSudoKeepAlive()
 		return
 	}
 
-	// If the password is known (e.g. fresh bootstrap sets it to "root"),
-	// feed it non-interactively so the spinner is never interrupted.
-	if pass := os.Getenv("DFINSTALL_SUDO_PASS"); pass != "" {
-		Debug("sudo: using DFINSTALL_SUDO_PASS")
-		// Move it out of the environment and into process memory so child
-		// processes don't inherit it.
-		os.Unsetenv("DFINSTALL_SUDO_PASS")
-		setSudoPass(pass)
-		cmd := exec.CommandContext(probeCtx, "sudo", "-S", "-v")
-		cmd.Stdin = strings.NewReader(pass + "\n")
-		if err := cmd.Run(); err != nil {
-			Warn("sudo authentication via DFINSTALL_SUDO_PASS failed — will prompt")
-		} else {
-			startSudoKeepAlive()
-			return
-		}
-	}
-
-	// Nothing cached and no known password. Prompting requires a terminal; if
-	// stdin is a protocol stream, reading it would corrupt the session, so
-	// leave credentials unprimed and let individual sudo steps fail loudly.
+	// Nothing cached. Prompting requires a terminal; if stdin is a protocol
+	// stream, reading it would corrupt the session, so leave credentials
+	// unprimed and let the command fail loudly.
 	if !Interactive {
 		Debug("sudo: not primed (non-interactive) — steps requiring sudo will fail")
 		return
 	}
 
-	Status("Some steps require sudo access")
+	PauseSpinner()
+	defer ResumeSpinner()
+	Status("This step requires sudo access")
 	cmd := exec.CommandContext(ctx, "sudo", "-v")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -603,53 +580,58 @@ func PromptSudo(ctx context.Context) {
 		Warn("sudo authentication failed — some steps may prompt again")
 		return
 	}
-
+	sudoPrompted = true
 	startSudoKeepAlive()
 }
 
-// startSudoKeepAlive refreshes sudo credentials in the background.
+// startSudoKeepAlive refreshes sudo credentials in the background until
+// ReleaseSudo. Caller holds sudoMu.
 func startSudoKeepAlive() {
-	sudoOnce.Do(func() {
-		sudoKeepAliveStop = make(chan struct{})
-		pass := getSudoPass()
-		go func() {
-			ticker := time.NewTicker(60 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-sudoKeepAliveStop:
-					return
-				case <-ticker.C:
-					refresh, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
-					if pass != "" {
-						cmd := exec.CommandContext(refresh, "sudo", "-S", "-v")
-						cmd.Stdin = strings.NewReader(pass + "\n")
-						if err := cmd.Run(); err != nil {
-							Debug("sudo keepalive refresh failed: %v", err)
-						}
-					} else if err := exec.CommandContext(refresh, "sudo", "-n", "-v").Run(); err != nil {
-						Debug("sudo keepalive refresh failed: %v", err)
-					}
-					cancel()
+	stop := make(chan struct{})
+	sudoKeepAlive = stop
+	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				refresh, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
+				if err := exec.CommandContext(refresh, "sudo", "-n", "-v").Run(); err != nil {
+					Debug("sudo keepalive refresh failed: %v", err)
 				}
+				cancel()
 			}
-		}()
-	})
-}
-
-// StopSudoKeepAlive stops the background credential refresh.
-func StopSudoKeepAlive() {
-	sudoStopOnce.Do(func() {
-		if sudoKeepAliveStop != nil {
-			close(sudoKeepAliveStop)
 		}
-	})
+	}()
 }
 
-// SudoCmd returns an *exec.Cmd for running a command via sudo. When the
-// sudo password was captured from DFINSTALL_SUDO_PASS at startup, it
-// injects -S and pipes the password so no TTY prompt is needed. Otherwise
-// stdin is connected to the terminal.
+// ReleaseSudo ends the session EnsureSudo started: it stops the keepalive and,
+// when dfinstall was the one that asked for the password, invalidates the
+// cached credentials so they do not stay usable in this terminal after the run.
+// Credentials that were already cached before dfinstall ran are left alone.
+func ReleaseSudo() {
+	sudoMu.Lock()
+	defer sudoMu.Unlock()
+	if sudoKeepAlive != nil {
+		close(sudoKeepAlive)
+		sudoKeepAlive = nil
+	}
+	if sudoPrompted {
+		// context.Background: runs during shutdown, after the command's own
+		// context may already be canceled (Ctrl-C), which is when it matters most.
+		ctx, cancel := context.WithTimeout(context.Background(), ProbeTimeout)
+		if err := exec.CommandContext(ctx, "sudo", "-k").Run(); err != nil {
+			Debug("sudo -k failed: %v", err)
+		}
+		cancel()
+	}
+	sudoPrimed, sudoPrompted = false, false
+}
+
+// SudoCmd returns an *exec.Cmd for running a command via sudo, with stdin
+// connected to the terminal when interactive.
 //
 // Already running as root, it execs the command directly — sudo may not even
 // be installed in a root container, and escalating from root is pointless.
@@ -662,12 +644,7 @@ func SudoCmd(ctx context.Context, args ...string) *exec.Cmd {
 		return cmd
 	}
 
-	if pass := getSudoPass(); pass != "" {
-		cmdArgs := append([]string{"-S"}, args...)
-		cmd := exec.CommandContext(ctx, "sudo", cmdArgs...)
-		cmd.Stdin = strings.NewReader(pass + "\n")
-		return cmd
-	}
+	EnsureSudo(ctx)
 	cmd := exec.CommandContext(ctx, "sudo", args...)
 	if Interactive {
 		cmd.Stdin = os.Stdin

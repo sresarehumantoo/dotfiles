@@ -193,6 +193,14 @@ func installPkg(ctx context.Context, pkgs ...string) error {
 		return nil
 	}
 
+	// Dropped before anything runs, so a re-run whose packages are all present
+	// never reaches `sudo apt update` or the install itself. Upgrading what is
+	// already installed is the package manager's job, not this one's.
+	pkgs = slices.DeleteFunc(slices.Clone(pkgs), pkgInstalled)
+	if len(pkgs) == 0 {
+		return nil
+	}
+
 	// Ensure apt cache is fresh on first use (minimal systems ship with empty lists)
 	if (name == "apt-get" || name == "apt") && !aptUpdated {
 		repairAptSources(ctx)
@@ -266,6 +274,21 @@ func ContainsSudoInvocation(name string, args []string) bool {
 	return false
 }
 
+// localBinInstalled reports whether name is on PATH or in ~/.local/bin, where
+// dfinstall installs single-binary tools. The path check matters on a first
+// run, before the shell config that puts ~/.local/bin on PATH has been loaded.
+func localBinInstalled(name string) bool {
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	p := core.HomeTarget(".local", "bin", name)
+	if p == "" {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
 // runProbe runs a short informational command and returns its stdout. Probes
 // get a tight deadline: they're meant to answer a question immediately, so one
 // that blocks is hung, not slow.
@@ -333,6 +356,9 @@ func runCmdTimeout(ctx context.Context, timeout time.Duration, name string, args
 
 	if directSudo {
 		cmd = core.SudoCmd(ctx, args...)
+	} else if needsTTY {
+		// sudo inside a script string never goes through SudoCmd.
+		core.EnsureSudo(ctx)
 	}
 
 	// Output routing:
@@ -352,12 +378,6 @@ func runCmdTimeout(ctx context.Context, timeout time.Duration, name string, args
 		} else {
 			cmd.Stderr = &capture
 		}
-	}
-
-	// When the sudo password was captured at startup it is piped to sudo -S,
-	// so no TTY is needed and no spinner interference is possible.
-	if directSudo && core.HasSudoPass() {
-		return cmd.Run()
 	}
 
 	// Hold the spinner pause across the full run, not just the fork. The

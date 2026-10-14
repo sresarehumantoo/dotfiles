@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"slices"
 	"strings"
+
+	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
 // GitHub release asset handling, shared by the deb, AppImage and
@@ -20,6 +23,35 @@ import (
 type ghAsset struct {
 	Name string `json:"name"`
 	URL  string `json:"browser_download_url"`
+	// Digest is GitHub's "sha256:<hex>" for the uploaded file. Assets uploaded
+	// before mid-2025 have none.
+	Digest string `json:"digest"`
+}
+
+// downloadVerified fetches a release asset to dst and checks it against the
+// sha256 GitHub recorded at upload. An asset with no digest is refused rather
+// than trusted: several callers go on to run it as root (dpkg -i).
+//
+// The digest comes from the same API as the asset, so it does not defend
+// against a compromised upstream. What it does pin is that the bytes installed
+// are the bytes the release listing described: not a truncated download, an
+// error page, or a file swapped between the fetch and the install.
+func downloadVerified(ctx context.Context, a ghAsset, dst string) error {
+	want, ok := strings.CutPrefix(a.Digest, "sha256:")
+	if !ok || want == "" {
+		return fmt.Errorf("%s has no published sha256 digest; refusing to install it", a.Name)
+	}
+	if err := runNetCmd(ctx, "curl", "-fsSL", "-o", dst, a.URL); err != nil {
+		return fmt.Errorf("download %s: %w", a.Name, err)
+	}
+	got, err := core.FileHash(dst)
+	if err != nil {
+		return fmt.Errorf("hash %s: %w", a.Name, err)
+	}
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("sha256 mismatch for %s: want %s, got %s", a.Name, want, got)
+	}
+	return nil
 }
 
 // latestAssets returns the assets attached to a repo's latest release.
@@ -67,6 +99,8 @@ type assetFilter struct {
 	// Contains, when set, is a required substring — the registry's
 	// asset_pattern, e.g. "linux-musl".
 	Contains string
+	// Exclude drops any asset whose name contains one of these substrings.
+	Exclude []string
 	// SkipSidecars drops checksums, signatures and SBOMs.
 	SkipSidecars bool
 	// LinuxOnly drops darwin/windows assets when a release ships several.
@@ -79,6 +113,16 @@ type assetFilter struct {
 
 // pickAsset returns the first asset satisfying the filter.
 func pickAsset(assets []ghAsset, f assetFilter) (ghAsset, bool) {
+	matches := filterAssets(assets, f)
+	if len(matches) == 0 {
+		return ghAsset{}, false
+	}
+	return matches[0], true
+}
+
+// filterAssets returns every asset satisfying the filter, in listing order.
+func filterAssets(assets []ghAsset, f assetFilter) []ghAsset {
+	var out []ghAsset
 	for _, a := range assets {
 		lower := strings.ToLower(a.Name)
 
@@ -100,9 +144,57 @@ func pickAsset(assets []ghAsset, f assetFilter) (ghAsset, bool) {
 		if len(f.ArchTokens) > 0 && !containsAny(lower, f.ArchTokens) {
 			continue
 		}
-		return a, true
+		if containsAny(lower, f.Exclude) {
+			continue
+		}
+		out = append(out, a)
 	}
-	return ghAsset{}, false
+	return out
+}
+
+// debugPackageMarkers name Debian debug-symbol packages, which releases list
+// beside (and often before) the real package and which only make sense
+// installed on top of it.
+var debugPackageMarkers = []string{"-dbgsym_", "-dbg_"}
+
+// pickDebForDistro chooses among a release's .deb candidates for this arch.
+// Repackagers like ghostty-debian publish one build per distro release
+// (ghostty_1.3.1-6.trixie_amd64.deb, ...noble_amd64.deb), and another
+// release's build either fails its dependencies or links against the wrong
+// libraries. codenames are tried in order; a lone candidate is taken as is,
+// since a project shipping a single .deb names no distro at all.
+func pickDebForDistro(candidates []ghAsset, codenames []string) (ghAsset, error) {
+	switch len(candidates) {
+	case 0:
+		return ghAsset{}, fmt.Errorf("no .deb in the release")
+	case 1:
+		return candidates[0], nil
+	}
+	var tried []string
+	for _, c := range codenames {
+		if c == "" {
+			continue
+		}
+		tried = append(tried, c)
+		for _, a := range candidates {
+			if slices.Contains(nameTokens(a.Name), c) {
+				return a, nil
+			}
+		}
+	}
+	names := make([]string, len(candidates))
+	for i, a := range candidates {
+		names[i] = a.Name
+	}
+	return ghAsset{}, fmt.Errorf("no .deb for %s among: %s", strings.Join(tried, "/"), strings.Join(names, ", "))
+}
+
+// nameTokens splits an asset name on everything but letters and digits, so a
+// codename matches as a whole word ("sid" does not match "inside").
+func nameTokens(name string) []string {
+	return strings.FieldsFunc(strings.ToLower(name), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9')
+	})
 }
 
 func hasAnySuffix(s string, suffixes []string) bool {

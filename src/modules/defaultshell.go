@@ -4,8 +4,10 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
+	"golang.org/x/term"
 )
 
 type DefaultShellModule struct{}
@@ -19,8 +21,7 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 		return nil
 	}
 
-	currentShell := os.Getenv("SHELL")
-	if currentShell == zshPath {
+	if accountShell(ctx) == zshPath {
 		core.Ok("Default shell is already zsh")
 		return nil
 	}
@@ -30,38 +31,30 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 		return nil
 	}
 
-	// Bare chsh prompts for the user's password on stdin. Under the MCP server
-	// stdin is the JSON-RPC stream, so reading it would consume protocol bytes
-	// and wedge the session — there is no password to supply there anyway.
-	// With passwordless sudo (a NOPASSWD rule, a container) sudo chsh needs no
-	// password at all, where bare chsh asks for the user's own and fails
-	// without a terminal.
-	useSudo := core.HasSudoPass()
-	if !useSudo {
-		_, err := runProbe(ctx, "sudo", "-n", "true")
-		useSudo = err == nil
-	}
-
-	if !useSudo && !core.Interactive {
-		core.Warn("cannot change shell non-interactively — run: chsh -s %s", zshPath)
-		return nil
-	}
-
 	core.Info("Changing default shell to zsh...")
-	core.PauseSpinner()
-	var cmd *exec.Cmd
-	if useSudo {
-		cmd = core.SudoCmd(ctx, "chsh", "-s", zshPath, os.Getenv("USER"))
-	} else {
-		cmd = exec.CommandContext(ctx, "chsh", "-s", zshPath)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+
+	// Plain chsh needs no root: it asks for the user's own password. That
+	// needs a terminal, and under the MCP server stdin is the JSON-RPC stream,
+	// where reading a password would consume protocol bytes.
+	if core.Interactive && term.IsTerminal(int(os.Stdin.Fd())) {
+		cmd := exec.CommandContext(ctx, "chsh", "-s", zshPath)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		core.PauseSpinner()
+		err := cmd.Run()
+		core.ResumeSpinner()
+		if err == nil {
+			return nil
+		}
 	}
-	if err := cmd.Run(); err != nil {
-		core.Warn("Could not change shell — run: chsh -s $(which zsh)")
+
+	// No terminal, or chsh refused (an account with no password yet, as during
+	// bootstrap): sudo, but only where it needs no prompt.
+	if _, err := runProbe(ctx, "sudo", "-n", "true"); err == nil {
+		if err := runCmd(ctx, "sudo", "chsh", "-s", zshPath, os.Getenv("USER")); err == nil {
+			return nil
+		}
 	}
-	core.ResumeSpinner()
+	core.Warn("Could not change shell — run: chsh -s %s", zshPath)
 	return nil
 }
 
@@ -73,14 +66,37 @@ func (DefaultShellModule) Status() core.ModuleStatus {
 		s.Extra = "zsh not found"
 		return s
 	}
-	if os.Getenv("SHELL") == zshPath {
+	// Status has no context to inherit; ProbeTimeout bounds the lookup.
+	if shell := accountShell(context.Background()); shell == zshPath {
 		s.Linked = 1
 		s.Extra = "zsh"
 	} else {
 		s.Missing = 1
-		s.Extra = os.Getenv("SHELL")
+		s.Extra = shell
 	}
 	return s
+}
+
+// accountShell is the login shell recorded for the current user. Not $SHELL,
+// which only changes at the next login, so after a successful chsh every run
+// in the same session would change it (and ask for the password) again.
+func accountShell(ctx context.Context) string {
+	user := os.Getenv("USER")
+	if user != "" {
+		if core.IsMac() {
+			// "UserShell: /bin/zsh"
+			if out, err := runProbe(ctx, "dscl", ".", "-read", "/Users/"+user, "UserShell"); err == nil {
+				if _, shell, ok := strings.Cut(strings.TrimSpace(string(out)), ": "); ok {
+					return shell
+				}
+			}
+		} else if out, err := runProbe(ctx, "getent", "passwd", user); err == nil {
+			if fields := strings.Split(strings.TrimSpace(string(out)), ":"); len(fields) == 7 {
+				return fields[6]
+			}
+		}
+	}
+	return os.Getenv("SHELL")
 }
 
 // loginZsh is the zsh to make the login shell. On macOS that is the system

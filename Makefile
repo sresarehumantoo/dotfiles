@@ -14,12 +14,12 @@ LOCAL_BIN  := $(HOME)/.local/bin
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci check-decoupling \
+.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci check-decoupling e2e \
         install uninstall install-bin install-mcp uninstall-mcp clean
 
 help: ## Show this help
 	@echo "dfinstall — make targets:"
-	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 	  | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}'
 
 build: ## Compile the dfinstall CLI to bin/dfinstall
@@ -52,6 +52,10 @@ check-decoupling: ## Fail if site-specific content leaked into tracked files
 	./scripts/check-decoupling.sh
 
 ci: fmt-check lint check-decoupling build-all test test-race ## Run every check CI runs (fmt/vet/decoupling/build/test/race)
+
+e2e: ## Run the end-to-end scenarios in Docker (slow; SCENARIO=sudo|bootstrap for one)
+	@for s in $(or $(SCENARIO),$(basename $(notdir $(wildcard scripts/e2e/scenarios/*.sh)))); do \
+	  echo "== e2e: $$s"; scripts/e2e/run.sh $$s || exit 1; done
 
 install: build ## Build, then apply all dotfile modules (dfinstall install all)
 	./$(BUILD_DIR)/$(BINARY) install all

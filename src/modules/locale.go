@@ -2,8 +2,6 @@ package modules
 
 import (
 	"context"
-	"os"
-	"os/exec"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -32,94 +30,40 @@ func localeGenerated(name string) bool {
 	return false
 }
 
+// enUSCommand generates en_US.UTF-8 on Debian and Ubuntu. Printed, not run:
+// shells fall back to C.UTF-8 without it, so it is a preference for en_US date
+// formats and sorting, not something worth root on every machine.
+const enUSCommand = "sudo apt install locales && sudo sed -i 's/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen && sudo locale-gen"
+
+// Install changes nothing on the system. config/shell/zsh/locale.zsh picks
+// en_US.UTF-8 when it is generated and C.UTF-8 otherwise; this only reports
+// which one shells will get.
 func (LocaleModule) Install(ctx context.Context) error {
-	if core.DryRun {
-		core.Info("would configure locale: en_US.UTF-8")
-		return nil
-	}
-
-	if localeGenerated("en_US.UTF-8") {
-		core.Ok("Locale en_US.UTF-8 already available")
-		return nil
-	}
-
-	if core.IsMac() {
+	switch {
+	case localeGenerated("en_US.UTF-8"):
+		core.Ok("Locale en_US.UTF-8 available")
+	case core.IsMac():
 		core.Warn("en_US.UTF-8 is missing from `locale -a`, and macOS has no locale-gen to add it")
-		return nil
+	case localeGenerated("C.UTF-8"):
+		core.Notice("en_US.UTF-8 is not generated, so shells use C.UTF-8 (UTF-8 with C sorting and date formats). For en_US: %s", enUSCommand)
+	default:
+		core.AlwaysWarn("No UTF-8 locale is available. Generate en_US.UTF-8 with: %s", enUSCommand)
 	}
-
-	core.Info("Configuring locale...")
-
-	// Install locales package if locale-gen is missing
-	if _, err := exec.LookPath("locale-gen"); err != nil {
-		if err := installPkg(ctx, "locales"); err != nil {
-			core.Warn("Failed to install locales package: %v", err)
-			return nil
-		}
-	}
-
-	// Uncomment en_US.UTF-8 in /etc/locale.gen (or append if absent)
-	genPath := "/etc/locale.gen"
-	data, err := os.ReadFile(genPath)
-	if err != nil {
-		core.Warn("Cannot read %s: %v", genPath, err)
-		return nil
-	}
-
-	content := string(data)
-	if strings.Contains(content, "# en_US.UTF-8 UTF-8") {
-		// Uncomment the existing line
-		if err := runCmd(ctx, "sudo", "sed", "-i", "s/^# *en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/", genPath); err != nil {
-			core.Warn("Failed to uncomment locale in %s: %v", genPath, err)
-			return nil
-		}
-	} else if !strings.Contains(content, "en_US.UTF-8 UTF-8") {
-		// Not present at all — append. Write the new full content via tmp
-		// + sudo install so the sudo step goes through proper handling
-		// (spinner pause, stderr connected, no shell-pipe parsing surprises).
-		newContent := content
-		if newContent != "" && !strings.HasSuffix(newContent, "\n") {
-			newContent += "\n"
-		}
-		newContent += "en_US.UTF-8 UTF-8\n"
-		if err := writeFileAsRoot(ctx, genPath, []byte(newContent), 0644); err != nil {
-			core.Warn("Failed to append locale to %s: %v", genPath, err)
-			return nil
-		}
-	}
-
-	// Generate the locale
-	if err := runCmd(ctx, "sudo", "locale-gen"); err != nil {
-		core.Warn("locale-gen failed: %v", err)
-		return nil
-	}
-
-	// Set as system default
-	if err := runCmd(ctx, "sudo", "update-locale", "LANG=en_US.UTF-8"); err != nil {
-		core.Warn("update-locale failed: %v", err)
-		return nil
-	}
-
-	core.Ok("Locale en_US.UTF-8 configured")
 	return nil
 }
 
 func (LocaleModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "locale"}
-
-	if !core.IsMac() {
-		if _, err := exec.LookPath("locale-gen"); err == nil {
-			s.Linked++
-		} else {
-			s.Missing++
-		}
-	}
-
-	if localeGenerated("en_US.UTF-8") {
+	switch {
+	case localeGenerated("en_US.UTF-8"):
 		s.Linked++
-	} else {
+		s.Extra = "en_US.UTF-8"
+	case localeGenerated("C.UTF-8"):
+		s.Linked++
+		s.Extra = "C.UTF-8 (en_US.UTF-8 not generated)"
+	default:
 		s.Missing++
+		s.Extra = "no UTF-8 locale"
 	}
-
 	return s
 }

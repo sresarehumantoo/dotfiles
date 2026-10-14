@@ -103,6 +103,15 @@ func systemdAvailable() bool {
 // with "no installation config", so just `start` instead.
 func startSystemdUnit(ctx context.Context, svc string) error {
 	state := unitInstallState(ctx, svc)
+	// Already running and either enabled or not enable-able: nothing to do,
+	// and no reason to ask for sudo on every re-run.
+	if unitActive(ctx, svc) {
+		switch state {
+		case "enabled", "enabled-runtime", "static", "alias", "indirect":
+			core.Ok("%s already running", svc)
+			return nil
+		}
+	}
 	switch state {
 	case "static", "alias", "indirect":
 		// Can't `enable` these — just start.
@@ -126,6 +135,11 @@ func startSystemdUnit(ctx context.Context, svc string) error {
 
 // unitInstallState returns the systemctl is-enabled status for a unit, or
 // "" if the call failed. Trims trailing newline.
+func unitActive(ctx context.Context, svc string) bool {
+	_, err := runProbe(ctx, "systemctl", "is-active", "--quiet", svc)
+	return err == nil
+}
+
 func unitInstallState(ctx context.Context, svc string) string {
 	out, err := runProbe(ctx, "systemctl", "is-enabled", svc)
 	// is-enabled returns non-zero for "disabled", "static" etc but still

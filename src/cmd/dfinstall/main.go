@@ -112,9 +112,7 @@ func main() {
 			core.Cfg.ToolkitTools = selected
 		}
 
-		// Prompt for sudo before spinner starts so the password prompt is visible
-		core.PromptSudo(ctx)
-		defer core.StopSudoKeepAlive()
+		defer core.ReleaseSudo()
 
 		// Infer module from standalone flags when no positional arg given
 		var target string
@@ -241,8 +239,8 @@ func main() {
 
 	rootSetupCmd := &cobra.Command{
 		Use:   "root",
-		Short: "Symlink configs into /root/ via sudo",
-		Long:  "Apply a curated subset of dotfiles (shell, git, nvim, tmux, htop) to the root user via sudo.",
+		Short: "Install root-owned copies of configs into /root/ via sudo",
+		Long:  "Apply a curated subset of dotfiles (shell, git, nvim, tmux, htop) to the root user via sudo.\n\nThese are copies, not symlinks, so root never runs files your user can edit. Re-run after changing them.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			if os.Geteuid() == 0 {
@@ -253,17 +251,14 @@ func main() {
 
 			core.DetectEnvironment()
 
-			// Prime sudo before any spinner starts so the password prompt
-			// (if any) is visible — this command is sudo-heavy.
-			core.PromptSudo(ctx)
-			defer core.StopSudoKeepAlive()
+			defer core.ReleaseSudo()
 
 			if core.Level >= core.LogVerbose {
 				return modules.InstallRoot(ctx)
 			}
 
 			sp := core.NewSpinner()
-			sp.Update("Linking root configs (sudo)")
+			sp.Update("Installing root configs (sudo)")
 			sp.Start()
 
 			err := modules.InstallRoot(ctx)
@@ -276,8 +271,11 @@ func main() {
 				return err
 			}
 
-			linked, missing := modules.RootStatus()
-			core.PrintResult(linked+missing, missing)
+			if core.DryRun {
+				return nil
+			}
+			current, stale := modules.RootStatus(ctx)
+			core.PrintResult(current+stale, stale)
 			return nil
 		},
 	}
@@ -308,10 +306,7 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			core.DetectEnvironment()
-			// Prime sudo — modules that installed system packages (delta,
-			// toolkit) shell out to sudo when uninstalling.
-			core.PromptSudo(ctx)
-			defer core.StopSudoKeepAlive()
+			defer core.ReleaseSudo()
 			target := args[0]
 			if target == "all" {
 				return uninstallAll(ctx)

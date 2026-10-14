@@ -469,12 +469,14 @@ func installDeb(ctx context.Context, name, repo string) error {
 	if err != nil {
 		return err
 	}
-	asset, ok := pickAsset(assets, assetFilter{
+	candidates := filterAssets(assets, assetFilter{
 		ArchTokens: currentArchTokens(),
 		Suffix:     ".deb",
+		Exclude:    debugPackageMarkers,
 	})
-	if !ok {
-		return fmt.Errorf("no .deb found for %s/%s", runtime.GOARCH, name)
+	asset, err := pickDebForDistro(candidates, []string{core.DistroCodename(), core.UpstreamDebianCodename()})
+	if err != nil {
+		return fmt.Errorf("%s (%s): %w", name, runtime.GOARCH, err)
 	}
 
 	// Download to temp file
@@ -486,8 +488,8 @@ func installDeb(ctx context.Context, name, repo string) error {
 	tmpFile.Close()
 	defer os.Remove(tmpPath)
 
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, asset.URL); err != nil {
-		return fmt.Errorf("download %s: %w", name, err)
+	if err := downloadVerified(ctx, asset, tmpPath); err != nil {
+		return err
 	}
 
 	// Install with dpkg, then fix any missing dependencies with apt

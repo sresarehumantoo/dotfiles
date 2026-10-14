@@ -211,11 +211,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		}
 		defer sess.Finish()
 
-		// Prime sudo so package steps don't each hit an unprimed sudo. With
-		// Interactive=false this only uses cached or known credentials and
-		// never prompts.
-		core.PromptSudo(ctx)
-		defer core.StopSudoKeepAlive()
+		defer core.ReleaseSudo()
 
 		var b strings.Builder
 		if sess.CanonicalNow != "" && sess.CanonicalPrev != "" {
@@ -280,8 +276,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 	}
 	defer sess.Finish()
 
-	core.PromptSudo(ctx)
-	defer core.StopSudoKeepAlive()
+	defer core.ReleaseSudo()
 
 	before := m.Status()
 	err = m.Install(ctx)
@@ -551,8 +546,7 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	}
 
 	if name == "all" {
-		core.PromptSudo(ctx)
-		defer core.StopSudoKeepAlive()
+		defer core.ReleaseSudo()
 
 		var b strings.Builder
 		for _, m := range core.AllModules() {
@@ -585,10 +579,7 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 		return mcp.NewToolResultError(fmt.Sprintf("%s does not support uninstall", name)), nil
 	}
 
-	// Modules that installed system packages (delta, toolkit) shell out to
-	// sudo when uninstalling.
-	core.PromptSudo(ctx)
-	defer core.StopSudoKeepAlive()
+	defer core.ReleaseSudo()
 
 	// Read the before-state first: WindevModule.Status() short-circuits to
 	// "disabled" once the opt-in is cleared, so clearing first reported every

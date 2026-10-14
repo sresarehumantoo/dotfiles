@@ -3,9 +3,9 @@ package modules
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -15,7 +15,7 @@ type DeltaModule struct{}
 func (DeltaModule) Name() string { return "delta" }
 
 func (DeltaModule) Install(ctx context.Context) error {
-	if _, err := exec.LookPath("delta"); err == nil {
+	if localBinInstalled("delta") {
 		core.Ok("delta already installed")
 		return nil
 	}
@@ -27,78 +27,74 @@ func (DeltaModule) Install(ctx context.Context) error {
 
 	core.Info("Installing delta...")
 
-	if core.AptBin() != "" {
-		return installDeltaDeb(ctx)
-	}
-	if _, err := exec.LookPath("pacman"); err == nil {
+	if core.IsMac() {
 		return installPkg(ctx, "git-delta")
 	}
-	if _, err := exec.LookPath("dnf"); err == nil {
-		return installPkg(ctx, "git-delta")
-	}
-	if _, err := exec.LookPath("brew"); err == nil {
-		return installPkg(ctx, "git-delta")
+	if runtime.GOOS == "linux" {
+		return installDeltaRelease(ctx)
 	}
 
 	core.Warn("Install delta manually from https://github.com/dandavison/delta/releases")
 	return nil
 }
 
-func installDeltaDeb(ctx context.Context) error {
+// deltaLocal is where installDeltaRelease puts the binary.
+func deltaLocal() string { return core.HomeTarget(".local", "bin", "delta") }
+
+// deltaReleaseAsset picks the release tarball for goarch: the static musl
+// build where one is published (x86_64 only, today), so it runs on any libc,
+// else the glibc build.
+func deltaReleaseAsset(assets []ghAsset, goarch string) (ghAsset, bool) {
+	for _, target := range []string{"unknown-linux-musl", "unknown-linux-gnu"} {
+		if a, ok := pickAsset(assets, assetFilter{
+			Contains:   target,
+			ArchTokens: archTokensFor(goarch),
+			Suffix:     ".tar.gz",
+		}); ok {
+			return a, true
+		}
+	}
+	return ghAsset{}, false
+}
+
+// installDeltaRelease installs the release binary into ~/.local/bin. delta is
+// a single binary, so it needs neither root nor dpkg (whose maintainer scripts
+// would run as root). Falls back to the package manager only when the release
+// cannot be used.
+func installDeltaRelease(ctx context.Context) error {
+	dst := deltaLocal()
+	if err := core.CheckTarget(dst); err != nil {
+		return err
+	}
+	assets, err := latestAssets(ctx, "dandavison/delta")
+	if err != nil {
+		core.Warn("%v", err)
+		return deltaPkgFallback(ctx)
+	}
+	asset, ok := deltaReleaseAsset(assets, runtime.GOARCH)
+	if !ok {
+		core.Warn("no delta release binary published for %s", runtime.GOARCH)
+		return deltaPkgFallback(ctx)
+	}
+
 	tmp, err := os.MkdirTemp("", "delta-*")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-
-	// Resolve the asset from the release listing rather than constructing a URL.
-	//
-	// The old code built
-	//   /releases/latest/download/git-delta_<arch>.deb
-	// but delta embeds the version in the filename (git-delta_0.19.2_amd64.deb),
-	// so that URL 404'd on EVERY run since the module was written. curl -f made
-	// it exit 22, the fallback below swallowed it, and delta silently came from
-	// the distro package instead — with `dfinstall status` still reporting
-	// "installed", which is why it went unnoticed.
-	//
-	// Contains "git-delta_" is load-bearing: the same release also ships
-	// git-delta-musl_<ver>_<arch>.deb, which satisfies both the .deb suffix and
-	// the arch token and is listed FIRST, and pickAsset returns the first match.
-	// "git-delta-musl_" does not contain "git-delta_", so this excludes it
-	// without needing a new exclusion mechanism.
-	assets, err := latestAssets(ctx, "dandavison/delta")
-	if err != nil {
+	tarball := filepath.Join(tmp, asset.Name)
+	if err := downloadVerified(ctx, asset, tarball); err != nil {
+		core.Warn("%v", err)
 		return deltaPkgFallback(ctx)
 	}
-	asset, ok := pickAsset(assets, assetFilter{
-		Contains:     "git-delta_",
-		ArchTokens:   currentArchTokens(),
-		Suffix:       ".deb",
-		SkipSidecars: true,
-		LinuxOnly:    true,
-	})
-	if !ok {
-		core.Warn("no delta .deb published for %s", runtime.GOARCH)
-		return deltaPkgFallback(ctx)
+	if err := runCmd(ctx, "tar", "-xzf", tarball, "-C", tmp); err != nil {
+		return err
 	}
-
-	debPath := filepath.Join(tmp, "git-delta.deb")
-	if err := runCmd(ctx, "curl", "-fsSL", asset.URL, "-o", debPath); err != nil {
-		return deltaPkgFallback(ctx)
+	bin := filepath.Join(tmp, strings.TrimSuffix(asset.Name, ".tar.gz"), "delta")
+	if err := runCmd(ctx, "install", "-D", "-m", "0755", bin, dst); err != nil {
+		return err
 	}
-
-	if err := runCmd(ctx, "sudo", "dpkg", "-i", debPath); err != nil {
-		bin := core.AptBin()
-		if bin == "" {
-			core.Warn("dpkg failed and no apt binary available to fix dependencies")
-		} else if fixErr := runCmd(ctx, "sudo", bin, "install", "-f", "-y"); fixErr != nil {
-			core.Warn("%s install -f failed: %v", bin, fixErr)
-		}
-	}
-
-	if _, err := exec.LookPath("delta"); err == nil {
-		core.Ok("delta installed")
-	}
+	core.Ok("delta installed to %s", dst)
 	return nil
 }
 
@@ -115,7 +111,7 @@ func deltaPkgFallback(ctx context.Context) error {
 
 func (DeltaModule) Status() core.ModuleStatus {
 	s := core.ModuleStatus{Name: "delta"}
-	if _, err := exec.LookPath("delta"); err == nil {
+	if localBinInstalled("delta") {
 		s.Linked = 1
 		s.Extra = "installed"
 	} else {

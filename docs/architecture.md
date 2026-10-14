@@ -25,15 +25,14 @@ dfinstall install all [--backup]
         |                     - decides whether to back up (first run/--backup/config)
         |                     - StartBackup() if so
         v
-  core.PromptSudo(ctx)     <- core/env.go (primes credentials before the spinner)
-        |
-        v
   for each module:
     if core.SkipInAll(name) -> skip   <- user skip_modules + un-enabled opt-ins
     module.Install(ctx)    <- modules/<name>.go
       -> m.Links().Apply() <- core/module.go -> core.LinkFile()
         -> BackupFile()    <- core/backup.go (records pre-install state)
       -> runCmd(ctx, ...)  <- modules/packages.go (deadline-bounded subprocess)
+        -> core.EnsureSudo <- core/env.go (first sudo command only: prompts once,
+                              then keeps credentials fresh until ReleaseSudo)
       -> core.Info/Ok()    <- core/output.go (respects log level)
         |
         v
@@ -161,7 +160,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `status` | Print table of link counts per module |
 | `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) |
 | `restore [timestamp]` | Restore files from a backup snapshot |
-| `root` | Symlink configs into `/root/` via sudo |
+| `root` | Install root-owned copies of configs into `/root/` via sudo |
 | `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
 
 ### Install / Update Flags

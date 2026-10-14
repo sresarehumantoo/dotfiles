@@ -8,11 +8,9 @@ Most modules are a single Go file in `src/modules/`. They run in the order liste
 
 **File:** `modules/locale.go`
 
-Configures the system locale (`en_US.UTF-8`). Skips if the locale is already available.
+Reports which UTF-8 locale shells will get, and changes nothing on the system. `config/shell/zsh/locale.zsh` sets `LANG` (when it is unset, `C` or `POSIX`) to `en_US.UTF-8` if that locale has been generated, else to `C.UTF-8`, which glibc 2.35+ ships built in. So a fresh machine gets UTF-8 with no root; what it does not get without generating `en_US.UTF-8` is en_US date formats and sorting. The module prints the Debian command for that rather than running it. The WSL bootstrap, which runs as root anyway, still generates `en_US.UTF-8`.
 
-If `locale-gen` is missing, installs the `locales` package first. Then uncomments `en_US.UTF-8 UTF-8` in `/etc/locale.gen` (appending it if absent), runs `sudo locale-gen` to generate the locale, and sets it as the system default with `sudo update-locale LANG=en_US.UTF-8`.
-
-**Status:** Checks for `locale-gen` on `$PATH` and whether `en_US.UTF-8` is available (2 checks).
+**Status:** One check: a UTF-8 locale is available, naming which (`en_US.UTF-8`, or `C.UTF-8` when en_US is not generated).
 
 ---
 
@@ -57,16 +55,16 @@ Three groups of additional tooling:
 - macOS: Homebrew's keg-only `rustup` instead of `curl | sh`, which managed Macs often forbid; its `bin` (with the cargo/rustc proxies) goes on PATH the same way
 
 **Terraform:**
-- Adds HashiCorp apt repository (signed with GPG key)
-- Installs terraform
+- Linux: the latest release binary into `~/.local/bin`, no root. `SHA256SUMS` is verified against its detached signature, which must come from HashiCorp's release key (fingerprint pinned in `extras.go`); without `gpg` it falls back to the checksum alone and says so. Earlier versions added HashiCorp's apt repo instead; on those machines the repo and package are left as they are.
+- macOS: Homebrew's `hashicorp/tap/terraform`
 
-Reads `/etc/os-release` for `VERSION_CODENAME` to construct apt repo URLs.
+Reads `/etc/os-release` for `VERSION_CODENAME` to construct the Docker apt repo URL.
 
-**Signing key refresh:** both repos above are re-checked on every converge, not just when first added. Upstreams rotate signing keys on their own schedule, and a stale key makes `apt update` reject the index (exit 100) while the repo file, the key file, and the installed binary all still look fine. Each converge fetches the repo's `InRelease` and verifies it against the keyring on disk; if that fails, the upstream key is downloaded and **appended** to the keyring, keeping the outgoing certificate for the duration of the rotation window. A key that fails to verify even after refresh is left alone and reported as a warning rather than overwritten. Offline or unreachable upstreams skip the check entirely, so no network blip can trigger a keyring rewrite.
+**Signing key refresh:** the Docker repo is re-checked on every converge, not just when first added. Upstreams rotate signing keys on their own schedule, and a stale key makes `apt update` reject the index (exit 100) while the repo file, the key file, and the installed binary all still look fine. Each converge fetches the repo's `InRelease` and verifies it against the keyring on disk; if that fails, the upstream key is downloaded and **appended** to the keyring, keeping the outgoing certificate for the duration of the rotation window. A key that fails to verify even after refresh is left alone and reported as a warning rather than overwritten. Offline or unreachable upstreams skip the check entirely, so no network blip can trigger a keyring rewrite.
 
 After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
 
-**Status:** Checks 20 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, terraform, and the Docker and HashiCorp apt keyrings). The keyring checks are offline: they catch an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
+**Status:** Checks 19 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, terraform, and the Docker apt keyring). The keyring check is offline: it catches an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
 
 ---
 
@@ -138,7 +136,7 @@ uninstall deleting the wrong path.
 
 Installs [delta](https://github.com/dandavison/delta), a syntax-highlighting pager for git diffs.
 
-Tries the latest `.deb` release from GitHub first (auto-detects architecture via `dpkg --print-architecture`). Falls back to the system package manager if the download fails.
+Linux: the release binary into `~/.local/bin`, no root and no dpkg. The static musl build is preferred (it runs on any libc), with the glibc build where no musl one is published (aarch64). The download is checked against GitHub's sha256 digest. Falls back to the system package manager only if the release cannot be used. macOS: Homebrew.
 
 **Status:** Reports "installed" or "not found".
 
@@ -328,6 +326,8 @@ DF_TMUX_SESSION=review ghostty
 
 **Sharing means mirroring, and that is the default.** Each terminal attaches another *client* to the same session, so both show the same window and both move when either one does, and `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it) resizes the window to whichever client was used last, reflowing panes in the other. That is a preference rather than a defect, so the default is unchanged and `DF_TMUX_SESSION` is the way out. `aggressive-resize on` is the other available lever, and it only helps for clients viewing *different* windows.
 
+**`tm` moves a session to this terminal without nesting** (defined in `aliases`). From a shell outside tmux (`DF_NO_TMUX`, or the plain shell left after tmux failed to start) it attaches; inside tmux it switches this client instead of starting a tmux in the pane. `tm work` names another session. `tm -d` also detaches the session's other clients, which **closes those terminals**, for the reason in the caution below. It is not `ta` because oh-my-zsh's tmux plugin defines that as an alias, and zsh refuses a function whose name is an alias.
+
 > [!CAUTION]
 > **Do not "fix" the mirroring with `-D`.** It is the obvious answer — a new client detaches the old one — and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
 
@@ -379,6 +379,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `tlog-clean` | Strip ANSI escapes and powerline glyphs from tmux log captures |
 | `clipboard-vm` | Diagnose and fix SPICE clipboard sharing in a QEMU/KVM guest (`--reset`) |
 | `tmux-restore` | Toggle tmux session auto-restore (continuum + resurrect) on/off |
+| `claude-tmux` | Resume each pane's Claude Code conversation when resurrect restores a server (`record`/`save`/`resume`) |
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 | `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
@@ -418,6 +419,7 @@ Key settings:
 Sets up a full Neovim configuration under `~/.config/nvim/`:
 
 - **23 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, `notes.markdownlint.yaml` (the vault's relaxed lint rules), lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
+- **Neovim itself:** if nvim is missing or older than nvim-treesitter needs, installs the official prebuilt into `~/.local/opt` and links `~/.local/bin/nvim`, no root. An older distro or `/opt` copy is left installed (it is shadowed on PATH) and the command to remove it is printed. The tree-sitter CLI goes to `~/.local/bin` the same way.
 - **Plugin sync:** Runs `nvim --headless "+Lazy! sync" "+qa"` after linking
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
 
@@ -518,6 +520,8 @@ Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane na
 
 **Save on shutdown** (where `systemctl` exists): links `tmux-save.service` and a `tmux-.scope.d/save-first.conf` drop-in into `~/.config/systemd/user/`, then enables the service. Its `ExecStop` runs resurrect's save when the user manager stops, and the drop-in orders every `tmux-*.scope` (tmux's per-pane `tmux-spawn-*` scopes and the `tmux-server` scope) after it, so nothing in tmux is signalled until the save is done. It skips the save while autosave is paused (see the shell section).
 
+**Claude Code panes come back running Claude.** Resurrect only restarts commands on `@resurrect-processes`, and `claude` is not on its default list, so before this every Claude pane was restored as a bare shell. The saved command line carries no session id either (`claude --resume` reopens the picker, `claude` starts empty), so a pane that was running `claude` is restored with `claude-tmux resume`, which looks the conversation up by pane position in a map written by resurrect's post-save hook from the `@claude-session` pane option that the claude module's SessionStart hook sets. Without an entry, or when the pane's directory disagrees with the map, it falls back to `claude --continue`. The pattern has no `~`, so `doas claude` is not restored. See [claude-tmux](devtools.md#claude-tmux).
+
 **Compositor restarts:** `update-environment` adds `SWAYSOCK` and `WAYLAND_DISPLAY`, and `exports.zsh` refreshes a pane's `SWAYSOCK` from tmux when the socket it names is gone, because the server outlives sway. A forward clock jump that leaves continuum's last-save stamp in the future is reset on client attach or focus.
 
 **Uninstall:** Disables `tmux-save.service`, removes symlinks and deletes `~/.tmux/plugins/` (TPM) and `~/.config/tmux/plugins/` (where TPM installs plugins, since the config lives in `~/.config/tmux`).
@@ -601,6 +605,18 @@ The plugins run under launchd with Homebrew's bin and the system dirs on PATH, s
 Symlinks `config/htop/htoprc` to `$XDG_CONFIG_HOME/htop/htoprc`.
 
 **Status:** Checks 1 symlink.
+
+---
+
+## claude
+
+**File:** `modules/claude.go`
+
+Symlinks `config/claude/CLAUDE.md` to `~/.claude/CLAUDE.md`, the global Claude Code instructions loaded in every session. It ends with `@~/.claude/CLAUDE.local.md`, so each machine can layer untracked, host-specific instructions on top; Claude Code skips the import when the file is absent.
+
+`~/.claude/settings.json` is **merged, not linked**, because Claude Code rewrites it itself (`/config`, `/model`, plugin toggles). Each top-level key in `config/claude/settings.json` (commit/PR attribution off, `includeCoAuthoredBy: false`, the update channel, a SessionStart hook running `claude-tmux record`) replaces the live value; every other key is left untouched. That includes `hooks` as a whole, so a hook added by hand to the live file is replaced on the next install; add it to the tracked file instead. Keep anything machine-specific (permissions, `autoMode.environment`, `env`) out of the tracked file: this repo is public. An unparsable live file is never rewritten. Uninstall removes the link and leaves the merged keys in place.
+
+**Status:** Checks 1 symlink; stale managed settings keys are listed alongside.
 
 ---
 
@@ -750,7 +766,7 @@ Installs hypervisor guest tools when running inside a hardware VM. Skips entirel
 | VirtualBox | virtualbox-guest-utils |
 | Hyper-V | hyperv-daemons |
 
-After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
+After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. A unit that is already running and enabled (or static) is left alone, and guest packages already installed are skipped, so a re-run needs no sudo. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
 
 **Status:** Reports the detected virtualization type and checks the guest packages for that hypervisor. Returns empty on WSL and non-VM systems.
 
@@ -760,8 +776,8 @@ After installing, enables/starts the relevant systemd units (`qemu-guest-agent`,
 
 **File:** `modules/defaultshell.go`
 
-Sets zsh as the default login shell via `chsh -s $(which zsh)`. Skips if `$SHELL` is exactly the zsh path resolved from `$PATH` — a `$SHELL` of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
+Sets zsh as the default login shell. Skips when the account's recorded login shell (`getent passwd`, or `dscl` on macOS) is already the zsh path resolved from `$PATH`; `$SHELL` is not used, because it only changes at the next login. A shell of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
 
-If no sudo password was captured at startup and the session is non-interactive (e.g. under the MCP server, where stdin is the JSON-RPC stream), it warns with the `chsh -s <path>` command to run and does nothing. When a sudo password is available it runs `chsh` through `core.SudoCmd` with no stdin wiring; only the interactive fallback attaches stdin/stdout and may prompt for a password.
+With a terminal it runs plain `chsh -s <zsh>`, which asks for the user's own password and needs no root. Without one (under the MCP server, where stdin is the JSON-RPC stream, or a piped bootstrap), or when plain `chsh` fails, it uses `sudo chsh` only if sudo needs no password (a NOPASSWD rule, cached credentials, the bootstrap drop-in). Otherwise it warns with the `chsh -s <path>` command to run.
 
-**Status:** Reports "zsh" if default, or the current shell path.
+**Status:** Reports "zsh" if the account's login shell is zsh, or that shell's path.

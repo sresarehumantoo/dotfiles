@@ -222,6 +222,28 @@ alias tcap="tmux run-shell ~/.config/tmux/plugins/tmux-logging/scripts/screen_ca
 alias thist="tmux run-shell ~/.config/tmux/plugins/tmux-logging/scripts/save_complete_history.sh"
 alias tclear="tmux run-shell ~/.config/tmux/plugins/tmux-logging/scripts/clear_history.sh"
 
+# Bring a tmux session to this terminal without nesting: `tm` for main, `tm work`
+# for another. Inside tmux it switches this client rather than starting a tmux
+# in a pane. `tm -d` also detaches the session's other clients, which CLOSES
+# their terminals: a detached client exits 0 and zshrc exits with it.
+# Not `ta`: oh-my-zsh's tmux plugin aliases that, and a function cannot share it.
+tm() {
+  local detach="" s self c
+  [[ $1 == -d ]] && { detach=1; shift; }
+  s="=${1:-main}"
+  s=${s//[.:]/_}
+  if [[ -z $TMUX ]]; then
+    tmux attach-session ${detach:+-d} -t "$s"
+    return
+  fi
+  tmux switch-client -t "$s" || return
+  [[ -n $detach ]] || return 0
+  self=$(tmux display-message -p '#{client_name}')
+  tmux list-clients -t "$s" -F '#{client_name}' | while read -r c; do
+    [[ $c == "$self" ]] || tmux detach-client -t "$c"
+  done
+}
+
 # tldr (tealdeer) — colorized with pager
 if command -v tldr &>/dev/null; then
   if [[ "$TERM" != "linux" && "$TERM" != "dumb" ]]; then
