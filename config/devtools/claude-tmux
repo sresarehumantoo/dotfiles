@@ -21,8 +21,9 @@ usage() {
     echo ""
     echo "  record   Read SessionStart hook JSON on stdin, tag \$TMUX_PANE with its session id."
     echo "  save     Write every tagged pane's position and session id to the map."
-    echo "  resume   Resume the conversation this pane held at the last save, else"
-    echo "           the latest one in this directory (claude --continue)."
+    echo "  resume   Resume the conversation this pane held at the last save. Without"
+    echo "           one, the latest in this directory (claude --continue) if no other"
+    echo "           claude pane was there, else the picker (claude --resume)."
     echo ""
     echo "Map: $MAP"
 }
@@ -36,24 +37,39 @@ record() {
     tmux set-option -p -t "$TMUX_PANE" @claude-session "$id" >/dev/null
 }
 
+# Untagged claude panes are kept too, with an empty id: resume needs to know
+# which panes shared a directory even when it cannot know their conversations.
 save() {
     mkdir -p "${MAP%/*}"
     local tmp
     tmp=$(mktemp "$MAP.XXXXXX")
-    tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}"$'\t'"#{@claude-session}"$'\t'"#{pane_current_path}" |
-        awk -F'\t' '$2 != ""' >"$tmp"
+    tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}"$'\t'"#{@claude-session}"$'\t'"#{pane_current_path}"$'\t'"#{pane_current_command}" |
+        awk -F'\t' -v OFS='\t' '$2 != "" || $4 == "claude" { print $1, $2, $3 }' >"$tmp"
     mv -f "$tmp" "$MAP"
 }
 
 resume() {
-    local key id dir
+    local key entry id dir here siblings
     key=$(tmux display-message -p -t "${TMUX_PANE:?not inside tmux}" '#{session_name}:#{window_index}.#{pane_index}')
-    if [[ -r "$MAP" ]] && IFS=$'\t' read -r _ id dir < <(awk -F'\t' -v k="$key" '$1 == k' "$MAP"); then
-        # Resurrect reopens the pane in the directory it saved, so a different
-        # one means the map and the restored save disagree about this pane.
-        [[ "$dir" == "$(pwd -P)" ]] && exec claude --resume "$id"
+    here=$(pwd -P)
+    entry=$( (awk -F'\t' -v k="$key" '$1 == k' "$MAP" | head -n 1) 2>/dev/null || true)
+    # cut, not read: tab is IFS whitespace, so read collapses an empty id field.
+    id=$(cut -f2 <<<"$entry")
+    dir=$(cut -f3 <<<"$entry")
+    # Resurrect reopens the pane in the directory it saved, so a different one
+    # means the map and the restored save disagree about this pane.
+    if [[ -n "$entry" && "$dir" == "$here" ]]; then
+        if [[ -n "$id" ]]; then
+            # Tag now: a save before SessionStart fires would otherwise drop it.
+            tmux set-option -p -t "$TMUX_PANE" @claude-session "$id"
+            exec claude --resume "$id"
+        fi
+        siblings=$(awk -F'\t' -v k="$key" -v d="$here" '$1 != k && $3 == d' "$MAP" | wc -l)
+        # --continue opens the latest conversation in this directory, which is
+        # only this pane's when no other claude pane was working here.
+        ((siblings == 0)) && exec claude --continue
     fi
-    exec claude --continue
+    exec claude --resume
 }
 
 case "${1:-}" in

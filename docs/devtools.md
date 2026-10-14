@@ -291,8 +291,8 @@ Brings Claude Code conversations back when tmux-resurrect restores a server. Res
 | Command | Run by | Does |
 |---------|--------|------|
 | `record` | Claude Code's SessionStart hook (claude module) | Sets the `@claude-session` option on `$TMUX_PANE` from the hook's JSON. Fires on startup, resume, `/clear` and compaction, so it follows the pane's current conversation. Prints nothing, since SessionStart stdout is added to the conversation. |
-| `save` | resurrect's post-save-all hook (`tmux.conf`) | Writes `session:window.pane`, session id and directory for every tagged pane to `~/.local/state/claude-tmux/panes`. |
-| `resume` | resurrect, in a restored pane whose saved command started with `claude` | `claude --resume <id>` for that pane's position, or `claude --continue` when there is no entry or the directory does not match. |
+| `save` | resurrect's post-save-all hook (`tmux.conf`) | Writes `session:window.pane`, session id and directory to `~/.local/state/claude-tmux/panes` for every tagged pane, and for every untagged pane running `claude` with an empty id. |
+| `resume` | resurrect, in a restored pane whose saved command started with `claude` | `claude --resume <id>` for that pane's position, tagging the pane straight away so a save before SessionStart fires keeps it. Without an id it uses `claude --continue` only when the map shows no other Claude pane in that directory, since `--continue` opens the directory's latest conversation and two panes would both get it. Otherwise, and when the pane has no entry or its directory does not match, it opens the picker (`claude --resume`). |
 
 The id is stored on the pane and only turned into a position at save time because `renumber-windows` moves windows during a session, while a restore preserves the saved positions exactly.
 
