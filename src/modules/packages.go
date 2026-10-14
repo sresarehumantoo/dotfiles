@@ -193,6 +193,14 @@ func installPkg(ctx context.Context, pkgs ...string) error {
 		return nil
 	}
 
+	// Dropped before anything runs, so a re-run whose packages are all present
+	// never reaches `sudo apt update` or the install itself. Upgrading what is
+	// already installed is the package manager's job, not this one's.
+	pkgs = slices.DeleteFunc(slices.Clone(pkgs), pkgInstalled)
+	if len(pkgs) == 0 {
+		return nil
+	}
+
 	// Ensure apt cache is fresh on first use (minimal systems ship with empty lists)
 	if (name == "apt-get" || name == "apt") && !aptUpdated {
 		repairAptSources(ctx)
