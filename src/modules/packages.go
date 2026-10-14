@@ -266,6 +266,21 @@ func ContainsSudoInvocation(name string, args []string) bool {
 	return false
 }
 
+// localBinInstalled reports whether name is on PATH or in ~/.local/bin, where
+// dfinstall installs single-binary tools. The path check matters on a first
+// run, before the shell config that puts ~/.local/bin on PATH has been loaded.
+func localBinInstalled(name string) bool {
+	if _, err := exec.LookPath(name); err == nil {
+		return true
+	}
+	p := core.HomeTarget(".local", "bin", name)
+	if p == "" {
+		return false
+	}
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
 // runProbe runs a short informational command and returns its stdout. Probes
 // get a tight deadline: they're meant to answer a question immediately, so one
 // that blocks is hung, not slow.
@@ -333,6 +348,9 @@ func runCmdTimeout(ctx context.Context, timeout time.Duration, name string, args
 
 	if directSudo {
 		cmd = core.SudoCmd(ctx, args...)
+	} else if needsTTY {
+		// sudo inside a script string never goes through SudoCmd.
+		core.EnsureSudo(ctx)
 	}
 
 	// Output routing:

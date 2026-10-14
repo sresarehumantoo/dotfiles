@@ -36,8 +36,10 @@ const (
 
 var treeSitterVersionRe = regexp.MustCompile(`(\d+)\.(\d+)\.(\d+)`)
 
-func treeSitterCurrent(ctx context.Context) bool {
-	out, err := runProbe(ctx, "tree-sitter", "--version")
+// treeSitterCurrent reports whether bin (a name to look up on PATH, or a path)
+// is a tree-sitter CLI new enough for nvim-treesitter.
+func treeSitterCurrent(ctx context.Context, bin string) bool {
+	out, err := runProbe(ctx, bin, "--version")
 	if err != nil {
 		return false
 	}
@@ -62,13 +64,20 @@ func treeSitterFilter(goarch string) assetFilter {
 }
 
 // ensureTreeSitterCLI installs a current tree-sitter CLI: brew on macOS, the
-// release binary into /usr/local/bin on Linux, beside the prebuilt nvim.
+// release binary into ~/.local/bin on Linux. It is one static binary, so it
+// needs no root; ~/.local/bin is ahead of /usr/local/bin on PATH, so it also
+// shadows a copy an older dfinstall put there.
 func ensureTreeSitterCLI(ctx context.Context) error {
-	if treeSitterCurrent(ctx) {
+	// Checked by path too: on a first run ~/.local/bin may not be on PATH yet.
+	dst := core.HomeTarget(".local", "bin", "tree-sitter")
+	if treeSitterCurrent(ctx, "tree-sitter") || (dst != "" && treeSitterCurrent(ctx, dst)) {
 		return nil
 	}
 	if core.IsMac() {
 		return installPkg(ctx, "tree-sitter-cli")
+	}
+	if err := core.CheckTarget(dst); err != nil {
+		return err
 	}
 
 	assets, err := latestAssets(ctx, "tree-sitter/tree-sitter")
@@ -92,7 +101,7 @@ func ensureTreeSitterCLI(ctx context.Context) error {
 	if err := runCmd(ctx, "gunzip", gz); err != nil {
 		return fmt.Errorf("decompress tree-sitter: %w", err)
 	}
-	if err := runCmd(ctx, "sudo", "install", "-m", "0755", filepath.Join(tmp, "tree-sitter"), "/usr/local/bin/tree-sitter"); err != nil {
+	if err := runCmd(ctx, "install", "-D", "-m", "0755", filepath.Join(tmp, "tree-sitter"), dst); err != nil {
 		return fmt.Errorf("install tree-sitter: %w", err)
 	}
 	core.Ok("Installed tree-sitter CLI from %s", asset.Name)
@@ -111,10 +120,26 @@ type nvimInfo struct {
 	parsed  bool // false when --version output couldn't be parsed
 }
 
-// detectNvim locates nvim on PATH and parses its version. Second return is
-// false when nvim isn't installed at all.
+// localNvimLink is where installPrebuiltNvimLinux links the nvim it manages.
+func localNvimLink() string { return core.HomeTarget(".local", "bin", "nvim") }
+
+// nvimBin returns the nvim to run: the one dfinstall manages in ~/.local/bin
+// when present, else whatever PATH finds. Checked by path first because on a
+// first run ~/.local/bin is often not on PATH yet, and PATH would then find an
+// older distro nvim.
+func nvimBin() (string, error) {
+	if p := localNvimLink(); p != "" {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p, nil
+		}
+	}
+	return exec.LookPath("nvim")
+}
+
+// detectNvim locates nvim and parses its version. Second return is false when
+// nvim isn't installed at all.
 func detectNvim() (nvimInfo, bool) {
-	p, err := exec.LookPath("nvim")
+	p, err := nvimBin()
 	if err != nil {
 		return nvimInfo{}, false
 	}
@@ -125,7 +150,7 @@ func detectNvim() (nvimInfo, bool) {
 	info := nvimInfo{path: real}
 	// No context here: this probe is shared with Status()/doctor, which have
 	// none to inherit. ProbeTimeout still bounds it.
-	out, err := runProbe(context.Background(), "nvim", "--version")
+	out, err := runProbe(context.Background(), p, "--version")
 	if err != nil {
 		return info, true
 	}
@@ -151,9 +176,13 @@ func (i nvimInfo) atLeast(major, minor int) bool {
 	return i.major == major && i.minor >= minor
 }
 
-// nvimOwner classifies how the existing nvim was installed so we can remove
-// it cleanly. Returns one of: "apt:<package>", "opt-prebuilt", "manual".
+// nvimOwner classifies how the existing nvim was installed. Returns one of:
+// "local-prebuilt" (ours, in ~/.local/opt), "opt-prebuilt" (an older
+// dfinstall's, in /opt), "apt:<package>", "manual".
 func nvimOwner(realPath string) string {
+	if opt := core.HomeTarget(".local", "opt"); opt != "" && strings.HasPrefix(realPath, opt+"/nvim-linux-") {
+		return "local-prebuilt"
+	}
 	if strings.HasPrefix(realPath, "/opt/nvim-linux-") {
 		return "opt-prebuilt"
 	}
@@ -178,7 +207,7 @@ func nvimPrebuiltAsset() string {
 }
 
 // ensureNvim makes sure a Neovim >= minNvim is available. If an older nvim
-// is found, asks the user before removing it and installing the prebuilt.
+// is found, asks the user before installing the prebuilt in front of it.
 func ensureNvim(ctx context.Context) error {
 	info, present := detectNvim()
 	if present && info.atLeast(minNvimMajor, minNvimMinor) {
@@ -199,8 +228,14 @@ func ensureNvim(ctx context.Context) error {
 			core.AlwaysWarn("Skipping Neovim upgrade — treesitter highlighting needs %d.%d and will not load", minNvimMajor, minNvimMinor)
 			return nil
 		}
-		if err := removeOldNvim(ctx, info.path, owner); err != nil {
-			core.AlwaysWarn("Couldn't fully remove old Neovim: %v — continuing", err)
+		if runtime.GOOS == "linux" {
+			if err := installPrebuiltNvimLinux(ctx); err != nil {
+				return err
+			}
+			if hint := oldNvimRemoval(owner); hint != "" {
+				core.Notice("The old Neovim at %s is still installed, shadowed on PATH. To remove it: %s", info.path, hint)
+			}
+			return nil
 		}
 	}
 
@@ -210,18 +245,29 @@ func ensureNvim(ctx context.Context) error {
 	return installPkg(ctx, "neovim")
 }
 
+// oldNvimRemoval is the command that removes a superseded nvim, or "" when
+// there is nothing to remove (ours is replaced in place) or no safe command.
+// dfinstall does not run it: the new nvim already wins on PATH, and removing
+// a system copy is the only part that would need root.
+func oldNvimRemoval(owner string) string {
+	switch {
+	case strings.HasPrefix(owner, "apt:"):
+		return "sudo apt remove " + strings.TrimPrefix(owner, "apt:")
+	case owner == "opt-prebuilt":
+		return "sudo rm -rf /opt/nvim-linux-* /usr/local/bin/nvim"
+	}
+	return ""
+}
+
 // confirmNvimUpgrade asks the user whether to replace an outdated nvim.
 // Returns false (skip) when stdin is not a terminal so unattended runs don't
 // silently mutate a working-but-old install.
 func confirmNvimUpgrade(version, path, owner string) bool {
 	var srcDesc string
-	switch {
-	case strings.HasPrefix(owner, "apt:"):
-		srcDesc = fmt.Sprintf("apt package '%s' will be removed via 'sudo apt remove'", strings.TrimPrefix(owner, "apt:"))
-	case owner == "opt-prebuilt":
-		srcDesc = "previous /opt prebuilt will be replaced"
-	default:
-		srcDesc = fmt.Sprintf("found at %s — won't be removed automatically (the new symlink at /usr/local/bin/nvim will shadow it on PATH)", path)
+	if owner == "local-prebuilt" {
+		srcDesc = "the previous prebuilt in ~/.local/opt will be replaced"
+	} else {
+		srcDesc = fmt.Sprintf("the current one at %s is left installed and shadowed on PATH by ~/.local/bin/nvim", path)
 	}
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
@@ -231,7 +277,7 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 	}
 
 	title := fmt.Sprintf("Upgrade Neovim from %s?", version)
-	desc := fmt.Sprintf("nvim-treesitter's main branch requires >= %d.%d.\nIf you confirm, %s, then the latest prebuilt is installed to /opt and symlinked into /usr/local/bin/nvim.",
+	desc := fmt.Sprintf("nvim-treesitter's main branch requires >= %d.%d.\nIf you confirm, %s, the latest prebuilt is installed to ~/.local/opt and linked as ~/.local/bin/nvim.",
 		minNvimMajor, minNvimMinor, srcDesc)
 
 	var confirm bool
@@ -257,28 +303,9 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 	return confirm
 }
 
-// removeOldNvim cleanly removes the existing nvim based on how it was
-// installed. opt-prebuilt is a no-op (installPrebuiltNvimLinux wipes the
-// extraction dir before re-extracting). Manual installs are left alone with
-// a warning.
-func removeOldNvim(ctx context.Context, path, owner string) error {
-	switch {
-	case strings.HasPrefix(owner, "apt:"):
-		pkg := strings.TrimPrefix(owner, "apt:")
-		args := []string{"apt", "remove", "-y", pkg}
-		if pkg != "neovim-runtime" && dpkgInstalled("neovim-runtime") {
-			args = append(args, "neovim-runtime")
-		}
-		core.Info("Removing old Neovim apt packages: %v", args[3:])
-		return runCmd(ctx, "sudo", args...)
-	case owner == "opt-prebuilt":
-		return nil
-	default:
-		core.Warn("Old Neovim at %s isn't apt-managed — leaving it. New /usr/local/bin/nvim will take precedence on PATH.", path)
-		return nil
-	}
-}
-
+// installPrebuiltNvimLinux installs the official prebuilt into ~/.local/opt and
+// links it as ~/.local/bin/nvim. It is a self-contained tree, so it needs no
+// root.
 func installPrebuiltNvimLinux(ctx context.Context) error {
 	asset := nvimPrebuiltAsset()
 	if asset == "" {
@@ -296,34 +323,54 @@ func installPrebuiltNvimLinux(ctx context.Context) error {
 		return fmt.Errorf("latest Neovim release has no %s", asset)
 	}
 
-	// A private directory, so nothing else on the machine can replace the
-	// tarball between the download and root extracting it.
-	tmpDir, err := os.MkdirTemp("", "nvim-*")
+	optDir := core.HomeTarget(".local", "opt")
+	link := localNvimLink()
+	if err := core.CheckTarget(optDir); err != nil {
+		return err
+	}
+	if fi, err := os.Lstat(link); err == nil && fi.Mode()&os.ModeSymlink == 0 {
+		return fmt.Errorf("%s exists and is not a symlink dfinstall made; move it aside to let dfinstall manage Neovim", link)
+	}
+	if err := os.MkdirAll(optDir, 0o755); err != nil {
+		return err
+	}
+
+	// Staged inside optDir, so the final step is a rename on one filesystem
+	// and a failed download or extraction never leaves a half-replaced nvim.
+	stage, err := os.MkdirTemp(optDir, ".nvim-stage-*")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmpDir)
-	tmp := filepath.Join(tmpDir, asset)
+	defer os.RemoveAll(stage)
+	tarball := filepath.Join(stage, asset)
 
 	core.Info("Installing prebuilt Neovim (%s)...", asset)
-	if err := downloadVerified(ctx, assets[i], tmp); err != nil {
+	if err := downloadVerified(ctx, assets[i], tarball); err != nil {
 		return fmt.Errorf("download nvim: %w", err)
 	}
-
-	// Wipe any prior extraction so a partial download doesn't leak in.
-	_ = runCmd(ctx, "sudo", "rm", "-rf", filepath.Join("/opt", dir))
-	// tar running as root keeps the archive's owners by default, which left
-	// the binary root runs owned by uid 1001 (GitHub's build user), i.e.
-	// whichever local account happens to hold that uid.
-	if err := runCmd(ctx, "sudo", "tar", "--no-same-owner", "--no-same-permissions", "-xzf", tmp, "-C", "/opt"); err != nil {
+	if err := runCmd(ctx, "tar", "-xzf", tarball, "-C", stage); err != nil {
 		return fmt.Errorf("extract nvim: %w", err)
 	}
-
-	target := filepath.Join("/opt", dir, "bin", "nvim")
-	if err := runCmd(ctx, "sudo", "ln", "-sfn", target, "/usr/local/bin/nvim"); err != nil {
-		return fmt.Errorf("symlink nvim: %w", err)
+	if _, err := os.Stat(filepath.Join(stage, dir, "bin", "nvim")); err != nil {
+		return fmt.Errorf("extract nvim: %s has no %s/bin/nvim", asset, dir)
 	}
-	core.Ok("Installed prebuilt Neovim to /opt/%s", dir)
+
+	final := filepath.Join(optDir, dir)
+	if err := core.RemoveManagedDir(final); err != nil {
+		return err
+	}
+	if err := os.Rename(filepath.Join(stage, dir), final); err != nil {
+		return err
+	}
+
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		return err
+	}
+	_ = os.Remove(link)
+	if err := os.Symlink(filepath.Join(final, "bin", "nvim"), link); err != nil {
+		return fmt.Errorf("link nvim: %w", err)
+	}
+	core.Ok("Installed prebuilt Neovim to %s", final)
 	return nil
 }
 
@@ -423,13 +470,13 @@ func (NvimModule) Install(ctx context.Context) error {
 	// vim.g.ts_parsers. nvim-treesitter's install is asynchronous, and a plain
 	// `+qa` would quit before a single parser compiled.
 	if !core.DryRun {
-		if _, err := exec.LookPath("nvim"); err == nil {
+		if nvim, err := nvimBin(); err == nil {
 			core.Info("Syncing Neovim plugins...")
-			if err := runCmd(ctx, "nvim", "--headless", "+Lazy! sync", "+qa"); err != nil {
+			if err := runCmd(ctx, nvim, "--headless", "+Lazy! sync", "+qa"); err != nil {
 				core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
 			}
 			core.Info("Building treesitter parsers...")
-			if err := runCmd(ctx, "nvim", "--headless",
+			if err := runCmd(ctx, nvim, "--headless",
 				"+lua require('nvim-treesitter').install(vim.g.ts_parsers):wait(300000)", "+qa"); err != nil {
 				core.Warn("Treesitter parser build failed — run :TSUpdate in nvim")
 			}

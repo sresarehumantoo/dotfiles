@@ -1,17 +1,21 @@
 package modules
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"os/user"
+	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -500,83 +504,182 @@ func addDockerGroup(ctx context.Context) {
 }
 
 func installHashicorp(ctx context.Context) error {
-	if core.IsMac() {
-		if _, err := exec.LookPath("terraform"); err == nil {
-			core.Ok("Terraform already installed")
-			return nil
-		}
-		return installPkg(ctx, "hashicorp/tap/terraform")
-	}
-	if core.IsArchBased() {
-		return installHashicorpBinary(ctx)
-	}
-	return installHashicorpApt(ctx)
-}
-
-func installHashicorpApt(ctx context.Context) error {
-	arch := runtime.GOARCH
-
-	// The /gpg endpoint serves an ASCII-armored key, so it must land at a .asc
-	// path (apt treats a .gpg keyring as binary/dearmored and fails to verify
-	// it — "NO_PUBKEY ... not signed"). Mirrors the working Docker key handling.
-	repoContent := fmt.Sprintf(
-		"deb [arch=%s signed-by=/usr/share/keyrings/hashicorp-archive-keyring.asc] https://apt.releases.hashicorp.com %s main",
-		arch, core.UpstreamDebianCodename(),
-	)
-
-	if err := addAptRepo(ctx,
-		"Hashicorp",
-		"https://apt.releases.hashicorp.com/gpg",
-		"/usr/share/keyrings/hashicorp-archive-keyring.asc",
-		repoContent,
-		"/etc/apt/sources.list.d/hashicorp.list",
-	); err != nil {
-		return err
-	}
-
-	if err := installPkg(ctx, "terraform"); err != nil {
-		return fmt.Errorf("installing terraform: %w", err)
-	}
-	return nil
-}
-
-// terraformVersion is the release fetched by installHashicorpBinary. HashiCorp
-// publishes no "latest" alias on releases.hashicorp.com, so this is pinned and
-// must be bumped by hand.
-const terraformVersion = "1.9.8"
-
-func installHashicorpBinary(ctx context.Context) error {
-	if _, err := exec.LookPath("terraform"); err == nil {
+	if localBinInstalled("terraform") {
 		core.Ok("Terraform already installed")
 		return nil
 	}
+	if core.IsMac() {
+		return installPkg(ctx, "hashicorp/tap/terraform")
+	}
+	return installTerraformRelease(ctx)
+}
 
-	// Only these two are published for linux; anything else would build a URL
-	// that 404s with no explanation.
-	arch := runtime.GOARCH
-	if arch != "amd64" && arch != "arm64" {
-		return fmt.Errorf("no terraform binary published for %s", arch)
+// hashicorpKeyFingerprint is HashiCorp's release-signing key (primary key).
+// The key itself is fetched at install time; this pin is what makes it
+// HashiCorp's rather than whatever the download returned.
+const hashicorpKeyFingerprint = "C874011F0AB405110D02105534365D9472D7468F"
+
+// terraformRelease is the part of releases.hashicorp.com's release JSON that
+// installTerraformRelease reads.
+type terraformRelease struct {
+	Version string           `json:"version"`
+	Builds  []terraformBuild `json:"builds"`
+	SHASums string           `json:"url_shasums"`
+}
+
+type terraformBuild struct {
+	OS   string `json:"os"`
+	Arch string `json:"arch"`
+	URL  string `json:"url"`
+}
+
+// installTerraformRelease installs the latest terraform binary into
+// ~/.local/bin, checked against HashiCorp's signed SHA256SUMS. This replaces
+// adding HashiCorp's apt repository, which needed root and let that repo
+// supply any package to apt, for the sake of one static binary.
+func installTerraformRelease(ctx context.Context) error {
+	dst := core.HomeTarget(".local", "bin", "terraform")
+	if err := core.CheckTarget(dst); err != nil {
+		return err
+	}
+	out, err := runNetProbe(ctx, "curl", "-fsSL", "https://api.releases.hashicorp.com/v1/releases/terraform/latest")
+	if err != nil {
+		return fmt.Errorf("fetch terraform release: %w", err)
+	}
+	var rel terraformRelease
+	if err := json.Unmarshal(out, &rel); err != nil {
+		return fmt.Errorf("parse terraform release: %w", err)
+	}
+	i := slices.IndexFunc(rel.Builds, func(b terraformBuild) bool {
+		return b.OS == "linux" && b.Arch == runtime.GOARCH
+	})
+	if i < 0 || rel.SHASums == "" {
+		return fmt.Errorf("no terraform %s build for linux/%s", rel.Version, runtime.GOARCH)
+	}
+	zipURL := rel.Builds[i].URL
+
+	tmp, err := os.MkdirTemp("", "terraform-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmp)
+	zipPath := filepath.Join(tmp, path.Base(zipURL))
+	sums := filepath.Join(tmp, "SHA256SUMS")
+	for _, f := range []struct{ url, dst string }{{zipURL, zipPath}, {rel.SHASums, sums}} {
+		if err := runNetCmd(ctx, "curl", "-fsSL", "-o", f.dst, f.url); err != nil {
+			return fmt.Errorf("download %s: %w", path.Base(f.url), err)
+		}
 	}
 
-	binDir := core.HomeTarget(".local", "bin")
-	if err := os.MkdirAll(binDir, 0755); err != nil {
-		return fmt.Errorf("creating bin dir: %w", err)
+	if err := verifyHashicorpSignature(ctx, tmp, sums, rel.SHASums); err != nil {
+		return err
+	}
+	listing, err := os.ReadFile(sums)
+	if err != nil {
+		return err
+	}
+	want, ok := parseSHALine(string(listing), path.Base(zipURL))
+	if !ok {
+		return fmt.Errorf("no entry for %s in SHA256SUMS", path.Base(zipURL))
+	}
+	got, err := core.FileHash(zipPath)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("sha256 mismatch for %s: want %s, got %s", path.Base(zipURL), want, got)
 	}
 
-	// Download the pinned terraform zip and extract to ~/.local/bin
-	url := fmt.Sprintf("https://releases.hashicorp.com/terraform/%[1]s/terraform_%[1]s_linux_%[2]s.zip", terraformVersion, arch)
-	tmpZip := filepath.Join(os.TempDir(), "terraform.zip")
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpZip, url); err != nil {
-		return fmt.Errorf("downloading terraform: %w", err)
+	bin := filepath.Join(tmp, "terraform")
+	if err := extractZipFile(zipPath, "terraform", bin); err != nil {
+		return err
 	}
-	defer os.Remove(tmpZip)
-
-	if err := runCmd(ctx, "unzip", "-o", tmpZip, "-d", binDir); err != nil {
-		return fmt.Errorf("extracting terraform: %w", err)
+	if err := runCmd(ctx, "install", "-D", "-m", "0755", bin, dst); err != nil {
+		return err
 	}
-
-	core.Ok("Terraform installed to %s", binDir)
+	core.Ok("Terraform %s installed to %s", rel.Version, dst)
 	return nil
+}
+
+// verifyHashicorpSignature checks SHA256SUMS against its detached signature
+// and requires the signer to be the pinned HashiCorp key. Without gpg it says
+// so and goes on with the checksum alone, which still catches a corrupt or
+// swapped download, just not a compromised release host.
+func verifyHashicorpSignature(ctx context.Context, tmp, sums, sumsURL string) error {
+	if _, err := exec.LookPath("gpg"); err != nil {
+		core.AlwaysWarn("gpg not found: terraform is checked against SHA256SUMS, but its signature is not verified")
+		return nil
+	}
+	home := filepath.Join(tmp, "gnupg")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		return err
+	}
+	key := filepath.Join(tmp, "hashicorp.asc")
+	sig := sums + ".sig"
+	keyID := hashicorpKeyFingerprint[len(hashicorpKeyFingerprint)-8:]
+	for _, f := range []struct{ url, dst string }{
+		{"https://www.hashicorp.com/.well-known/pgp-key.txt", key},
+		{sumsURL + "." + keyID + ".sig", sig},
+	} {
+		if err := runNetCmd(ctx, "curl", "-fsSL", "-o", f.dst, f.url); err != nil {
+			return fmt.Errorf("download %s: %w", path.Base(f.url), err)
+		}
+	}
+	if _, err := runProbe(ctx, "gpg", "--batch", "--homedir", home, "--import", key); err != nil {
+		return fmt.Errorf("import HashiCorp key: %w", err)
+	}
+	// gpg exits non-zero on a bad signature, but a good signature from some
+	// other key in the file would still pass; VALIDSIG's last field is the
+	// signer's primary key, which is what the pin names.
+	status, err := runProbe(ctx, "gpg", "--batch", "--homedir", home, "--status-fd", "1", "--verify", sig, sums)
+	if err != nil {
+		return fmt.Errorf("terraform SHA256SUMS signature did not verify: %w", err)
+	}
+	if !validSigFrom(string(status), hashicorpKeyFingerprint) {
+		return fmt.Errorf("terraform SHA256SUMS is not signed by HashiCorp's key %s", hashicorpKeyFingerprint)
+	}
+	return nil
+}
+
+// validSigFrom reports whether gpg --status-fd output holds a VALIDSIG whose
+// primary-key fingerprint (its last field) is fpr.
+func validSigFrom(status, fpr string) bool {
+	for _, line := range strings.Split(status, "\n") {
+		f := strings.Fields(line)
+		if len(f) >= 3 && f[0] == "[GNUPG:]" && f[1] == "VALIDSIG" && strings.EqualFold(f[len(f)-1], fpr) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractZipFile writes the archive member named name to dst.
+func extractZipFile(zipPath, name, dst string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	for _, f := range r.File {
+		if f.Name != name {
+			continue
+		}
+		in, err := f.Open()
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(out, in); err != nil {
+			out.Close()
+			return err
+		}
+		return out.Close()
+	}
+	return fmt.Errorf("%s has no %s", filepath.Base(zipPath), name)
 }
 
 func (ExtrasModule) Status() core.ModuleStatus {
@@ -654,7 +757,7 @@ func (ExtrasModule) Status() core.ModuleStatus {
 	}
 
 	// Hashicorp (1 check)
-	if _, err := exec.LookPath("terraform"); err == nil {
+	if localBinInstalled("terraform") {
 		s.Linked++
 	} else {
 		s.Missing++
@@ -671,7 +774,6 @@ func (ExtrasModule) Status() core.ModuleStatus {
 	if !core.IsArchBased() && !core.IsMac() {
 		for _, keyPath := range []string{
 			"/etc/apt/keyrings/docker.asc",
-			"/usr/share/keyrings/hashicorp-archive-keyring.asc",
 		} {
 			if aptKeyringUsable(keyPath) {
 				s.Linked++

@@ -98,6 +98,7 @@ Run `make` (or `make help`) to list every target.
 | `fmt` | `gofmt -s -w src/ tests/` | Format source code in place |
 | `fmt-check` | `gofmt -s -l src tests` | Check formatting without modifying (same check as CI) |
 | `ci` | `fmt-check` + `lint` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
+| `e2e` | `scripts/e2e/run.sh <scenario>` | End-to-end scenarios in Docker; `SCENARIO=sudo` runs one |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
 | `uninstall` | `make build && bin/dfinstall uninstall all` | Remove all managed symlinks |
 | `install-bin` | `install ... ~/.local/bin` | Install both binaries onto `PATH` (`~/.local/bin`) |
@@ -208,6 +209,26 @@ directory for the rest:
 | `canonical_test.go` | LinkRoot, canonical pointer read/write + self-heal, DotfilesDir precedence, adoption, drift split |
 | `homepath_propagation_test.go` | Unresolvable `$HOME`: SubPath propagation, CheckTarget refusals, empty path helpers |
 | `registry_inspect_test.go` | InspectRegistry doesn't write the cache, still validates; FetchRegistry does |
+
+### End-to-end scenarios
+
+The unit tests cannot see what needs a real system: sudo prompts, root-owned
+files, apt. `make e2e` runs each script in `scripts/e2e/scenarios/` against the
+working tree in a throwaway `debian:trixie` container (`scripts/e2e/Dockerfile`),
+with the repo mounted read-only. They install real packages, so expect several
+minutes each; CI does not run them.
+
+| Scenario | Checks |
+|----------|--------|
+| `sudo` | How many sudo password prompts each command causes (none for anything installed into `~`, one per run otherwise), that dfinstall drops credentials it obtained and keeps ones the user already had, and where Neovim, tree-sitter, delta and Terraform land |
+| `bootstrap` | `bootstrap/wsl-setup.sh` in the order `wsl-bootstrap.ps1` runs it: the temporary NOPASSWD drop-in, `install all` without a password, and its removal plus the expired fallback password at the end |
+
+`scripts/e2e/session.exp` is the reusable part. It runs `label|command` steps in
+one shell on one pty, so sudo's per-terminal credential cache behaves as it does
+for a person, answers dfinstall's own questions with their defaults, and
+reports each step's prompt count and exit code for the scenario to assert on.
+A new scenario is a script that writes a steps file and checks the results with
+`expect_step` and `check` from `scripts/e2e/lib.sh`.
 
 ## Continuous Integration
 
