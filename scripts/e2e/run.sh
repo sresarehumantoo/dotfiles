@@ -36,7 +36,25 @@ echo "Building dfinstall..."
 echo "Building image..."
 docker build -q -t dfinstall-e2e "$here" >/dev/null
 
-docker run --rm \
-    -v "$repo:/src:ro" \
-    -v "$work:/e2e:ro" \
-    dfinstall-e2e bash "/src/scripts/e2e/scenarios/$scenario.sh"
+script="/src/scripts/e2e/scenarios/$scenario.sh"
+mounts=(-v "$repo:/src:ro" -v "$work:/e2e:ro")
+
+if ! grep -qx '# e2e: systemd' "$here/scenarios/$scenario.sh"; then
+    docker run --rm "${mounts[@]}" dfinstall-e2e bash "$script"
+    exit
+fi
+
+# systemd as PID 1 needs a privileged container. The volumes are where a
+# Docker daemon keeps its layers, which overlayfs cannot stack on the
+# container's own overlayfs.
+cid="$(docker run -d --privileged --cgroupns=private \
+    -v /home -v /var/lib/docker -v /var/lib/containerd \
+    "${mounts[@]}" dfinstall-e2e /sbin/init)"
+trap 'docker rm -f -v "$cid" >/dev/null; rm -rf "$work"' EXIT
+for _ in $(seq 60); do
+    case "$(docker exec "$cid" systemctl is-system-running --wait 2>/dev/null)" in
+        running|degraded) break ;;
+    esac
+    sleep 1
+done
+docker exec "$cid" bash "$script"

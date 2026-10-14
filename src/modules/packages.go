@@ -440,6 +440,26 @@ func nodeTooOld(ctx context.Context) bool {
 	return major < minNodeMajor
 }
 
+const nodeSourceList = "/etc/apt/sources.list.d/nodesource.sources"
+
+// aptOriginPin keeps everything from a third-party apt origin at priority 100,
+// below the distro's 500, so the repo can add packages but never replace one
+// the distro also ships. Pins naming a package override it.
+func aptOriginPin(origin string) string {
+	return fmt.Sprintf("Package: *\nPin: origin %s\nPin-Priority: 100\n", origin)
+}
+
+// nodeSourcePin lets NodeSource's nodejs win over the distro's and nothing else.
+var nodeSourcePin = "Package: nodejs\nPin: origin deb.nodesource.com\nPin-Priority: 600\n\n" +
+	aptOriginPin("deb.nodesource.com")
+
+func writeNodeSourcePin(ctx context.Context) error {
+	if err := writeFileAsRoot(ctx, "/etc/apt/preferences.d/nodesource", []byte(nodeSourcePin), 0644); err != nil {
+		return fmt.Errorf("writing apt pin: %w", err)
+	}
+	return nil
+}
+
 // addNodeSourceRepo mirrors what NodeSource's setup_22.x script configures,
 // without piping a remote script into a root shell: the signed repo plus a pin
 // so its nodejs wins over the distro's.
@@ -450,16 +470,15 @@ Suites: nodistro
 Components: main
 Architectures: %s
 Signed-By: /etc/apt/keyrings/nodesource.asc`, minNodeMajor, runtime.GOARCH)
-	pin := "Package: nodejs\nPin: origin deb.nodesource.com\nPin-Priority: 600\n"
-	if err := writeFileAsRoot(ctx, "/etc/apt/preferences.d/nodesource", []byte(pin), 0644); err != nil {
-		return fmt.Errorf("writing apt pin: %w", err)
+	if err := writeNodeSourcePin(ctx); err != nil {
+		return err
 	}
 	return addAptRepo(ctx,
 		"NodeSource",
 		"https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key",
 		"/etc/apt/keyrings/nodesource.asc",
 		repo,
-		"/etc/apt/sources.list.d/nodesource.sources",
+		nodeSourceList,
 	)
 }
 
@@ -515,6 +534,13 @@ func (PackagesModule) Install(ctx context.Context) error {
 	// Distro Node is too old for Mason's markdownlint-cli2 on Debian-family
 	// systems, so it comes from NodeSource there. Its nodejs bundles npm and
 	// conflicts with the distro npm, which apt then removes.
+	// Machines that added the repo before the catch-all pin existed get it
+	// here, since a current node never reaches addNodeSourceRepo.
+	if _, err := os.Stat(nodeSourceList); err == nil {
+		if err := writeNodeSourcePin(ctx); err != nil {
+			core.Warn("NodeSource: %v", err)
+		}
+	}
 	if core.AptBin() != "" && nodeTooOld(ctx) {
 		if err := addNodeSourceRepo(ctx); err != nil {
 			core.Warn("NodeSource repo: %v — keeping the distro Node.js", err)

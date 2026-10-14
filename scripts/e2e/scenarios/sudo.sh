@@ -66,6 +66,8 @@ check "no file under ~/.local/opt is owned by anyone but tester" test -z "$(find
 check "nothing installed into /usr/local/bin" test -z "$(ls -A /usr/local/bin)"
 check "no git-delta package" bash -c '! dpkg -s git-delta >/dev/null 2>&1'
 check "no HashiCorp apt repo" test ! -e /etc/apt/sources.list.d/hashicorp.list
+check "tester is not in the docker group" bash -c '! id -nG tester | grep -qw docker'
+check "Docker repo pinned to 100" bash -c "apt-cache policy | grep -q '^ *100 https://download.docker.com'"
 check "login shell changed to zsh" test "$(getent passwd tester | cut -d: -f7)" = /usr/bin/zsh
 check "en_US.UTF-8 was not generated" bash -c '! locale -a | grep -qi "^en_us"'
 check "shells fall back to C.UTF-8" test "$(env -i PATH=/usr/bin:/bin zsh -fc "source /src/config/shell/zsh/locale.zsh; print -r -- \$LANG")" = C.UTF-8

@@ -28,7 +28,14 @@ func (ExtrasModule) Name() string { return "extras" }
 // writeFileAsRoot writes data to a root-owned file via a tmp-then-install
 // dance. Replaces the `cat <<EOF | sudo tee` pattern so the sudo invocation
 // goes through the proper sudo handling (spinner pause, stderr connected).
+// A file that already holds data with that mode is left alone, so a re-run
+// does not ask for a password.
 func writeFileAsRoot(ctx context.Context, dst string, data []byte, mode os.FileMode) error {
+	if fi, err := os.Stat(dst); err == nil && fi.Mode().Perm() == mode.Perm() {
+		if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, data) {
+			return nil
+		}
+	}
 	tmp, err := os.CreateTemp("", "dfinstall-asroot-*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
@@ -420,6 +427,9 @@ Components: stable
 Architectures: %s
 Signed-By: /etc/apt/keyrings/docker.asc`, base, codename, arch)
 
+	if err := writeFileAsRoot(ctx, "/etc/apt/preferences.d/docker", []byte(aptOriginPin("download.docker.com")), 0644); err != nil {
+		return fmt.Errorf("writing apt pin: %w", err)
+	}
 	if err := addAptRepo(ctx,
 		"Docker",
 		base+"/gpg",
@@ -447,8 +457,55 @@ Signed-By: /etc/apt/keyrings/docker.asc`, base, codename, arch)
 		return fmt.Errorf("installing docker packages: %w", err)
 	}
 
-	addDockerGroup(ctx)
+	setupRootlessDocker(ctx)
 	return nil
+}
+
+// rootlessDockerUnit is the user unit dockerd-rootless-setuptool.sh writes.
+func rootlessDockerUnit() string {
+	return core.SubPath(core.XDGConfigHome(), "systemd", "user", "docker.service")
+}
+
+// setupRootlessDocker runs the daemon as the user instead of adding them to
+// the docker group, whose members can mount / into a container as root. The
+// system daemon stays installed for what rootless cannot do (--privileged
+// work on the host kernel, such as registering binfmt_misc handlers), via
+// `sudo docker`. Someone already in the group keeps the setup they have:
+// switching the CLI context would hide their existing images and containers.
+func setupRootlessDocker(ctx context.Context) {
+	if userInGroup("docker") {
+		core.Info("Already in the docker group (root-equivalent); rootless Docker not set up")
+		return
+	}
+	unit := rootlessDockerUnit()
+	if unit == "" {
+		return
+	}
+	if _, err := os.Stat(unit); err == nil {
+		core.Ok("Rootless Docker already set up")
+		return
+	}
+	// uidmap (setuid newuidmap/newgidmap) and slirp4netns are not among
+	// rootless-extras' dependencies, and only this path needs them.
+	if err := installPkg(ctx, "docker-ce-rootless-extras", "uidmap", "slirp4netns"); err != nil {
+		core.Warn("Rootless Docker packages: %v", err)
+		return
+	}
+	const manual = "dockerd-rootless-setuptool.sh install"
+	if _, err := runProbe(ctx, "systemctl", "--user", "show-environment"); err != nil {
+		core.Notice("Rootless Docker needs a systemd user session: run `%s` after logging in, or use `sudo docker`", manual)
+		return
+	}
+	if _, err := runProbe(ctx, "rootlesskit", "true"); err != nil {
+		core.Warn("Rootless Docker is unavailable here (rootlesskit failed; see https://rootlesscontaine.rs/getting-started/common/). Use `sudo docker`")
+		return
+	}
+	core.Info("Setting up rootless Docker...")
+	if err := runCmd(ctx, "dockerd-rootless-setuptool.sh", "install"); err != nil {
+		core.Warn("Rootless Docker setup failed: %v (retry with `%s`, or use `sudo docker`)", err, manual)
+		return
+	}
+	core.Ok("Rootless Docker set up; `sudo docker` reaches the system daemon")
 }
 
 // removeConflictingDockerPackages purges distro-shipped Docker packages
@@ -485,24 +542,12 @@ func installDockerPacman(ctx context.Context) error {
 		return fmt.Errorf("installing docker packages: %w", err)
 	}
 
-	addDockerGroup(ctx)
-	return nil
-}
-
-func addDockerGroup(ctx context.Context) {
+	// Arch's docker package has no rootless mode (that is the AUR's
+	// docker-rootless-extras), and the docker group is root-equivalent.
 	if !userInGroup("docker") {
-		u, err := user.Current()
-		if err != nil {
-			core.Warn("Failed to get current user: %v", err)
-			return
-		}
-		core.Info("Adding %s to docker group...", u.Username)
-		if err := runCmd(ctx, "sudo", "usermod", "-aG", "docker", u.Username); err != nil {
-			core.Warn("Failed to add user to docker group: %v", err)
-		} else {
-			core.Ok("Added %s to docker group (log out and back in to take effect)", u.Username)
-		}
+		core.Info("Docker installed; use `sudo docker`, or set up rootless mode from the AUR's docker-rootless-extras")
 	}
+	return nil
 }
 
 func installHashicorp(ctx context.Context) error {
@@ -740,7 +785,8 @@ func (ExtrasModule) Status() core.ModuleStatus {
 		s.Missing++
 	}
 
-	// Docker (2 checks: binary + group, or binary + Colima on macOS)
+	// Docker (2 checks: binary + a way to reach a daemon without sudo, either
+	// rootless mode or an existing docker group membership; Colima on macOS)
 	if _, err := exec.LookPath("docker"); err == nil {
 		s.Linked++
 	} else {
@@ -752,7 +798,7 @@ func (ExtrasModule) Status() core.ModuleStatus {
 		} else {
 			s.Missing++
 		}
-	} else if userInGroup("docker") {
+	} else if _, err := os.Stat(rootlessDockerUnit()); err == nil || userInGroup("docker") {
 		s.Linked++
 	} else {
 		s.Missing++

@@ -45,9 +45,13 @@ Three groups of additional tooling:
 **Python Tooling:** python3, pip3, python3-venv, pipx
 
 **Docker:**
-- Adds Docker apt repository (signed with GPG key)
+- Adds Docker apt repository (signed with GPG key), pinned at priority 100 in `/etc/apt/preferences.d/docker` so it can add packages but never replace one Debian or Ubuntu also ships. The NodeSource repo from `packages` gets the same pin next to its `nodejs` 600 pin.
 - Installs docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin
-- Adds current user to the `docker` group
+- Runs Docker rootless for the user (docker-ce-rootless-extras, uidmap and slirp4netns, then `dockerd-rootless-setuptool.sh install`: a `docker.service` user unit and a `rootless` CLI context) instead of adding them to the `docker` group, whose members can mount `/` into a container as root. The system daemon stays installed for what rootless cannot do, such as `--privileged` work on the host kernel (registering binfmt_misc handlers), and is reached with `sudo docker`. Images and containers are separate per daemon.
+  - Someone already in the `docker` group keeps that setup, and none of the rootless packages are installed (uidmap adds setuid helpers): switching the context would hide their existing images and containers. To move over, leave the group (`sudo gpasswd -d $USER docker`, then log in again) and re-run `install extras`.
+  - Needs a systemd user session. Without one (a container, `su` without PAM) it prints the setup command instead. Where rootlesskit fails, such as Ubuntu 24.04+ restricting unprivileged user namespaces through AppArmor, it warns and points at <https://rootlesscontaine.rs/getting-started/common/>.
+  - The daemon runs while you are logged in; `sudo loginctl enable-linger $USER` keeps it (and `--restart` containers) running from boot. Ports below 1024 need `net.ipv4.ip_unprivileged_port_start` lowered.
+  - Arch: the `docker` package has no rootless mode (the AUR's docker-rootless-extras does), so it is installed without any group change.
 
 **Rust:**
 - rustup with the stable toolchain and `rust-src`, which rust-analyzer needs
@@ -64,7 +68,7 @@ Reads `/etc/os-release` for `VERSION_CODENAME` to construct the Docker apt repo 
 
 After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
 
-**Status:** Checks 19 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + group membership, terraform, and the Docker apt keyring). The keyring check is offline: it catches an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
+**Status:** Checks 19 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + rootless mode or an existing `docker` group membership, terraform, and the Docker apt keyring). The keyring check is offline: it catches an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
 
 ---
 
