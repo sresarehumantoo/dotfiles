@@ -427,11 +427,14 @@ for_window [app_id="blueman-manager"]    floating enable
 for_window [app_id="nm-connection-editor"] floating enable
 
 ### Idle / lock -----------------------------------------------------------
+# after-resume relights the outputs on every wake, so a suspend taken while the
+# 900s timeout had them off cannot come back to a black screen.
 exec swayidle -w \
     timeout 600  "$lock" \
     timeout 900  'swaymsg "output * power off"' \
         resume   'swaymsg "output * power on"' \
-    before-sleep "$lock"
+    before-sleep "$lock" \
+    after-resume 'swaymsg "output * power on"'
 
 # Lid close → lock (not suspend; logind still handles suspend policy).
 bindswitch --reload --locked lid:on exec $lock
