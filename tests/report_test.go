@@ -215,3 +215,23 @@ func TestDiffReport_WriteBrief(t *testing.T) {
 		t.Errorf("clean report printed %q", b.String())
 	}
 }
+
+// A WSL box or a server has no sway, and install all never links its desktop
+// there, so diff calling 21 links missing was noise no command would fix.
+func TestCollectDiff_AbsentAppIsNotDrift(t *testing.T) {
+	modules.RegisterAllModules()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DOTFILES", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+	core.ResetDotfilesDir()
+	t.Cleanup(core.ResetDotfilesDir)
+
+	for _, e := range modules.CollectDiff().Entries {
+		if e.Name != "sway" && e.Name != "ghostty" {
+			continue
+		}
+		if len(e.Problems) > 0 || !e.Absent {
+			t.Errorf("%s with no %s on PATH: absent=%v, %d problem(s)", e.Name, e.Name, e.Absent, len(e.Problems))
+		}
+	}
+}
