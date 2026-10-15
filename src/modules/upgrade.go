@@ -293,9 +293,8 @@ const (
 	// overrideGhostty is overrideLines where a changed key also moves, since
 	// a key set again later wins.
 	overrideGhostty
-	// overrideGit adds new keys with git config. ~/.gitconfig.local is
-	// included at the top of gitconfig, so it can add keys but not override
-	// one the main file sets.
+	// overrideGit sets changed keys with git config, in a file included at
+	// the end of gitconfig, so its values win.
 	overrideGit
 )
 
@@ -312,7 +311,7 @@ func overrideFor(rel string) (override, bool) {
 	case rel == "config/ghostty/config":
 		o = override{core.XDGTarget("ghostty", "ghostty.user"), overrideGhostty}
 	case rel == "config/git/gitconfig":
-		o = override{core.HomeTarget(".gitconfig.local"), overrideGit}
+		o = override{core.HomeTarget(".gitconfig.user"), overrideGit}
 	case rel == "config/shell/zshrc", path.Dir(rel) == "config/shell/zsh" && path.Ext(rel) == ".zsh":
 		o = override{core.HomeTarget(".zshrc.local"), overrideLines}
 	case rel == "config/shell/aliases":
@@ -426,42 +425,152 @@ func trimBlank(lines []string) []string {
 	return lines
 }
 
-// planGitMove compares the parsed config rather than its lines, so moving
-// keys between sections or reformatting does not matter.
+// gitChange is one key whose values differ between two versions of a git
+// config file.
+type gitChange struct {
+	key           string
+	before, after []string
+}
+
+// gitConfigChanges compares two parsed configs key by key, in the order keys
+// first appear, so reformatting or moving a key between identical sections
+// is no change.
+func gitConfigChanges(before, after [][2]string) []gitChange {
+	vals := func(entries [][2]string) (map[string][]string, []string) {
+		m := map[string][]string{}
+		var order []string
+		for _, kv := range entries {
+			if _, seen := m[kv[0]]; !seen {
+				order = append(order, kv[0])
+			}
+			m[kv[0]] = append(m[kv[0]], kv[1])
+		}
+		return m, order
+	}
+	b, bOrder := vals(before)
+	a, aOrder := vals(after)
+	var changes []gitChange
+	for _, k := range aOrder {
+		if !slices.Equal(b[k], a[k]) {
+			changes = append(changes, gitChange{k, b[k], a[k]})
+		}
+	}
+	for _, k := range bOrder {
+		if _, ok := a[k]; !ok {
+			changes = append(changes, gitChange{k, b[k], nil})
+		}
+	}
+	return changes
+}
+
+// gitMultiValued reports keys where git uses every value, not the last, so a
+// later file adds to the list instead of replacing it. Names are as git
+// config --list prints them: section and variable lowercased.
+func gitMultiValued(key string) bool {
+	section, rest, _ := strings.Cut(key, ".")
+	name := rest[strings.LastIndex(rest, ".")+1:]
+	switch {
+	case section == "credential" && name == "helper",
+		section == "url" && (name == "insteadof" || name == "pushinsteadof"),
+		section == "remote" && (name == "fetch" || name == "push" || name == "url" || name == "pushurl"),
+		(section == "include" || section == "includeif") && name == "path",
+		key == "http.extraheader", key == "safe.directory":
+		return true
+	}
+	return false
+}
+
+// planGitMove works out the git config calls that reproduce an edit from a
+// file loaded after gitconfig. A changed single value is set there and wins.
+// A list can only grow that way, and nothing can be unset, so a removed key
+// or a rewritten list cannot move.
 func planGitMove(ctx context.Context, dir, rel string) (movedEdit, bool) {
+	before, after, ok := gitConfigVersions(ctx, dir, rel)
+	if !ok {
+		return movedEdit{}, false
+	}
+	var entries [][2]string
+	for _, c := range gitConfigChanges(before, after) {
+		switch {
+		case len(c.after) == 0:
+			return movedEdit{}, false
+		case gitMultiValued(c.key) || len(c.before) > 1 || len(c.after) > 1:
+			if len(c.after) <= len(c.before) || !slices.Equal(c.after[:len(c.before)], c.before) {
+				return movedEdit{}, false
+			}
+			for _, v := range c.after[len(c.before):] {
+				entries = append(entries, [2]string{c.key, v})
+			}
+		default:
+			entries = append(entries, [2]string{c.key, c.after[0]})
+		}
+	}
+	return movedEdit{entries: entries}, true
+}
+
+// gitConfigVersions parses rel as committed and as it is in the worktree.
+func gitConfigVersions(ctx context.Context, dir, rel string) (before, after [][2]string, ok bool) {
 	head, err := runProbe(ctx, "git", "-C", dir, "show", "HEAD:"+rel)
 	if err != nil {
-		return movedEdit{}, false
+		return nil, nil, false
 	}
 	tmp, err := os.CreateTemp("", "dfinstall-gitconfig-*")
 	if err != nil {
-		return movedEdit{}, false
+		return nil, nil, false
 	}
 	defer os.Remove(tmp.Name())
 	if _, err := tmp.Write(head); err != nil || tmp.Close() != nil {
-		return movedEdit{}, false
+		return nil, nil, false
 	}
 	before, err1 := gitConfigEntries(ctx, tmp.Name())
 	after, err2 := gitConfigEntries(ctx, filepath.Join(dir, rel))
-	if err1 != nil || err2 != nil {
-		return movedEdit{}, false
-	}
-	keys := map[string]bool{}
-	remaining := slices.Clone(after)
-	for _, kv := range before {
-		keys[kv[0]] = true
-		i := slices.Index(remaining, kv)
-		if i < 0 {
-			return movedEdit{}, false // removed or changed
+	return before, after, err1 == nil && err2 == nil
+}
+
+// withoutPresent drops what the override file already holds, so a move
+// repeated on another run, or a setting the user already put there, is not
+// written twice.
+func withoutPresent(ctx context.Context, o override, edit movedEdit) movedEdit {
+	if o.kind == overrideGit {
+		have, err := gitConfigEntries(ctx, o.path)
+		if err != nil {
+			return edit // no file yet: nothing to skip
 		}
-		remaining = slices.Delete(remaining, i, i+1)
+		var keep [][2]string
+		for _, kv := range edit.entries {
+			var vals []string
+			for _, h := range have {
+				if h[0] == kv[0] {
+					vals = append(vals, h[1])
+				}
+			}
+			present := slices.Contains(vals, kv[1])
+			if !gitMultiValued(kv[0]) && len(vals) > 0 {
+				present = vals[len(vals)-1] == kv[1] // the value that wins
+			}
+			if !present {
+				keep = append(keep, kv)
+			}
+		}
+		return movedEdit{entries: keep}
 	}
-	for _, kv := range remaining {
-		if keys[kv[0]] {
-			return movedEdit{}, false // the main file's value would still win
+	data, err := os.ReadFile(o.path)
+	if err != nil {
+		return edit
+	}
+	have := map[string]bool{}
+	for _, l := range strings.Split(string(data), "\n") {
+		if t := strings.TrimSpace(l); t != "" {
+			have[t] = true
 		}
 	}
-	return movedEdit{entries: remaining}, true
+	var keep []string
+	for _, l := range edit.lines {
+		if t := strings.TrimSpace(l); t == "" || !have[t] {
+			keep = append(keep, l)
+		}
+	}
+	return movedEdit{lines: trimBlank(keep)}
 }
 
 func gitConfigEntries(ctx context.Context, file string) ([][2]string, error) {
@@ -502,6 +611,13 @@ func moveLocalEdits(ctx context.Context, dir string) {
 		if edit.empty() {
 			continue
 		}
+		edit = withoutPresent(ctx, o, edit)
+		title := fmt.Sprintf("Move this machine's edits to %s into %s?", rel, o.path)
+		desc := clip(edit.String(), 30) + "\n\nThey keep applying from there, and the clone goes back to upstream's version."
+		if edit.empty() {
+			title = fmt.Sprintf("%s already holds this machine's edits to %s. Restore the clone's copy?", o.path, rel)
+			desc = "Nothing is written; the clone goes back to upstream's version and the settings keep applying from there."
+		}
 		switch {
 		case core.DryRun:
 			core.Info("would offer to move the edits to %s into %s:\n%s", rel, o.path, edit)
@@ -513,8 +629,8 @@ func moveLocalEdits(ctx context.Context, dir string) {
 		move := true
 		form := huh.NewForm(huh.NewGroup(
 			huh.NewConfirm().
-				Title(fmt.Sprintf("Move this machine's edits to %s into %s?", rel, o.path)).
-				Description(clip(edit.String(), 30) + "\n\nThey keep applying from there, and the clone goes back to upstream's version.").
+				Title(title).
+				Description(desc).
 				Affirmative("Move them").
 				Negative("Keep them in the clone").
 				Value(&move),
@@ -540,10 +656,17 @@ func applyMove(ctx context.Context, o override, rel string, edit movedEdit) erro
 	}
 	if o.kind == overrideGit {
 		for _, kv := range edit.entries {
-			if err := runCmd(ctx, "git", "config", "--file", o.path, "--add", kv[0], kv[1]); err != nil {
+			mode := "--replace-all" // a single value: this one wins
+			if gitMultiValued(kv[0]) {
+				mode = "--add"
+			}
+			if err := runCmd(ctx, "git", "config", "--file", o.path, mode, kv[0], kv[1]); err != nil {
 				return err
 			}
 		}
+		return nil
+	}
+	if edit.empty() {
 		return nil
 	}
 	if err := os.MkdirAll(filepath.Dir(o.path), 0o755); err != nil {

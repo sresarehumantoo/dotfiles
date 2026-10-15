@@ -124,27 +124,78 @@ func TestPlanMove(t *testing.T) {
 
 func TestPlanGitMove(t *testing.T) {
 	ctx := context.Background()
+	rel := "config/git/gitconfig"
+	cases := []struct {
+		name, edit string
+		movable    bool
+		want       [][2]string
+	}{
+		{"new key", fixtureGitconfig + "[core]\n\tpager = less\n", true, [][2]string{{"core.pager", "less"}}},
+		// ~/.gitconfig.user is included last, so a changed value wins there.
+		{"changed key", strings.Replace(fixtureGitconfig, "rebase = false", "rebase = true", 1), true, [][2]string{{"pull.rebase", "true"}}},
+		{"reformatted", "[init]\n    defaultBranch = main\n\n[pull]\n    rebase = false\n", true, nil},
+		{"removed key", strings.Replace(fixtureGitconfig, "\trebase = false\n", "", 1), false, nil},
+		{"list grows", fixtureGitconfig + "[credential]\n\thelper = store\n", true, [][2]string{{"credential.helper", "store"}}},
+		{"list rewritten", fixtureGitconfig, false, nil}, // set up below
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			up, clone := upgradeFixture(t)
+			if c.name == "list rewritten" {
+				commitUpstream(t, up, rel, fixtureGitconfig+"[credential]\n\thelper = \n\thelper = cache\n")
+				gitIn(t, clone, "pull", "-q")
+				c.edit = fixtureGitconfig + "[credential]\n\thelper = \n\thelper = store\n"
+			}
+			putFile(t, clone, rel, c.edit)
+			edit, ok := planMove(ctx, clone, rel, overrideGit)
+			if ok != c.movable || (ok && !slices.Equal(edit.entries, c.want)) {
+				t.Errorf("got %v, %v; want %v, %v", edit.entries, ok, c.want, c.movable)
+			}
+		})
+	}
+}
+
+func TestMoveGitEditSkipsWhatIsThere(t *testing.T) {
+	ctx := context.Background()
 	_, clone := upgradeFixture(t)
 	rel := "config/git/gitconfig"
-
-	putFile(t, clone, rel, fixtureGitconfig+"[core]\n\tpager = less\n")
-	edit, ok := planMove(ctx, clone, rel, overrideGit)
-	if !ok || !slices.Equal(edit.entries, [][2]string{{"core.pager", "less"}}) {
-		t.Fatalf("new key: got %v, %v", edit.entries, ok)
-	}
-
 	o, _ := overrideFor(rel)
+	if !strings.HasSuffix(o.path, "/.gitconfig.user") {
+		t.Fatalf("gitconfig override is %s", o.path)
+	}
+	putFile(t, filepath.Dir(o.path), filepath.Base(o.path), "[pull]\n\trebase = merges\n[core]\n\tpager = less\n[credential]\n\thelper = store\n")
+
+	putFile(t, clone, rel, strings.Replace(fixtureGitconfig, "rebase = false", "rebase = true", 1)+
+		"[core]\n\tpager = less\n\teditor = nvim\n[credential]\n\thelper = store\n")
+	edit, ok := planMove(ctx, clone, rel, overrideGit)
+	if !ok {
+		t.Fatal("not movable")
+	}
+	edit = withoutPresent(ctx, o, edit)
+	// pager and the helper are already there; rebase is there with another value.
+	want := [][2]string{{"pull.rebase", "true"}, {"core.editor", "nvim"}}
+	if !slices.Equal(edit.entries, want) {
+		t.Fatalf("to write: %v, want %v", edit.entries, want)
+	}
 	if err := applyMove(ctx, o, rel, edit); err != nil {
 		t.Fatal(err)
 	}
-	if got := gitIn(t, clone, "config", "--file", o.path, "core.pager"); got != "less" {
-		t.Errorf("override has core.pager = %q", got)
+	if got := gitIn(t, clone, "config", "--file", o.path, "--get-all", "pull.rebase"); got != "true" {
+		t.Errorf("pull.rebase in override: %q, want the one replaced value", got)
 	}
+	if got := gitIn(t, clone, "config", "--file", o.path, "--get-all", "credential.helper"); got != "store" {
+		t.Errorf("credential.helper duplicated: %q", got)
+	}
+}
 
-	// The include sits at the top of gitconfig, so the main file would still win.
-	putFile(t, clone, rel, strings.Replace(fixtureGitconfig, "rebase = false", "rebase = true", 1))
-	if _, ok := planMove(ctx, clone, rel, overrideGit); ok {
-		t.Error("changed key reported movable")
+func TestMoveLinesSkipsWhatIsThere(t *testing.T) {
+	_, clone := upgradeFixture(t)
+	o, _ := overrideFor("config/shell/zshrc")
+	putFile(t, filepath.Dir(o.path), filepath.Base(o.path), "alias k=kubectl\n")
+	putFile(t, clone, "config/shell/zshrc", fixtureZshrc+"alias k=kubectl\nexport PAGER=less\n")
+	edit, _ := planMove(context.Background(), clone, "config/shell/zshrc", overrideLines)
+	if got := withoutPresent(context.Background(), o, edit).String(); got != "export PAGER=less" {
+		t.Errorf("to write: %q", got)
 	}
 }
 
