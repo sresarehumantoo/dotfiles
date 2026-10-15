@@ -46,6 +46,9 @@ return {
       follow_current_file = {
         enabled = true,
       },
+      -- Watch the disk, so files created, deleted or switched outside nvim
+      -- (a shell, git, another agent) show without reopening the tree.
+      use_libuv_file_watcher = true,
       window = {
         mappings = {
           ['\\'] = 'close_window',
