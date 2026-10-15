@@ -21,6 +21,7 @@ var (
 	flagExtended bool
 	flagToolkit  bool
 	flagUpgrade  bool
+	flagBrief    bool
 	flagRegistry string
 )
 
@@ -59,7 +60,10 @@ func main() {
 				core.AlwaysWarn("%v", err)
 				core.AlwaysWarn("continuing with defaults; settings will not be saved until this is fixed")
 			}
-			core.PrintBanner()
+			// --brief output is read by the shell's drift check, not a person.
+			if !(cmd.Name() == "diff" && flagBrief) {
+				core.PrintBanner()
+			}
 		},
 	}
 
@@ -344,9 +348,14 @@ func main() {
 			if err := core.LoadConfig(); err != nil {
 				core.AlwaysWarn("%v", err)
 			}
+			if flagBrief {
+				modules.CollectDiff().WriteBrief(os.Stdout)
+				return nil
+			}
 			return runDiff()
 		},
 	}
+	diffCmd.Flags().BoolVar(&flagBrief, "brief", false, "One line per link or managed file changed since install, nothing when clean (missing links are not listed)")
 
 	registryCmd := &cobra.Command{
 		Use:   "registry",
