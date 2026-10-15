@@ -266,3 +266,6 @@ else
   alias ports="lsof -nP -iTCP -sTCP:LISTEN -iUDP"
 fi
 alias myip="curl -s ifconfig.me"
+
+# This machine's own aliases, kept out of the clone
+if [ -f ~/.aliases.local ]; then . ~/.aliases.local; fi

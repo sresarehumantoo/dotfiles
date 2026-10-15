@@ -20,8 +20,13 @@ var (
 	flagBackup   bool
 	flagExtended bool
 	flagToolkit  bool
+	flagUpgrade  bool
 	flagRegistry string
 )
+
+// upgradedEnv marks a dfinstall re-executed after --upgrade rebuilt it, so the
+// new binary skips the pull it has just done.
+const upgradedEnv = "DFINSTALL_UPGRADED"
 
 func main() {
 	modules.RegisterAllModules()
@@ -75,6 +80,28 @@ func main() {
 		core.DetectEnvironment()
 		core.AssertEnvironment()
 
+		// Infer module from standalone flags when no positional arg given
+		var target string
+		switch {
+		case len(args) > 0:
+			target = args[0]
+		case flagToolkit:
+			target = "toolkit"
+		case flagExtended:
+			target = "omz"
+		default:
+			return fmt.Errorf("module argument required — %s", modules.ValidModuleNames())
+		}
+
+		if _, ok := core.GetModule(target); !ok && target != "all" {
+			return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
+		}
+
+		if flagUpgrade {
+			core.UpgradeMode = true
+			upgradeClone(ctx, target == "all")
+		}
+
 		if core.IsSteamOS() && !core.DryRun {
 			core.Info("SteamOS detected — disabling readonly filesystem...")
 			if err := core.DisableReadonly(ctx); err != nil {
@@ -114,27 +141,11 @@ func main() {
 
 		defer core.ReleaseSudo()
 
-		// Infer module from standalone flags when no positional arg given
-		var target string
-		switch {
-		case len(args) > 0:
-			target = args[0]
-		case flagToolkit:
-			target = "toolkit"
-		case flagExtended:
-			target = "omz"
-		default:
-			return fmt.Errorf("module argument required — %s", modules.ValidModuleNames())
-		}
-
 		if target == "all" {
 			return installAll(ctx)
 		}
 
-		m, ok := core.GetModule(target)
-		if !ok {
-			return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
-		}
+		m, _ := core.GetModule(target)
 		if target == "windev" {
 			core.SetWindevOptIn()
 		}
@@ -154,6 +165,7 @@ func main() {
 	installCmd.Flags().BoolVar(&flagExtended, "extended", false, "Interactive menu to select extended OMZ plugins")
 	installCmd.Flags().BoolVar(&flagToolkit, "toolkit", false, "Interactive menu to select security/CTF/dev toolkit tools")
 	installCmd.Flags().StringVar(&flagRegistry, "registry", "", "Path or URL to toolkit registry (overrides config)")
+	installCmd.Flags().BoolVar(&flagUpgrade, "upgrade", false, "Pull the dotfiles clone and update tools and plugins dfinstall installed")
 
 	updateCmd := &cobra.Command{
 		Use:   "update [module|all]",
@@ -168,6 +180,7 @@ func main() {
 	updateCmd.Flags().BoolVar(&flagExtended, "extended", false, "Interactive menu to select extended OMZ plugins")
 	updateCmd.Flags().BoolVar(&flagToolkit, "toolkit", false, "Interactive menu to select security/CTF/dev toolkit tools")
 	updateCmd.Flags().StringVar(&flagRegistry, "registry", "", "Path or URL to toolkit registry (overrides config)")
+	updateCmd.Flags().BoolVar(&flagUpgrade, "upgrade", false, "Pull the dotfiles clone and update tools and plugins dfinstall installed")
 
 	var flagList bool
 
@@ -367,6 +380,39 @@ func main() {
 	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
+}
+
+// upgradeClone is the first half of --upgrade: bring the clone up to date,
+// then rebuild and re-exec when that changed dfinstall itself, so the install
+// runs the code it just pulled. Failures are reported and the install goes on
+// with the clone as it is.
+func upgradeClone(ctx context.Context, all bool) {
+	if os.Getenv(upgradedEnv) != "" {
+		return
+	}
+	// install all adopts the clone it runs from; anything else links into
+	// the canonical one.
+	dir := core.DotfilesDir()
+	if all {
+		dir = core.InvokingCloneDir()
+	}
+	changed, err := modules.ConvergeClone(ctx, dir)
+	// Before any re-exec, which would drop what quiet mode buffered.
+	core.FlushWarnings()
+	if err != nil {
+		core.AlwaysWarn("could not update %s: %v", dir, err)
+		return
+	}
+	if !changed || core.DryRun {
+		return
+	}
+	exe := modules.RebuildSelf(ctx, dir)
+	if exe == "" {
+		return
+	}
+	os.Setenv(upgradedEnv, "1")
+	err = syscall.Exec(exe, os.Args, os.Environ())
+	core.AlwaysWarn("could not restart the rebuilt dfinstall, continuing with this one: %v", err)
 }
 
 func installAll(ctx context.Context) error {
