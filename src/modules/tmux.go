@@ -114,6 +114,9 @@ func (TmuxModule) Name() string { return "tmux" }
 func (TmuxModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would link tmux.conf and tmux-save.service, write distro icon, clone TPM, install plugins, enable tmux-save.service")
+		if core.UpgradeMode {
+			core.Info("would update TPM and the tmux plugins")
+		}
 		return nil
 	}
 
@@ -155,6 +158,7 @@ func (TmuxModule) Install(ctx context.Context) error {
 		}
 	} else {
 		core.Ok("TPM already installed")
+		updateClone(ctx, "TPM", tpmDir)
 	}
 
 	// Install plugins via TPM
@@ -173,6 +177,12 @@ func (TmuxModule) Install(ctx context.Context) error {
 
 		if err := runCmd(ctx, installScript); err != nil {
 			core.Warn("TPM plugin install failed: %v", err)
+		}
+		if core.UpgradeMode {
+			core.Info("Updating tmux plugins...")
+			if err := runNetCmd(ctx, filepath.Join(tpmDir, "bin", "update_plugins"), "all"); err != nil {
+				core.Warn("TPM plugin update failed: %v", err)
+			}
 		}
 	}
 
