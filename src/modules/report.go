@@ -68,6 +68,8 @@ type DiffProblem struct {
 	// problem's change into; empty when it cannot (the change rewrites or
 	// removes something the override, loaded later, has no way to undo).
 	MoveTo string
+	// Changes summarizes an "edited" problem's edit, a line each.
+	Changes []string
 }
 
 // appModule is a module for an application a machine may not have, such as
@@ -150,7 +152,7 @@ func CollectDiff() DiffReport {
 					r.Issues++
 				case len(edited) > 0:
 					if rel := editedUnder(edited, root, lp.Src); rel != "" {
-						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel, MoveTo: movableTo(root, rel)})
+						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel, MoveTo: movableTo(root, rel), Changes: describeEdit(root, rel)})
 						r.Edited++
 					}
 				}
@@ -202,6 +204,50 @@ func movableTo(root, rel string) string {
 	return o.path
 }
 
+// describeEdit summarizes the uncommitted edit to rel: changed keys for a git
+// config, else the added and removed lines, at most ten.
+func describeEdit(root, rel string) []string {
+	// context.Background: as in editedInClone.
+	ctx := context.Background()
+	var out []string
+	if o, ok := overrideFor(rel); ok && o.kind == overrideGit {
+		before, after, ok := gitConfigVersions(ctx, root, rel)
+		if !ok {
+			return nil
+		}
+		for _, c := range gitConfigChanges(before, after) {
+			switch {
+			case len(c.before) == 0:
+				out = append(out, fmt.Sprintf("+ %s = %s", c.key, strings.Join(c.after, ", ")))
+			case len(c.after) == 0:
+				out = append(out, fmt.Sprintf("- %s (was %s)", c.key, strings.Join(c.before, ", ")))
+			default:
+				out = append(out, fmt.Sprintf("~ %s: %s -> %s", c.key, strings.Join(c.before, ", "), strings.Join(c.after, ", ")))
+			}
+		}
+	} else {
+		diff, err := runProbe(ctx, "git", "-C", root, "diff", "--no-color", "--no-ext-diff", "-U0", "HEAD", "--", rel)
+		if err != nil {
+			return nil
+		}
+		added, removed := splitDiff(string(diff))
+		for _, l := range removed {
+			if strings.TrimSpace(l) != "" {
+				out = append(out, "- "+l)
+			}
+		}
+		for _, l := range added {
+			if strings.TrimSpace(l) != "" {
+				out = append(out, "+ "+l)
+			}
+		}
+	}
+	if len(out) > 10 {
+		out = append(out[:10], fmt.Sprintf("... %d more", len(out)-10))
+	}
+	return out
+}
+
 // editedUnder returns the first edited file at src or, for a linked
 // directory, under it.
 func editedUnder(edited []string, root, src string) string {
@@ -249,6 +295,9 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 					fmt.Fprintf(w, "  %s: %s\n", p.Dst, p.Detail)
 				case "edited":
 					fmt.Fprintf(w, "  edited in the clone (uncommitted %s): %s\n", p.Detail, p.Dst)
+					for _, c := range p.Changes {
+						fmt.Fprintf(w, "      %s\n", c)
+					}
 					if p.MoveTo != "" {
 						fmt.Fprintf(w, "    install all --upgrade can move the edit into %s\n", p.MoveTo)
 					} else {
