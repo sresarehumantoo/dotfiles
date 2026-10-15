@@ -56,7 +56,7 @@ func ConvergeClone(ctx context.Context, dir string) (srcChanged bool, err error)
 		return false, nil
 	}
 
-	rescueReplacedLinks(ctx, dir)
+	rescueReplacedLinks(ctx, dir, core.DotfilesDir(), managedLinks())
 	moveLocalEdits(ctx, dir)
 
 	upstream, err := gitOut(ctx, dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
@@ -211,54 +211,61 @@ func canPrompt() bool {
 // differ from the clone's copy. Linking would move them to .bak, so a change
 // made there would quietly stop applying; adopting copies it into the clone,
 // where moveLocalEdits and the pull treat it like any other edit.
-func rescueReplacedLinks(ctx context.Context, dir string) {
-	root := core.DotfilesDir()
-	for _, m := range core.AllModules() {
-		le, ok := m.(core.LinkExporter)
-		if !ok || core.SkipInAll(m.Name()) {
+// Links name sources under root, the canonical clone, which before install
+// all adopts dir may be a different checkout; they are mapped into dir.
+func rescueReplacedLinks(ctx context.Context, dir, root string, links core.LinkSet) {
+	for _, l := range links {
+		fi, err := os.Lstat(l.Dst)
+		if err != nil || !fi.Mode().IsRegular() {
 			continue
 		}
-		for _, l := range le.Links() {
-			fi, err := os.Lstat(l.Dst)
-			if err != nil || !fi.Mode().IsRegular() {
-				continue
-			}
-			rel, err := filepath.Rel(root, l.Src)
-			if err != nil || strings.HasPrefix(rel, "..") {
-				continue
-			}
-			src := filepath.Join(dir, rel)
-			theirs, err1 := os.ReadFile(l.Dst)
-			ours, err2 := os.ReadFile(src)
-			if err1 != nil || err2 != nil || bytes.Equal(theirs, ours) {
-				continue
-			}
-			adoptReplacedLink(ctx, src, l.Dst, theirs)
+		rel, err := filepath.Rel(root, l.Src)
+		if err != nil || strings.HasPrefix(rel, "..") {
+			continue
 		}
+		src := filepath.Join(dir, rel)
+		theirs, err1 := os.ReadFile(l.Dst)
+		ours, err2 := os.ReadFile(src)
+		if err1 != nil || err2 != nil || bytes.Equal(theirs, ours) {
+			continue
+		}
+		adoptReplacedLink(ctx, src, l.Dst, theirs)
 	}
 }
 
+// managedLinks is every link the modules in install all would make.
+func managedLinks() core.LinkSet {
+	var links core.LinkSet
+	for _, m := range core.AllModules() {
+		if le, ok := m.(core.LinkExporter); ok && !core.SkipInAll(m.Name()) {
+			links = append(links, le.Links()...)
+		}
+	}
+	return links
+}
+
+// adoptReplacedLink copies dst into the clone. Without a terminal to ask, it
+// adopts: that only edits the clone, which git can undo, whereas the default
+// of linking over it would quietly drop the setting into a .bak file.
 func adoptReplacedLink(ctx context.Context, src, dst string, content []byte) {
 	if core.DryRun {
 		core.Info("would offer to copy %s, a file where a link belongs, into %s", dst, src)
 		return
 	}
-	if !canPrompt() {
-		core.Notice("%s replaced its link and differs from %s; it will be moved to %s.bak. Rerun --upgrade in a terminal to keep it", dst, src, dst)
-		return
-	}
-	diff, _ := runProbe(ctx, "git", "diff", "--no-index", "--no-color", "--", src, dst)
-	keep := true
-	form := huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().
-			Title(fmt.Sprintf("%s is a file, not a link, and differs from the clone", dst)).
-			Description(clip(string(diff), 30) + "\nKeep this machine's version? It is copied into the clone, then linked.").
-			Affirmative("Keep mine").
-			Negative("Use the clone's (mine goes to .bak)").
-			Value(&keep),
-	))
-	if err := form.Run(); err != nil || !keep {
-		return
+	if canPrompt() {
+		diff, _ := runProbe(ctx, "git", "diff", "--no-index", "--no-color", "--", src, dst)
+		keep := true
+		form := huh.NewForm(huh.NewGroup(
+			huh.NewConfirm().
+				Title(fmt.Sprintf("%s is a file, not a link, and differs from the clone", dst)).
+				Description(clip(string(diff), 30) + "\nKeep this machine's version? It is copied into the clone, then linked.").
+				Affirmative("Keep mine").
+				Negative("Use the clone's (mine goes to .bak)").
+				Value(&keep),
+		))
+		if err := form.Run(); err != nil || !keep {
+			return
+		}
 	}
 	fi, err := os.Stat(src)
 	if err != nil {
@@ -269,7 +276,7 @@ func adoptReplacedLink(ctx context.Context, src, dst string, content []byte) {
 		core.AlwaysWarn("could not adopt %s: %v", dst, err)
 		return
 	}
-	core.Status("copied %s into %s", dst, src)
+	core.Status("copied %s, which had replaced its link, into %s", dst, src)
 }
 
 // overrideKind is how an edit is carried into a machine-local override file.

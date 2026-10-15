@@ -260,3 +260,29 @@ func TestSplitDiff(t *testing.T) {
 		t.Errorf("added %q, removed %q", added, removed)
 	}
 }
+
+func TestRescueReplacedLinks(t *testing.T) {
+	_, clone := upgradeFixture(t)
+	home := os.Getenv("HOME")
+	root := t.TempDir() // the canonical clone the links name
+	links := core.LinkSet{
+		{Src: filepath.Join(root, "config/ghostty/config"), Dst: filepath.Join(home, ".config/ghostty/config")},
+		{Src: filepath.Join(root, "config/shell/zshrc"), Dst: filepath.Join(home, ".zshrc")},
+		{Src: filepath.Join(root, "config/git/gitconfig"), Dst: filepath.Join(home, ".gitconfig")},
+	}
+	mine := strings.Replace(fixtureGhostty, "100", "140", 1)
+	putFile(t, home, ".config/ghostty/config", mine)
+	putFile(t, home, ".zshrc", fixtureZshrc) // a file, but identical
+	if err := os.Symlink(filepath.Join(clone, "config/git/gitconfig"), filepath.Join(home, ".gitconfig")); err != nil {
+		t.Fatal(err)
+	}
+
+	rescueReplacedLinks(context.Background(), clone, root, links)
+
+	if got := getFile(t, clone, "config/ghostty/config"); got != mine {
+		t.Errorf("replaced link not adopted into the clone:\n%s", got)
+	}
+	if got := gitIn(t, clone, "status", "--porcelain"); got != "M config/ghostty/config" {
+		t.Errorf("clone status %q, want only the adopted file", got)
+	}
+}
