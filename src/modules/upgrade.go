@@ -491,12 +491,12 @@ func moveLocalEdits(ctx context.Context, dir string) {
 	for _, rel := range edited {
 		o, ok := overrideFor(rel)
 		if !ok {
-			core.Notice("%s has local edits with no override file to move them to; kept in the clone", rel)
+			core.Notice("%s has local edits with no override file to move them to; kept in the clone. Commit them to keep them everywhere, or revert: git -C %s checkout -- %s", rel, dir, rel)
 			continue
 		}
 		edit, ok := planMove(ctx, dir, rel, o.kind)
 		if !ok {
-			core.Notice("%s has local edits that change or remove upstream lines, which %s cannot undo; kept in the clone", rel, o.path)
+			core.Notice("%s has local edits that change or remove upstream lines, which %s cannot undo; kept in the clone. Commit them to keep them everywhere, or revert: git -C %s checkout -- %s", rel, o.path, dir, rel)
 			continue
 		}
 		if edit.empty() {
