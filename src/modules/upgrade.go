@@ -612,11 +612,14 @@ func moveLocalEdits(ctx context.Context, dir string) {
 			continue
 		}
 		edit = withoutPresent(ctx, o, edit)
+		already := edit.empty()
 		title := fmt.Sprintf("Move this machine's edits to %s into %s?", rel, o.path)
 		desc := clip(edit.String(), 30) + "\n\nThey keep applying from there, and the clone goes back to upstream's version."
-		if edit.empty() {
+		yes, done := "Move them", fmt.Sprintf("moved edits to %s into %s", rel, o.path)
+		if already {
 			title = fmt.Sprintf("%s already holds this machine's edits to %s. Restore the clone's copy?", o.path, rel)
 			desc = "Nothing is written; the clone goes back to upstream's version and the settings keep applying from there."
+			yes, done = "Restore it", fmt.Sprintf("restored %s; %s already held its edits", rel, o.path)
 		}
 		switch {
 		case core.DryRun:
@@ -631,7 +634,7 @@ func moveLocalEdits(ctx context.Context, dir string) {
 			huh.NewConfirm().
 				Title(title).
 				Description(desc).
-				Affirmative("Move them").
+				Affirmative(yes).
 				Negative("Keep them in the clone").
 				Value(&move),
 		))
@@ -646,7 +649,7 @@ func moveLocalEdits(ctx context.Context, dir string) {
 			core.AlwaysWarn("moved edits to %s into %s, but could not revert it in the clone: %v", rel, o.path, err)
 			continue
 		}
-		core.Status("moved edits to %s into %s", rel, o.path)
+		core.Status("%s", done)
 	}
 }
 
