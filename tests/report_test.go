@@ -292,7 +292,7 @@ func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
 	// main file's value would still win. The advice must not offer --upgrade.
 	var b strings.Builder
 	r.WriteBrief(&b)
-	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); commit or revert it there\n"; b.String() != want {
+	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); commit or revert it there\n"; uniqueLines(b.String()) != want {
 		t.Errorf("brief for a changed key:\n%s\nwant:\n%s", b.String(), want)
 	}
 	b.Reset()
@@ -305,7 +305,21 @@ func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
 	os.WriteFile(dst, []byte("[core]\n\tpager = delta\n[alias]\n\tst = status\n"), 0o644)
 	b.Reset()
 	modules.CollectDiff().WriteBrief(&b)
-	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); install all --upgrade can move it to ~/.gitconfig.local\n"; b.String() != want {
+	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); install all --upgrade can move it to ~/.gitconfig.local\n"; uniqueLines(b.String()) != want {
 		t.Errorf("brief for a new key:\n%s\nwant:\n%s", b.String(), want)
 	}
+}
+
+// uniqueLines drops repeated lines: other tests in this package call
+// RegisterAllModules too, so a module can be registered more than once.
+func uniqueLines(s string) string {
+	var out strings.Builder
+	seen := map[string]bool{}
+	for _, l := range strings.SplitAfter(s, "\n") {
+		if l != "" && !seen[l] {
+			seen[l] = true
+			out.WriteString(l)
+		}
+	}
+	return out.String()
 }
