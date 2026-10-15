@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -573,8 +574,8 @@ func clip(s string, n int) string {
 	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n... %d more lines", len(lines)-n)
 }
 
-// RebuildSelf rebuilds the running dfinstall from dir after a pull changed
-// its source, and returns the binary to re-exec. "" means carry on with the
+// RebuildSelf rebuilds the running dfinstall from dir when its source there
+// differs from the binary's, and returns the binary to re-exec. "" means carry on with the
 // current one, which still installs; it just lacks what the pull brought.
 func RebuildSelf(ctx context.Context, dir string) string {
 	exe, err := os.Executable()
@@ -582,7 +583,7 @@ func RebuildSelf(ctx context.Context, dir string) string {
 		exe, err = filepath.EvalSymlinks(exe)
 	}
 	if err != nil {
-		core.AlwaysWarn("dfinstall's source changed, but the running binary could not be located: %v", err)
+		core.AlwaysWarn("dfinstall is out of date, but the running binary could not be located: %v", err)
 		return ""
 	}
 	resolve := func(p string) string {
@@ -598,13 +599,39 @@ func RebuildSelf(ctx context.Context, dir string) string {
 	case resolve(core.HomeTarget(".local", "bin", "dfinstall")):
 		target = "install-bin"
 	default:
-		core.AlwaysWarn("dfinstall's source changed; rebuild it with `make -C %s install-bin`", dir)
+		core.AlwaysWarn("dfinstall is out of date with %s; rebuild it with `make -C %s install-bin`", dir, dir)
 		return ""
 	}
-	core.Status("dfinstall's source changed; rebuilding it")
+	core.Status("rebuilding dfinstall from %s", dir)
 	if err := runCmd(ctx, "make", "-C", dir, target); err != nil {
 		core.AlwaysWarn("rebuild failed, continuing with the current dfinstall: %v", err)
 		return ""
 	}
 	return exe
+}
+
+// describedCommit matches the commit `git describe` appends to a version
+// built between tags: v1.4.0-3-gabc1234, optionally -dirty.
+var describedCommit = regexp.MustCompile(`-g([0-9a-f]{7,40})(-dirty)?$`)
+
+// BinaryStale reports whether a dfinstall stamped with version was built from
+// source other than what dir's HEAD holds. A version that names no commit in
+// dir, such as "dev" from a plain go build, counts as stale. A binary built
+// from uncommitted changes is compared by the commit it was built on.
+func BinaryStale(ctx context.Context, dir, version string) bool {
+	if _, err := gitOut(ctx, dir, "rev-parse", "--verify", "HEAD"); err != nil {
+		return false // not a checkout: nothing to rebuild from
+	}
+	var rev string
+	if m := describedCommit.FindStringSubmatch(version); m != nil {
+		rev = m[1]
+	} else {
+		rev = strings.TrimSuffix(version, "-dirty") // built exactly on a tag
+	}
+	commit, err := gitOut(ctx, dir, "rev-parse", "--verify", "--quiet", rev+"^{commit}")
+	if err != nil || commit == "" {
+		return true
+	}
+	_, err = runProbe(ctx, "git", "-C", dir, "diff", "--quiet", commit, "HEAD", "--", "src", "go.mod", "go.sum", "Makefile")
+	return err != nil
 }
