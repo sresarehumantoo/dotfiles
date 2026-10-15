@@ -61,8 +61,13 @@ type DiffProblem struct {
 	// "edited": linked correctly, but the clone's copy has uncommitted edits,
 	// which is where anything writing through the link puts its change.
 	State string
-	// Detail says what differs for a "content" problem.
+	// Detail says what differs for a "content" problem, and names the clone
+	// file for an "edited" one.
 	Detail string
+	// MoveTo is the override file install --upgrade can move an "edited"
+	// problem's change into; empty when it cannot (the change rewrites or
+	// removes something the override, loaded later, has no way to undo).
+	MoveTo string
 }
 
 // appModule is a module for an application a machine may not have, such as
@@ -106,13 +111,15 @@ type DiffReport struct {
 	// Edited counts "edited" problems. They are not Issues: install leaves
 	// them alone, so "run install all to fix" would not.
 	Edited int
-	Drift  core.LinkDrift
+	// Root is the clone the links point into.
+	Root  string
+	Drift core.LinkDrift
 }
 
 // CollectDiff inspects every module and reports what differs from config.
 func CollectDiff() DiffReport {
-	var r DiffReport
 	root := core.DotfilesDir()
+	r := DiffReport{Root: root}
 	edited := editedInClone(root)
 
 	for _, m := range core.AllModules() {
@@ -143,7 +150,7 @@ func CollectDiff() DiffReport {
 					r.Issues++
 				case len(edited) > 0:
 					if rel := editedUnder(edited, root, lp.Src); rel != "" {
-						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel})
+						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel, MoveTo: movableTo(root, rel)})
 						r.Edited++
 					}
 				}
@@ -178,6 +185,21 @@ func editedInClone(root string) []string {
 		return nil
 	}
 	return strings.Fields(string(out))
+}
+
+// movableTo returns the override file install --upgrade would move rel's
+// edits into, or "" when it would keep them in the clone.
+func movableTo(root, rel string) string {
+	o, ok := overrideFor(rel)
+	if !ok {
+		return ""
+	}
+	// context.Background: as in editedInClone.
+	edit, ok := planMove(context.Background(), root, rel, o.kind)
+	if !ok || edit.empty() {
+		return ""
+	}
+	return o.path
 }
 
 // editedUnder returns the first edited file at src or, for a linked
@@ -227,6 +249,11 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 					fmt.Fprintf(w, "  %s: %s\n", p.Dst, p.Detail)
 				case "edited":
 					fmt.Fprintf(w, "  edited in the clone (uncommitted %s): %s\n", p.Detail, p.Dst)
+					if p.MoveTo != "" {
+						fmt.Fprintf(w, "    install all --upgrade can move the edit into %s\n", p.MoveTo)
+					} else {
+						fmt.Fprintf(w, "    commit it to keep it on every machine, or revert it: git -C %s checkout -- %s\n", r.Root, p.Detail)
+					}
 				}
 			}
 
@@ -249,7 +276,7 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 		fmt.Fprintf(w, "%d issue(s) — %s\n", r.Issues, fixHint)
 	}
 	if r.Edited > 0 {
-		fmt.Fprintf(w, "%d managed file(s) edited in the clone: commit or revert them, or move them out with install all --upgrade\n", r.Edited)
+		fmt.Fprintf(w, "%d managed file(s) edited through their link; install all leaves them as they are\n", r.Edited)
 	}
 
 	// Flag the multi-clone case explicitly: symlinks split across dotfiles
@@ -291,7 +318,11 @@ func (r DiffReport) WriteBrief(w io.Writer) {
 			case "content":
 				fmt.Fprintf(w, "%s: %s\n", short(p.Dst), p.Detail)
 			case "edited":
-				fmt.Fprintf(w, "%s: edited in the clone (%s)\n", short(p.Dst), p.Detail)
+				if p.MoveTo != "" {
+					fmt.Fprintf(w, "%s: edited in the clone (%s); install all --upgrade can move it to %s\n", short(p.Dst), p.Detail, short(p.MoveTo))
+				} else {
+					fmt.Fprintf(w, "%s: edited in the clone (%s); commit or revert it there\n", short(p.Dst), p.Detail)
+				}
 			}
 		}
 	}

@@ -36,7 +36,7 @@ _df_drift_show() {
   [[ -n $found ]] || return
   print -P '%F{yellow}⚠ dfinstall:%f managed files changed outside dfinstall'
   print -rl -- ${${(f)found}/#/  }
-  print -P '  %F{8}review with: dfinstall diff   resolve with: dfinstall install all --upgrade%f'
+  print -P '  %F{8}what to do about each: dfinstall diff%f'
 }
 
 autoload -Uz add-zsh-hook
