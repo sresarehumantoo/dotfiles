@@ -60,6 +60,14 @@ type DiffProblem struct {
 	Detail string
 }
 
+// appModule is a module for an application a machine may not have, such as
+// sway or ghostty. install all skips it there and Status reports nothing, so
+// diff must not call its links missing. Links() still declares them, so an
+// uninstall after the application is removed still finds them.
+type appModule interface {
+	AppInstalled() bool
+}
+
 // contentDrifter is a module that manages content it does not link, such as
 // keys merged into a file a program also writes. Link checks cannot see that
 // drift, so the module reports it.
@@ -76,6 +84,9 @@ type DiffEntry struct {
 	Exported bool
 	Links    int
 	Problems []DiffProblem
+
+	// Absent is a module for an application this machine does not have.
+	Absent bool
 
 	// Missing and Extra are the fallback for modules that don't, taken from
 	// Status() — less precise, since it can only report a count.
@@ -101,6 +112,11 @@ func CollectDiff() DiffReport {
 		// no command will ever fix.
 		if core.SkipInAll(m.Name()) {
 			r.Entries = append(r.Entries, DiffEntry{Name: m.Name(), Skipped: true})
+			continue
+		}
+
+		if a, ok := m.(appModule); ok && !a.AppInstalled() {
+			r.Entries = append(r.Entries, DiffEntry{Name: m.Name(), Absent: true})
 			continue
 		}
 
@@ -143,6 +159,9 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 		switch {
 		case e.Skipped:
 			fmt.Fprintf(w, "%-15s  skipped\n", e.Name)
+
+		case e.Absent:
+			fmt.Fprintf(w, "%-15s  not installed here\n", e.Name)
 
 		case e.Exported && len(e.Problems) == 0:
 			fmt.Fprintf(w, "%-15s  ok (%d links)\n", e.Name, e.Links)

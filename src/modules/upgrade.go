@@ -237,6 +237,9 @@ func rescueReplacedLinks(ctx context.Context, dir, root string, links core.LinkS
 func managedLinks() core.LinkSet {
 	var links core.LinkSet
 	for _, m := range core.AllModules() {
+		if a, ok := m.(appModule); ok && !a.AppInstalled() {
+			continue
+		}
 		if le, ok := m.(core.LinkExporter); ok && !core.SkipInAll(m.Name()) {
 			links = append(links, le.Links()...)
 		}
