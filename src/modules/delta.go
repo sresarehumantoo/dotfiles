@@ -15,13 +15,18 @@ type DeltaModule struct{}
 func (DeltaModule) Name() string { return "delta" }
 
 func (DeltaModule) Install(ctx context.Context) error {
-	if localBinInstalled("delta") {
+	upgrade := runtime.GOOS == "linux" && upgradeable(deltaLocal())
+	if localBinInstalled("delta") && !upgrade {
 		core.Ok("delta already installed")
 		return nil
 	}
 
 	if core.DryRun {
-		core.Info("would install delta")
+		if upgrade {
+			core.Info("would update delta if a newer release exists")
+		} else {
+			core.Info("would install delta")
+		}
 		return nil
 	}
 
@@ -66,10 +71,14 @@ func installDeltaRelease(ctx context.Context) error {
 	if err := core.CheckTarget(dst); err != nil {
 		return err
 	}
-	assets, err := latestAssets(ctx, "dandavison/delta")
+	tag, assets, err := latestRelease(ctx, "dandavison/delta")
 	if err != nil {
 		core.Warn("%v", err)
 		return deltaPkgFallback(ctx)
+	}
+	if releaseCurrent(ctx, dst, tag) {
+		core.Ok("delta %s is the latest release", tag)
+		return nil
 	}
 	asset, ok := deltaReleaseAsset(assets, runtime.GOARCH)
 	if !ok {
@@ -103,6 +112,10 @@ func installDeltaRelease(ctx context.Context) error {
 // Returns nil either way — a missing delta degrades git diffs, it does not
 // justify failing the whole install run.
 func deltaPkgFallback(ctx context.Context) error {
+	// An upgrade that cannot use the release keeps the delta it already has.
+	if upgradeable(deltaLocal()) {
+		return nil
+	}
 	if err := installPkg(ctx, "git-delta"); err != nil {
 		core.Warn("Could not install delta automatically. Install from https://github.com/dandavison/delta/releases")
 	}

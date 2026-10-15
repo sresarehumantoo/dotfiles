@@ -70,7 +70,8 @@ func treeSitterFilter(goarch string) assetFilter {
 func ensureTreeSitterCLI(ctx context.Context) error {
 	// Checked by path too: on a first run ~/.local/bin may not be on PATH yet.
 	dst := core.HomeTarget(".local", "bin", "tree-sitter")
-	if treeSitterCurrent(ctx, "tree-sitter") || (dst != "" && treeSitterCurrent(ctx, dst)) {
+	upgrade := !core.IsMac() && upgradeable(dst)
+	if !upgrade && (treeSitterCurrent(ctx, "tree-sitter") || (dst != "" && treeSitterCurrent(ctx, dst))) {
 		return nil
 	}
 	if core.IsMac() {
@@ -80,9 +81,17 @@ func ensureTreeSitterCLI(ctx context.Context) error {
 		return err
 	}
 
-	assets, err := latestAssets(ctx, "tree-sitter/tree-sitter")
+	tag, assets, err := latestRelease(ctx, "tree-sitter/tree-sitter")
 	if err != nil {
+		if upgrade {
+			core.Warn("tree-sitter upgrade check: %v", err)
+			return nil
+		}
 		return err
+	}
+	if upgrade && releaseCurrent(ctx, dst, tag) {
+		core.Ok("tree-sitter %s is the latest release", tag)
+		return nil
 	}
 	asset, ok := pickAsset(assets, treeSitterFilter(runtime.GOARCH))
 	if !ok {
@@ -211,6 +220,9 @@ func nvimPrebuiltAsset() string {
 func ensureNvim(ctx context.Context) error {
 	info, present := detectNvim()
 	if present && info.atLeast(minNvimMajor, minNvimMinor) {
+		if core.UpgradeMode && runtime.GOOS == "linux" && nvimOwner(info.path) == "local-prebuilt" {
+			return upgradePrebuiltNvim(ctx, info.version)
+		}
 		return nil
 	}
 
@@ -243,6 +255,22 @@ func ensureNvim(ctx context.Context) error {
 		return installPrebuiltNvimLinux(ctx)
 	}
 	return installPkg(ctx, "neovim")
+}
+
+// upgradePrebuiltNvim replaces the prebuilt in ~/.local/opt when the latest
+// release is a different version. Only the copy dfinstall manages is touched.
+func upgradePrebuiltNvim(ctx context.Context, have string) error {
+	tag, _, err := latestRelease(ctx, "neovim/neovim")
+	if err != nil {
+		core.Warn("Neovim upgrade check: %v", err)
+		return nil
+	}
+	if semverRe.FindString(tag) == have {
+		core.Ok("Neovim %s is the latest release", tag)
+		return nil
+	}
+	core.Info("Updating Neovim %s to %s...", have, tag)
+	return installPrebuiltNvimLinux(ctx)
 }
 
 // oldNvimRemoval is the command that removes a superseded nvim, or "" when
@@ -421,6 +449,9 @@ func (NvimModule) Install(ctx context.Context) error {
 
 	if core.DryRun {
 		core.Info("would ensure Neovim >= %d.%d", minNvimMajor, minNvimMinor)
+		if core.UpgradeMode {
+			core.Info("would update Neovim and tree-sitter in ~/.local if newer releases exist")
+		}
 	} else if err := ensureNvim(ctx); err != nil {
 		core.AlwaysWarn("Failed to ensure Neovim >= %d.%d: %v", minNvimMajor, minNvimMinor, err)
 	}

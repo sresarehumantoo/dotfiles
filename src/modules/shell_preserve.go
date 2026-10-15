@@ -160,8 +160,9 @@ func ScanCustomShellFiles() []DiscoveredFile {
 				continue
 			}
 
-			// Skip known non-shell files
-			if nonShellFiles[rel] {
+			// Skip known non-shell files, and the override the managed
+			// aliases file already sources
+			if nonShellFiles[rel] || rel == ".aliases.local" {
 				continue
 			}
 

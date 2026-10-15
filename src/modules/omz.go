@@ -16,6 +16,9 @@ func (OmzModule) Name() string { return "omz" }
 func (OmzModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would install oh-my-zsh, zsh-autosuggestions, powerlevel10k")
+		if core.UpgradeMode {
+			core.Info("would update oh-my-zsh, zsh-autosuggestions and powerlevel10k")
+		}
 		return nil
 	}
 
@@ -50,6 +53,7 @@ func (OmzModule) Install(ctx context.Context) error {
 		}
 	} else {
 		core.Ok("zsh-autosuggestions already installed")
+		updateClone(ctx, "zsh-autosuggestions", zasDir)
 	}
 
 	// powerlevel10k theme
@@ -62,6 +66,7 @@ func (OmzModule) Install(ctx context.Context) error {
 		}
 	} else {
 		core.Ok("powerlevel10k already installed")
+		updateClone(ctx, "powerlevel10k", p10kDir)
 	}
 
 	// Write extended plugins file if selections exist or --extended was used
@@ -88,6 +93,7 @@ func installOmz(ctx context.Context, omzDir string) error {
 	marker := filepath.Join(omzDir, "oh-my-zsh.sh")
 	if _, err := os.Stat(marker); err == nil {
 		core.Ok("oh-my-zsh already installed")
+		updateClone(ctx, "oh-my-zsh", omzDir)
 		return nil
 	}
 

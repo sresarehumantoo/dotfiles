@@ -551,14 +551,28 @@ func installDockerPacman(ctx context.Context) error {
 }
 
 func installHashicorp(ctx context.Context) error {
-	if localBinInstalled("terraform") {
+	dst := core.HomeTarget(".local", "bin", "terraform")
+	upgrade := !core.IsMac() && upgradeable(dst)
+	if localBinInstalled("terraform") && !upgrade {
 		core.Ok("Terraform already installed")
 		return nil
 	}
 	if core.IsMac() {
 		return installPkg(ctx, "hashicorp/tap/terraform")
 	}
-	return installTerraformRelease(ctx)
+	rel, err := latestTerraform(ctx)
+	if err != nil {
+		if upgrade {
+			core.Warn("Terraform upgrade check: %v", err)
+			return nil
+		}
+		return err
+	}
+	if upgrade && releaseCurrent(ctx, dst, rel.Version, "version") {
+		core.Ok("Terraform %s is the latest release", rel.Version)
+		return nil
+	}
+	return installTerraformRelease(ctx, rel)
 }
 
 // hashicorpKeyFingerprint is HashiCorp's release-signing key (primary key).
@@ -580,22 +594,27 @@ type terraformBuild struct {
 	URL  string `json:"url"`
 }
 
-// installTerraformRelease installs the latest terraform binary into
+// latestTerraform fetches the latest release's metadata from HashiCorp.
+func latestTerraform(ctx context.Context) (terraformRelease, error) {
+	var rel terraformRelease
+	out, err := runNetProbe(ctx, "curl", "-fsSL", "https://api.releases.hashicorp.com/v1/releases/terraform/latest")
+	if err != nil {
+		return rel, fmt.Errorf("fetch terraform release: %w", err)
+	}
+	if err := json.Unmarshal(out, &rel); err != nil {
+		return rel, fmt.Errorf("parse terraform release: %w", err)
+	}
+	return rel, nil
+}
+
+// installTerraformRelease installs a terraform release binary into
 // ~/.local/bin, checked against HashiCorp's signed SHA256SUMS. This replaces
 // adding HashiCorp's apt repository, which needed root and let that repo
 // supply any package to apt, for the sake of one static binary.
-func installTerraformRelease(ctx context.Context) error {
+func installTerraformRelease(ctx context.Context, rel terraformRelease) error {
 	dst := core.HomeTarget(".local", "bin", "terraform")
 	if err := core.CheckTarget(dst); err != nil {
 		return err
-	}
-	out, err := runNetProbe(ctx, "curl", "-fsSL", "https://api.releases.hashicorp.com/v1/releases/terraform/latest")
-	if err != nil {
-		return fmt.Errorf("fetch terraform release: %w", err)
-	}
-	var rel terraformRelease
-	if err := json.Unmarshal(out, &rel); err != nil {
-		return fmt.Errorf("parse terraform release: %w", err)
 	}
 	i := slices.IndexFunc(rel.Builds, func(b terraformBuild) bool {
 		return b.OS == "linux" && b.Arch == runtime.GOARCH
