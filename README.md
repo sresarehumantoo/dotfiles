@@ -105,6 +105,7 @@ make install
 | `dfinstall install all` | Install every module (except opt-in ones) |
 | `dfinstall install shell` | Install a single module |
 | `dfinstall update all` | Re-apply all modules (alias for `install`) |
+| `dfinstall install all --upgrade` | Pull the clone, then install and update what dfinstall installed earlier |
 | `dfinstall uninstall shell` | Remove one module's symlinks |
 | `dfinstall uninstall all` | Remove all managed symlinks |
 
@@ -143,6 +144,7 @@ make install
 | `--extended` | `install`, `update` | Interactive menu for extended Oh My Zsh plugins |
 | `--toolkit` | `install`, `update` | Interactive menu for security/CTF/dev toolkit tools |
 | `--registry <path\|url>` | `install`, `update` | Override the toolkit registry for this run |
+| `--upgrade` | `install`, `update` | Pull the clone and update tools and plugins first ([details](#upgrading)) |
 
 ```bash
 dfinstall install omz --extended     # pick extended OMZ plugins
@@ -150,6 +152,39 @@ dfinstall install all --toolkit      # pick toolkit tools
 dfinstall install windev             # opt-in Windows cross-dev module
 dfinstall install all --dry-run      # preview everything
 ```
+
+## Upgrading
+
+`install` adds what is missing and leaves what is already there. `--upgrade` also brings everything dfinstall owns up to date:
+
+1. **The clone.** It fetches, then fast-forwards to the upstream branch. If the pull changed dfinstall's own source, it rebuilds the binary and re-runs it.
+2. **Release binaries in `~/.local`** (nvim, tree-sitter, delta, terraform) are replaced when a newer release exists.
+3. **Cloned plugins** (oh-my-zsh, powerlevel10k, zsh-autosuggestions, TPM and the tmux plugins) are fast-forwarded.
+4. Then the normal install runs, asking for sudo only if something is missing.
+
+Packages from apt or Homebrew are left to `sudo apt upgrade` or `brew upgrade`, and fonts stay on their pinned release.
+
+```bash
+dfinstall install all --upgrade
+dfinstall install all --upgrade --dry-run   # what would change, without fetching
+```
+
+### Local edits survive the pull
+
+Managed configs are symlinks into the clone, so editing `~/.config/ghostty/config` on one machine edits the clone. Before pulling, `--upgrade` sorts those edits out:
+
+- **Moved to an override file.** When the edit only adds lines or sets keys, it offers to move it into a file that loads after the managed one but lives outside the clone. That puts the clone back to upstream's version, and the setting keeps applying.
+- **Kept in the clone.** Other edits stay as uncommitted changes and are carried over the pull, provided they merge cleanly with what upstream changed. If one would conflict, or the clone has unpushed commits, it skips the pull, says why, and the rest of the install still runs.
+- **A link replaced by a file.** Some tools save by writing a new file over the symlink (`sed -i` does). It shows the difference and offers to copy that file into the clone, rather than letting the install move it to `.bak`. Without a terminal it copies it.
+
+| Managed file | Override file |
+|--------------|---------------|
+| `~/.config/ghostty/config` | `~/.config/ghostty/ghostty.user` |
+| `~/.zshrc`, `~/.zsh.d/*.zsh` | `~/.zshrc.local` |
+| `~/.aliases` | `~/.aliases.local` |
+| `~/.gitconfig` | `~/.gitconfig.local` (new keys only: it is included at the top, so it cannot override a key `gitconfig` sets) |
+
+You can write to these files directly too. `~/.zshenv`, extra files in `~/.zsh.d/`, and anything else dfinstall does not link are never touched.
 
 ## Backup & Restore
 
