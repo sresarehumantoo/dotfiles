@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -51,10 +52,19 @@ func WriteStatus(w io.Writer) {
 // PrintStatus prints the status table to stdout.
 func PrintStatus() { WriteStatus(os.Stdout) }
 
-// DiffProblem is one link that isn't in the state we expect.
+// DiffProblem is one managed path that isn't in the state we expect.
 type DiffProblem struct {
 	Dst   string
-	State string // "missing", "wrong", or "file" — see core.CheckLink
+	State string // "missing", "wrong" or "file" (see core.CheckLink), or "content"
+	// Detail says what differs for a "content" problem.
+	Detail string
+}
+
+// contentDrifter is a module that manages content it does not link, such as
+// keys merged into a file a program also writes. Link checks cannot see that
+// drift, so the module reports it.
+type contentDrifter interface {
+	ContentDrift() []DiffProblem
 }
 
 // DiffEntry is one module's contribution to the diff report.
@@ -105,6 +115,11 @@ func CollectDiff() DiffReport {
 					r.Issues++
 				}
 			}
+			if cd, ok := m.(contentDrifter); ok {
+				drift := cd.ContentDrift()
+				e.Problems = append(e.Problems, drift...)
+				r.Issues += len(drift)
+			}
 		} else {
 			s := m.Status()
 			e.Missing, e.Extra = s.Missing, s.Extra
@@ -142,6 +157,8 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 					fmt.Fprintf(w, "  wrong target: %s\n", p.Dst)
 				case "file":
 					fmt.Fprintf(w, "  regular file (not symlinked): %s\n", p.Dst)
+				case "content":
+					fmt.Fprintf(w, "  %s: %s\n", p.Dst, p.Detail)
 				}
 			}
 
@@ -176,5 +193,33 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 			fmt.Fprintf(w, "  %s%s — %d link(s)\n", root, marker, len(r.Drift.Roots[root]))
 		}
 		fmt.Fprintf(w, "Run %s from %s to consolidate.\n", consolidateCmd, r.Drift.Canonical)
+	}
+}
+
+// WriteBrief prints one line per managed path that something changed after
+// install: a link replaced by a file or pointing elsewhere, or managed content
+// edited. Nothing when there is none. It is for the shell's drift check, so
+// it leaves out what may be deliberate on a given machine: missing links
+// (a module never installed there), and modules that do not export links,
+// whose counts include packages a machine may lack on purpose.
+func (r DiffReport) WriteBrief(w io.Writer) {
+	home, _ := core.HomeDir()
+	short := func(p string) string {
+		if home != "" && strings.HasPrefix(p, home+"/") {
+			return "~" + p[len(home):]
+		}
+		return p
+	}
+	for _, e := range r.Entries {
+		for _, p := range e.Problems {
+			switch p.State {
+			case "wrong":
+				fmt.Fprintf(w, "%s links somewhere else\n", short(p.Dst))
+			case "file":
+				fmt.Fprintf(w, "%s was replaced by a file\n", short(p.Dst))
+			case "content":
+				fmt.Fprintf(w, "%s: %s\n", short(p.Dst), p.Detail)
+			}
+		}
 	}
 }

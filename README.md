@@ -114,7 +114,8 @@ make install
 | Command | What it does |
 |---------|--------------|
 | `dfinstall status` | Link status for every module |
-| `dfinstall diff` | Drift between config and filesystem |
+| `dfinstall diff` | Drift between config and filesystem, including managed keys in `~/.claude/settings.json` |
+| `dfinstall diff --brief` | Only what changed since install, one line each; silent when clean |
 | `dfinstall doctor` | Environment health checks, plus whether the clone itself is clean, pushed and level with its upstream |
 | `dfinstall --version` | Version stamped in at build time |
 
@@ -185,6 +186,18 @@ Managed configs are symlinks into the clone, so editing `~/.config/ghostty/confi
 | `~/.gitconfig` | `~/.gitconfig.local` (new keys only: it is included at the top, so it cannot override a key `gitconfig` sets) |
 
 You can write to these files directly too. `~/.zshenv`, extra files in `~/.zsh.d/`, and anything else dfinstall does not link are never touched.
+
+### Drift warnings
+
+A new zsh checks, in the background, whether something changed a managed file behind dfinstall's back: a link replaced by a file or pointing at another clone, or managed settings edited (for example Claude Code's `/config` rewriting `tui` in `~/.claude/settings.json`). The result shows once at a later prompt:
+
+```
+⚠ dfinstall: managed files changed outside dfinstall
+  ~/.claude/settings.json: managed keys differ: tui
+  review with: dfinstall diff   relink or re-merge with: dfinstall install all --upgrade
+```
+
+It adds nothing to startup, runs at most every ten minutes, prints each finding once rather than in every pane, and never fixes anything itself. Links that were never installed are not reported. `DF_NO_DRIFT_CHECK=1` turns it off.
 
 ## Backup & Restore
 
