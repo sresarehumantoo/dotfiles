@@ -405,6 +405,8 @@ See [Devtools Scripts](devtools.md) for detailed script documentation.
 
 Symlinks `config/git/gitconfig` to `~/.gitconfig`.
 
+Asks for a git identity only when no global config sets one (`user.name` comes from the tracked `gitconfig`, so in practice it asks for `user.email` once). The answer is added to `~/.gitconfig.local` with `git config --file`, never written over it, since that file often carries site settings or is a symlink into another repo. Change it later with `git config --file ~/.gitconfig.local user.email <value>`.
+
 Key settings:
 - Default branch: `main`
 - Push: `autoSetupRemote = true`
