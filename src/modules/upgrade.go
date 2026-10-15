@@ -79,6 +79,9 @@ func ConvergeClone(ctx context.Context, dir string) (srcChanged bool, err error)
 	switch {
 	case !ok:
 		return false, fmt.Errorf("could not compare with %s", upstream)
+	case behind == 0 && core.DryRun:
+		core.Status("dotfiles clone was up to date with %s at the last fetch", upstream)
+		return false, nil
 	case behind == 0:
 		core.Status("dotfiles clone is up to date with %s", upstream)
 		return false, nil

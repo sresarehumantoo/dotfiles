@@ -397,6 +397,8 @@ func upgradeClone(ctx context.Context, all bool) {
 		dir = core.InvokingCloneDir()
 	}
 	changed, err := modules.ConvergeClone(ctx, dir)
+	// Before any re-exec, which would drop what quiet mode buffered.
+	core.FlushWarnings()
 	if err != nil {
 		core.AlwaysWarn("could not update %s: %v", dir, err)
 		return
