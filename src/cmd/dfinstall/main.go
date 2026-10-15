@@ -392,8 +392,8 @@ func main() {
 }
 
 // upgradeClone is the first half of --upgrade: bring the clone up to date,
-// then rebuild and re-exec when that changed dfinstall itself, so the install
-// runs the code it just pulled. Failures are reported and the install goes on
+// then rebuild and re-exec when dfinstall's source there differs from what
+// this binary was built from, so the install runs the clone's code. Failures are reported and the install goes on
 // with the clone as it is.
 func upgradeClone(ctx context.Context, all bool) {
 	if os.Getenv(upgradedEnv) != "" {
@@ -410,9 +410,14 @@ func upgradeClone(ctx context.Context, all bool) {
 	core.FlushWarnings()
 	if err != nil {
 		core.AlwaysWarn("could not update %s: %v", dir, err)
+	}
+	// Also when nothing was pulled: the clone may have been pulled by hand
+	// since this binary was built.
+	if !changed && !modules.BinaryStale(ctx, dir, core.Version) {
 		return
 	}
-	if !changed || core.DryRun {
+	if core.DryRun {
+		core.Info("would rebuild dfinstall from %s", dir)
 		return
 	}
 	exe := modules.RebuildSelf(ctx, dir)

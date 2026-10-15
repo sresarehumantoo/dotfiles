@@ -304,3 +304,39 @@ func TestUpdateClone(t *testing.T) {
 		t.Errorf("clone at %s, upstream at %s", a, b)
 	}
 }
+
+func TestBinaryStale(t *testing.T) {
+	ctx := context.Background()
+	_, clone := upgradeFixture(t)
+	built := gitIn(t, clone, "rev-parse", "--short", "HEAD")
+	gitIn(t, clone, "tag", "v9.9.9")
+	version := "v9.9.8-1-g" + built
+
+	for _, v := range []string{version, version + "-dirty", "v9.9.9", "v9.9.9-dirty"} {
+		if BinaryStale(ctx, clone, v) {
+			t.Errorf("%s: stale at its own commit", v)
+		}
+	}
+	for _, v := range []string{"dev", "", "v0.0.0-1-gdeadbee"} {
+		if !BinaryStale(ctx, clone, v) {
+			t.Errorf("%s: not stale, but names no commit here", v)
+		}
+	}
+
+	// Pulled by hand: config-only commits leave the binary current, a source
+	// change does not.
+	putFile(t, clone, "config/shell/zshrc", fixtureZshrc+"export PAGER=less\n")
+	gitIn(t, clone, "commit", "-q", "-am", "config")
+	if BinaryStale(ctx, clone, version) {
+		t.Error("stale after a config-only commit")
+	}
+	putFile(t, clone, "src/main.go", "package main\n\nfunc main() {}\n")
+	gitIn(t, clone, "commit", "-q", "-am", "src")
+	if !BinaryStale(ctx, clone, version) {
+		t.Error("not stale after a source commit")
+	}
+
+	if BinaryStale(ctx, t.TempDir(), "dev") {
+		t.Error("stale in a directory that is not a checkout")
+	}
+}
