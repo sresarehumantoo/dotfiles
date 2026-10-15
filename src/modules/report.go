@@ -1,9 +1,11 @@
 package modules
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -54,8 +56,11 @@ func PrintStatus() { WriteStatus(os.Stdout) }
 
 // DiffProblem is one managed path that isn't in the state we expect.
 type DiffProblem struct {
-	Dst   string
-	State string // "missing", "wrong" or "file" (see core.CheckLink), or "content"
+	Dst string
+	// "missing", "wrong" or "file" (see core.CheckLink), "content", or
+	// "edited": linked correctly, but the clone's copy has uncommitted edits,
+	// which is where anything writing through the link puts its change.
+	State string
 	// Detail says what differs for a "content" problem.
 	Detail string
 }
@@ -98,12 +103,17 @@ type DiffEntry struct {
 type DiffReport struct {
 	Entries []DiffEntry
 	Issues  int
-	Drift   core.LinkDrift
+	// Edited counts "edited" problems. They are not Issues: install leaves
+	// them alone, so "run install all to fix" would not.
+	Edited int
+	Drift  core.LinkDrift
 }
 
 // CollectDiff inspects every module and reports what differs from config.
 func CollectDiff() DiffReport {
 	var r DiffReport
+	root := core.DotfilesDir()
+	edited := editedInClone(root)
 
 	for _, m := range core.AllModules() {
 		// SkipInAll, not IsModuleSkipped: this report ends with "run install
@@ -126,9 +136,16 @@ func CollectDiff() DiffReport {
 			e.Exported = true
 			e.Links = len(links)
 			for _, lp := range links {
-				if state := core.CheckLink(lp.Src, lp.Dst); state != "ok" {
+				state := core.CheckLink(lp.Src, lp.Dst)
+				switch {
+				case state != "ok":
 					e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: state})
 					r.Issues++
+				case len(edited) > 0:
+					if rel := editedUnder(edited, root, lp.Src); rel != "" {
+						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel})
+						r.Edited++
+					}
 				}
 			}
 			if cd, ok := m.(contentDrifter); ok {
@@ -146,6 +163,36 @@ func CollectDiff() DiffReport {
 
 	r.Drift = core.DetectLinkDrift()
 	return r
+}
+
+// editedInClone lists the files in the clone at root that differ from HEAD,
+// relative to root. Empty when root is not a git checkout.
+func editedInClone(root string) []string {
+	if root == "" {
+		return nil
+	}
+	// context.Background: CollectDiff has no context, as Status() has none;
+	// this is a local git read bounded by runProbe's timeout.
+	out, err := runProbe(context.Background(), "git", "-C", root, "diff", "--name-only", "HEAD")
+	if err != nil {
+		return nil
+	}
+	return strings.Fields(string(out))
+}
+
+// editedUnder returns the first edited file at src or, for a linked
+// directory, under it.
+func editedUnder(edited []string, root, src string) string {
+	rel, err := filepath.Rel(root, src)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	for _, f := range edited {
+		if f == rel || strings.HasPrefix(f, rel+"/") {
+			return f
+		}
+	}
+	return ""
 }
 
 // Write renders the report.
@@ -178,6 +225,8 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 					fmt.Fprintf(w, "  regular file (not symlinked): %s\n", p.Dst)
 				case "content":
 					fmt.Fprintf(w, "  %s: %s\n", p.Dst, p.Detail)
+				case "edited":
+					fmt.Fprintf(w, "  edited in the clone (uncommitted %s): %s\n", p.Detail, p.Dst)
 				}
 			}
 
@@ -199,6 +248,9 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 	} else {
 		fmt.Fprintf(w, "%d issue(s) — %s\n", r.Issues, fixHint)
 	}
+	if r.Edited > 0 {
+		fmt.Fprintf(w, "%d managed file(s) edited in the clone: commit or revert them, or move them out with install all --upgrade\n", r.Edited)
+	}
 
 	// Flag the multi-clone case explicitly: symlinks split across dotfiles
 	// clones each show as a "wrong target" above, but the root cause is drift.
@@ -216,8 +268,8 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 }
 
 // WriteBrief prints one line per managed path that something changed after
-// install: a link replaced by a file or pointing elsewhere, or managed content
-// edited. Nothing when there is none. It is for the shell's drift check, so
+// install: a link replaced by a file or pointing elsewhere, managed content
+// edited, or a linked file edited through its link. Nothing when there is none. It is for the shell's drift check, so
 // it leaves out what may be deliberate on a given machine: missing links
 // (a module never installed there), and modules that do not export links,
 // whose counts include packages a machine may lack on purpose.
@@ -238,6 +290,8 @@ func (r DiffReport) WriteBrief(w io.Writer) {
 				fmt.Fprintf(w, "%s was replaced by a file\n", short(p.Dst))
 			case "content":
 				fmt.Fprintf(w, "%s: %s\n", short(p.Dst), p.Detail)
+			case "edited":
+				fmt.Fprintf(w, "%s: edited in the clone (%s)\n", short(p.Dst), p.Detail)
 			}
 		}
 	}

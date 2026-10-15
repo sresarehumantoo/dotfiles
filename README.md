@@ -189,12 +189,12 @@ You can write to these files directly too. `~/.zshenv`, extra files in `~/.zsh.d
 
 ### Drift warnings
 
-A new zsh checks, in the background, whether something changed a managed file behind dfinstall's back: a link replaced by a file or pointing at another clone, or managed settings edited (for example Claude Code's `/config` rewriting `tui` in `~/.claude/settings.json`). The result shows once at a later prompt:
+A new zsh checks, in the background, whether something changed a managed file behind dfinstall's back: a link replaced by a file or pointing at another clone, managed settings edited (for example Claude Code's `/config` rewriting `tui` in `~/.claude/settings.json`), or a linked file edited through its link. That last one is a script running `git config --global`: the link stays intact and the change lands in the clone as an uncommitted edit. The result shows once at a later prompt:
 
 ```
 ⚠ dfinstall: managed files changed outside dfinstall
   ~/.claude/settings.json: managed keys differ: tui
-  review with: dfinstall diff   relink or re-merge with: dfinstall install all --upgrade
+  review with: dfinstall diff   resolve with: dfinstall install all --upgrade
 ```
 
 It adds nothing to startup, runs at most every ten minutes, prints each finding once rather than in every pane, and never fixes anything itself. Links that were never installed are not reported. `DF_NO_DRIFT_CHECK=1` turns it off.

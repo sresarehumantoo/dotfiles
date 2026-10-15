@@ -1,6 +1,8 @@
 # Say so, once, when something changed a dotfiles-managed file behind
-# dfinstall's back: a link replaced by a file or pointing elsewhere, or managed
-# settings edited (Claude Code's /config rewriting ~/.claude/settings.json).
+# dfinstall's back: a link replaced by a file or pointing elsewhere, managed
+# settings edited (Claude Code's /config rewriting ~/.claude/settings.json), or
+# a linked file edited through its link (a script running git config --global
+# changes the clone's copy).
 #
 # `dfinstall diff --brief` takes tens of milliseconds and p10k's instant prompt
 # forbids output during startup, so the check runs in the background and its
@@ -34,7 +36,7 @@ _df_drift_show() {
   [[ -n $found ]] || return
   print -P '%F{yellow}⚠ dfinstall:%f managed files changed outside dfinstall'
   print -rl -- ${${(f)found}/#/  }
-  print -P '  %F{8}review with: dfinstall diff   relink or re-merge with: dfinstall install all --upgrade%f'
+  print -P '  %F{8}review with: dfinstall diff   resolve with: dfinstall install all --upgrade%f'
 }
 
 autoload -Uz add-zsh-hook
