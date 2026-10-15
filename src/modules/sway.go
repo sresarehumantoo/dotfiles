@@ -258,6 +258,10 @@ func pkgFilePresent(globs []string) bool {
 	return false
 }
 
+// AppInstalled reports whether this machine has sway, so diff leaves the
+// links of a desktop it does not run out of its report.
+func (SwayModule) AppInstalled() bool { return swayInstalled() }
+
 func swayInstalled() bool {
 	_, err := exec.LookPath("sway")
 	return err == nil
