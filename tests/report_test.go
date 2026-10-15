@@ -182,3 +182,36 @@ func TestDiffReport_CleanReportSaysNoDrift(t *testing.T) {
 		t.Errorf("clean report should say so:\n%s", b.String())
 	}
 }
+
+// The shell's drift check prints whatever this writes, so a clean report and
+// links that were never installed must print nothing.
+func TestDiffReport_WriteBrief(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
+	var b strings.Builder
+	modules.DiffReport{
+		Entries: []modules.DiffEntry{
+			{Name: "shell", Exported: true, Links: 3, Problems: []modules.DiffProblem{
+				{Dst: "/home/u/.zshrc", State: "missing"},
+				{Dst: "/home/u/.config/ghostty/config", State: "file"},
+				{Dst: "/home/u/.gitconfig", State: "wrong"},
+			}},
+			{Name: "claude", Exported: true, Links: 1, Problems: []modules.DiffProblem{
+				{Dst: "/home/u/.claude/settings.json", State: "content", Detail: "managed keys differ: tui"},
+			}},
+			{Name: "packages", Missing: 2},
+		},
+	}.WriteBrief(&b)
+
+	want := "~/.config/ghostty/config was replaced by a file\n" +
+		"~/.gitconfig links somewhere else\n" +
+		"~/.claude/settings.json: managed keys differ: tui\n"
+	if b.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", b.String(), want)
+	}
+
+	b.Reset()
+	modules.DiffReport{Entries: []modules.DiffEntry{{Name: "shell", Exported: true, Links: 3}}}.WriteBrief(&b)
+	if b.String() != "" {
+		t.Errorf("clean report printed %q", b.String())
+	}
+}

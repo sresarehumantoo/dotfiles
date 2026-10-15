@@ -265,6 +265,7 @@ Symlinks shell configuration files:
 | `shell/zsh/exports.zsh` | `~/.zsh.d/exports.zsh` |
 | `shell/zsh/ssh.zsh` | `~/.zsh.d/ssh.zsh` |
 | `shell/zsh/locale.zsh` | `~/.zsh.d/locale.zsh` |
+| `shell/zsh/drift.zsh` | `~/.zsh.d/drift.zsh` |
 | `shell/zprofile` | `~/.zprofile` |
 
 The zshrc sources p10k instant prompt, loads oh-my-zsh, then sources all `~/.zsh.d/*.zsh` files for modular configuration.

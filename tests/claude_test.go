@@ -109,3 +109,25 @@ func TestClaudeMergeDryRunWritesNothing(t *testing.T) {
 		t.Error("dry run created settings.json")
 	}
 }
+
+func TestClaudeContentDrift(t *testing.T) {
+	home := claudeSandbox(t)
+	m := modules.ClaudeModule{}
+	if d := m.ContentDrift(); d != nil {
+		t.Errorf("no settings.json yet: want no drift, got %v", d)
+	}
+	if err := m.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d := m.ContentDrift(); d != nil {
+		t.Errorf("after install: want no drift, got %v", d)
+	}
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"attribution": {"commit": "", "pr": ""}, "includeCoAuthoredBy": true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d := m.ContentDrift()
+	if len(d) != 1 || d[0].Dst != settings || d[0].Detail != "managed keys differ: includeCoAuthoredBy" {
+		t.Errorf("edited key: got %+v", d)
+	}
+}

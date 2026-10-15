@@ -29,6 +29,7 @@ var shellLinks = []struct{ src, dst string }{
 	{"shell/zsh/exports.zsh", ".zsh.d/exports.zsh"},
 	{"shell/zsh/ssh.zsh", ".zsh.d/ssh.zsh"},
 	{"shell/zsh/locale.zsh", ".zsh.d/locale.zsh"},
+	{"shell/zsh/drift.zsh", ".zsh.d/drift.zsh"},
 }
 
 func (ShellModule) Install(ctx context.Context) error {
