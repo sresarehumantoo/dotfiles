@@ -194,7 +194,7 @@ A new zsh checks, in the background, whether something changed a managed file be
 ```
 ⚠ dfinstall: managed files changed outside dfinstall
   ~/.claude/settings.json: managed keys differ: tui
-  review with: dfinstall diff   resolve with: dfinstall install all --upgrade
+  what to do about each: dfinstall diff
 ```
 
 It adds nothing to startup, runs at most every ten minutes, prints each finding once rather than in every pane, and never fixes anything itself. Links that were never installed are not reported. `DF_NO_DRIFT_CHECK=1` turns it off.

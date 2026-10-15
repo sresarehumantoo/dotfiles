@@ -288,9 +288,24 @@ func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
 	if len(e.Problems) != 1 || e.Problems[0].State != "edited" || e.Problems[0].Detail != "config/git/gitconfig" {
 		t.Fatalf("edit through the link: %+v", e.Problems)
 	}
+	// A changed key cannot move: ~/.gitconfig.local is included first, so the
+	// main file's value would still win. The advice must not offer --upgrade.
 	var b strings.Builder
 	r.WriteBrief(&b)
-	if !strings.Contains(b.String(), "~/.gitconfig: edited in the clone (config/git/gitconfig)\n") {
-		t.Errorf("brief:\n%s", b.String())
+	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); commit or revert it there\n"; b.String() != want {
+		t.Errorf("brief for a changed key:\n%s\nwant:\n%s", b.String(), want)
+	}
+	b.Reset()
+	r.Write(&b, "fix", "consolidate")
+	if !strings.Contains(b.String(), "git -C "+dots+" checkout -- config/git/gitconfig") || strings.Contains(b.String(), "can move") {
+		t.Errorf("diff for a changed key:\n%s", b.String())
+	}
+
+	// A new key can.
+	os.WriteFile(dst, []byte("[core]\n\tpager = delta\n[alias]\n\tst = status\n"), 0o644)
+	b.Reset()
+	modules.CollectDiff().WriteBrief(&b)
+	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); install all --upgrade can move it to ~/.gitconfig.local\n"; b.String() != want {
+		t.Errorf("brief for a new key:\n%s\nwant:\n%s", b.String(), want)
 	}
 }
