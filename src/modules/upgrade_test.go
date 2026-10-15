@@ -286,3 +286,21 @@ func TestRescueReplacedLinks(t *testing.T) {
 		t.Errorf("clone status %q, want only the adopted file", got)
 	}
 }
+
+func TestUpdateClone(t *testing.T) {
+	up, clone := upgradeFixture(t)
+	commitUpstream(t, up, "config/shell/zshrc", fixtureZshrc+"export PAGER=less\n")
+
+	core.UpgradeMode = false
+	updateClone(context.Background(), "plugin", clone)
+	if gitIn(t, clone, "rev-parse", "HEAD") == gitIn(t, up, "rev-parse", "HEAD") {
+		t.Fatal("updated without --upgrade")
+	}
+
+	core.UpgradeMode = true
+	t.Cleanup(func() { core.UpgradeMode = false })
+	updateClone(context.Background(), "plugin", clone)
+	if a, b := gitIn(t, clone, "rev-parse", "HEAD"), gitIn(t, up, "rev-parse", "HEAD"); a != b {
+		t.Errorf("clone at %s, upstream at %s", a, b)
+	}
+}
