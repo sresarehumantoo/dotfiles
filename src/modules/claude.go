@@ -71,6 +71,22 @@ func (m ClaudeModule) Status() core.ModuleStatus {
 	return s
 }
 
+// ContentDrift reports managed settings keys that something else changed,
+// typically Claude Code's own /config.
+func (ClaudeModule) ContentDrift() []DiffProblem {
+	if _, err := os.Stat(claudeSettingsPath()); errors.Is(err, fs.ErrNotExist) {
+		return nil // never installed here; the missing link already says so
+	}
+	_, _, stale, err := claudeSettingsState()
+	switch {
+	case err != nil:
+		return []DiffProblem{{Dst: claudeSettingsPath(), State: "content", Detail: "unreadable"}}
+	case len(stale) > 0:
+		return []DiffProblem{{Dst: claudeSettingsPath(), State: "content", Detail: "managed keys differ: " + strings.Join(stale, ", ")}}
+	}
+	return nil
+}
+
 func claudeSettingsPath() string { return core.HomeTarget(".claude", "settings.json") }
 
 // claudeSettingsState returns the tracked base, the live settings (empty when
