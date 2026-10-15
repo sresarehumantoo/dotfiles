@@ -1,6 +1,9 @@
 package tests
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -233,5 +236,61 @@ func TestCollectDiff_AbsentAppIsNotDrift(t *testing.T) {
 		if len(e.Problems) > 0 || !e.Absent {
 			t.Errorf("%s with no %s on PATH: absent=%v, %d problem(s)", e.Name, e.Name, e.Absent, len(e.Problems))
 		}
+	}
+}
+
+// A script running `git config --global` writes through ~/.gitconfig into the
+// clone: the link stays intact, so only the clone's git status shows it.
+func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	modules.RegisterAllModules()
+	home, dots := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DOTFILES", dots)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	core.ResetDotfilesDir()
+	t.Cleanup(core.ResetDotfilesDir)
+
+	src := filepath.Join(dots, "config", "git", "gitconfig")
+	os.MkdirAll(filepath.Dir(src), 0o755)
+	os.WriteFile(src, []byte("[core]\n\tpager = delta\n"), 0o644)
+	for _, args := range [][]string{
+		{"init", "-q"}, {"add", "."},
+		{"-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "x"},
+	} {
+		if out, err := exec.Command("git", append([]string{"-C", dots}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	dst := filepath.Join(home, ".gitconfig")
+	if err := os.Symlink(src, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	gitEntry := func(r modules.DiffReport) modules.DiffEntry {
+		for _, e := range r.Entries {
+			if e.Name == "git" {
+				return e
+			}
+		}
+		t.Fatal("no git entry")
+		return modules.DiffEntry{}
+	}
+	if e := gitEntry(modules.CollectDiff()); len(e.Problems) != 0 {
+		t.Fatalf("clean clone: %+v", e.Problems)
+	}
+
+	os.WriteFile(dst, []byte("[core]\n\tpager = less\n"), 0o644)
+	r := modules.CollectDiff()
+	e := gitEntry(r)
+	if len(e.Problems) != 1 || e.Problems[0].State != "edited" || e.Problems[0].Detail != "config/git/gitconfig" {
+		t.Fatalf("edit through the link: %+v", e.Problems)
+	}
+	var b strings.Builder
+	r.WriteBrief(&b)
+	if !strings.Contains(b.String(), "~/.gitconfig: edited in the clone (config/git/gitconfig)\n") {
+		t.Errorf("brief:\n%s", b.String())
 	}
 }
