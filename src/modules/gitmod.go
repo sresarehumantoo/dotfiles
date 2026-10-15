@@ -20,47 +20,25 @@ func (m GitModule) Install(ctx context.Context) error {
 		return err
 	}
 
+	// Only a missing identity is worth a question. The file it would go in is
+	// often more than an identity (site credential helpers, url rewrites, or a
+	// symlink into another repo), so it is added to, never rewritten.
 	localCfg := core.HomeTarget(".gitconfig.local")
-	exists := false
-	if _, err := os.Stat(localCfg); err == nil {
-		exists = true
-	}
-
-	if core.DryRun {
-		if exists {
-			core.Info("[dry-run] Would prompt to override %s", localCfg)
-		} else {
-			core.Info("[dry-run] Would prompt for git identity and write %s", localCfg)
-		}
-	} else if !core.Interactive {
-		// Reading stdin here would consume the caller's protocol stream. Keep
-		// whatever is on disk (the same outcome as declining the prompt).
-		if exists {
-			core.Info("Keeping existing .gitconfig.local (non-interactive)")
-		} else {
-			core.Notice("Skipped git identity prompt (non-interactive) — set it with: git config --global user.name/user.email")
-		}
-	} else {
-		run := true
-		if exists {
-			core.PauseSpinner()
-			reader := bufio.NewReader(os.Stdin)
-			fmt.Print("  ~/.gitconfig.local already exists. Override? [y/N]: ")
-			answer, err := reader.ReadString('\n')
-			core.ResumeSpinner()
-			if err != nil || strings.TrimSpace(strings.ToLower(answer)) != "y" {
-				run = false
-				core.Info("Keeping existing .gitconfig.local")
-			}
-		}
-		if run {
-			core.PauseSpinner()
-			if err := promptGitIdentity(localCfg); err != nil {
-				core.ResumeSpinner()
-				core.Warn("Could not set git identity — run: git config --global user.name/email")
-			} else {
-				core.ResumeSpinner()
-			}
+	missing := missingGitIdentity(ctx)
+	switch {
+	case len(missing) == 0:
+		core.Info("git identity already set")
+	case core.DryRun:
+		core.Info("[dry-run] Would prompt for %s and add it to %s", strings.Join(missing, ", "), localCfg)
+	case !core.Interactive:
+		// Reading stdin here would consume the caller's protocol stream.
+		core.Notice("git %s not set; set it with: git config --file ~/.gitconfig.local %s <value>", strings.Join(missing, ", "), missing[0])
+	default:
+		core.PauseSpinner()
+		err := promptGitIdentity(ctx, localCfg, missing)
+		core.ResumeSpinner()
+		if err != nil {
+			core.Warn("Could not set git identity: %v. Run: git config --file ~/.gitconfig.local user.email <value>", err)
 		}
 	}
 
@@ -68,41 +46,54 @@ func (m GitModule) Install(ctx context.Context) error {
 	return nil
 }
 
-func promptGitIdentity(path string) error {
+// missingGitIdentity lists the identity keys no global config sets, reading
+// ~/.gitconfig with its includes, so ~/.gitconfig.local counts.
+func missingGitIdentity(ctx context.Context) []string {
+	var missing []string
+	for _, key := range []string{"user.name", "user.email"} {
+		out, err := runProbe(ctx, "git", "config", "--global", "--includes", "--get", key)
+		if err != nil || strings.TrimSpace(string(out)) == "" {
+			missing = append(missing, key)
+		}
+	}
+	return missing
+}
+
+// promptGitIdentity asks for the missing keys and adds them to path with git
+// config, which leaves the rest of the file, and a symlink to it, intact.
+func promptGitIdentity(ctx context.Context, path string, missing []string) error {
+	_, statErr := os.Stat(path)
+	fresh := os.IsNotExist(statErr)
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("  Git user.name: ")
-	name, err := reader.ReadString('\n')
-	if err != nil {
-		return err
+	for _, key := range missing {
+		fmt.Printf("  Git %s: ", key)
+		value, err := reader.ReadString('\n')
+		if err != nil {
+			return err
+		}
+		if value = strings.TrimSpace(value); value == "" {
+			core.Warn("Skipping %s: no value given", key)
+			continue
+		}
+		if err := runCmd(ctx, "git", "config", "--file", path, key, value); err != nil {
+			return err
+		}
 	}
-	name = strings.TrimSpace(name)
 
-	fmt.Print("  Git user.email: ")
-	email, err := reader.ReadString('\n')
-	if err != nil {
-		return err
-	}
-	email = strings.TrimSpace(email)
-
-	if name == "" || email == "" {
-		core.Warn("Skipping git identity — name or email was empty")
+	// Only on first setup: asked on every run, it was answered no forever.
+	if !fresh {
 		return nil
 	}
-
-	content := fmt.Sprintf("[user]\n\tname = %s\n\temail = %s\n", name, email)
-
 	fmt.Print("  Use git credential store? (for HTTPS auth e.g. GitLab) [y/N]: ")
-	credAnswer, err := reader.ReadString('\n')
+	answer, err := reader.ReadString('\n')
 	if err != nil {
 		return err
 	}
-	credAnswer = strings.TrimSpace(strings.ToLower(credAnswer))
-	if credAnswer == "y" || credAnswer == "yes" {
-		content += "\n[credential]\n\thelper = store\n"
+	if a := strings.TrimSpace(strings.ToLower(answer)); a == "y" || a == "yes" {
+		return runCmd(ctx, "git", "config", "--file", path, "credential.helper", "store")
 	}
-
-	return os.WriteFile(path, []byte(content), 0644)
+	return nil
 }
 
 func (m GitModule) Uninstall(ctx context.Context) error {
