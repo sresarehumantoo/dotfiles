@@ -54,3 +54,10 @@
 # network.
 [user]
 	name = SREsAreHumanToo
+
+# This machine's own settings, loaded LAST so they win over everything above.
+# ~/.gitconfig.local is included first, so the handle above outranks a real
+# name there; this one is for overriding the shared defaults. dfinstall install
+# --upgrade moves edits made through ~/.gitconfig here. Neither file is tracked.
+[include]
+	path = ~/.gitconfig.user

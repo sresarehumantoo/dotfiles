@@ -183,9 +183,9 @@ Managed configs are symlinks into the clone, so editing `~/.config/ghostty/confi
 | `~/.config/ghostty/config` | `~/.config/ghostty/ghostty.user` |
 | `~/.zshrc`, `~/.zsh.d/*.zsh` | `~/.zshrc.local` |
 | `~/.aliases` | `~/.aliases.local` |
-| `~/.gitconfig` | `~/.gitconfig.local` (new keys only: it is included at the top, so it cannot override a key `gitconfig` sets) |
+| `~/.gitconfig` | `~/.gitconfig.user` (included last, so its values win; a removed key, or a rewritten multi-value key such as `credential.helper`, cannot move) |
 
-You can write to these files directly too. `~/.zshenv`, extra files in `~/.zsh.d/`, and anything else dfinstall does not link are never touched.
+Anything the override file already holds is not written again, so a repeated move, or a setting you had already put there, does not duplicate. `~/.gitconfig.local` stays the place for identity and site settings: it is included first, so the tracked `user.name` outranks a name there. You can write to these files directly too. `~/.zshenv`, extra files in `~/.zsh.d/`, and anything else dfinstall does not link are never touched.
 
 ### Drift warnings
 
