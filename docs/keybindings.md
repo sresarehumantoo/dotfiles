@@ -191,6 +191,8 @@ For a hands-on walkthrough of these, opened in nvim and practiced as you read, s
 | `leader hb` | Blame line |
 | `leader hd` | Diff against index |
 | `leader hD` | Diff against last commit |
+| `leader hv` | Diff view of all changes (diffview; `q` closes) |
+| `leader hf` | History of the current file (diffview) |
 | `leader tb` | Toggle blame line |
 | `leader tD` | Toggle show deleted |
 
