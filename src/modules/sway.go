@@ -98,7 +98,7 @@ func (SwayModule) Links() core.LinkSet {
 		// script.
 		{Src: core.ConfigPath("sway", "sway-monocle"), Dst: core.HomeTarget(".local", "bin", "sway-monocle")},
 
-		// The Quick Settings surface: wifi, sound and brightness, behind a
+		// The Quick Settings surface: wifi, bluetooth, sound and brightness, behind a
 		// MIDDLE click on the bar's network or volume glyph and $mod+i. It
 		// REPLACED sway-quickpanel, whose sliders duplicated swaync's — see
 		// swayLegacyScripts for the stale links that retirement leaves behind.

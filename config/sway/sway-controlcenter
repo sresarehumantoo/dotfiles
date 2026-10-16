@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""sway-controlcenter -- wifi, sound and brightness for sway.
+"""sway-controlcenter -- wifi, bluetooth, sound and brightness for sway.
 
 Linked to ~/.local/bin/sway-controlcenter by modules/sway.go. Opened by
 MIDDLE-CLICKING the network or volume readout in waybar, from the control
@@ -52,6 +52,13 @@ pw-dump. The D-Bus choice is not stylistic:
 nm-applet stays running and is NOT replaced by this: it is NetworkManager's
 secret agent, the thing that prompts when a saved key is rejected or an 802.1X
 network needs credentials, and it does that job with no icon on screen.
+
+Bluetooth came last, because nothing else on the desktop could join a device
+once bluetooth.service was disabled for battery: blueman-manager needs a
+running bluetoothd and cannot start one. Its switch starts and stops the
+service itself, behind a polkit password prompt -- see the Bluetooth class.
+blueman-applet stays running as the pairing agent, the role nm-applet plays
+for wifi.
 
 Keys:
     Escape          close the open row, or the panel
@@ -220,6 +227,20 @@ ACT_ACTIVATED = 2
 # NM80211ApFlags
 AP_FLAGS_PRIVACY = 0x1
 
+# -- BlueZ and systemd D-Bus names ---------------------------------------------
+BLUEZ = "org.bluez"
+I_ADAPTER = "org.bluez.Adapter1"
+I_BTDEV = "org.bluez.Device1"
+I_BATTERY = "org.bluez.Battery1"
+SYSTEMD = "org.freedesktop.systemd1"
+SYSTEMD_PATH = "/org/freedesktop/systemd1"
+I_SYSTEMD_MGR = "org.freedesktop.systemd1.Manager"
+BT_UNIT = "bluetooth.service"
+# How long "Starting…" may stand after systemd accepted the start job. A unit
+# that fails to come up reports that on the job, not on StartUnit, so without
+# this the subtitle would wait for an adapter that is never coming.
+BT_START_MS = 10000
+
 # NM80211ApSecurityFlags. Verified against a live reading: this box's AP reports
 # RsnFlags 392 == 0x188 == PAIR_CCMP | GROUP_CCMP | KEY_MGMT_PSK, i.e. WPA2-PSK.
 SEC_KEY_MGMT_PSK = 0x100
@@ -265,6 +286,20 @@ ICON_CHECK = "\U000f012c"       # md-check
 # Volume ramp, matching config/waybar/config's pulseaudio icons.
 ICON_VOL_MUTE = "\U000f075f"    # md-volume_off
 ICON_VOL = ["\U000f057f", "\U000f0580", "\U000f057e"]  # low, medium, high
+# Keyed by BlueZ's Device1.Icon, which it derives from the device class.
+ICON_BT = "\U000f00af"          # md-bluetooth, for anything not listed
+BT_ICONS = {
+    "audio-headset": "\U000f02ce",     # md-headset
+    "audio-headphones": "\U000f02cb",  # md-headphones
+    "audio-card": "\U000f04c3",        # md-speaker
+    "input-mouse": "\U000f037d",       # md-mouse
+    "input-keyboard": "\U000f030c",    # md-keyboard
+    "input-gaming": "\U000f0297",      # md-gamepad_variant
+    "input-tablet": "\U000f04f6",      # md-tablet
+    "phone": "\U000f011c",             # md-cellphone
+    "computer": "\U000f0322",          # md-laptop
+    "printer": "\U000f042a",           # md-printer
+}
 
 # -- Geometry ------------------------------------------------------------------
 # GAP IS MEASURED FROM THE USABLE AREA AND ZERO IS CORRECT -- not a missing
@@ -283,6 +318,7 @@ GAP = 0
 EDGE_MARGIN = 10   # waybar's own margin-left/right, for the left/right anchors
 PANEL_WIDTH = 380  # matches swaync's notification-window-width
 LIST_MAX_HEIGHT = 420
+BT_NEAR_MAX_HEIGHT = 160
 
 # How long to ignore focus events after mapping. A layer surface emits a
 # spurious focus-in -> focus-out pair within milliseconds of mapping, so an
@@ -1039,6 +1075,188 @@ class NetworkManager:
 
 
 # =============================================================================
+#  Bluetooth
+# =============================================================================
+class Bluetooth:
+    """BlueZ over the system bus, and the service it lives in.
+
+    ⚠ bluetooth.service IS DISABLED ON PURPOSE, to keep the radio off for
+    battery unless something is using it. So bluetoothd is usually NOT running,
+    org.bluez is not on the bus, and nothing here may assume otherwise. The
+    switch starts and stops the unit itself (set_service), which is polkit's
+    `manage-units` action and prompts for a password through the session's
+    polkit agent -- chosen over a standing polkit rule that would grant it
+    silently.
+
+    Whether the daemon is up comes from watching the org.bluez NAME rather than
+    asking systemd: the name is what every call here actually needs, and it
+    also covers a bluetoothd started from a terminal.
+
+    Pairing prompts (PIN, passkey confirmation) are NOT handled here.
+    blueman-applet runs from config/sway/config as BlueZ's agent, the same
+    split as nm-applet being NetworkManager's secret agent.
+    """
+
+    def __init__(self, bus, on_change):
+        self.bus = bus
+        self.running = False
+        self._scanning = None   # adapter path discovery was started on
+        self._subs = []
+        self._on_change = on_change
+        Gio.bus_watch_name_on_connection(bus, BLUEZ, Gio.BusNameWatcherFlags.NONE,
+                                         self._appeared, self._vanished)
+
+    def _appeared(self, *_a):
+        self.running = True
+        self._on_change()
+
+    def _vanished(self, *_a):
+        self.running = False
+        self._scanning = None
+        self._on_change()
+
+    @staticmethod
+    def hardware():
+        """A controller exists, whether or not bluetoothd is running.
+
+        Read from sysfs because BlueZ is usually not there to ask. `hciN:M`
+        entries are live connections, not controllers.
+        """
+        return any(":" not in os.path.basename(p)
+                   for p in glob.glob("/sys/class/bluetooth/hci*"))
+
+    def _call_async(self, dest, path, iface, method, args, done=None,
+                    timeout=45000, flags=Gio.DBusCallFlags.NONE):
+        def _cb(_src, res):
+            try:
+                self.bus.call_finish(res)
+                err = None
+            except GLib.Error as e:
+                err = e.message
+            if done:
+                done(err)
+        self.bus.call(dest, path, iface, method, args, None, flags, timeout,
+                      None, _cb)
+
+    def snapshot(self):
+        """One GetManagedObjects read of the first adapter. Never raises."""
+        snap = {"hardware": self.hardware(), "running": self.running,
+                "adapter": None, "powered": False, "blocked": False,
+                "devices": []}
+        if not self.running:
+            return snap
+        try:
+            objs = self.bus.call_sync(BLUEZ, "/", I_OBJMGR, "GetManagedObjects",
+                                      None, None, Gio.DBusCallFlags.NONE, 4000,
+                                      None).unpack()[0]
+        except GLib.Error:
+            return snap
+        adapters = sorted(p for p, i in objs.items() if I_ADAPTER in i)
+        if not adapters:
+            return snap  # bluetoothd owns its name before it registers adapters
+        path = adapters[0]
+        adapter = objs[path][I_ADAPTER]
+        snap["adapter"] = path
+        snap["powered"] = bool(adapter.get("Powered"))
+        snap["blocked"] = adapter.get("PowerState") == "off-blocked"  # rfkill
+        if not snap["powered"]:
+            self._scanning = None  # powering off ends discovery
+        for dev_path, ifaces in objs.items():
+            d = ifaces.get(I_BTDEV)
+            if not d or d.get("Adapter") != path:
+                continue
+            snap["devices"].append({
+                "path": dev_path,
+                "address": d.get("Address", ""),
+                "name": d.get("Alias") or d.get("Address", "?"),
+                # Alias falls back to the address; only a real Name makes a
+                # nearby device worth listing (see _render_bt).
+                "named": "Name" in d,
+                "icon": d.get("Icon", ""),
+                "paired": bool(d.get("Paired") or d.get("Bonded")),
+                "connected": bool(d.get("Connected")),
+                "rssi": d.get("RSSI"),
+                "battery": ifaces.get(I_BATTERY, {}).get("Percentage"),
+            })
+        return snap
+
+    def subscribe(self, handler):
+        """Panel-visible only, like NetworkManager.subscribe."""
+        for iface, member in ((I_PROPS, "PropertiesChanged"),
+                              (I_OBJMGR, "InterfacesAdded"),
+                              (I_OBJMGR, "InterfacesRemoved")):
+            self._subs.append(self.bus.signal_subscribe(
+                BLUEZ, iface, member, None, None, Gio.DBusSignalFlags.NONE,
+                lambda *a, _m=member: handler(_m)))
+
+    def unsubscribe(self):
+        for sid in self._subs:
+            self.bus.signal_unsubscribe(sid)
+        self._subs = []
+
+    def start_discovery(self, adapter):
+        """Scan while the panel is open. Failures are routine and silent."""
+        if self._scanning == adapter:
+            return
+        self._scanning = adapter
+        self._call_async(BLUEZ, adapter, I_ADAPTER, "StartDiscovery", None,
+                         timeout=8000)
+
+    def stop_discovery(self):
+        if self._scanning is None:
+            return
+        adapter, self._scanning = self._scanning, None
+        self._call_async(BLUEZ, adapter, I_ADAPTER, "StopDiscovery", None,
+                         timeout=8000)
+
+    def set_service(self, on, done):
+        """Start or stop bluetooth.service, prompting through polkit.
+
+        No timeout: the call is waiting on a human typing a password.
+        """
+        self._call_async(SYSTEMD, SYSTEMD_PATH, I_SYSTEMD_MGR,
+                         "StartUnit" if on else "StopUnit",
+                         GLib.Variant("(ss)", (BT_UNIT, "replace")), done,
+                         timeout=GLib.MAXINT32,
+                         flags=Gio.DBusCallFlags.ALLOW_INTERACTIVE_AUTHORIZATION)
+
+    def set_powered(self, adapter, on, done=None):
+        self._call_async(BLUEZ, adapter, I_PROPS, "Set",
+                         GLib.Variant("(ssv)", (I_ADAPTER, "Powered",
+                                                GLib.Variant("b", on))),
+                         done, timeout=8000)
+
+    def connect(self, dev, done=None):
+        self._call_async(BLUEZ, dev, I_BTDEV, "Connect", None, done)
+
+    def disconnect(self, dev, done=None):
+        self._call_async(BLUEZ, dev, I_BTDEV, "Disconnect", None, done)
+
+    def pair(self, dev, done=None):
+        """Pair, trust, then connect: what clicking a new device means.
+
+        Trusted is what lets the device come back on its own. An untrusted one
+        has every incoming connection put to the agent, so headphones that
+        reconnect when switched on would prompt each time.
+        """
+        def paired(err):
+            if err:
+                done(err)
+                return
+            self._call_async(BLUEZ, dev, I_PROPS, "Set",
+                             GLib.Variant("(ssv)", (I_BTDEV, "Trusted",
+                                                    GLib.Variant("b", True))),
+                             lambda _e: self.connect(dev, done), timeout=8000)
+        # Long, because the agent may be waiting on a passkey confirmation.
+        self._call_async(BLUEZ, dev, I_BTDEV, "Pair", None, paired,
+                         timeout=90000)
+
+    def forget(self, adapter, dev, done=None):
+        self._call_async(BLUEZ, adapter, I_ADAPTER, "RemoveDevice",
+                         GLib.Variant("(o)", (dev,)), done)
+
+
+# =============================================================================
 #  Sound and brightness
 # =============================================================================
 class AsyncCommand:
@@ -1773,6 +1991,54 @@ class Panel(Gtk.Window):
         self.eth_heading, self.eth_box = self._section(root, "WIRED")
         self.vpn_heading, self.vpn_box = self._section(root, "VPN")
 
+        # -- bluetooth -------------------------------------------------------
+        # A second titled header rather than a small-caps section, because it
+        # carries a radio switch exactly as Wi-Fi does (the macOS arrangement).
+        self.bt = Bluetooth(nm.bus, self._on_bt_change)
+        self.bt_snap = self.bt.snapshot()
+        self._bt_pending = None   # "start" | "stop" while the service call runs
+        self.bt_rule = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        self.bt_rule.get_style_context().add_class("rule")
+        root.pack_start(self.bt_rule, False, False, 0)
+        self.bt_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        self.bt_header.get_style_context().add_class("header")
+        bt_titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        bt_title = Gtk.Label(label="Bluetooth", xalign=0.0)
+        bt_title.get_style_context().add_class("title")
+        self.bt_subtitle = Gtk.Label(xalign=0.0)
+        self.bt_subtitle.get_style_context().add_class("subtitle")
+        self.bt_subtitle.set_ellipsize(Pango.EllipsizeMode.END)
+        bt_titles.pack_start(bt_title, False, False, 0)
+        bt_titles.pack_start(self.bt_subtitle, False, False, 0)
+        self.bt_switch = Gtk.Switch()
+        self.bt_switch.set_valign(Gtk.Align.CENTER)
+        self._bt_switch_handler = self.bt_switch.connect("notify::active",
+                                                         self._on_bt_switch)
+        self.bt_header.pack_start(bt_titles, True, True, 0)
+        self.bt_header.pack_end(self.bt_switch, False, False, 0)
+        root.pack_start(self.bt_header, False, False, 0)
+        # Paired devices sit directly under the header, like the connected
+        # network under Wi-Fi's; what discovery finds goes in a capped scroller,
+        # since a busy room advertises dozens of things.
+        self.bt_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        root.pack_start(self.bt_box, False, False, 0)
+        self.bt_near_heading = Gtk.Label(label="NEARBY DEVICES", xalign=0.0)
+        self.bt_near_heading.get_style_context().add_class("section")
+        root.pack_start(self.bt_near_heading, False, False, 0)
+        self.bt_near_scroller = Gtk.ScrolledWindow()
+        self.bt_near_scroller.set_policy(Gtk.PolicyType.NEVER,
+                                         Gtk.PolicyType.AUTOMATIC)
+        self.bt_near_scroller.set_propagate_natural_height(True)
+        self.bt_near_scroller.set_max_content_height(BT_NEAR_MAX_HEIGHT)
+        self.bt_near_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+        self.bt_near_scroller.add(self.bt_near_box)
+        root.pack_start(self.bt_near_scroller, False, False, 0)
+        self.bt_searching = Gtk.Label(label="Searching…", xalign=0.0)
+        self.bt_searching.get_style_context().add_class("subtitle")
+        self.bt_searching.set_margin_start(12)
+        self.bt_searching.set_margin_bottom(4)
+        root.pack_start(self.bt_searching, False, False, 0)
+
         # -- sound -----------------------------------------------------------
         self.sound_heading, self.sound_box = self._section(root, "SOUND")
         self.volume_row = SliderRow(ICON_VOL[2], self._on_volume,
@@ -1833,6 +2099,9 @@ class Panel(Gtk.Window):
         self.show_all()
         for widget in (self.placeholder, self.eth_heading, self.eth_box,
                        self.vpn_heading, self.vpn_box,
+                       self.bt_rule, self.bt_header, self.bt_box,
+                       self.bt_near_heading, self.bt_near_scroller,
+                       self.bt_searching,
                        self.known_heading, self.known_box,
                        self.other_heading, self.other_box,
                        self.sound_heading, self.sound_box,
@@ -1880,6 +2149,10 @@ class Panel(Gtk.Window):
         # Live updates cost nothing while the panel is closed: the
         # subscriptions and both timers exist only between show and hide.
         self.nm.subscribe(self._on_nm_signal)
+        self.bt.subscribe(self._on_nm_signal)
+        # Again now that is_open() is true: the refresh above ran before the
+        # map, and discovery is only started on an open panel.
+        self._render_bt()
         self._tick = GLib.timeout_add(TICK_MS, self._on_tick)
         self._rescan = GLib.timeout_add(RESCAN_MS, self._on_rescan)
         self._audio_poll = GLib.timeout_add(AUDIO_POLL_MS, self._poll_audio)
@@ -1903,6 +2176,8 @@ class Panel(Gtk.Window):
         self.fade.set_reveal_child(False)
         GLib.timeout_add(FADE_MS, self._finish_hide)
         self.nm.unsubscribe()
+        self.bt.unsubscribe()
+        self.bt.stop_discovery()
         for attr in ("_tick", "_rescan", "_coalesce", "_audio_poll"):
             source = getattr(self, attr)
             if source:
@@ -2043,6 +2318,7 @@ class Panel(Gtk.Window):
         self._render_wifi(snap)
         self._render_eth(snap)
         self._render_vpn(snap)
+        self._render_bt()
         self._render_sound()
         self._render_display()
         self._render_footer(snap)
@@ -2217,6 +2493,92 @@ class Panel(Gtk.Window):
                                 [("Connect", None, lambda e=entry: self._vpn_up(e))])
             row.revealer.set_reveal_child(self.expanded == key)
 
+    def _render_bt(self):
+        snap = self.bt.snapshot()
+        self.bt_snap = snap
+        have = snap["hardware"]
+        self.bt_rule.set_visible(have)
+        self.bt_header.set_visible(have)
+        powered = snap["adapter"] is not None and snap["powered"]
+        if self._bt_pending == "start" and snap["adapter"] is not None:
+            self._bt_pending = None
+            if not powered:
+                # Up but unpowered: AutoEnable is off, or the adapter was
+                # powered down before an earlier stop was cancelled.
+                self.bt.set_powered(snap["adapter"], True)
+
+        self.bt_switch.handler_block(self._bt_switch_handler)
+        self.bt_switch.set_active(powered or self._bt_pending == "start")
+        self.bt_switch.handler_unblock(self._bt_switch_handler)
+        self.bt_switch.set_sensitive(self._bt_pending is None
+                                     and not snap["blocked"])
+
+        connected = [d["name"] for d in snap["devices"] if d["connected"]]
+        if self._bt_pending == "start":
+            self.bt_subtitle.set_text("Starting…")
+        elif self._bt_pending == "stop":
+            self.bt_subtitle.set_text("Stopping…")
+        elif snap["blocked"]:
+            self.bt_subtitle.set_text("Blocked by rfkill")
+        elif not powered:
+            self.bt_subtitle.set_text("Off")
+        elif connected:
+            self.bt_subtitle.set_text(", ".join(connected))
+        else:
+            self.bt_subtitle.set_text("On")
+
+        devices = snap["devices"] if have and powered else []
+        mine = sorted((d for d in devices if d["paired"]),
+                      key=lambda d: (not d["connected"], d["name"].lower()))
+        # Nameless devices are left out: they are almost all BLE beacons and
+        # neighbours' phones, and a row reading 4C:87:5D:... cannot be chosen.
+        near = sorted((d for d in devices if not d["paired"] and d["named"]),
+                      key=lambda d: (-(d["rssi"] if d["rssi"] is not None
+                                       else -999), d["name"].lower()))
+        self.bt_box.set_visible(bool(mine))
+        self.bt_near_heading.set_visible(have and powered)
+        self.bt_near_scroller.set_visible(bool(near))
+        self.bt_searching.set_visible(have and powered and not near)
+        for box, group in ((self.bt_box, mine), (self.bt_near_box, near)):
+            rows = sync_children(box, [d["path"] for d in group],
+                                 lambda key: Row(self, key))
+            for dev in group:
+                self._update_bt_row(rows[dev["path"]], dev)
+
+        if powered and self.is_open():
+            self.bt.start_discovery(snap["adapter"])
+
+    def _update_bt_row(self, row, dev):
+        row.data = {"kind": "bt", "dev": dev}
+        row.show_glyph(BT_ICONS.get(dev["icon"], ICON_BT))
+        row.name.set_text(dev["name"])
+        row.lock.set_text("")
+        row.entry_box.hide()
+        acting = bool(self.busy and self.busy[0] == dev["path"])
+        row.set_busy(acting)
+        battery = "%d%%" % dev["battery"] if dev["battery"] is not None else ""
+        if acting:
+            row.meta.set_text(self.busy[1])
+        elif dev["connected"]:
+            row.meta.set_text("  ·  ".join(b for b in ("Connected", battery) if b))
+        else:
+            row.meta.set_text("")
+        ctx = row.button.get_style_context()
+        (ctx.add_class if dev["connected"] else ctx.remove_class)("active")
+        row.detail.set_text("  ·  ".join(
+            b for b in (dev["address"], battery and "Battery " + battery) if b))
+        if dev["connected"]:
+            actions = [("Disconnect", "danger",
+                        lambda d=dev: self._bt_disconnect(d))]
+        elif dev["paired"]:
+            actions = [("Connect", None, lambda d=dev: self._bt_connect(d))]
+        else:
+            actions = [("Pair", None, lambda d=dev: self._bt_pair(d))]
+        if dev["paired"]:
+            actions.append(("Forget", "danger", lambda d=dev: self._bt_forget(d)))
+        row.set_actions(actions)
+        row.revealer.set_reveal_child(self.expanded == dev["path"])
+
     def _render_sound(self):
         """Draw whatever the last async read produced -- never read here.
 
@@ -2336,7 +2698,8 @@ class Panel(Gtk.Window):
     # -- interaction ---------------------------------------------------------
     def set_expanded(self, key):
         self.expanded = key
-        for box in self.wifi_groups + (self.eth_box, self.vpn_box):
+        for box in self.wifi_groups + (self.eth_box, self.vpn_box,
+                                       self.bt_box, self.bt_near_box):
             for row in box.get_children():
                 row.revealer.set_reveal_child(row.sync_key == key)
                 if row.sync_key == key and row.entry_box.get_visible():
@@ -2376,6 +2739,16 @@ class Panel(Gtk.Window):
                 self.set_expanded(row.sync_key)
             else:
                 self._connect_eth(dev)
+        elif data["kind"] == "bt":
+            # Same rule as wifi: one click does the likely thing, and a row
+            # opens only to offer Disconnect. Forget is on the right-click.
+            dev = data["dev"]
+            if dev["connected"]:
+                self.set_expanded(row.sync_key)
+            elif dev["paired"]:
+                self._bt_connect(dev)
+            else:
+                self._bt_pair(dev)
         elif data["kind"] == "sink":
             self.audio.set_default_sink(data["sink"])
             self._render_sound()
@@ -2512,6 +2885,75 @@ class Panel(Gtk.Window):
 
         for path in remaining:
             self.nm.delete_connection(path, one_done)
+
+    def _on_bt_change(self):
+        """org.bluez came or went. Nothing to draw while hidden."""
+        if self.is_open():
+            self._on_nm_signal("NameOwnerChanged")
+
+    def _on_bt_switch(self, switch, _param):
+        on = switch.get_active()
+        snap = self.bt_snap
+        self.error = None
+        if on and snap["adapter"] is not None:
+            self.bt.set_powered(snap["adapter"], True, self._done)
+            return
+        if not on and snap["powered"]:
+            # The radio goes off first and needs no password. It is the part
+            # that saves the battery, so a cancelled prompt below still leaves
+            # Bluetooth off rather than on.
+            self.bt.set_powered(snap["adapter"], False)
+        if on != snap["running"]:
+            self._bt_service(on)
+        else:
+            self.refresh()
+
+    def _bt_service(self, on):
+        """Start or stop bluetoothd, which puts up a polkit password prompt.
+
+        ⚠ THE PANEL HIDES FOR THE PROMPT AND COMES BACK AFTER IT. This surface
+        covers the whole usable area on the OVERLAY layer (that is how a click
+        outside dismisses it), so it sits above the polkit dialog and would
+        swallow every click aimed at it. Reopening afterwards shows the outcome,
+        so switching Bluetooth on still lands you on the device list.
+        """
+        self._bt_pending = "start" if on else "stop"
+        self.hide_panel()
+
+        def done(err):
+            if err or not on:
+                self._bt_pending = None
+            else:
+                GLib.timeout_add(BT_START_MS, self._bt_start_expired)
+            self.show_panel()
+            if err:
+                self.error = friendly_error(err)
+                self.refresh()
+        self.bt.set_service(on, done)
+
+    def _bt_start_expired(self):
+        if self._bt_pending == "start":
+            self._bt_pending = None
+            self.error = "Bluetooth did not start"
+            if self.is_open():
+                self.refresh()
+        return False
+
+    def _bt_connect(self, dev):
+        self._begin(dev["path"], "Connecting to %s" % dev["name"])
+        self.bt.connect(dev["path"], self._done)
+
+    def _bt_disconnect(self, dev):
+        self._begin(dev["path"], "Disconnecting %s" % dev["name"])
+        self.bt.disconnect(dev["path"], self._done)
+
+    def _bt_pair(self, dev):
+        self._begin(dev["path"], "Pairing with %s" % dev["name"])
+        self.bt.pair(dev["path"], self._done)
+
+    def _bt_forget(self, dev):
+        self._begin(dev["path"], "Forgetting %s" % dev["name"])
+        self.bt.forget(self.bt_snap["adapter"], dev["path"], self._done)
 
     def _vpn_up(self, entry):
         self._begin(None, "Connecting to %s" % entry["id"])
