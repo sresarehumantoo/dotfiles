@@ -104,9 +104,9 @@
     // TRANSIENT. Every module here hides itself completely when it has nothing
     // to say, so this pill is absent from the bar most of the time and appears
     // only when something is actually happening — a mic is live, media is
-    // playing, a tunnel is up, an app has parked itself in the tray. That is
-    // why it is a separate surface: a pill that comes and goes cannot share a
-    // background with one that must not.
+    // playing, a tunnel is up, the bluetooth radio is on, an app has parked
+    // itself in the tray. That is why it is a separate surface: a pill that
+    // comes and goes cannot share a background with one that must not.
     // ⚠ Do not put an always-visible module in here. It would pin the pill open
     // permanently and collapse the distinction this group exists to draw.
     //
@@ -117,7 +117,7 @@
     // with one item registered it fills the pill edge to edge.
     "group/indicators": {
         "orientation": "horizontal",
-        "modules": ["privacy", "mpris", "network#vpn", "tray"]
+        "modules": ["privacy", "mpris", "network#vpn", "bluetooth", "tray"]
     },
 
     // PERSISTENT. The status cluster plus the control hub — always present, and
@@ -326,6 +326,7 @@
     // So the split is by capability, and it is still a rule, not four choices:
     //     pulseaudio  left -> sway-controlcenter   (slider + sink picker)
     //     network     left -> sway-controlcenter   (the wifi picker)
+    //     bluetooth   left -> sway-controlcenter   (the switch + devices)
     //     battery     left -> swaync               (nothing to operate; the
     //                                               percentage lives there)
     //     notification left -> swaync              (it IS the swaync button)
@@ -337,6 +338,7 @@
     // interchangeable — each is the only route to that tool from the bar:
     //     pulseaudio  middle -> swaync   right -> pavucontrol
     //     network     middle -> swaync   right -> nm-connection-editor
+    //     bluetooth   middle -> swaync   right -> blueman-manager
     //     notification                   right -> DND toggle
     // `idle_inhibitor` is deliberately exempt: it is not a readout, it toggles a
     // Wayland object it holds itself (see modules-right).
@@ -489,6 +491,29 @@
         "format-wifi": "",
         "format-disconnected": "",
         "tooltip-format": "VPN up — {ifname} {ipaddr}"
+    },
+
+    // TRANSIENT, so it lives in `group/indicators`. bluetooth.service is
+    // disabled for battery and sway-controlcenter starts it only while the
+    // switch is on, so with the radio off there is no controller and the empty
+    // formats hide the module outright. It shows exactly while the radio is
+    // drawing power: the reminder to switch it back off.
+    "bluetooth": {
+        "format": "",
+        "format-no-controller": "",
+        "format-disabled": "",
+        "format-off": "",
+        "format-on": "󰂯",
+        "format-connected": "󰂱",
+        "tooltip-format-on": "Bluetooth on, nothing connected",
+        "tooltip-format-connected": "{device_enumerate}",
+        "tooltip-format-enumerate-connected": "{device_alias}",
+        "tooltip-format-enumerate-connected-battery": "{device_alias} — {device_battery_percentage}%",
+        // Left opens the panel that holds the switch and the device list, per
+        // the ONE DESTINATION block above `pulseaudio`.
+        "on-click": "$HOME/.local/bin/sway-bar-click $HOME/.local/bin/sway-controlcenter",
+        "on-click-middle": "$HOME/.local/bin/sway-bar-click swaync-client -t -sw",
+        "on-click-right": "$HOME/.local/bin/sway-bar-click blueman-manager"
     },
 
     // Collapsible cpu/memory/temperature. The first entry in "modules" is the

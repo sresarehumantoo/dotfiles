@@ -849,6 +849,13 @@ Right-click opens the row for Forget (`Adapter1.RemoveDevice`). PIN and passkey
 prompts are **blueman-applet's** job: it is BlueZ's agent here, the role
 nm-applet plays for wifi.
 
+The bar shows a Bluetooth glyph in the transient indicators pill **only while
+the radio is on**: the rune when powered, the rune with dots once a device is
+connected (the tooltip lists them, with battery where reported). With the
+service stopped there is no controller, the empty formats hide the module, and
+it takes no space. Left-click opens this panel, middle opens swaync, right
+opens `blueman-manager`.
+
 ### ⚠ The bar's tooltip draws over the panel, and that is an accepted trade
 
 Middle-clicking leaves the pointer on the network glyph, so waybar's tooltip
