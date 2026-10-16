@@ -166,8 +166,11 @@
           "command": "swaync-client -cp; $HOME/.local/bin/sway-controlcenter"
         },
         {
+          "//210": "The same panel as the wifi button: its Bluetooth switch can start",
+          "//211": "bluetooth.service, which is disabled for battery. blueman-manager",
+          "//212": "cannot, so with the service down this button used to open nothing.",
           "label": "󰂯",
-          "command": "swaync-client -cp; blueman-manager"
+          "command": "swaync-client -cp; $HOME/.local/bin/sway-controlcenter"
         },
         {
           "label": "󰐥",

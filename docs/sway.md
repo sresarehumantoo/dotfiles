@@ -404,9 +404,9 @@ nothing else.
 ## The control center
 
 `config/sway/sway-controlcenter` is the Quick Settings half of this desktop:
-wifi, sound and brightness in one layer-shell panel. **Middle**-click the bar's
-network *or* volume glyph, use `$mod+i`, or press the control center's wifi
-button.
+wifi, Bluetooth, sound and brightness in one layer-shell panel. Left-click the
+bar's network *or* volume glyph, use `$mod+i`, or press the control center's wifi
+or Bluetooth button.
 
 ⚠ **Windows 11 and macOS both settle on TWO surfaces**, not one — a control
 surface carrying the toggles, sliders and device lists, and a notification
@@ -811,6 +811,43 @@ lesson, not a new one.
 icon could not join a network. It opens the picker now. The editor is still
 reachable from the picker's own *Settings* footer and from a right-click on the
 bar's network glyph.
+
+### Bluetooth, with the service off by default
+
+`bluetooth.service` is **disabled on this box, on purpose**: the radio stays off
+for battery unless something is using it. So `bluetoothd` is usually not
+running, `org.bluez` is not on the bus, and `blueman-manager` (which cannot start
+the daemon) had nothing to show. The swaync Bluetooth button used to open it;
+both that button and the wifi one now open this panel.
+
+The Bluetooth switch controls the **service**, not just the adapter:
+
+- **On** calls systemd's `StartUnit` over D-Bus with interactive authorization,
+  so the session's polkit agent (mate-polkit) asks for the password
+  (`manage-units` is `auth_admin_keep`, so it is remembered for a few minutes).
+  The daemon's arrival is tracked by watching the `org.bluez` bus name, not by
+  asking systemd. With `AutoEnable` at its default the adapter powers itself on.
+- **Off** sets the adapter's `Powered` to false first, which needs no password
+  and is the part that actually saves battery, then calls `StopUnit` (prompts).
+  Cancel that prompt and the radio is still off.
+
+A polkit rule granting start/stop silently was considered and turned down.
+
+⚠ **The panel hides for the password prompt and reopens after it.** Its surface
+covers the whole usable area on the OVERLAY layer (that is what makes a click
+outside dismiss it), so it sits above the polkit dialog and would swallow every
+click aimed at the dialog.
+
+Devices: paired ones sit directly under the header, connected first, with battery
+from `org.bluez.Battery1` where the device reports it. Discovery runs **only
+while the panel is open and the adapter is powered**, and its results go in a
+capped "NEARBY DEVICES" scroller. Devices with no advertised `Name` are left
+out, because they are nearly all BLE beacons and neighbors' phones. One click
+connects a paired device, or pairs a new one (pair, then `Trusted`, then
+connect: an untrusted device has every incoming connection put to the agent).
+Right-click opens the row for Forget (`Adapter1.RemoveDevice`). PIN and passkey
+prompts are **blueman-applet's** job: it is BlueZ's agent here, the role
+nm-applet plays for wifi.
 
 ### ⚠ The bar's tooltip draws over the panel, and that is an accepted trade
 
