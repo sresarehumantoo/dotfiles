@@ -232,33 +232,23 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
 		}
 
-		beforeStatus := make(map[string]core.ModuleStatus)
-		for _, m := range core.AllModules() {
-			beforeStatus[m.Name()] = m.Status()
-		}
-
 		var failures []string
 		for _, m := range core.AllModules() {
 			// core.SkipInAll, not IsModuleSkipped: the latter ignores the
 			// windev opt-in and installed it on machines that never enabled it.
 			if core.SkipInAll(m.Name()) {
+				sess.Skip(m.Name())
 				continue
 			}
-			if err := m.Install(ctx); err != nil {
+			if err := sess.Run(ctx, m); err != nil {
 				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
 		}
 
+		sess.Report().Write(&b, true)
 		for _, m := range core.AllModules() {
-			after := m.Status()
-			before := beforeStatus[m.Name()]
-			fixed := before.Missing - after.Missing
-			if fixed > 0 {
-				fmt.Fprintf(&b, "%s: fixed %d missing links\n", after.Name, fixed)
-			} else if after.Missing == 0 {
-				fmt.Fprintf(&b, "%s: ok (%d linked)\n", after.Name, after.Linked)
-			} else {
-				fmt.Fprintf(&b, "%s: %d still missing\n", after.Name, after.Missing)
+			if st := m.Status(); st.Missing > 0 && !core.SkipInAll(m.Name()) {
+				fmt.Fprintf(&b, "%s: %d link(s) still missing\n", st.Name, st.Missing)
 			}
 		}
 
@@ -292,9 +282,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 
 	defer core.ReleaseSudo()
 
-	before := m.Status()
-	err = m.Install(ctx)
-	after := m.Status()
+	err = sess.Run(ctx, m)
 
 	var b strings.Builder
 	b.WriteString(upgradeReport)
@@ -302,8 +290,10 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		sess.MarkFailed()
 		fmt.Fprintf(&b, "install %s error: %v\n", name, err)
 	}
-	fmt.Fprintf(&b, "before: %d linked, %d missing\n", before.Linked, before.Missing)
-	fmt.Fprintf(&b, "after:  %d linked, %d missing\n", after.Linked, after.Missing)
+	sess.Report().Write(&b, true)
+	if st := m.Status(); st.Missing > 0 {
+		fmt.Fprintf(&b, "%d link(s) still missing\n", st.Missing)
+	}
 
 	if err != nil {
 		return mcp.NewToolResultError(b.String()), nil

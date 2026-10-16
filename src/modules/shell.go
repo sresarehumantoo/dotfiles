@@ -44,10 +44,10 @@ func (ShellModule) Install(ctx context.Context) error {
 			names = append(names, "~/"+f.RelPath)
 		}
 		if core.DryRun {
-			core.Notice("would keep sourcing %s", strings.Join(names, ", "))
+			core.Changed("would keep sourcing %s", strings.Join(names, ", "))
 		} else {
 			core.Cfg.PreservedFiles = MergeUnique(core.Cfg.PreservedFiles, rels)
-			core.Notice("keeping %s sourced from the new zshrc; to stop, list it under dismissed_files in %s", strings.Join(names, ", "), core.ConfigFilePath())
+			core.Changed("kept sourcing %s; to stop, list it under dismissed_files in %s", strings.Join(names, ", "), core.ConfigFilePath())
 			if err := core.SaveConfig(); err != nil {
 				core.Warn("failed to save config: %v", err)
 			}
@@ -72,7 +72,9 @@ func (ShellModule) Install(ctx context.Context) error {
 			}
 		} else {
 			// Nothing to source — remove any stale generated file
-			if err := os.Remove(CustomSourcesFilePath()); err != nil && !os.IsNotExist(err) {
+			if err := os.Remove(CustomSourcesFilePath()); err == nil {
+				core.Changed("removed %s: no files left to source", CustomSourcesFilePath())
+			} else if !os.IsNotExist(err) {
 				core.Debug("could not remove stale custom-sources.zsh: %v", err)
 			}
 		}
@@ -143,11 +145,9 @@ func installCompletions(ctx context.Context) {
 		return
 	}
 
-	if err := os.WriteFile(dst, out, 0644); err != nil {
+	if _, err := core.WriteFileIfChanged(dst, out, 0644); err != nil {
 		core.Warn("completions: %v", err)
-		return
 	}
-	core.Ok("installed completions: %s", dst)
 }
 
 func (m ShellModule) Uninstall(ctx context.Context) error {

@@ -289,11 +289,9 @@ func WriteCustomSourcesFile(paths []string) error {
 		fmt.Fprintf(&sb, "[[ -f ~/%s ]] && source ~/%s\n", p, p)
 	}
 
-	if err := os.WriteFile(path, []byte(sb.String()), 0644); err != nil {
+	if _, err := core.WriteFileIfChanged(path, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("write custom-sources.zsh: %w", err)
 	}
-
-	core.Ok("wrote %s", path)
 	return nil
 }
 

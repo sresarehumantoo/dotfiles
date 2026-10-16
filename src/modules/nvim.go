@@ -113,7 +113,7 @@ func ensureTreeSitterCLI(ctx context.Context) error {
 	if err := runCmd(ctx, "install", "-D", "-m", "0755", filepath.Join(tmp, "tree-sitter"), dst); err != nil {
 		return fmt.Errorf("install tree-sitter: %w", err)
 	}
-	core.Ok("Installed tree-sitter CLI from %s", asset.Name)
+	core.Changed("Installed tree-sitter CLI from %s", asset.Name)
 	return nil
 }
 
@@ -398,7 +398,7 @@ func installPrebuiltNvimLinux(ctx context.Context) error {
 	if err := os.Symlink(filepath.Join(final, "bin", "nvim"), link); err != nil {
 		return fmt.Errorf("link nvim: %w", err)
 	}
-	core.Ok("Installed prebuilt Neovim to %s", final)
+	core.Changed("Installed prebuilt Neovim to %s", final)
 	return nil
 }
 

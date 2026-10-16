@@ -27,11 +27,16 @@ func updateClone(ctx context.Context, name, dir string) {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return
 	}
+	before, _ := gitOut(ctx, dir, "rev-parse", "HEAD")
 	if err := runNetCmd(ctx, "git", "-C", dir, "pull", "--ff-only", "-q"); err != nil {
 		core.Warn("%s not updated: %v", name, err)
 		return
 	}
-	core.Ok("%s updated", name)
+	if after, _ := gitOut(ctx, dir, "rev-parse", "HEAD"); after != before {
+		core.Changed("updated %s", name)
+		return
+	}
+	core.Ok("%s already up to date", name)
 }
 
 // ConvergeClone brings the dotfiles clone at dir up to date for --upgrade,

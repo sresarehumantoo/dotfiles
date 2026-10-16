@@ -116,7 +116,7 @@ func installWslConf(ctx context.Context) bool {
 	if err := sudoRun(ctx, "chmod", "0644", dstPath); err != nil {
 		core.Warn("could not chmod %s: %v", dstPath, err)
 	}
-	core.Ok("/etc/wsl.conf installed")
+	core.Changed("/etc/wsl.conf installed")
 	return true
 }
 
@@ -151,7 +151,7 @@ func installSysctl(ctx context.Context) {
 	if err := sudoRun(ctx, "sysctl", "-p", dstPath); err != nil {
 		core.Warn("Some sysctl values may not apply until restart")
 	}
-	core.Ok("/etc/sysctl.d/99-wsl.conf installed")
+	core.Changed("/etc/sysctl.d/99-wsl.conf installed")
 }
 
 // resolveWinHome returns the WSL mount path for the Windows user home directory
@@ -252,7 +252,7 @@ func installWslconfig(ctx context.Context) {
 		core.Warn("Could not write .wslconfig: %v", err)
 		return
 	}
-	core.Ok(".wslconfig installed at %s", dst)
+	core.Changed(".wslconfig installed at %s", dst)
 }
 
 // linkWinHome creates a symlink at ~/username pointing to the Windows home

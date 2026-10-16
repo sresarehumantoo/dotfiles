@@ -202,6 +202,7 @@ Defined in `core/output.go`. Nine functions, each with a colored prefix:
 | `Ok()` | green | suppressed | printed |
 | `Notice()` | blue | buffered (flushed after spinner) | printed immediately |
 | `Status()` | green | **always printed** | always printed |
+| `Changed()` | green | recorded for the install report | printed and recorded |
 | `Warn()` | yellow | buffered (flushed after spinner) | printed immediately |
 | `AlwaysWarn()` | yellow | **always printed** (clears spinner line) | printed immediately |
 | `Err()` | red | **always printed** | always printed |
@@ -583,6 +584,20 @@ defer sess.Finish()
 up, and starts the backup. `Finish` writes the manifest and persists config.
 Rendering stays with the caller — the session reports `CanonicalPrev`,
 `CanonicalNow` and `DidBackup()` rather than printing.
+
+Modules are run with `sess.Run(ctx, m)` (and left out with `sess.Skip(name)`),
+which attributes every `core.Changed` call to the running module.
+`sess.Report().Write(w, all)` then prints what changed per module, and which
+modules were unchanged or skipped; both the CLI and the MCP server render that
+one report. The report is only worth reading if a module that did nothing says
+nothing, so:
+
+- **`Changed` is for something the install did to the machine; anything that
+  found it already right uses `Ok`.** `LinkFile` and `installPkg` record on
+  their own, and generated files go through `core.WriteFileIfChanged`, which
+  leaves an identical file (and its mtime) alone.
+- **Under `--dry-run` a step records what it *would* change**, and only that:
+  `LinkFile` used to print "would link" for every link, correct or not.
 
 Before this existed the MCP server took no backup at all and ignored the windev
 opt-in, while being annotated idempotent and non-destructive.

@@ -102,7 +102,7 @@ func writeDistroIcon() {
 		return
 	}
 	path := filepath.Join(dir, "distro-icon")
-	if err := os.WriteFile(path, []byte(icon), 0644); err != nil {
+	if _, err := core.WriteFileIfChanged(path, []byte(icon), 0644); err != nil {
 		core.Debug("write distro icon: %v", err)
 	}
 }
@@ -155,6 +155,8 @@ func (TmuxModule) Install(ctx context.Context) error {
 		if err := runCmd(ctx, "git", "clone", "--depth=1",
 			"https://github.com/tmux-plugins/tpm", tpmDir); err != nil {
 			core.Warn("TPM clone failed: %v", err)
+		} else {
+			core.Changed("cloned TPM")
 		}
 	} else {
 		core.Ok("TPM already installed")
@@ -245,9 +247,16 @@ func enableTmuxSave(ctx context.Context) {
 		core.Debug("user daemon-reload failed (no user manager?): %v", err)
 		return
 	}
+	enabled, _ := runProbe(ctx, "systemctl", "--user", "is-enabled", "tmux-save.service")
+	if _, err := runProbe(ctx, "systemctl", "--user", "is-active", "--quiet", "tmux-save.service"); err == nil && strings.TrimSpace(string(enabled)) == "enabled" {
+		core.Ok("tmux-save.service already enabled")
+		return
+	}
 	if err := runCmd(ctx, "systemctl", "--user", "enable", "--now", "tmux-save.service"); err != nil {
 		core.Warn("could not enable tmux-save.service: %v", err)
+		return
 	}
+	core.Changed("enabled tmux-save.service")
 }
 
 func disableTmuxSave(ctx context.Context) {

@@ -112,23 +112,31 @@ func startSystemdUnit(ctx context.Context, svc string) error {
 			return nil
 		}
 	}
+	start := func() error {
+		if err := runCmd(ctx, "sudo", "systemctl", "start", svc); err != nil {
+			return err
+		}
+		core.Changed("started %s", svc)
+		return nil
+	}
 	switch state {
 	case "static", "alias", "indirect":
 		// Can't `enable` these — just start.
 		core.Info("Starting %s (static unit)...", svc)
-		return runCmd(ctx, "sudo", "systemctl", "start", svc)
+		return start()
 	case "enabled", "enabled-runtime":
 		// Already enabled; just make sure it's running.
 		core.Info("Starting %s (already enabled)...", svc)
-		return runCmd(ctx, "sudo", "systemctl", "start", svc)
+		return start()
 	default:
 		// "disabled", "masked", "" (unknown) — try enable --now and fall
 		// back to plain start if enable refuses.
 		core.Info("Enabling %s...", svc)
 		if err := runCmd(ctx, "sudo", "systemctl", "enable", "--now", svc); err != nil {
 			core.Notice("enable %s failed (state=%q) — starting only", svc, state)
-			return runCmd(ctx, "sudo", "systemctl", "start", svc)
+			return start()
 		}
+		core.Changed("enabled and started %s", svc)
 		return nil
 	}
 }

@@ -79,6 +79,7 @@ func promptGitIdentity(ctx context.Context, path string, missing []string) error
 		if err := runCmd(ctx, "git", "config", "--file", path, key, value); err != nil {
 			return err
 		}
+		core.Changed("set git %s in %s", key, path)
 	}
 
 	// Only on first setup: asked on every run, it was answered no forever.

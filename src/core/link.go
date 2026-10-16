@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -20,7 +21,16 @@ func LinkFile(src, dst string) error {
 		return err
 	}
 	if DryRun {
-		Info("would link: %s -> %s", dst, src)
+		switch CheckLink(src, dst) {
+		case "ok":
+			Debug("already linked: %s", dst)
+		case "wrong":
+			Changed("would repoint %s", dst)
+		case "file":
+			Changed("would move %s to %s.bak and link it", dst, dst)
+		default:
+			Changed("would link %s", dst)
+		}
 		return nil
 	}
 
@@ -37,28 +47,66 @@ func LinkFile(src, dst string) error {
 
 	// Check if dst is already a symlink
 	fi, err := os.Lstat(dst)
+	action := "linked"
 	if err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		current, err := os.Readlink(dst)
 		if err == nil && current == src {
 			Ok("already linked: %s", dst)
 			return nil
 		}
-		Notice("repointing symlink: %s", dst)
+		action = "repointed"
 		os.Remove(dst)
 	} else if err == nil {
 		// Regular file or directory exists — back it up
 		bak := dst + ".bak"
-		Notice("backing up existing: %s -> %s", dst, bak)
 		if err := os.Rename(dst, bak); err != nil {
 			return err
 		}
+		action = "moved the existing file to " + bak + " and linked"
 	}
 
 	if err := os.Symlink(src, dst); err != nil {
 		return err
 	}
-	Ok("linked: %s -> %s", dst, src)
+	Changed("%s %s", action, dst)
 	return nil
+}
+
+// WriteFileIfChanged writes data to path only when its content or mode
+// differs, recording the write with Changed, so a re-run leaves an identical
+// file and its mtime alone. Under DryRun it reports what it would write.
+func WriteFileIfChanged(path string, data []byte, perm os.FileMode) (bool, error) {
+	if err := checkTarget(path); err != nil {
+		return false, err
+	}
+	old, err := os.ReadFile(path)
+	exists := err == nil
+	if exists && bytes.Equal(old, data) {
+		if fi, err := os.Stat(path); err == nil && fi.Mode().Perm() == perm {
+			Ok("already up to date: %s", path)
+			return false, nil
+		}
+	}
+	verb := "wrote"
+	if exists {
+		verb = "updated"
+	}
+	if DryRun {
+		Changed("would write %s", path)
+		return true, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	if err := os.WriteFile(path, data, perm); err != nil {
+		return false, err
+	}
+	// WriteFile keeps an existing file's mode.
+	if err := os.Chmod(path, perm); err != nil {
+		return false, err
+	}
+	Changed("%s %s", verb, path)
+	return true, nil
 }
 
 // CheckLink checks if dst is a symlink pointing to src.

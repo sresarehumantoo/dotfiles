@@ -178,7 +178,7 @@ func installWinShims() []string {
 		return nil
 	}
 
-	var written, missing []string
+	var written, current, missing []string
 	for _, name := range winShimNames {
 		target := winBinary(name)
 		if target == "" {
@@ -191,7 +191,7 @@ func installWinShims() []string {
 		// Don't rewrite an identical shim; keeps `install` idempotent and
 		// leaves mtimes alone.
 		if existing, err := os.ReadFile(dst); err == nil && string(existing) == string(body) {
-			written = append(written, name)
+			current = append(current, name)
 			continue
 		}
 		// Refuse to clobber anything that isn't ours. A user may legitimately
@@ -208,8 +208,12 @@ func installWinShims() []string {
 	}
 
 	if len(written) > 0 {
-		core.Ok("Windows shims installed (%d): %s", len(written), strings.Join(written, " "))
+		core.Changed("wrote Windows shims: %s", strings.Join(written, " "))
 	}
+	if len(current) > 0 {
+		core.Ok("Windows shims already current: %s", strings.Join(current, " "))
+	}
+	written = append(written, current...)
 	// Only worth mentioning the load-bearing ones; pwsh/winget are commonly absent.
 	var importantMissing []string
 	for _, n := range missing {
