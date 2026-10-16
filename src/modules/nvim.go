@@ -430,6 +430,7 @@ var nvimLinks = []nvimLink{
 	{"nvim/lua/custom/plugins/markdown.lua", "lua/custom/plugins/markdown.lua"},
 	{"nvim/lua/custom/plugins/notes.lua", "lua/custom/plugins/notes.lua"},
 	{"nvim/lua/custom/plugins/smear-cursor.lua", "lua/custom/plugins/smear-cursor.lua"},
+	{"nvim/lua/custom/plugins/diffview.lua", "lua/custom/plugins/diffview.lua"},
 
 	// Filetype-specific editor options (native after/ftplugin)
 	{"nvim/after/ftplugin/markdown.lua", "after/ftplugin/markdown.lua"},
