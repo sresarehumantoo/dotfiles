@@ -52,12 +52,11 @@
 # file already pulls in and which is NOT tracked here. This repo is public and
 # is for configuring workstations generally, so it stays decoupled from any one
 # network.
-[user]
-	name = SREsAreHumanToo
+# No identity here: user.name and user.email come from ~/.gitconfig.local or
+# ~/.gitconfig.user, and dfinstall install git asks for whichever is missing.
 
-# This machine's own settings, loaded LAST so they win over everything above.
-# ~/.gitconfig.local is included first, so the handle above outranks a real
-# name there; this one is for overriding the shared defaults. dfinstall install
-# --upgrade moves edits made through ~/.gitconfig here. Neither file is tracked.
+# This machine's own settings, loaded LAST so they win over everything above,
+# including ~/.gitconfig.local. dfinstall install --upgrade moves edits made
+# through ~/.gitconfig here. Neither file is tracked.
 [include]
 	path = ~/.gitconfig.user
