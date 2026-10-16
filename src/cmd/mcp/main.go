@@ -67,6 +67,12 @@ func registerTools(s *server.MCPServer) {
 				mcp.Description("Report what would change without touching anything. "+
 					"The safe way to inspect an install from here"),
 			),
+			mcp.WithBoolean("upgrade",
+				mcp.Description("First pull the dotfiles clone (edits that merge cleanly are carried over; "+
+					"a conflict, local commits or no upstream skips the pull) and rebuild dfinstall if its source changed, "+
+					"then update the release binaries and plugin clones dfinstall installed. "+
+					"Moving local edits into override files needs a terminal, so here they are only reported"),
+			),
 			mcp.WithIdempotentHintAnnotation(true),
 		),
 		handleInstall,
@@ -202,6 +208,13 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		defer func() { core.DryRun = prev }()
 	}
 
+	var upgradeReport string
+	if request.GetBool("upgrade", false) {
+		core.UpgradeMode = true
+		defer func() { core.UpgradeMode = false }()
+		upgradeReport = upgradeClone(ctx, name == "all")
+	}
+
 	if name == "all" {
 		// Share the CLI's session: adopts the canonical clone (repointing
 		// stray symlinks), takes a restorable backup, and persists config.
@@ -214,6 +227,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		defer core.ReleaseSudo()
 
 		var b strings.Builder
+		b.WriteString(upgradeReport)
 		if sess.CanonicalNow != "" && sess.CanonicalPrev != "" {
 			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
 		}
@@ -283,6 +297,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 	after := m.Status()
 
 	var b strings.Builder
+	b.WriteString(upgradeReport)
 	if err != nil {
 		sess.MarkFailed()
 		fmt.Fprintf(&b, "install %s error: %v\n", name, err)
@@ -294,6 +309,28 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError(b.String()), nil
 	}
 	return mcp.NewToolResultText(b.String()), nil
+}
+
+// upgradeClone is the install tool's upgrade step: what modules.UpgradeClone
+// reported, since nothing printed here reaches the caller. A rebuilt server
+// cannot re-exec in place without dropping the session, so this run carries
+// on with the code it started with.
+func upgradeClone(ctx context.Context, all bool) string {
+	dir := core.DotfilesDir()
+	if all {
+		dir = core.InvokingCloneDir()
+	}
+	var b strings.Builder
+	stop := core.CaptureOutput(&b)
+	exe := modules.UpgradeClone(ctx, dir)
+	stop()
+	if exe != "" {
+		fmt.Fprintf(&b, "rebuilt %s; reconnect the MCP server to use it (this install ran on the previous build)\n", exe)
+	}
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 func handleDoctor(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
