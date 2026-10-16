@@ -173,6 +173,23 @@ func TestFilterNewFiles_RemovesKnown(t *testing.T) {
 	}
 }
 
+func TestSourcedFiles_DismissedWins(t *testing.T) {
+	core.Cfg.PreservedFiles = []string{".companyrc", ".work_env"}
+	core.Cfg.DismissedFiles = []string{".work_env"}
+	defer func() {
+		core.Cfg.PreservedFiles = nil
+		core.Cfg.DismissedFiles = nil
+	}()
+
+	got := modules.SourcedFiles()
+	if len(got) != 1 || got[0] != ".companyrc" {
+		t.Errorf("SourcedFiles() = %v, want [.companyrc]", got)
+	}
+	if len(core.Cfg.PreservedFiles) != 2 {
+		t.Errorf("SourcedFiles mutated PreservedFiles: %v", core.Cfg.PreservedFiles)
+	}
+}
+
 func TestWriteCustomSourcesFile_ValidPaths(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))

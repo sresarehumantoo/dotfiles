@@ -34,36 +34,27 @@ var shellLinks = []struct{ src, dst string }{
 }
 
 func (ShellModule) Install(ctx context.Context) error {
-	if !core.DryRun {
-		// Scan for custom shell files before linking overwrites zshrc
-		discovered := ScanCustomShellFiles()
-		newFiles := FilterNewFiles(discovered)
-
-		if len(newFiles) > 0 {
-			core.PauseSpinner()
-			preserved, dismissed, err := RunPreserveMenu(newFiles)
-			core.ResumeSpinner()
-
-			if err != nil {
-				core.Warn("custom file preservation: %v", err)
-			} else {
-				changed := false
-				if len(preserved) > 0 {
-					core.Cfg.PreservedFiles = MergeUnique(core.Cfg.PreservedFiles, preserved)
-					changed = true
-				}
-				if len(dismissed) > 0 {
-					core.Cfg.DismissedFiles = MergeUnique(core.Cfg.DismissedFiles, dismissed)
-					changed = true
-				}
-				if changed {
-					if err := core.SaveConfig(); err != nil {
-						core.Warn("failed to save config: %v", err)
-					}
-				}
+	if newFiles := FilterNewFiles(ScanCustomShellFiles()); len(newFiles) > 0 {
+		// Kept by default: dropping a file the old shell sourced is the
+		// surprising outcome, and keeping one is a line in dismissed_files away
+		// from undoing.
+		var rels, names []string
+		for _, f := range newFiles {
+			rels = append(rels, f.RelPath)
+			names = append(names, "~/"+f.RelPath)
+		}
+		if core.DryRun {
+			core.Notice("would keep sourcing %s", strings.Join(names, ", "))
+		} else {
+			core.Cfg.PreservedFiles = MergeUnique(core.Cfg.PreservedFiles, rels)
+			core.Notice("keeping %s sourced from the new zshrc; to stop, list it under dismissed_files in %s", strings.Join(names, ", "), core.ConfigFilePath())
+			if err := core.SaveConfig(); err != nil {
+				core.Warn("failed to save config: %v", err)
 			}
 		}
+	}
 
+	if !core.DryRun {
 		// Drop preserved entries that no longer exist or aren't sourceable
 		// (e.g. .dmrc captured by an older dfinstall before the content
 		// sniffer existed — would error at every shell start).
@@ -75,9 +66,8 @@ func (ShellModule) Install(ctx context.Context) error {
 			}
 		}
 
-		// Write or remove custom-sources.zsh based on the cleaned list
-		if len(core.Cfg.PreservedFiles) > 0 {
-			if err := WriteCustomSourcesFile(core.Cfg.PreservedFiles); err != nil {
+		if sourced := SourcedFiles(); len(sourced) > 0 {
+			if err := WriteCustomSourcesFile(sourced); err != nil {
 				core.Warn("failed to write custom-sources.zsh: %v", err)
 			}
 		} else {
@@ -188,7 +178,7 @@ func (ShellModule) Links() core.LinkSet {
 
 func (m ShellModule) Status() core.ModuleStatus {
 	s := m.Links().Status("shell")
-	if n := len(core.Cfg.PreservedFiles); n > 0 {
+	if n := len(SourcedFiles()); n > 0 {
 		s.Extra = fmt.Sprintf("+%d preserved", n)
 	}
 	return s

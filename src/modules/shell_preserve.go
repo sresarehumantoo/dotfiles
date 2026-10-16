@@ -2,17 +2,16 @@ package modules
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/huh"
 	"github.com/sresarehumantoo/dotfiles/src/core"
-	"golang.org/x/term"
 )
 
 // DiscoveredFile represents a custom shell file found in $HOME.
@@ -255,68 +254,12 @@ func FilterNewFiles(discovered []DiscoveredFile) []DiscoveredFile {
 	return result
 }
 
-// RunPreserveMenu shows an interactive multi-select for discovered shell files.
-// Returns the preserved and dismissed file paths.
-func RunPreserveMenu(files []DiscoveredFile) (preserved, dismissed []string, err error) {
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		core.Warn("stdin is not a terminal — skipping custom file preservation menu")
-		return nil, nil, nil
-	}
-
-	var options []huh.Option[string]
-	for _, f := range files {
-		options = append(options, huh.NewOption(f.RelPath, f.RelPath))
-	}
-
-	// Pre-select all files by default
-	selected := make([]string, len(files))
-	for i, f := range files {
-		selected[i] = f.RelPath
-	}
-
-	form := huh.NewForm(
-		huh.NewGroup(
-			huh.NewMultiSelect[string]().
-				Title("Custom Shell Files Found").
-				Description("These files were found in ~/ and may be sourced by your current shell.\nSelect files to keep sourcing after dfinstall replaces your zshrc.\nSpace to toggle, Enter to confirm, Esc to skip all.").
-				Options(options...).
-				Value(&selected),
-		),
-	).WithKeyMap(escKeyMap())
-
-	if err := form.Run(); err != nil {
-		if errors.Is(err, huh.ErrUserAborted) {
-			core.PrintHint("Selection canceled — no custom files will be sourced")
-			// Treat all as dismissed so we don't re-prompt
-			for _, f := range files {
-				dismissed = append(dismissed, f.RelPath)
-			}
-			return nil, dismissed, nil
-		}
-		return nil, nil, fmt.Errorf("preserve menu: %w", err)
-	}
-
-	selectedSet := make(map[string]bool, len(selected))
-	for _, s := range selected {
-		selectedSet[s] = true
-	}
-
-	for _, f := range files {
-		if selectedSet[f.RelPath] {
-			preserved = append(preserved, f.RelPath)
-		} else {
-			dismissed = append(dismissed, f.RelPath)
-		}
-	}
-
-	if len(preserved) > 0 {
-		core.Status("Preserving: %s", strings.Join(preserved, ", "))
-	}
-	if len(dismissed) > 0 {
-		core.Status("Dismissed: %s", strings.Join(dismissed, ", "))
-	}
-
-	return preserved, dismissed, nil
+// SourcedFiles is preserved_files minus dismissed_files. Dismissed wins, so
+// listing a file there is the whole opt-out, even for one kept automatically.
+func SourcedFiles() []string {
+	return slices.DeleteFunc(slices.Clone(core.Cfg.PreservedFiles), func(p string) bool {
+		return slices.Contains(core.Cfg.DismissedFiles, p)
+	})
 }
 
 // WriteCustomSourcesFile writes the generated custom-sources.zsh sourced by zshrc.

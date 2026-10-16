@@ -358,11 +358,11 @@ DF_TMUX_SESSION=review ghostty
 
 ### Custom Shell File Preservation
 
-Before linking, the shell module scans `$HOME` for custom shell files that aren't managed by dfinstall (e.g. `.companyrc`, `.work_env`, `.localrc`). If new files are found, an interactive multi-select menu lets the user choose which to keep sourcing after dfinstall replaces `~/.zshrc`.
+Before linking, the shell module scans `$HOME` for custom shell files that aren't managed by dfinstall (e.g. `.companyrc`, `.work_env`, `.localrc`). New ones are kept automatically, with no prompt: the install notes which files it kept and where to opt out.
 
 Preserved files are written to `~/.config/dfinstall/custom-sources.zsh`, which the zshrc sources after aliases. Each entry uses a guard: `[[ -f ~/.companyrc ]] && source ~/.companyrc`.
 
-User choices are saved to `.config.yaml` as `preserved_files` and `dismissed_files` so the menu isn't re-shown for already-classified files. Paths are validated against `^\.[a-zA-Z0-9][a-zA-Z0-9._-]*$` before writing to the shell-sourced file.
+Kept files are recorded in `.config.yaml` under `preserved_files`. To stop sourcing one, list it under `dismissed_files`: dismissed wins over preserved, and a file in either list is never reported again. Paths are validated against `^\.[a-zA-Z0-9][a-zA-Z0-9._-]*$` before writing to the shell-sourced file.
 
 The scan filters out: managed shell destinations (`.zshrc`, `.aliases`, etc.), known non-shell dotfiles (`.vimrc`, `.npmrc`, `.netrc`, etc.), symlinks, directories, and files over 1MB.
 

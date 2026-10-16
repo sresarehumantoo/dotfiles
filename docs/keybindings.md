@@ -4,7 +4,7 @@ Quick reference for all custom keybindings across interactive menus, tmux, neovi
 
 ---
 
-## Interactive Menus (Toolkit, OMZ Extended, Shell Preserve)
+## Interactive Menus (Toolkit, OMZ Extended)
 
 ### Category Navigation
 

@@ -439,8 +439,8 @@ The `vmguest` module (`modules/vmguest.go`) uses this: on a hardware VM it insta
 | `skip_backup` | bool | `false` | Skip automatic backups on install |
 | `backup_dir` | string | *(empty)* | Custom backup directory (falls back to `~/.local/share/dfinstall/backups/`) |
 | `extended_plugins` | []string | *(empty)* | Extended OMZ plugins selected via `--extended` |
-| `preserved_files` | []string | *(empty)* | Custom shell files the user chose to keep sourcing after dfinstall replaces zshrc |
-| `dismissed_files` | []string | *(empty)* | Custom shell files the user chose not to preserve (prevents re-prompting) |
+| `preserved_files` | []string | *(empty)* | Custom shell files kept sourcing after dfinstall replaces zshrc (added automatically) |
+| `dismissed_files` | []string | *(empty)* | Custom shell files not to source; wins over `preserved_files` |
 | `skip_modules` | []string | *(empty)* | Modules to skip during `install all` (machine profiles) |
 | `toolkit_tools` | []string | *(empty)* | Toolkit tools selected via `--toolkit` |
 | `windev_enabled` | bool | `false` | Whether the opt-in windev module is enabled (drives `core.SkipInAll`) |
