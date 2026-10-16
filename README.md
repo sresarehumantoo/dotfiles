@@ -104,8 +104,8 @@ make install
 |---------|--------------|
 | `dfinstall install all` | Install every module (except opt-in ones) |
 | `dfinstall install shell` | Install a single module |
-| `dfinstall update all` | Re-apply all modules (alias for `install`) |
-| `dfinstall install all --upgrade` | Pull the clone, then install and update what dfinstall installed earlier |
+| `dfinstall update all` | Pull the clone, then install and update what dfinstall installed earlier (`install all --upgrade`) |
+| `dfinstall update all --no-upgrade` | Re-apply all modules without pulling or updating (same as `install all`) |
 | `dfinstall uninstall shell` | Remove one module's symlinks |
 | `dfinstall uninstall all` | Remove all managed symlinks |
 
@@ -145,7 +145,8 @@ make install
 | `--extended` | `install`, `update` | Interactive menu for extended Oh My Zsh plugins |
 | `--toolkit` | `install`, `update` | Interactive menu for security/CTF/dev toolkit tools |
 | `--registry <path\|url>` | `install`, `update` | Override the toolkit registry for this run |
-| `--upgrade` | `install`, `update` | Pull the clone and update tools and plugins first ([details](#upgrading)) |
+| `--upgrade` | `install` | Pull the clone and update tools and plugins first ([details](#upgrading)); always on for `update` |
+| `--no-upgrade` | `update` | Skip the pull and tool updates, making `update` a plain `install` |
 
 ```bash
 dfinstall install omz --extended     # pick extended OMZ plugins
@@ -156,7 +157,7 @@ dfinstall install all --dry-run      # preview everything
 
 ## Upgrading
 
-`install` adds what is missing and leaves what is already there. `--upgrade` also brings everything dfinstall owns up to date:
+`install` adds what is missing and leaves what is already there. `update`, or `install --upgrade`, also brings everything dfinstall owns up to date:
 
 1. **The clone.** It fetches, then fast-forwards to the upstream branch. If the pull changed dfinstall's own source, it rebuilds the binary and re-runs it.
 2. **Release binaries in `~/.local`** (nvim, tree-sitter, delta, terraform) are replaced when a newer release exists.
@@ -166,8 +167,8 @@ dfinstall install all --dry-run      # preview everything
 Packages from apt or Homebrew are left to `sudo apt upgrade` or `brew upgrade`, and fonts stay on their pinned release.
 
 ```bash
-dfinstall install all --upgrade
-dfinstall install all --upgrade --dry-run   # what would change, without fetching
+dfinstall update all
+dfinstall update all --dry-run   # what would change, without fetching
 ```
 
 ### Local edits survive the pull
@@ -291,7 +292,7 @@ Two ways to wire it up:
 
 `dfinstall_status` · `dfinstall_install` · `dfinstall_uninstall` · `dfinstall_diff` · `dfinstall_doctor` · `dfinstall_list_modules` · `dfinstall_list_backups` · `dfinstall_restore` · `dfinstall_config` · `dfinstall_registry_validate`
 
-`diff` and `doctor` report multi-clone symlink drift, and `install` with module `all` records the canonical clone — matching the CLI exactly, because both go through the same code.
+`diff` and `doctor` report multi-clone symlink drift, and `install` with module `all` records the canonical clone — matching the CLI exactly, because both go through the same code. `install` takes `upgrade: true` to do what `update` does; it returns the pull's report, and when the pull changes dfinstall's source it rebuilds the binaries and asks for a reconnect, since the running server keeps its old code. Moving local edits into override files needs a terminal, so there it only reports them.
 
 </details>
 

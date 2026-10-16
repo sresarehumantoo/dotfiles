@@ -171,7 +171,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `--extended` | Show interactive menu to select extended OMZ plugins |
 | `--toolkit` | Show interactive menu to select toolkit tools |
 | `--registry <path\|url>` | Override toolkit registry URL for a single run |
-| `--upgrade` | Converge the clone first (`modules.ConvergeClone`: rescue replaced links, offer moves into override files, fast-forward with edits carried), rebuild and re-exec if `src/` changed, then set `core.UpgradeMode` so modules refresh release binaries and cloned plugins |
+| `--upgrade` | Default for `update` (`--no-upgrade` turns it off). Converge the clone first (`modules.ConvergeClone`: rescue replaced links, offer moves into override files, fast-forward with edits carried), rebuild and re-exec if `src/` changed, then set `core.UpgradeMode` so modules refresh release binaries and cloned plugins |
 | `--dry-run` | Preview changes without modifying the filesystem (forces verbose output) |
 
 ### Restore Flags
