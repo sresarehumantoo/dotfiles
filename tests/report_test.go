@@ -250,6 +250,7 @@ func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("DOTFILES", dots)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	core.ResetDotfilesDir()
 	t.Cleanup(core.ResetDotfilesDir)
 
