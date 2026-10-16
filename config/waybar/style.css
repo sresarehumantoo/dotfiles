@@ -663,6 +663,7 @@ window#waybar.empty .modules-center {
 #pulseaudio,
 #backlight,
 #network,
+#bluetooth,
 #cpu,
 #memory,
 #temperature,
@@ -768,6 +769,7 @@ window#waybar.empty .modules-center {
 #idle_inhibitor:hover,
 #pulseaudio:hover,
 #network:hover,
+#bluetooth:hover,
 #battery:hover,
 #custom-notification:hover,
 #custom-system:hover,
@@ -859,6 +861,8 @@ window#waybar.empty .modules-center {
    it needs its own +1/+1 — the generic `#network:hover` above would otherwise
    win on source order and give the shield the wifi fan's correction. */
 #network.vpn:hover         { padding-left:  8px; padding-right: 12px; margin: 2px 0; }
+#bluetooth:hover           { padding-left: 10px; padding-right: 10px; margin: 2px 0; }
+#bluetooth.connected:hover { padding-left:  8px; padding-right: 12px; margin: 2px 0; }
 
 /* ── Single-accent discipline ──────────────────────────────────────────────
    Everything in the status cluster is plain @text. Color is not decoration
@@ -885,6 +889,7 @@ window#waybar.empty .modules-center {
 #memory,
 #temperature,
 #network,
+#bluetooth,
 #pulseaudio,
 #mpris,
 #custom-system,
@@ -1002,6 +1007,7 @@ window#waybar.empty .modules-center {
 #idle_inhibitor,
 #pulseaudio,
 #network,
+#bluetooth,
 #battery,
 #custom-notification {
     /* ⚠ 13, NOT 12, AND THE PARITY IS THE POINT. GTK centers the label in the
@@ -1049,6 +1055,8 @@ window#waybar.empty .modules-center {
 #custom-notification { padding-left:  7px; padding-right: 11px; }  /* bell      +1.62px */
 #idle_inhibitor      { padding-left:  7px; padding-right: 11px; }  /* coffee    +2.16px */
 #network             { padding-left:  6px; padding-right: 12px; }  /* wifi fan  +3.05px */
+#bluetooth           { padding-left:  9px; padding-right:  9px; }  /* rune      +0.19px */
+#bluetooth.connected { padding-left:  7px; padding-right: 11px; }  /* connected +1.62px */
 
 /* ⚠ The volume chip is the one that cannot be exact: its ink offset changes
    with the level, because the ramp is three different glyphs —
