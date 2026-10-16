@@ -232,7 +232,7 @@ the full flag list.
 
 ```bash
 dfinstall install windev      # idempotent — re-runs installs, re-links files
-dfinstall update windev       # alias for install
+dfinstall update windev       # install --upgrade: pulls the clone first
 dfinstall install all -v      # also re-applies windev once enabled
 ```
 

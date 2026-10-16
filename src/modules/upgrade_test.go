@@ -304,6 +304,30 @@ func TestConvergeClone_DryRunChangesNothing(t *testing.T) {
 	}
 }
 
+// The MCP server has no terminal to print to, so a dry run's report has to
+// reach CaptureOutput at the default quiet level.
+func TestUpgradeClone_DryRunReportsWhatItWouldDo(t *testing.T) {
+	up, clone := upgradeFixture(t)
+	commitUpstream(t, up, "src/main.go", "package main\n\nfunc main() {}\n")
+	gitIn(t, clone, "fetch", "-q")
+
+	core.DryRun = true
+	t.Cleanup(func() { core.DryRun = false })
+	var b strings.Builder
+	stop := core.CaptureOutput(&b)
+	exe := UpgradeClone(context.Background(), clone)
+	stop()
+
+	if exe != "" {
+		t.Errorf("dry run rebuilt %s", exe)
+	}
+	for _, want := range []string{"would fast-forward 1 commit(s)", "would rebuild dfinstall from " + clone} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("report lacks %q:\n%s", want, b.String())
+		}
+	}
+}
+
 func TestSplitDiff(t *testing.T) {
 	diff := "diff --git a/f b/f\n--- a/f\n+++ b/f\n@@ -1 +1 @@\n--- old\n+++ new\n@@ -5,0 +6 @@\n+added\n"
 	added, removed := splitDiff(diff)
