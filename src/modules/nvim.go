@@ -503,9 +503,15 @@ func (NvimModule) Install(ctx context.Context) error {
 	// `+qa` would quit before a single parser compiled.
 	if !core.DryRun {
 		if nvim, err := nvimBin(); err == nil {
-			core.Info("Syncing Neovim plugins...")
-			if err := runCmd(ctx, nvim, "--headless", "+Lazy! sync", "+qa"); err != nil {
-				core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
+			// install only adds missing plugins; sync also updates every one,
+			// which is --upgrade's job, not a plain install's.
+			lazyCmd := "install"
+			if core.UpgradeMode {
+				lazyCmd = "sync"
+			}
+			core.Info("Running Lazy %s...", lazyCmd)
+			if err := runCmd(ctx, nvim, "--headless", "+Lazy! "+lazyCmd, "+qa"); err != nil {
+				core.Warn("Plugin %s failed — run :Lazy %s manually in nvim", lazyCmd, lazyCmd)
 			}
 			core.Info("Building treesitter parsers...")
 			if err := runCmd(ctx, nvim, "--headless",

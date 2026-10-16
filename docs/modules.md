@@ -432,7 +432,7 @@ Sets up a full Neovim configuration under `~/.config/nvim/`:
 
 - **23 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, `notes.markdownlint.yaml` (the vault's relaxed lint rules), lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
 - **Neovim itself:** if nvim is missing or older than nvim-treesitter needs, installs the official prebuilt into `~/.local/opt` and links `~/.local/bin/nvim`, no root. An older distro or `/opt` copy is left installed (it is shadowed on PATH) and the command to remove it is printed. The tree-sitter CLI goes to `~/.local/bin` the same way.
-- **Plugin sync:** Runs `nvim --headless "+Lazy! sync" "+qa"` after linking
+- **Plugins:** Runs `nvim --headless "+Lazy! install" "+qa"` after linking, which only adds missing plugins; `--upgrade` runs `Lazy! sync` instead to update them
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
 
 Plugin output is suppressed in default mode and shown in verbose/debug mode.
