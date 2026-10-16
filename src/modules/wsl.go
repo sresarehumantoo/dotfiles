@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,7 +22,7 @@ func (WslModule) Install(ctx context.Context) error {
 	}
 
 	if core.DryRun {
-		core.Info("would configure WSL: wsl.conf, sysctl, Windows exe shims, wslconfig (host-sized), win-home symlink, git untracked cache, ghostty shader choice")
+		core.Info("would configure WSL: wsl.conf, sysctl, Windows exe shims, wslconfig (host-sized), win-home symlink, ghostty shader choice")
 		return nil
 	}
 
@@ -46,7 +45,6 @@ func (WslModule) Install(ctx context.Context) error {
 		core.Warn("Then relaunch and run: dfinstall install wsl")
 	}
 
-	configureGitCache(ctx)
 	configureGhosttyShader(ctx)
 
 	if wslConfChanged {
@@ -272,35 +270,6 @@ func linkWinHome() {
 	if err := core.LinkFile(wslWinHome, link); err != nil {
 		core.Warn("Could not create Windows home symlink: %v", err)
 	}
-}
-
-// configureGitCache enables git's untracked cache.
-//
-// ⚠ It deliberately does NOT set core.fsmonitor. That was here for years and
-// was dead the whole time: git's built-in FSMonitor daemon is implemented for
-// Windows and macOS only, and the WSL side of WSL is Linux. Measured on
-// git 2.47.3 —
-//
-//	$ git fsmonitor--daemon status
-//	fatal: fsmonitor--daemon not supported on this platform
-//
-// git silently ignores the setting rather than erroring, which is exactly why
-// it survived: it looked like a working optimization in every `git config -l`.
-// core.untrackedcache is the one that is real on Linux and does help.
-func configureGitCache(ctx context.Context) {
-	if _, err := exec.LookPath("git"); err != nil {
-		return
-	}
-	// Clear the dead setting if a previous install wrote it, so the config
-	// stops advertising an optimization that never ran. Unset returns non-zero
-	// when the key is absent, which is the normal case — not an error.
-	_ = exec.CommandContext(ctx, "git", "config", "--global", "--unset", "core.fsmonitor").Run()
-
-	if err := exec.CommandContext(ctx, "git", "config", "--global", "core.untrackedcache", "true").Run(); err != nil {
-		core.Warn("failed to enable git untrackedcache: %v", err)
-		return
-	}
-	core.Ok("git untracked cache enabled")
 }
 
 // sudoRun runs a command as root. core.SudoCmd already execs directly when we

@@ -647,7 +647,6 @@ WSL-specific setup. Skips entirely on non-WSL systems.
 | Windows exe shims | `~/.local/bin/<name>.exe` | generated `exec` wrappers |
 | .wslconfig | `C:\Users\<user>\.wslconfig` | rendered from template + host specs |
 | Windows home link | `~/owen` -> `/mnt/c/Users/owen` | symlink |
-| Git untracked cache | global git config | `git config --global` |
 | Ghostty shader choice | `~/.config/ghostty/ghostty.local` | prompt (interactive) |
 
 **Status:** wsl.conf, sysctl conf, Windows home symlink, and the shims (counted only
