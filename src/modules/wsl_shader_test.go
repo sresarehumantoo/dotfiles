@@ -51,6 +51,7 @@ func TestGhosttyOverrideMatchesShellScript(t *testing.T) {
 			goHome := t.TempDir()
 			t.Setenv("HOME", goHome)
 			t.Setenv("XDG_CONFIG_HOME", filepath.Join(goHome, ".config"))
+			t.Setenv("XDG_DATA_HOME", filepath.Join(goHome, ".local", "share"))
 			if err := writeGhosttyShaderOverride(tc.enabled); err != nil {
 				t.Fatalf("go writer: %v", err)
 			}
