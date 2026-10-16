@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/fatih/color"
@@ -32,6 +33,23 @@ var (
 	debugSymbol = color.New(color.FgMagenta, color.Bold).SprintFunc()
 )
 
+// capture, when set, receives a copy of every line emit writes. Guarded by outMu.
+var capture io.Writer
+
+// CaptureOutput copies every line printed from here on into w until the
+// returned func is called. The MCP server uses it to return what a step
+// reported, since nothing it prints reaches the user.
+func CaptureOutput(w io.Writer) (stop func()) {
+	outMu.Lock()
+	capture = w
+	outMu.Unlock()
+	return func() {
+		outMu.Lock()
+		capture = nil
+		outMu.Unlock()
+	}
+}
+
 var (
 	bufMu            sync.Mutex
 	bufferedWarnings []string
@@ -53,6 +71,9 @@ func emit(symbol, msg string) {
 		fmt.Print("\r\033[K")
 	}
 	fmt.Printf("  %s %s\n", symbol, msg)
+	if capture != nil {
+		fmt.Fprintf(capture, "%s %s\n", symbol, msg)
+	}
 }
 
 // emitRaw writes a pre-formatted line under the same lock.

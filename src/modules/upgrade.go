@@ -66,7 +66,7 @@ func ConvergeClone(ctx context.Context, dir string) (srcChanged bool, err error)
 		return false, nil
 	}
 	if core.DryRun {
-		core.Info("would fetch %s (counts below are as of the last fetch)", upstream)
+		core.Notice("would fetch %s (counts below are as of the last fetch)", upstream)
 	} else if err := runNetCmd(ctx, "git", "-C", dir, "fetch", "--quiet"); err != nil {
 		core.AlwaysWarn("could not fetch %s: %v", upstream, err)
 		return false, nil
@@ -111,7 +111,7 @@ func ConvergeClone(ctx context.Context, dir string) (srcChanged bool, err error)
 		return false, nil
 	}
 	if core.DryRun {
-		core.Info("would fast-forward %d commit(s) from %s", behind, upstream)
+		core.Notice("would fast-forward %d commit(s) from %s", behind, upstream)
 		return false, nil
 	}
 
@@ -253,7 +253,7 @@ func managedLinks() core.LinkSet {
 // of linking over it would quietly drop the setting into a .bak file.
 func adoptReplacedLink(ctx context.Context, src, dst string, content []byte) {
 	if core.DryRun {
-		core.Info("would offer to copy %s, a file where a link belongs, into %s", dst, src)
+		core.Notice("would offer to copy %s, a file where a link belongs, into %s", dst, src)
 		return
 	}
 	if canPrompt() {
@@ -623,7 +623,7 @@ func moveLocalEdits(ctx context.Context, dir string) {
 		}
 		switch {
 		case core.DryRun:
-			core.Info("would offer to move the edits to %s into %s:\n%s", rel, o.path, edit)
+			core.Notice("would offer to move the edits to %s into %s:\n%s", rel, o.path, edit)
 			continue
 		case !canPrompt():
 			core.Notice("%s has local edits that could move to %s; rerun --upgrade in a terminal to move them", rel, o.path)
@@ -700,10 +700,32 @@ func clip(s string, n int) string {
 	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n... %d more lines", len(lines)-n)
 }
 
-// RebuildSelf rebuilds the running dfinstall from dir when its source there
-// differs from the binary's, and returns the binary to re-exec. "" means carry on with the
-// current one, which still installs; it just lacks what the pull brought.
-func RebuildSelf(ctx context.Context, dir string) string {
+// UpgradeClone converges dir, then rebuilds dfinstall when its source there
+// differs from what this binary was built from, which also covers a clone
+// pulled by hand since. Returns the rebuilt binary, or "" when there is none
+// to switch to. Failures are reported and the install goes on with the clone
+// as it is.
+func UpgradeClone(ctx context.Context, dir string) string {
+	changed, err := ConvergeClone(ctx, dir)
+	if err != nil {
+		core.AlwaysWarn("could not update %s: %v", dir, err)
+	}
+	stale := changed || BinaryStale(ctx, dir, core.Version)
+	if stale && core.DryRun {
+		core.Notice("would rebuild dfinstall from %s", dir)
+	}
+	// Before any re-exec, which would drop what quiet mode buffered.
+	core.FlushWarnings()
+	if !stale || core.DryRun {
+		return ""
+	}
+	return rebuildSelf(ctx, dir)
+}
+
+// rebuildSelf rebuilds the running binary from dir and returns its path. ""
+// means carry on with the current one, which still installs; it just lacks
+// what the pull brought.
+func rebuildSelf(ctx context.Context, dir string) string {
 	exe, err := os.Executable()
 	if err == nil {
 		exe, err = filepath.EvalSymlinks(exe)
@@ -718,11 +740,13 @@ func RebuildSelf(ctx context.Context, dir string) string {
 		}
 		return p
 	}
+	// The CLI or the MCP server; both targets build both binaries.
+	name := filepath.Base(exe)
 	var target string
 	switch exe {
-	case resolve(filepath.Join(dir, "bin", "dfinstall")):
+	case resolve(filepath.Join(dir, "bin", name)):
 		target = "build-all"
-	case resolve(core.HomeTarget(".local", "bin", "dfinstall")):
+	case resolve(core.HomeTarget(".local", "bin", name)):
 		target = "install-bin"
 	default:
 		core.AlwaysWarn("dfinstall is out of date with %s; rebuild it with `make -C %s install-bin`", dir, dir)
