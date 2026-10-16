@@ -266,9 +266,14 @@ Symlinks shell configuration files:
 | `shell/zsh/ssh.zsh` | `~/.zsh.d/ssh.zsh` |
 | `shell/zsh/locale.zsh` | `~/.zsh.d/locale.zsh` |
 | `shell/zsh/drift.zsh` | `~/.zsh.d/drift.zsh` |
+| `shell/zsh/git.zsh` | `~/.zsh.d/git.zsh` |
 | `shell/zprofile` | `~/.zprofile` |
 
 The zshrc sources p10k instant prompt, loads oh-my-zsh, then sources all `~/.zsh.d/*.zsh` files for modular configuration.
+
+### `git diff` and `git show` open in Neovim
+
+When nvim and its diffview.nvim plugin are installed, `git.zsh` wraps `git` so that `git diff` and `git show`, run from a terminal, open a side-by-side diff with a file panel. `git show` lists the commit (subject, author, date) beside the diff. `q` closes the view and nvim with it. Revisions, `--cached`/`--staged` and paths carry over (`git diff HEAD~2 HEAD -- src` works). Anything diffview would show differently goes to git and delta as before: other flags such as `--stat` or `--word-diff`, a blob (`git show HEAD:file`), a root commit, a range given to `show`, an empty diff, piped output, or a shell inside nvim. `command git diff` skips it once and `DF_GIT_NVIM=0` turns it off.
 
 ### zsh does not read `~/.profile`, so `~/.zprofile` bridges it
 
@@ -432,7 +437,7 @@ Sets up a full Neovim configuration under `~/.config/nvim/`:
 
 Plugin output is suppressed in default mode and shown in verbose/debug mode.
 
-**Custom plugins:** colorizer, comment, flash, harpoon, markdown (render-markdown, bullets.vim), notes (obsidian.nvim), oil, smear-cursor, undotree
+**Custom plugins:** colorizer, comment, flash, harpoon, markdown (render-markdown, bullets.vim), notes (obsidian.nvim), oil, smear-cursor, undotree, diffview
 
 notes turns the directory in `$NOTES_DIR` (default `~/notes`) into an Obsidian-compatible vault, alongside the tutorial's sample vault at `docs/nvim-tutorial/vault` (found through the symlinked `init.lua`); vaults that don't exist are skipped. Markdown inside a vault gets relaxed linting and no format-on-save.
 
