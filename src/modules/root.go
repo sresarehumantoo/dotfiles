@@ -84,7 +84,7 @@ func InstallRoot(ctx context.Context) error {
 			failures++
 			continue
 		}
-		core.Ok("installed: %s", f.dst)
+		core.Changed("installed: %s", f.dst)
 	}
 
 	if failures > 0 {

@@ -212,9 +212,9 @@ func configureGhosttyShader(ctx context.Context) {
 		return
 	}
 	if keep {
-		core.Ok("Ghostty cursor trail enabled")
+		core.Changed("Ghostty cursor trail enabled")
 	} else {
-		core.Ok("Ghostty cursor trail disabled")
+		core.Changed("Ghostty cursor trail disabled")
 	}
 	core.Notice("Restart Ghostty for this to take effect (a reload does not recompute it).")
 }

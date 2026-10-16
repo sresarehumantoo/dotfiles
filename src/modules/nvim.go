@@ -113,7 +113,7 @@ func ensureTreeSitterCLI(ctx context.Context) error {
 	if err := runCmd(ctx, "install", "-D", "-m", "0755", filepath.Join(tmp, "tree-sitter"), dst); err != nil {
 		return fmt.Errorf("install tree-sitter: %w", err)
 	}
-	core.Ok("Installed tree-sitter CLI from %s", asset.Name)
+	core.Changed("Installed tree-sitter CLI from %s", asset.Name)
 	return nil
 }
 
@@ -398,7 +398,7 @@ func installPrebuiltNvimLinux(ctx context.Context) error {
 	if err := os.Symlink(filepath.Join(final, "bin", "nvim"), link); err != nil {
 		return fmt.Errorf("link nvim: %w", err)
 	}
-	core.Ok("Installed prebuilt Neovim to %s", final)
+	core.Changed("Installed prebuilt Neovim to %s", final)
 	return nil
 }
 
@@ -503,9 +503,15 @@ func (NvimModule) Install(ctx context.Context) error {
 	// `+qa` would quit before a single parser compiled.
 	if !core.DryRun {
 		if nvim, err := nvimBin(); err == nil {
-			core.Info("Syncing Neovim plugins...")
-			if err := runCmd(ctx, nvim, "--headless", "+Lazy! sync", "+qa"); err != nil {
-				core.Warn("Plugin sync failed — run :Lazy sync manually in nvim")
+			// install only adds missing plugins; sync also updates every one,
+			// which is --upgrade's job, not a plain install's.
+			lazyCmd := "install"
+			if core.UpgradeMode {
+				lazyCmd = "sync"
+			}
+			core.Info("Running Lazy %s...", lazyCmd)
+			if err := runCmd(ctx, nvim, "--headless", "+Lazy! "+lazyCmd, "+qa"); err != nil {
+				core.Warn("Plugin %s failed — run :Lazy %s manually in nvim", lazyCmd, lazyCmd)
 			}
 			core.Info("Building treesitter parsers...")
 			if err := runCmd(ctx, nvim, "--headless",

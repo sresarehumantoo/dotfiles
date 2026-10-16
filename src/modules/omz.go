@@ -50,6 +50,8 @@ func (OmzModule) Install(ctx context.Context) error {
 		if err := runCmd(ctx, "git", "clone",
 			"https://github.com/zsh-users/zsh-autosuggestions", zasDir); err != nil {
 			core.Warn("zsh-autosuggestions clone failed: %v", err)
+		} else {
+			core.Changed("cloned zsh-autosuggestions")
 		}
 	} else {
 		core.Ok("zsh-autosuggestions already installed")
@@ -63,6 +65,8 @@ func (OmzModule) Install(ctx context.Context) error {
 		if err := runCmd(ctx, "git", "clone", "--depth=1",
 			"https://github.com/romkatv/powerlevel10k.git", p10kDir); err != nil {
 			core.Warn("powerlevel10k clone failed: %v", err)
+		} else {
+			core.Changed("cloned powerlevel10k")
 		}
 	} else {
 		core.Ok("powerlevel10k already installed")
@@ -142,7 +146,7 @@ func installOmz(ctx context.Context, omzDir string) error {
 	if _, err := os.Stat(marker); err != nil {
 		return fmt.Errorf("install completed but marker missing at %s", marker)
 	}
-	core.Ok("oh-my-zsh installed")
+	core.Changed("oh-my-zsh installed")
 	return nil
 }
 

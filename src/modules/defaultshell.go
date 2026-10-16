@@ -43,6 +43,7 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 		err := cmd.Run()
 		core.ResumeSpinner()
 		if err == nil {
+			core.Changed("default shell set to %s", zshPath)
 			return nil
 		}
 	}
@@ -51,6 +52,7 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 	// bootstrap): sudo, but only where it needs no prompt.
 	if _, err := runProbe(ctx, "sudo", "-n", "true"); err == nil {
 		if err := runCmd(ctx, "sudo", "chsh", "-s", zshPath, os.Getenv("USER")); err == nil {
+			core.Changed("default shell set to %s", zshPath)
 			return nil
 		}
 	}

@@ -102,7 +102,7 @@ func addAptRepo(ctx context.Context, name, keyURL, keyPath, repoContent, repoPat
 			if err := aptUpdateWithRetry(ctx); err != nil {
 				return fmt.Errorf("apt update after refreshing %s key: %w", name, err)
 			}
-			core.Ok("%s signing key refreshed", name)
+			core.Changed("%s signing key refreshed", name)
 			return nil
 		}
 		core.Notice("Updating %s repo (content changed)", name)
@@ -128,7 +128,7 @@ func addAptRepo(ctx context.Context, name, keyURL, keyPath, repoContent, repoPat
 		return fmt.Errorf("apt update after adding %s repo: %w", name, err)
 	}
 
-	core.Ok("%s repo added", name)
+	core.Changed("%s repo added", name)
 	return nil
 }
 
@@ -505,7 +505,7 @@ func setupRootlessDocker(ctx context.Context) {
 		core.Warn("Rootless Docker setup failed: %v (retry with `%s`, or use `sudo docker`)", err, manual)
 		return
 	}
-	core.Ok("Rootless Docker set up; `sudo docker` reaches the system daemon")
+	core.Changed("Rootless Docker set up; `sudo docker` reaches the system daemon")
 }
 
 // removeConflictingDockerPackages purges distro-shipped Docker packages
@@ -663,7 +663,7 @@ func installTerraformRelease(ctx context.Context, rel terraformRelease) error {
 	if err := runCmd(ctx, "install", "-D", "-m", "0755", bin, dst); err != nil {
 		return err
 	}
-	core.Ok("Terraform %s installed to %s", rel.Version, dst)
+	core.Changed("Terraform %s installed to %s", rel.Version, dst)
 	return nil
 }
 

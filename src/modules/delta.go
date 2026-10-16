@@ -103,7 +103,7 @@ func installDeltaRelease(ctx context.Context) error {
 	if err := runCmd(ctx, "install", "-D", "-m", "0755", bin, dst); err != nil {
 		return err
 	}
-	core.Ok("delta installed to %s", dst)
+	core.Changed("delta installed to %s", dst)
 	return nil
 }
 

@@ -123,7 +123,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 		if err := runCmd(ctx, "brew", "install", formula); err != nil {
 			core.Warn("Failed to install %s: %v", formula, err)
 		} else {
-			core.Ok("%s installed", formula)
+			core.Changed("%s installed", formula)
 		}
 	}
 
@@ -147,7 +147,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 			if err := runCmd(ctx, "go", "install", t.Package); err != nil {
 				core.Warn("Failed to install %s: %v", t.Binary, err)
 			} else {
-				core.Ok("%s installed", t.Binary)
+				core.Changed("%s installed", t.Binary)
 			}
 		}
 	}
@@ -169,7 +169,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 				core.Warn("Failed to install %s: %v", t.Binary, err)
 				cargoFailed = append(cargoFailed, t)
 			} else {
-				core.Ok("%s installed", t.Binary)
+				core.Changed("%s installed", t.Binary)
 			}
 		}
 		// Recovery path: if the system cargo (apt) couldn't compile some
@@ -183,7 +183,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 						if err := runCmd(ctx, "cargo", "install", "--locked", t.Package); err != nil {
 							core.AlwaysWarn("Still failed to install %s after rustup: %v", t.Binary, err)
 						} else {
-							core.Ok("%s installed", t.Binary)
+							core.Changed("%s installed", t.Binary)
 						}
 					}
 				}
@@ -206,7 +206,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 			if err := runCmd(ctx, "pipx", "install", t.Package); err != nil {
 				core.Warn("Failed to install %s: %v", t.Package, err)
 			} else {
-				core.Ok("%s installed", t.Package)
+				core.Changed("%s installed", t.Package)
 			}
 		}
 	}
@@ -451,7 +451,7 @@ func installGitClone(ctx context.Context, name, repoURL string) error {
 		return fmt.Errorf("clone %s: %w", name, err)
 	}
 
-	core.Ok("%s cloned to %s", name, destPath)
+	core.Changed("%s cloned to %s", name, destPath)
 	return nil
 }
 
@@ -504,7 +504,7 @@ func installDeb(ctx context.Context, name, repo string) error {
 		}
 	}
 
-	core.Ok("%s installed via deb", name)
+	core.Changed("%s installed via deb", name)
 	return nil
 }
 
@@ -548,7 +548,7 @@ func installAppImage(ctx context.Context, name, repo string) error {
 		return fmt.Errorf("chmod %s: %w", destPath, err)
 	}
 
-	core.Ok("%s AppImage installed to %s", name, destPath)
+	core.Changed("%s AppImage installed to %s", name, destPath)
 	return nil
 }
 
@@ -635,7 +635,7 @@ func installReleaseBinary(ctx context.Context, name, repo, pattern string) error
 	if err := os.Chmod(destPath, 0755); err != nil {
 		return fmt.Errorf("chmod %s: %w", destPath, err)
 	}
-	core.Ok("%s installed to %s", name, destPath)
+	core.Changed("%s installed to %s", name, destPath)
 	return nil
 }
 
@@ -743,7 +743,7 @@ func installRustup(ctx context.Context) bool {
 	}
 
 	addToPath()
-	core.Ok("rustup installed (cargo: %s)", cargoVersion(ctx))
+	core.Changed("rustup installed (cargo: %s)", cargoVersion(ctx))
 	return true
 }
 
@@ -766,7 +766,7 @@ func ensureToolchain(ctx context.Context, binName, pkgName string, n int, label 
 		core.AlwaysWarn("Installed %s but %s still not on PATH — skipping %d %s (open a new shell or check PATH)", pkgName, binName, n, label)
 		return false
 	}
-	core.Ok("%s installed via %s", binName, pkgName)
+	core.Changed("%s installed via %s", binName, pkgName)
 	return true
 }
 
@@ -821,6 +821,6 @@ func installRustupBrew(ctx context.Context) bool {
 			return false
 		}
 	}
-	core.Ok("rustup installed (cargo: %s)", cargoVersion(ctx))
+	core.Changed("rustup installed (cargo: %s)", cargoVersion(ctx))
 	return true
 }

@@ -233,7 +233,11 @@ func installPkg(ctx context.Context, pkgs ...string) error {
 
 	core.SpinnerDetail("Installing: %s", strings.Join(resolved, ", "))
 	cmdArgs := append(args, resolved...)
-	return runCmd(ctx, cmdArgs[0], cmdArgs[1:]...)
+	if err := runCmd(ctx, cmdArgs[0], cmdArgs[1:]...); err != nil {
+		return err
+	}
+	core.Changed("installed %s", strings.Join(resolved, ", "))
+	return nil
 }
 
 // filterAptAvailable splits packages into those that have an installation

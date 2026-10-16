@@ -47,6 +47,9 @@ type InstallSession struct {
 	// had never been set. CanonicalNow is the clone now recorded.
 	CanonicalPrev string
 	CanonicalNow  string
+
+	outcomes []*ModuleOutcome
+	current  *ModuleOutcome
 }
 
 // BeginInstall performs the pre-install work shared by all install paths.
@@ -97,6 +100,9 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 			return nil, fmt.Errorf("start backup: %w", err)
 		}
 	}
+	changesMu.Lock()
+	activeSession = s
+	changesMu.Unlock()
 	return s, nil
 }
 
@@ -128,6 +134,11 @@ func (s *InstallSession) Finish() {
 	// session inherit this one's answer — in a long-lived MCP process that
 	// is a real sequence, not a hypothetical one.
 	defer func() { InstallingAll = false }()
+	defer func() {
+		changesMu.Lock()
+		activeSession = nil
+		changesMu.Unlock()
+	}()
 
 	if s.doBackup {
 		if err := FinishBackup(); err != nil {

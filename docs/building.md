@@ -173,7 +173,7 @@ src/
   modules/           # One file per module
     register.go        #   Module registration (order matters)
     omz_extended.go    #   Extended plugin menu and file writer
-    shell_preserve.go  #   Custom shell file preservation menu and writer
+    shell_preserve.go  #   Custom shell file scan and custom-sources.zsh writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
     ...                #   19 modules total
 tests/                 # Black-box tests (package tests)

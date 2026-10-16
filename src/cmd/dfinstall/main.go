@@ -447,11 +447,12 @@ func installAll(ctx context.Context) error {
 		for _, m := range all {
 			if core.SkipInAll(m.Name()) {
 				core.Info("--- %s --- (skipped)", m.Name())
+				sess.Skip(m.Name())
 				skipped++
 				continue
 			}
 			core.Info("--- %s ---", m.Name())
-			if err := m.Install(ctx); err != nil {
+			if err := sess.Run(ctx, m); err != nil {
 				core.Err("%s failed: %v", m.Name(), err)
 				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 			}
@@ -460,6 +461,7 @@ func installAll(ctx context.Context) error {
 			sess.MarkFailed()
 		}
 		fmt.Println()
+		sess.Report().Write(os.Stdout, true)
 		core.Info("Done! Open a new terminal or run: exec zsh")
 		return installFailure(failures)
 	}
@@ -470,12 +472,13 @@ func installAll(ctx context.Context) error {
 
 	for i, m := range all {
 		if core.SkipInAll(m.Name()) {
+			sess.Skip(m.Name())
 			skipped++
 			continue
 		}
 		sp.Update("Installing %s (%d/%d)", m.Name(), i+1, total)
 		core.Debug("starting module %s", m.Name())
-		if err := m.Install(ctx); err != nil {
+		if err := sess.Run(ctx, m); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 		}
 	}
@@ -490,6 +493,7 @@ func installAll(ctx context.Context) error {
 		core.Err("%s", f)
 	}
 
+	sess.Report().Write(os.Stdout, false)
 	if sess.DidBackup() {
 		core.PrintHint("Backup saved — restore with: dfinstall restore")
 	}
@@ -526,7 +530,10 @@ func installOne(ctx context.Context, m core.Module) error {
 
 	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
-		if err := m.Install(ctx); err != nil {
+		err := sess.Run(ctx, m)
+		fmt.Println()
+		sess.Report().Write(os.Stdout, true)
+		if err != nil {
 			sess.MarkFailed()
 			return err
 		}
@@ -538,10 +545,11 @@ func installOne(ctx context.Context, m core.Module) error {
 	sp.Update("Installing %s", m.Name())
 	sp.Start()
 
-	installErr := m.Install(ctx)
+	installErr := sess.Run(ctx, m)
 	sp.Stop()
 
 	core.FlushWarnings()
+	sess.Report().Write(os.Stdout, false)
 
 	if installErr != nil {
 		sess.MarkFailed()

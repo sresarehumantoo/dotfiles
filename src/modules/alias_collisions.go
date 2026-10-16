@@ -64,7 +64,7 @@ func CheckAliasCollisions() []AliasCollision {
 	}
 
 	var collisions []AliasCollision
-	for _, p := range core.Cfg.PreservedFiles {
+	for _, p := range SourcedFiles() {
 		fullPath := fmt.Sprintf("%s/%s", home, p)
 		names, err := shellNames(fullPath)
 		if err != nil {
@@ -94,6 +94,6 @@ func ReportAliasCollisions() bool {
 	for _, c := range collisions {
 		core.Warn("  %q defined in both ~/.aliases and ~/%s", c.Name, c.PreservedFile)
 	}
-	core.PrintHint("Remove duplicates from preserved files, or dismiss the file via: dfinstall install shell")
+	core.PrintHint("Remove duplicates from preserved files, or list the file under dismissed_files in " + core.ConfigFilePath())
 	return true
 }
