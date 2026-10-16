@@ -8,13 +8,15 @@ import (
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
 
-// sandboxHome points HOME, XDG_CONFIG_HOME and DOTFILES at throwaway dirs so a
-// session's side effects land somewhere disposable instead of the real machine.
+// sandboxHome points HOME, XDG_CONFIG_HOME, XDG_DATA_HOME and DOTFILES at
+// throwaway dirs so a session's side effects land somewhere disposable instead
+// of the real machine.
 func sandboxHome(t *testing.T) (home, clone string) {
 	t.Helper()
 	home = t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	clone = makeRepo(t, t.TempDir(), "clone")
 	t.Setenv("DOTFILES", clone)
 	core.ResetDotfilesDir()

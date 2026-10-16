@@ -233,6 +233,7 @@ func TestGhosttyShaderOverrideRespectsDryRun(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 
 	core.DryRun = true
 	defer func() { core.DryRun = false }()

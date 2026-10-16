@@ -19,7 +19,7 @@ const (
 )
 
 // upgradeFixture is an upstream repo shaped like the dotfiles and a clone of
-// it, with HOME and XDG_CONFIG_HOME in a temp dir.
+// it, with HOME and the XDG dirs in a temp dir.
 func upgradeFixture(t *testing.T) (up, clone string) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -28,6 +28,7 @@ func upgradeFixture(t *testing.T) (up, clone string) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 
 	up = t.TempDir()
 	gitIn(t, up, "init", "-q", "-b", "main")

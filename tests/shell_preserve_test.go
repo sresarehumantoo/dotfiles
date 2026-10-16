@@ -176,6 +176,7 @@ func TestFilterNewFiles_RemovesKnown(t *testing.T) {
 func TestWriteCustomSourcesFile_ValidPaths(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 
 	paths := []string{".companyrc", ".work_env"}
 	err := modules.WriteCustomSourcesFile(paths)
@@ -204,6 +205,7 @@ func TestWriteCustomSourcesFile_ValidPaths(t *testing.T) {
 func TestWriteCustomSourcesFile_RejectsInjection(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 
 	cases := []struct {
 		name string

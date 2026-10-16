@@ -40,6 +40,7 @@ func TestLinkRoot(t *testing.T) {
 func TestCanonicalReadWriteAndSelfHeal(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 
 	// Nothing written yet.
 	if got := core.ReadCanonicalDir(); got != "" {
@@ -67,6 +68,7 @@ func TestCanonicalReadWriteAndSelfHeal(t *testing.T) {
 func TestDotfilesDirPrecedence(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 	defer core.ResetDotfilesDir()
 
 	canon := makeRepo(t, tmp, "canon")
@@ -101,6 +103,7 @@ func TestDotfilesDirPrecedence(t *testing.T) {
 func TestAdoptCanonical(t *testing.T) {
 	tmp := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmp)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(tmp, "data"))
 	t.Setenv("DOTFILES", "")
 	defer core.ResetDotfilesDir()
 
