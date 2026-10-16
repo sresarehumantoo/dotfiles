@@ -330,7 +330,8 @@ if command -v go >/dev/null 2>&1; then
 fi
 export PATH
 `
-	return os.WriteFile(windevZshPath(), []byte(content), 0644)
+	_, err := core.WriteFileIfChanged(windevZshPath(), []byte(content), 0644)
+	return err
 }
 
 func (m WindevModule) Uninstall(ctx context.Context) error {

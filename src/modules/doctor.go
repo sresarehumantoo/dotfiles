@@ -118,13 +118,13 @@ func RunDoctorChecks() []DoctorResult {
 	}
 
 	// Alias collisions between managed and preserved shell files.
-	if len(core.Cfg.PreservedFiles) > 0 {
+	if len(SourcedFiles()) > 0 {
 		if collisions := CheckAliasCollisions(); len(collisions) > 0 {
 			extra := make([]string, 0, len(collisions)+1)
 			for _, c := range collisions {
 				extra = append(extra, fmt.Sprintf("%q defined in both ~/.aliases and ~/%s", c.Name, c.PreservedFile))
 			}
-			extra = append(extra, "remove duplicates from preserved files, or dismiss via: dfinstall install shell")
+			extra = append(extra, "remove duplicates from preserved files, or list the file under dismissed_files in "+core.ConfigFilePath())
 			results = append(results, DoctorResult{Name: "alias collisions", OK: false, Detail: "preserved files override managed aliases", Extra: extra})
 		} else {
 			results = append(results, DoctorResult{Name: "alias collisions", OK: true, Detail: "none"})

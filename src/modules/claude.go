@@ -172,7 +172,7 @@ func mergeClaudeSettings() error {
 	if err := os.Rename(tmp.Name(), path); err != nil {
 		return err
 	}
-	core.Ok("Claude settings: set %s", strings.Join(stale, ", "))
+	core.Changed("Claude settings: set %s", strings.Join(stale, ", "))
 	return nil
 }
 

@@ -185,7 +185,7 @@ func (m FontsModule) Install(ctx context.Context) error {
 			core.Warn("could not install %s: %v — MesloLGS floor remains in place", f.family, err)
 			continue
 		}
-		core.Ok("installed font: %s (%s)", f.family, nerdFontsTag)
+		core.Changed("installed font: %s (%s)", f.family, nerdFontsTag)
 		changed = true
 	}
 
@@ -378,7 +378,7 @@ func (m FontsModule) cleanLegacyArtifacts() bool {
 			core.Warn("could not remove legacy font artifact %s: %v", p, err)
 			continue
 		}
-		core.Ok("removed legacy font artifact: %s", filepath.Base(p))
+		core.Changed("removed legacy font artifact: %s", filepath.Base(p))
 		changed = true
 	}
 	// A .bak that differs from the vendored font is the user's; say so rather

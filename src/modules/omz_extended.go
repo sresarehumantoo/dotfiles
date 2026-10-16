@@ -303,11 +303,9 @@ func WriteExtendedPluginsFile(plugins []string) error {
 		sb.WriteString("DFINSTALL_EXTENDED_PLUGINS=()\n")
 	}
 
-	if err := os.WriteFile(path, []byte(sb.String()), 0644); err != nil {
+	if _, err := core.WriteFileIfChanged(path, []byte(sb.String()), 0644); err != nil {
 		return fmt.Errorf("write plugins.zsh: %w", err)
 	}
-
-	core.Ok("wrote %s", path)
 	return nil
 }
 
