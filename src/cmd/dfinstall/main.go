@@ -171,20 +171,28 @@ func main() {
 	installCmd.Flags().StringVar(&flagRegistry, "registry", "", "Path or URL to toolkit registry (overrides config)")
 	installCmd.Flags().BoolVar(&flagUpgrade, "upgrade", false, "Pull the dotfiles clone and update tools and plugins dfinstall installed")
 
+	var flagNoUpgrade bool
 	updateCmd := &cobra.Command{
 		Use:   "update [module|all]",
-		Short: "Update dotfile modules (alias for install)",
-		Long: fmt.Sprintf("Re-apply one or all dotfile modules. This is an alias for install.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
+		Short: "Update dotfile modules (install --upgrade)",
+		Long: fmt.Sprintf("Pull the dotfiles clone, update tools and plugins dfinstall installed, then re-apply one or all modules.\nThis is install --upgrade; --no-upgrade makes it a plain install.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
 			modules.ValidModuleNames()),
 		Args: cobra.MaximumNArgs(1),
-		RunE: runInstall,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			up, _ := cmd.Flags().GetBool("upgrade")
+			flagUpgrade = up && !flagNoUpgrade
+			return runInstall(cmd, args)
+		},
 	}
 
 	updateCmd.Flags().BoolVar(&flagBackup, "backup", false, "Snapshot targets before modification (restorable)")
 	updateCmd.Flags().BoolVar(&flagExtended, "extended", false, "Interactive menu to select extended OMZ plugins")
 	updateCmd.Flags().BoolVar(&flagToolkit, "toolkit", false, "Interactive menu to select security/CTF/dev toolkit tools")
 	updateCmd.Flags().StringVar(&flagRegistry, "registry", "", "Path or URL to toolkit registry (overrides config)")
-	updateCmd.Flags().BoolVar(&flagUpgrade, "upgrade", false, "Pull the dotfiles clone and update tools and plugins dfinstall installed")
+	updateCmd.Flags().BoolVar(&flagNoUpgrade, "no-upgrade", false, "Re-apply modules without pulling the clone or updating tools")
+	// Accepted so `update --upgrade` keeps working now that it is the default.
+	updateCmd.Flags().Bool("upgrade", true, "")
+	_ = updateCmd.Flags().MarkHidden("upgrade")
 
 	var flagList bool
 
@@ -392,9 +400,7 @@ func main() {
 }
 
 // upgradeClone is the first half of --upgrade: bring the clone up to date,
-// then rebuild and re-exec when dfinstall's source there differs from what
-// this binary was built from, so the install runs the clone's code. Failures are reported and the install goes on
-// with the clone as it is.
+// and re-exec when that rebuilt dfinstall, so the install runs the clone's code.
 func upgradeClone(ctx context.Context, all bool) {
 	if os.Getenv(upgradedEnv) != "" {
 		return
@@ -405,27 +411,12 @@ func upgradeClone(ctx context.Context, all bool) {
 	if all {
 		dir = core.InvokingCloneDir()
 	}
-	changed, err := modules.ConvergeClone(ctx, dir)
-	// Before any re-exec, which would drop what quiet mode buffered.
-	core.FlushWarnings()
-	if err != nil {
-		core.AlwaysWarn("could not update %s: %v", dir, err)
-	}
-	// Also when nothing was pulled: the clone may have been pulled by hand
-	// since this binary was built.
-	if !changed && !modules.BinaryStale(ctx, dir, core.Version) {
-		return
-	}
-	if core.DryRun {
-		core.Info("would rebuild dfinstall from %s", dir)
-		return
-	}
-	exe := modules.RebuildSelf(ctx, dir)
+	exe := modules.UpgradeClone(ctx, dir)
 	if exe == "" {
 		return
 	}
 	os.Setenv(upgradedEnv, "1")
-	err = syscall.Exec(exe, os.Args, os.Environ())
+	err := syscall.Exec(exe, os.Args, os.Environ())
 	core.AlwaysWarn("could not restart the rebuilt dfinstall, continuing with this one: %v", err)
 }
 
