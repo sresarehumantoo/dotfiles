@@ -385,6 +385,9 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `wsl-restart` | Restart WSL from within WSL |
 | `docker-cleanup` | Full Docker system purge |
 | `git-prune-branches` | Remove local branches with deleted remotes |
+| `git` | Shadows `git` on PATH and strips AI attribution from commit messages on commit, merge and push |
+| `gh` | Shadows `gh` on PATH and strips AI attribution from PR, issue, comment, release and `gh api` bodies |
+| `_scrub.sh` | What counts as AI attribution, shared by the `git` and `gh` wrappers |
 | `sysinfo` | System resource overview |
 | `tlog-clean` | Strip ANSI escapes and powerline glyphs from tmux log captures |
 | `clipboard-vm` | Diagnose and fix SPICE clipboard sharing in a QEMU/KVM guest (`--reset`) |

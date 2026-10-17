@@ -15,10 +15,13 @@ func (DevtoolsModule) Name() string { return "devtools" }
 // Each script links from config/devtools/<name> to ~/.local/bin/<name>.
 var devtoolsScripts = []string{
 	"_lib.sh",
+	"_scrub.sh",
 	"wsl-resize-disk",
 	"wsl-restart",
 	"docker-cleanup",
 	"git-prune-branches",
+	"git",
+	"gh",
 	"sysinfo",
 	"tlog-clean",
 	"clipboard-vm",
