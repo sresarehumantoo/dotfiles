@@ -1,0 +1,207 @@
+#!/usr/bin/env bash
+# Shadows git on PATH and strips AI attribution (Co-authored-by an assistant,
+# "Generated with ...", Claude-Session) from commit messages: through a
+# commit-msg hook on commit and merge, and by rewriting unpublished commits
+# before a push. It prints nothing; what it rewrites is logged to
+# ${XDG_STATE_HOME:-~/.local/state}/git-scrub.log. DF_GIT_NO_SCRUB=1 bypasses it.
+#
+# Runs on macOS's /bin/bash 3.2. No -e: git's exit status must pass through.
+set -uo pipefail
+
+hooks="${XDG_CACHE_HOME:-$HOME/.cache}/git-scrub/hooks"
+
+# Invoked as a hook from $hooks: scrub at commit-msg, then hand every hook to
+# the repository's own.
+if [[ ${0##*/} != git ]]; then
+    name=${0##*/}
+    if [[ $name == commit-msg && -f ${1:-} ]]; then
+        # shellcheck source=_scrub.sh
+        . "$(dirname "$(readlink "$0")")/_scrub.sh"
+        clean=$(scrub <"$1")
+        [[ $clean == "$(cat "$1")" ]] || printf '%s\n' "$clean" >"$1"
+    fi
+    orig=${DF_GIT_SCRUB_HOOKS:-}
+    if [[ -n $orig && -x $orig/$name && ! $orig/$name -ef $0 ]]; then
+        exec "$orig/$name" "$@"
+    fi
+    exit 0
+fi
+
+real=
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+    if [[ -n $d && -x $d/git && ! $d/git -ef ${BASH_SOURCE[0]} ]]; then
+        real=$d/git
+        break
+    fi
+done
+if [[ -z $real ]]; then
+    echo "git: command not found" >&2
+    exit 127
+fi
+[[ ${DF_GIT_NO_SCRUB:-} == 1 || $# == 0 ]] && exec "$real" "$@"
+
+args=("$@")
+i=0
+while ((i < ${#args[@]})); do
+    case ${args[i]} in
+        -C | -c | --git-dir | --work-tree | --namespace | --config-env) i=$((i + 2)) ;;
+        -*) i=$((i + 1)) ;;
+        *) break ;;
+    esac
+done
+globals=("${args[@]:0:i}")
+sub=${args[i]:-}
+
+case $sub in
+    commit | merge | push) ;;
+    "" | status | diff | log | show | rev-parse | rev-list | ls-files | cat-file | config | \
+        branch | for-each-ref | symbolic-ref | show-ref | fetch | remote | blame | \
+        merge-base | describe | ls-tree | hash-object | update-index | check-ignore | worktree)
+        exec "$real" "$@"
+        ;;
+    *)
+        alias=$("$real" ${globals[@]+"${globals[@]}"} config --get "alias.$sub" 2>/dev/null)
+        case ${alias%% *} in
+            commit | merge | push) sub=${alias%% *} ;;
+            *) exec "$real" "$@" ;;
+        esac
+        ;;
+esac
+
+# shellcheck source=_scrub.sh
+. "${BASH_SOURCE[0]%/*}/_scrub.sh"
+
+g() { "$real" ${globals[@]+"${globals[@]}"} "$@"; }
+
+log() {
+    local f="${XDG_STATE_HOME:-$HOME/.local/state}/git-scrub.log"
+    mkdir -p "${f%/*}" 2>/dev/null
+    printf '%s %s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$(g rev-parse --show-toplevel 2>/dev/null)" "$*" >>"$f" 2>/dev/null
+}
+
+# Prints a copy of commit $1 with message $2 and parents $3..., keeping its
+# tree, author and both dates, so only the message differs.
+recommit() {
+    local sha=$1 msg=$2 an ae ad cn ce cd tree
+    shift 2
+    {
+        IFS=$'\n' read -r an
+        IFS=$'\n' read -r ae
+        IFS=$'\n' read -r ad
+        IFS=$'\n' read -r cn
+        IFS=$'\n' read -r ce
+        IFS=$'\n' read -r cd
+        IFS=$'\n' read -r tree
+    } < <(g log -1 --date=raw --format='%an%n%ae%n%ad%n%cn%n%ce%n%cd%n%T' "$sha")
+    printf '%s\n' "$msg" |
+        GIT_AUTHOR_NAME=$an GIT_AUTHOR_EMAIL=$ae GIT_AUTHOR_DATE=$ad \
+            GIT_COMMITTER_NAME=$cn GIT_COMMITTER_EMAIL=$ce GIT_COMMITTER_DATE=$cd \
+            g commit-tree "$tree" "$@"
+}
+
+# Rewrites every commit on branch ref $1 that no remote has seen, from the
+# first one carrying attribution onward. Trees are untouched, so a worktree
+# with that branch checked out keeps its files and index as they are.
+scrub_unpublished() {
+    local ref=$1 head all map sha parents p np msg clean new changed
+    head=$(g rev-parse -q --verify "$ref") || return 0
+    all=$(g log --format=%B "$head" --not --remotes) || return 1
+    [[ $all == "$(printf '%s\n' "$all" | scrub)" ]] && return 0
+
+    map=$(mktemp -d) || return 1
+    while read -r sha parents; do
+        local pargs=()
+        changed=0
+        for p in $parents; do
+            np=$p
+            if [[ -f $map/$p ]]; then
+                np=$(<"$map/$p")
+                [[ $np != "$p" ]] && changed=1
+            fi
+            pargs+=(-p "$np")
+        done
+        msg=$(g log -1 --format=%B "$sha")
+        clean=$(printf '%s\n' "$msg" | scrub)
+        if ((!changed)) && [[ $msg == "$clean" ]]; then
+            echo "$sha" >"$map/$sha"
+            continue
+        fi
+        new=$(recommit "$sha" "$clean" ${pargs[@]+"${pargs[@]}"}) || {
+            rm -rf "$map"
+            return 1
+        }
+        echo "$new" >"$map/$sha"
+    done < <(g rev-list --reverse --topo-order --parents "$head" --not --remotes)
+
+    new=$(<"$map/$head")
+    rm -rf "$map"
+    g update-ref -m "git-scrub: strip attribution" "$ref" "$new" "$head" || return 1
+    log "$sub ${ref#refs/heads/} $head -> $new"
+}
+
+if [[ $sub == push ]]; then
+    # The local branches this push sends: those named by a refspec's source,
+    # every branch for --all/--mirror or push.default=matching, otherwise the
+    # current one.
+    refs=() specs=() every=0
+    rest=("${args[@]:i+1}")
+    j=0
+    while ((j < ${#rest[@]})); do
+        case ${rest[j]} in
+            -n | --dry-run) exec "$real" "$@" ;;
+            --all | --branches | --mirror) every=1 ;;
+            -o | --push-option | --repo | --receive-pack | --exec) j=$((j + 1)) ;;
+            -*) ;;
+            *) specs+=("${rest[j]}") ;;
+        esac
+        j=$((j + 1))
+    done
+    if ((${#specs[@]} <= 1)) && [[ $(g config --get push.default) == matching ]]; then
+        every=1
+    fi
+    if ((every)); then
+        while read -r r; do refs+=("$r"); done < <(g for-each-ref --format='%(refname)' refs/heads)
+    elif ((${#specs[@]} <= 1)); then
+        r=$(g symbolic-ref -q HEAD) && refs+=("$r")
+    else
+        for spec in "${specs[@]:1}"; do
+            spec=${spec#+}
+            spec=${spec%%:*}
+            [[ -n $spec ]] || continue
+            r=$(g rev-parse --symbolic-full-name "$spec" 2>/dev/null)
+            [[ $r == refs/heads/* ]] && refs+=("$r")
+        done
+    fi
+    for r in ${refs[@]+"${refs[@]}"}; do
+        if ! scrub_unpublished "$r"; then
+            echo "git: could not strip attribution from outgoing commits; not pushing" >&2
+            exit 1
+        fi
+    done
+    exec "$real" "$@"
+fi
+
+for n in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-commit \
+    prepare-commit-msg commit-msg post-commit pre-rebase post-checkout post-merge \
+    pre-push pre-receive update proc-receive post-receive post-update \
+    reference-transaction push-to-checkout pre-auto-gc post-rewrite \
+    sendemail-validate post-index-change; do
+    [[ -L $hooks/$n ]] && continue
+    mkdir -p "$hooks" && ln -sf "$(cd "${BASH_SOURCE[0]%/*}" && pwd)/${BASH_SOURCE[0]##*/}" "$hooks/$n"
+done
+
+orig=$(g config --type=path --get core.hooksPath 2>/dev/null) ||
+    orig=$(g rev-parse --path-format=absolute --git-path hooks 2>/dev/null)
+case $orig in
+    /* | "") ;;
+    *) orig=$(g rev-parse --show-toplevel 2>/dev/null)/$orig ;;
+esac
+# A git run from inside one of these hooks inherits our core.hooksPath.
+[[ -n $orig && $orig -ef $hooks ]] && orig=${DF_GIT_SCRUB_HOOKS:-}
+
+DF_GIT_SCRUB_HOOKS=$orig "$real" ${globals[@]+"${globals[@]}"} -c core.hooksPath="$hooks" "${args[@]:i}"
+rc=$?
+# --no-verify skips commit-msg, so check what landed.
+((rc == 0)) && ref=$(g symbolic-ref -q HEAD) && scrub_unpublished "$ref"
+exit $rc

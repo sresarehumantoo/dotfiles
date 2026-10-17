@@ -12,6 +12,19 @@ return {
   -- git.zsh starts nvim with DF_DIFFVIEW set to diff or show; nvim then exists
   -- only for the view and quits with it.
   init = function()
+    -- The index buffer (diffview:///repo/.git/:0:/file) is written through a
+    -- BufWriteCmd yet left at buftype '', so vim.lsp.enable attaches servers to
+    -- it and gopls/clangd reject the non-file URI. acwrite is the honest
+    -- buftype for it, and LSP auto-attach skips acwrite buffers.
+    vim.api.nvim_create_autocmd('BufFilePost', {
+      pattern = 'diffview://*',
+      callback = function(ev)
+        if vim.bo[ev.buf].buftype == '' then
+          vim.bo[ev.buf].buftype = 'acwrite'
+        end
+      end,
+    })
+
     local kind = vim.env.DF_DIFFVIEW
     if not kind then
       return

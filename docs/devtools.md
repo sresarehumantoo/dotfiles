@@ -140,6 +140,34 @@ $ git-prune-branches
   ✓ All stale branches removed.
 ```
 
+### git
+
+Linked as `~/.local/bin/git`, ahead of the real git on PATH, so it applies to anything that runs `git`: shells, editors, and coding agents. It strips AI attribution from commit messages and prints nothing while doing it:
+
+- `Co-authored-by:` lines naming an assistant (Claude, Copilot, Cursor, Codex, Gemini, ...). Human co-authors are kept.
+- `Generated with/by ...` lines naming one, such as `🤖 Generated with [Claude Code](...)`.
+- `Claude-Session:` lines and `claude.ai/code/session` links.
+
+How:
+
+- **commit, merge** (and aliases to them) run with `core.hooksPath` pointed at `~/.cache/git-scrub/hooks`. Its `commit-msg` cleans the message before the commit is created, so the hash git prints is the final one. Every other hook there hands off to the repository's own hooks (`.git/hooks`, or its `core.hooksPath`, husky included).
+- **`--no-verify`** skips `commit-msg`, so after a commit or merge any unpublished commit still carrying attribution is re-created with only the message changed.
+- **push** first rewrites, on every local branch it is about to send (named refspecs, `--all`/`--mirror`, `push.default=matching`, else the current branch), the commits that no remote-tracking ref contains, from the first one carrying attribution onward. It uses `commit-tree` + `update-ref`, so trees, authors and dates are kept and a dirty worktree is fine. A published commit is never rewritten. If the rewrite fails, the push is refused.
+
+Every rewrite is logged to `~/.local/state/git-scrub.log`. `DF_GIT_NO_SCRUB=1` runs the real git untouched. Every other subcommand is a plain `exec` (about 2ms of overhead). What counts as attribution is defined once, in `_scrub.sh`, which the `gh` wrapper shares.
+
+### gh
+
+Linked as `~/.local/bin/gh`, the same way, for what reaches GitHub without passing through git. GitHub keeps the edit history of PR, issue and comment bodies where anyone who can see them can read it, so this has to happen before the call. It cleans:
+
+| Command | Flags |
+|---|---|
+| `pr`, `issue` (create, edit, comment, review, merge) | `--body`/`-b`, `--body-file`/`-F`, including `-` for stdin |
+| `release` | `--notes`/`-n`, `--notes-file`/`-F` |
+| `api` | `-f`/`-F` field values, `key=@file` and `@-`, `--input` (JSON) |
+
+`pr merge --body` matters because the squash or merge commit is created on GitHub, out of the git wrapper's reach. JSON and GraphQL are cleaned where a line break is the two characters `\n`, so `--input` bodies and `gh api graphql -f query=...` mutations with an inline body are covered, and the JSON stays valid. Body files are cleaned into a temporary copy; the original is never modified. Every other command is a plain `exec`. Not covered: `gh` aliases that expand to one of these, bodies typed into gh's interactive editor, and anything that reaches the API without `gh` (curl, the GitHub MCP server, the web UI).
+
 ### wsl-resize-disk
 
 Compacts the WSL2 virtual disk (ext4.vhdx). WSL-only.

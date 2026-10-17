@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# Shadows gh on PATH and strips AI attribution (see _scrub.sh) from what it
+# posts: PR, issue and release bodies, comments, reviews and merge commit
+# bodies, plus gh api fields and request bodies. GitHub keeps the edit history
+# of all of these, so cleaning one up after posting is too late. It prints
+# nothing; what it changes is logged to
+# ${XDG_STATE_HOME:-~/.local/state}/git-scrub.log. DF_GIT_NO_SCRUB=1 bypasses it.
+#
+# Runs on macOS's /bin/bash 3.2. No -e: gh's exit status must pass through.
+set -uo pipefail
+
+real=
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+    if [[ -n $d && -x $d/gh && ! $d/gh -ef ${BASH_SOURCE[0]} ]]; then
+        real=$d/gh
+        break
+    fi
+done
+if [[ -z $real ]]; then
+    echo "gh: command not found" >&2
+    exit 127
+fi
+[[ ${DF_GIT_NO_SCRUB:-} == 1 || $# == 0 ]] && exec "$real" "$@"
+
+cmd=$1
+case $cmd in
+    pr | issue | release | api) ;;
+    *) exec "$real" "$@" ;;
+esac
+
+# shellcheck source=_scrub.sh
+. "${BASH_SOURCE[0]%/*}/_scrub.sh"
+
+# Sets kind to what flag $1 of $cmd carries: text, a file of text, an api
+# field, an api request body, or nothing of interest.
+classify() {
+    case $cmd:$1 in
+        pr:-b | pr:--body | issue:-b | issue:--body | release:-n | release:--notes) kind=text ;;
+        pr:-F | pr:--body-file | issue:-F | issue:--body-file | release:-F | release:--notes-file) kind="file" ;;
+        api:-f | api:--raw-field | api:-F | api:--field) kind=field ;;
+        api:--input) kind=input ;;
+        *) kind= ;;
+    esac
+}
+
+tmpd=
+changed=0
+
+# Sets path to a file holding file $1 ("-" for stdin) cleaned by filter $2,
+# or to $1 itself when there was nothing to clean.
+clean_file() {
+    local body clean
+    path=$1
+    if [[ $1 == - ]]; then
+        body=$(cat)
+    else
+        [[ -r $1 ]] || return
+        body=$(<"$1")
+    fi
+    clean=$(printf '%s\n' "$body" | $2)
+    [[ $clean == "$body" ]] || changed=1
+    [[ $1 != - && $clean == "$body" ]] && return
+    [[ -n $tmpd ]] || tmpd=$(mktemp -d)
+    path=$(mktemp "$tmpd/body.XXXXXX")
+    printf '%s\n' "$clean" >"$path"
+}
+
+clean_api() { scrub_escaped | scrub; }
+
+# Sets val to $1, the value of a flag of kind $2, cleaned.
+clean_value() {
+    local key clean
+    val=$1
+    case $2 in
+        text)
+            clean=$(printf '%s\n' "$val" | scrub)
+            [[ $clean == "$(printf '%s\n' "$val")" ]] || {
+                val=$clean
+                changed=1
+            }
+            ;;
+        file)
+            clean_file "$val" scrub
+            val=$path
+            ;;
+        input)
+            clean_file "$val" clean_api
+            val=$path
+            ;;
+        field)
+            [[ $val == *=* ]] || return
+            key=${val%%=*}
+            val=${val#*=}
+            if [[ $val == @* ]]; then
+                clean_file "${val#@}" clean_api
+                val=@$path
+            else
+                clean=$(printf '%s\n' "$val" | clean_api)
+                [[ $clean == "$(printf '%s\n' "$val")" ]] || {
+                    val=$clean
+                    changed=1
+                }
+            fi
+            val=$key=$val
+            ;;
+    esac
+}
+
+out=("$cmd")
+set -- "${@:2}"
+while (($#)); do
+    a=$1
+    shift
+    if [[ $a == -- ]]; then
+        out+=(-- "$@")
+        break
+    fi
+    case $a in
+        --*=*)
+            classify "${a%%=*}"
+            if [[ -n $kind ]]; then
+                clean_value "${a#*=}" "$kind"
+                a=${a%%=*}=$val
+            fi
+            out+=("$a")
+            ;;
+        -?*)
+            classify "$a"
+            if [[ -n $kind && $# -gt 0 ]]; then
+                clean_value "$1" "$kind"
+                out+=("$a" "$val")
+                shift
+                continue
+            fi
+            # -bVALUE, -F@file: a short flag with its value attached.
+            classify "${a:0:2}"
+            if [[ $a != --* && -n $kind && ${#a} -gt 2 ]]; then
+                v=${a:2}
+                v=${v#=}
+                clean_value "$v" "$kind"
+                a=${a:0:2}$val
+            fi
+            out+=("$a")
+            ;;
+        *) out+=("$a") ;;
+    esac
+done
+
+if ((changed)); then
+    f="${XDG_STATE_HOME:-$HOME/.local/state}/git-scrub.log"
+    mkdir -p "${f%/*}" 2>/dev/null
+    printf '%s %s gh %s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$PWD" "$cmd" "${out[1]:-}" >>"$f" 2>/dev/null
+fi
+[[ -n $tmpd ]] || exec "$real" "${out[@]}"
+"$real" "${out[@]}"
+rc=$?
+rm -rf "$tmpd"
+exit $rc
