@@ -8,21 +8,6 @@
 # Runs on macOS's /bin/bash 3.2. No -e: git's exit status must pass through.
 set -uo pipefail
 
-ai='claude|anthropic|copilot|openai|chatgpt|codex|cursor|gemini|aider|devin|windsurf|codeium'
-
-scrub() {
-    awk -v ai="$ai" '
-        { l = tolower($0) }
-        l ~ /^[ \t]*co-authored-by:/ && l ~ ai { next }
-        l ~ /^[^a-z0-9]*generated (with|by|using) / && l ~ ai { next }
-        l ~ /^[ \t]*claude-session:/ || index(l, "claude.ai/code/session") { next }
-        { buf[++n] = $0 }
-        END {
-            while (n > 0 && buf[n] ~ /^[ \t]*$/) n--
-            for (i = 1; i <= n; i++) print buf[i]
-        }'
-}
-
 hooks="${XDG_CACHE_HOME:-$HOME/.cache}/git-scrub/hooks"
 
 # Invoked as a hook from $hooks: scrub at commit-msg, then hand every hook to
@@ -30,6 +15,8 @@ hooks="${XDG_CACHE_HOME:-$HOME/.cache}/git-scrub/hooks"
 if [[ ${0##*/} != git ]]; then
     name=${0##*/}
     if [[ $name == commit-msg && -f ${1:-} ]]; then
+        # shellcheck source=_scrub.sh
+        . "$(dirname "$(readlink "$0")")/_scrub.sh"
         clean=$(scrub <"$1")
         [[ $clean == "$(cat "$1")" ]] || printf '%s\n' "$clean" >"$1"
     fi
@@ -81,6 +68,9 @@ case $sub in
         esac
         ;;
 esac
+
+# shellcheck source=_scrub.sh
+. "${BASH_SOURCE[0]%/*}/_scrub.sh"
 
 g() { "$real" ${globals[@]+"${globals[@]}"} "$@"; }
 
