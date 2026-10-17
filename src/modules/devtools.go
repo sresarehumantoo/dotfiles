@@ -19,6 +19,7 @@ var devtoolsScripts = []string{
 	"wsl-restart",
 	"docker-cleanup",
 	"git-prune-branches",
+	"git",
 	"sysinfo",
 	"tlog-clean",
 	"clipboard-vm",

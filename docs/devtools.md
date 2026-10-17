@@ -140,6 +140,22 @@ $ git-prune-branches
   ✓ All stale branches removed.
 ```
 
+### git
+
+Linked as `~/.local/bin/git`, ahead of the real git on PATH, so it applies to anything that runs `git`: shells, editors, and coding agents. It strips AI attribution from commit messages and prints nothing while doing it:
+
+- `Co-authored-by:` lines naming an assistant (Claude, Copilot, Cursor, Codex, Gemini, ...). Human co-authors are kept.
+- `Generated with/by ...` lines naming one, such as `🤖 Generated with [Claude Code](...)`.
+- `Claude-Session:` lines and `claude.ai/code/session` links.
+
+How:
+
+- **commit, merge** (and aliases to them) run with `core.hooksPath` pointed at `~/.cache/git-scrub/hooks`. Its `commit-msg` cleans the message before the commit is created, so the hash git prints is the final one. Every other hook there hands off to the repository's own hooks (`.git/hooks`, or its `core.hooksPath`, husky included).
+- **`--no-verify`** skips `commit-msg`, so after a commit or merge any unpublished commit still carrying attribution is re-created with only the message changed.
+- **push** first rewrites the current branch's commits that no remote-tracking ref contains, from the first one carrying attribution onward. It uses `commit-tree` + `update-ref`, so trees, authors and dates are kept and a dirty worktree is fine. A published commit is never rewritten. If the rewrite fails, the push is refused.
+
+Every rewrite is logged to `~/.local/state/git-scrub.log`. `DF_GIT_NO_SCRUB=1` runs the real git untouched. Every other subcommand is a plain `exec` (about 2ms of overhead). It does not touch PR bodies, which `gh` sends straight to GitHub.
+
 ### wsl-resize-disk
 
 Compacts the WSL2 virtual disk (ext4.vhdx). WSL-only.
