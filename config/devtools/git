@@ -110,14 +110,13 @@ recommit() {
             g commit-tree "$tree" "$@"
 }
 
-# Rewrites every commit on the current branch that no remote has seen, from
-# the first one carrying attribution onward. Trees are untouched, so the
-# worktree and index stay as they are.
+# Rewrites every commit on branch ref $1 that no remote has seen, from the
+# first one carrying attribution onward. Trees are untouched, so a worktree
+# with that branch checked out keeps its files and index as they are.
 scrub_unpublished() {
-    local ref head all map sha parents p np msg clean new changed
-    ref=$(g symbolic-ref -q HEAD) || return 0
-    head=$(g rev-parse -q --verify HEAD) || return 0
-    all=$(g log --format=%B HEAD --not --remotes) || return 1
+    local ref=$1 head all map sha parents p np msg clean new changed
+    head=$(g rev-parse -q --verify "$ref") || return 0
+    all=$(g log --format=%B "$head" --not --remotes) || return 1
     [[ $all == "$(printf '%s\n' "$all" | scrub)" ]] && return 0
 
     map=$(mktemp -d) || return 1
@@ -143,7 +142,7 @@ scrub_unpublished() {
             return 1
         }
         echo "$new" >"$map/$sha"
-    done < <(g rev-list --reverse --topo-order --parents HEAD --not --remotes)
+    done < <(g rev-list --reverse --topo-order --parents "$head" --not --remotes)
 
     new=$(<"$map/$head")
     rm -rf "$map"
@@ -152,13 +151,44 @@ scrub_unpublished() {
 }
 
 if [[ $sub == push ]]; then
-    for a in "${args[@]:i+1}"; do
-        [[ $a == -n || $a == --dry-run ]] && exec "$real" "$@"
+    # The local branches this push sends: those named by a refspec's source,
+    # every branch for --all/--mirror or push.default=matching, otherwise the
+    # current one.
+    refs=() specs=() every=0
+    rest=("${args[@]:i+1}")
+    j=0
+    while ((j < ${#rest[@]})); do
+        case ${rest[j]} in
+            -n | --dry-run) exec "$real" "$@" ;;
+            --all | --branches | --mirror) every=1 ;;
+            -o | --push-option | --repo | --receive-pack | --exec) j=$((j + 1)) ;;
+            -*) ;;
+            *) specs+=("${rest[j]}") ;;
+        esac
+        j=$((j + 1))
     done
-    if ! scrub_unpublished; then
-        echo "git: could not strip attribution from outgoing commits; not pushing" >&2
-        exit 1
+    if ((${#specs[@]} <= 1)) && [[ $(g config --get push.default) == matching ]]; then
+        every=1
     fi
+    if ((every)); then
+        while read -r r; do refs+=("$r"); done < <(g for-each-ref --format='%(refname)' refs/heads)
+    elif ((${#specs[@]} <= 1)); then
+        r=$(g symbolic-ref -q HEAD) && refs+=("$r")
+    else
+        for spec in "${specs[@]:1}"; do
+            spec=${spec#+}
+            spec=${spec%%:*}
+            [[ -n $spec ]] || continue
+            r=$(g rev-parse --symbolic-full-name "$spec" 2>/dev/null)
+            [[ $r == refs/heads/* ]] && refs+=("$r")
+        done
+    fi
+    for r in ${refs[@]+"${refs[@]}"}; do
+        if ! scrub_unpublished "$r"; then
+            echo "git: could not strip attribution from outgoing commits; not pushing" >&2
+            exit 1
+        fi
+    done
     exec "$real" "$@"
 fi
 
@@ -183,5 +213,5 @@ esac
 DF_GIT_SCRUB_HOOKS=$orig "$real" ${globals[@]+"${globals[@]}"} -c core.hooksPath="$hooks" "${args[@]:i}"
 rc=$?
 # --no-verify skips commit-msg, so check what landed.
-((rc == 0)) && scrub_unpublished
+((rc == 0)) && ref=$(g symbolic-ref -q HEAD) && scrub_unpublished "$ref"
 exit $rc

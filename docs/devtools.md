@@ -152,7 +152,7 @@ How:
 
 - **commit, merge** (and aliases to them) run with `core.hooksPath` pointed at `~/.cache/git-scrub/hooks`. Its `commit-msg` cleans the message before the commit is created, so the hash git prints is the final one. Every other hook there hands off to the repository's own hooks (`.git/hooks`, or its `core.hooksPath`, husky included).
 - **`--no-verify`** skips `commit-msg`, so after a commit or merge any unpublished commit still carrying attribution is re-created with only the message changed.
-- **push** first rewrites the current branch's commits that no remote-tracking ref contains, from the first one carrying attribution onward. It uses `commit-tree` + `update-ref`, so trees, authors and dates are kept and a dirty worktree is fine. A published commit is never rewritten. If the rewrite fails, the push is refused.
+- **push** first rewrites, on every local branch it is about to send (named refspecs, `--all`/`--mirror`, `push.default=matching`, else the current branch), the commits that no remote-tracking ref contains, from the first one carrying attribution onward. It uses `commit-tree` + `update-ref`, so trees, authors and dates are kept and a dirty worktree is fine. A published commit is never rewritten. If the rewrite fails, the push is refused.
 
 Every rewrite is logged to `~/.local/state/git-scrub.log`. `DF_GIT_NO_SCRUB=1` runs the real git untouched. Every other subcommand is a plain `exec` (about 2ms of overhead). It does not touch PR bodies, which `gh` sends straight to GitHub.
 
