@@ -582,9 +582,13 @@ insurance for the case where that config is ever a real file. Config changes nee
 restart, not just a reload.
 
 On macOS it also links `config/ghostty/macos.conf`, which the config includes with
-`config-file = ?macos.conf`: the Linux Ctrl+Shift bindings for the clipboard, tabs and
-windows, Shift+PageUp/PageDown scrollback and Ctrl+=/- font size, so plain Ctrl stays
-with the shell. The include is optional, so the missing file is silent on Linux.
+`config-file = ?macos.conf`: Ghostty's Linux default bindings (Ctrl+Shift for the
+clipboard, tabs, windows and splits, Shift+PageUp/PageDown scrollback, prompt jumps,
+font size, the command palette), added on top of the macOS ones so plain Ctrl stays with
+the shell. Three Linux defaults are left out because something else owns them on the
+Mac: Alt+1..9 (tmux's window binds) and Ctrl+Alt+arrows and Ctrl+Alt+Shift+J
+(AeroSpace's mod is ctrl-alt); Cmd+Alt+arrows moves between splits instead. The include
+is optional, so the missing file is silent on Linux.
 
 **Status:** Checks 4 symlinks (5 on macOS).
 
@@ -630,9 +634,14 @@ macOS only, and part of `install all`. Makes the built-in keyboard behave like a
 - **Text navigation.** Links `config/macos/DefaultKeyBinding.dict` to `~/Library/KeyBindings/`: Home/End, Ctrl+Home/End, Ctrl+Left/Right by word and Ctrl+Backspace/Delete by word, with Shift variants, in Cocoa text fields.
 - **System shortcuts that took those keys.** Disables Mission Control (Ctrl+Up/Down), moving between Spaces (Ctrl+Left/Right) and switching input sources (Ctrl+Space), and applies the change with `activateSettings -u`. AeroSpace does not use native Spaces.
 
+- **Passthrough apps.** Remote desktops and VMs (Windows App/Remote Desktop, Citrix Workspace, Horizon, VMware Fusion, Parallels, UTM) get the macOS defaults back, so Ctrl+C reaches the guest instead of copying on the Mac. Add a bundle ID to `passthroughApps` for another one; `osascript -e 'id of app "Name"'` prints it.
+- **Login helper.** `dfinstall install mackeys` also writes `~/.local/bin/mackeys-apply` and a LaunchAgent (`io.github.sresarehumantoo.mackeys`) that runs it at login, on wake and every 10 minutes. It reads the live mapping and sets it again only if it has gone, logging to `~/Library/Logs/mackeys.log`. The preferences above persist by themselves; the live HID mapping is the one piece macOS can drop (a keyboard service that restarts, or a preference key it does not honor), so it is the only thing the helper touches. Because it is a login item, `install all` never creates it, only keeps an existing one current. While it is installed, changing Modifier Keys in System Settings gets reverted within 10 minutes: uninstall the module to change the layout.
+
 Running apps keep the shortcuts and key repeat they started with, so the module prints a notice to reopen them when it changed something. Not covered, because each needs Accessibility: a scroll direction for the mouse that differs from the trackpad's (macOS has one setting for both), and window-level switching. Alt+Tab is the separate `alttab` module.
 
-**Status:** Checks the `DefaultKeyBinding.dict` symlink. `dfinstall doctor` adds a `mac keyboard` row once installed, failing when the swap is not active on the built-in keyboard or press-and-hold is back on.
+**When an app ignores a Ctrl shortcut.** Open its Edit menu and read the shortcut shown next to the item. If it shows ⌘ rather than ⌃, the menu title differs from the table (an app-specific "Copy Link", a different ellipsis): add the title, or a per-app entry. If it shows ⌃ and Ctrl still does nothing, the app consumes the key before its menu sees it. Without Accessibility nothing can rewrite the key at that point; Cmd still works there (the Win-key position), and Karabiner-Elements, deployed by IT, is the only general fix. If the app is a remote session that should receive Ctrl itself, add it to `passthroughApps`.
+
+**Status:** Checks the `DefaultKeyBinding.dict` symlink. `dfinstall doctor` adds a `mac keyboard` row once installed, failing when the swap is not active on the built-in keyboard, press-and-hold is back on, or an installed login helper is not loaded.
 
 ---
 

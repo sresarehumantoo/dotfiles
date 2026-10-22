@@ -12,7 +12,7 @@ import (
 // launchd rejects a malformed plist without saying much, so every agent must
 // parse, extra keys included, and must escape the paths it is given.
 func TestLaunchAgentPlist(t *testing.T) {
-	data := launchAgentPlist(alttabLabel, "/Users/a&b/.local/bin/alttab", "/Users/a&b/Library/Logs/alttab.log", alttabAgentExtra)
+	data := launchAgentPlist(alttabLabel, "/Users/a&b/.local/bin/alttab", "/Users/a&b/Library/Logs/alttab.log", alttabAgentExtra+mackeysAgentExtra)
 	dec := xml.NewDecoder(strings.NewReader(string(data)))
 	dec.Strict = true
 	var strs []string

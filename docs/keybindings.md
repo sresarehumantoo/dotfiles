@@ -47,14 +47,25 @@ The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a
 
 ### Ghostty on macOS
 
+Ghostty's Linux defaults, on top of the macOS ones (`config/ghostty/macos.conf`).
+
 | Key | Action |
 |-----|--------|
 | `Ctrl+C` / `Ctrl+Z` / `Ctrl+W` | Go to the shell, as on Linux |
-| `Ctrl+Shift+C` / `Ctrl+Shift+V` | Copy / Paste |
-| `Ctrl+Shift+T` / `Ctrl+Shift+W` / `Ctrl+Shift+N` | New tab / Close / New window |
-| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` / `Ctrl+Shift+A` | Copy / Paste / Select all |
+| `Ctrl+Shift+T` / `Ctrl+Shift+W` / `Ctrl+Shift+N` | New tab / Close tab / New window |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PageDown`/`PageUp`, `Ctrl+Shift+Right`/`Left`) |
+| `Ctrl+Shift+O` / `Ctrl+Shift+E` | Split right / split down |
+| `Ctrl+Shift+Enter` | Zoom the split |
+| `Cmd+Alt+arrows` | Move between splits (`Ctrl+Alt+arrows` belongs to AeroSpace) |
+| `Cmd+Ctrl+[` / `Cmd+Ctrl+]` | Previous / next split |
+| `Cmd+Ctrl+Shift+arrows` | Resize the split |
 | `Shift+PageUp` / `Shift+PageDown` (`Shift+Fn+Up` / `Shift+Fn+Down`) | Scroll back / forward |
-| `Ctrl+=` / `Ctrl+-` | Font size |
+| `Shift+Home` / `Shift+End` | Top / bottom of scrollback |
+| `Ctrl+Shift+PageUp` / `Ctrl+Shift+PageDown` | Previous / next prompt |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Font size bigger / smaller / reset |
+| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+,` / `Ctrl+Shift+,` | Open / reload config |
 
 ---
 

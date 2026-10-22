@@ -61,43 +61,44 @@ var macKeyDefaults = []macDefault{
 	{"com.apple.HIToolbox", "AppleFnUsageType", int64(0)},
 }
 
-// appShortcut is a menu title bound to Ctrl in every app, and to something
-// else in terminals, where plain Ctrl belongs to the shell. Titles must match
-// the menu item exactly, ellipsis character included.
+// appShortcut is a menu title bound to Ctrl in every app; to Ctrl+Shift or
+// Command in terminals, where plain Ctrl belongs to the shell; and back to the
+// macOS default in passthrough apps. Titles must match the menu item exactly,
+// ellipsis character included.
 type appShortcut struct {
-	title, ctrl, terminal string
+	title, ctrl, terminal, mac string
 }
 
 // Modifier prefixes: ^ Control, $ Shift, @ Command, ~ Option.
 var appShortcuts = []appShortcut{
-	{"Copy", "^c", "^$c"},
-	{"Paste", "^v", "^$v"},
-	{"Cut", "^x", "^$x"},
-	{"Select All", "^a", "^$a"},
-	{"Undo", "^z", "@z"},
-	{"Redo", "^y", "@$z"},
-	{"Find…", "^f", "^$f"},
-	{"Find...", "^f", "^$f"},
-	{"Save", "^s", "@s"},
-	{"Save As…", "^$s", "@$s"},
-	{"Open…", "^o", "@o"},
-	{"Print…", "^p", "@p"},
-	{"New Tab", "^t", "^$t"},
-	{"Close Tab", "^w", "^$w"},
-	{"New Window", "^n", "^$n"},
-	{"Close Window", "^$w", "@$w"},
-	{"Reopen Closed Tab", "^$t", "@$t"},
-	{"New Incognito Window", "^$n", "@$n"},
-	{"New Private Window", "^$n", "@$n"},
-	{"Reload This Page", "^r", "@r"},
-	{"Reload Page", "^r", "@r"},
-	{"Open Location…", "^l", "@l"},
-	{"Zoom In", "^=", "@="},
-	{"Zoom Out", "^-", "@-"},
-	{"Actual Size", "^0", "@0"},
-	{"Bold", "^b", "@b"},
-	{"Italic", "^i", "@i"},
-	{"Underline", "^u", "@u"},
+	{"Copy", "^c", "^$c", "@c"},
+	{"Paste", "^v", "^$v", "@v"},
+	{"Cut", "^x", "^$x", "@x"},
+	{"Select All", "^a", "^$a", "@a"},
+	{"Undo", "^z", "@z", "@z"},
+	{"Redo", "^y", "@$z", "@$z"},
+	{"Find…", "^f", "^$f", "@f"},
+	{"Find...", "^f", "^$f", "@f"},
+	{"Save", "^s", "@s", "@s"},
+	{"Save As…", "^$s", "@$s", "@$s"},
+	{"Open…", "^o", "@o", "@o"},
+	{"Print…", "^p", "@p", "@p"},
+	{"New Tab", "^t", "^$t", "@t"},
+	{"Close Tab", "^w", "^$w", "@w"},
+	{"New Window", "^n", "^$n", "@n"},
+	{"Close Window", "^$w", "@$w", "@$w"},
+	{"Reopen Closed Tab", "^$t", "@$t", "@$t"},
+	{"New Incognito Window", "^$n", "@$n", "@$n"},
+	{"New Private Window", "^$n", "@$n", "@$n"},
+	{"Reload This Page", "^r", "@r", "@r"},
+	{"Reload Page", "^r", "@r", "@r"},
+	{"Open Location…", "^l", "@l", "@l"},
+	{"Zoom In", "^=", "@=", "@="},
+	{"Zoom Out", "^-", "@-", "@-"},
+	{"Actual Size", "^0", "@0", "@0"},
+	{"Bold", "^b", "@b", "@b"},
+	{"Italic", "^i", "@i", "@i"},
+	{"Underline", "^u", "@u", "@u"},
 }
 
 // An app's own NSUserKeyEquivalents is consulted before the global one, so
@@ -105,6 +106,35 @@ var appShortcuts = []appShortcut{
 // left out would fall through to its Ctrl binding and take Ctrl+Z or Ctrl+W
 // from the shell.
 var terminalApps = []string{"com.mitchellh.ghostty", "com.apple.Terminal", "com.googlecode.iterm2"}
+
+// Remote desktops and VMs hand keys to a guest that expects Ctrl itself, so a
+// Ctrl menu shortcut would copy on the Mac instead of in the guest. They get
+// the macOS defaults back.
+var passthroughApps = []string{
+	"com.microsoft.rdc.macos",       // Windows App / Microsoft Remote Desktop
+	"com.citrix.receiver.nomas",     // Citrix Workspace
+	"com.vmware.horizon",            // Omnissa/VMware Horizon Client
+	"com.vmware.fusion",             // VMware Fusion
+	"com.parallels.desktop.console", // Parallels Desktop
+	"com.utmapp.UTM",                // UTM
+}
+
+// shortcutTable pairs a preference domain with the column it gets.
+type shortcutTable struct {
+	domain string
+	key    func(appShortcut) string
+}
+
+func shortcutTables() []shortcutTable {
+	tables := []shortcutTable{{"NSGlobalDomain", func(s appShortcut) string { return s.ctrl }}}
+	for _, app := range terminalApps {
+		tables = append(tables, shortcutTable{app, func(s appShortcut) string { return s.terminal }})
+	}
+	for _, app := range passthroughApps {
+		tables = append(tables, shortcutTable{app, func(s appShortcut) string { return s.mac }})
+	}
+	return tables
+}
 
 // Symbolic hotkeys that take Ctrl+arrows (Mission Control, Spaces) and
 // Ctrl+Space (input sources), which the shell, nvim and the key bindings
@@ -121,6 +151,58 @@ var disabledHotkeys = []struct {
 	{82, [3]int64{65535, 124, 8781824}},
 	{60, [3]int64{32, 49, 262144}}, // Previous input source: Ctrl+Space
 	{61, [3]int64{32, 49, 786432}}, // Next input source: Ctrl+Option+Space
+}
+
+const mackeysLabel = "io.github.sresarehumantoo.mackeys"
+
+func mackeysHelper() string { return core.HomeTarget(".local", "bin", "mackeys-apply") }
+func mackeysLog() string    { return core.HomeTarget("Library", "Logs", "mackeys.log") }
+
+// launchd runs an interval job that fell due during sleep as soon as the Mac
+// wakes, so this covers wake as well as login.
+const mackeysAgentExtra = `
+	<key>StartInterval</key>
+	<integer>600</integer>`
+
+// mackeysApplyScript is the login helper. The preference is what macOS
+// reapplies on its own; this covers the times it does not (a keyboard service
+// that restarted, a preference key the system ignored) by setting the live
+// mapping again whenever it has gone missing.
+func mackeysApplyScript() []byte {
+	return []byte(fmt.Sprintf(`#!/bin/sh
+# Written by dfinstall's mackeys module and run by the %s
+# LaunchAgent at login, on wake and every 10 minutes. Silent unless it acts.
+match='%s'
+live=$(hidutil property --matching "$match" --get HIDKeyboardModifierMappingPairs 2>/dev/null)
+case $live in *%d*) case $live in *%d*) exit 0 ;; esac ;; esac
+hidutil property --matching "$match" --set '%s' >/dev/null &&
+	echo "$(date '+%%F %%T') reapplied the modifier swap"
+`, mackeysLabel, builtinKeyboardMatch, hidGlobe, hidLeftCmd, modifierPairsJSON()))
+}
+
+// modifierSwapLive reads `hidutil property --get HIDKeyboardModifierMappingPairs`
+// the way the login helper does.
+func modifierSwapLive(out string) bool {
+	return strings.Contains(out, strconv.FormatInt(hidGlobe, 10)) && strings.Contains(out, strconv.FormatInt(hidLeftCmd, 10))
+}
+
+// installMackeysHelper adds the login helper on `install mackeys` and keeps
+// an existing one current under `install all`; see launchagent.go.
+func installMackeysHelper(ctx context.Context) error {
+	agent := launchAgentPath(mackeysLabel)
+	if core.InstallingAll && !fileExists(agent) {
+		core.Debug("mackeys login helper not installed — skipping")
+		return nil
+	}
+	scriptChanged, err := core.WriteFileIfChanged(mackeysHelper(), mackeysApplyScript(), 0o755)
+	if err != nil {
+		return err
+	}
+	agentChanged, err := core.WriteFileIfChanged(agent, launchAgentPlist(mackeysLabel, mackeysHelper(), mackeysLog(), mackeysAgentExtra), 0o644)
+	if err != nil || core.DryRun {
+		return err
+	}
+	return loadLaunchAgent(ctx, mackeysLabel, agentChanged, scriptChanged)
 }
 
 const activateSettings = "/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings"
@@ -143,6 +225,9 @@ func (m MackeysModule) Install(ctx context.Context) error {
 		}
 		changed = changed || c
 	}
+	if err := installMackeysHelper(ctx); err != nil {
+		return err
+	}
 	if changed && !core.DryRun {
 		core.Notice("Quit and reopen apps to pick up the new shortcuts and key repeat; a logout covers everything")
 	}
@@ -155,6 +240,9 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 		return nil
 	}
 	if err := m.Links().Remove(); err != nil {
+		return err
+	}
+	if err := removeLaunchAgent(ctx, mackeysLabel, mackeysHelper()); err != nil {
 		return err
 	}
 	if core.DryRun {
@@ -175,11 +263,8 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 			core.Changed("reset %s %s", d.domain, d.key)
 		}
 	}
-	if err := removeShortcuts(ctx, "NSGlobalDomain", func(s appShortcut) string { return s.ctrl }); err != nil {
-		return err
-	}
-	for _, app := range terminalApps {
-		if err := removeShortcuts(ctx, app, func(s appShortcut) string { return s.terminal }); err != nil {
+	for _, t := range shortcutTables() {
+		if err := removeShortcuts(ctx, t.domain, t.key); err != nil {
 			return err
 		}
 	}
@@ -362,12 +447,9 @@ func applyKeyDefaults(ctx context.Context) (bool, error) {
 }
 
 func applyAppShortcuts(ctx context.Context) (bool, error) {
-	changed, err := addShortcuts(ctx, "NSGlobalDomain", func(s appShortcut) string { return s.ctrl })
-	if err != nil {
-		return changed, err
-	}
-	for _, app := range terminalApps {
-		c, err := addShortcuts(ctx, app, func(s appShortcut) string { return s.terminal })
+	changed := false
+	for _, t := range shortcutTables() {
+		c, err := addShortcuts(ctx, t.domain, t.key)
 		if err != nil {
 			return changed, err
 		}
@@ -579,23 +661,28 @@ func plistElement(dec *xml.Decoder, se xml.StartElement) (any, error) {
 	return s, nil
 }
 
-// mackeysDoctorResult checks the two settings that are invisible when they
-// go missing: the live modifier swap and key repeat.
+// mackeysDoctorResult checks what is invisible when it goes missing: the live
+// modifier swap, key repeat and the login helper.
 func mackeysDoctorResult(probe func(string, ...string) (string, bool)) []DoctorResult {
 	if s := (MackeysModule{}).Status(); s.Linked == 0 {
 		return nil
 	}
 	var problems []string
-	out, ok := probe("hidutil", "property", "--matching", builtinKeyboardMatch, "--get", "HIDKeyboardModifierMappingPairs")
-	if !ok || !strings.Contains(out, strconv.FormatInt(hidGlobe, 10)) || !strings.Contains(out, strconv.FormatInt(hidLeftCmd, 10)) {
+	if out, ok := probe("hidutil", "property", "--matching", builtinKeyboardMatch, "--get", "HIDKeyboardModifierMappingPairs"); !ok || !modifierSwapLive(out) {
 		problems = append(problems, "modifier swap not active on the built-in keyboard")
 	}
 	if v, _ := probe("defaults", "read", "NSGlobalDomain", "ApplePressAndHoldEnabled"); v != "0" {
 		problems = append(problems, "press-and-hold is on, so held keys do not repeat")
 	}
+	helper := "login helper loaded"
+	if !fileExists(launchAgentPath(mackeysLabel)) {
+		helper = "no login helper (`dfinstall install mackeys` adds it)"
+	} else if _, ok := probe("launchctl", "print", launchdDomain()+"/"+mackeysLabel); !ok {
+		problems = append(problems, "login helper not loaded")
+	}
 	if len(problems) == 0 {
-		return []DoctorResult{{Name: "mac keyboard", OK: true, Detail: "modifier swap active, key repeat on"}}
+		return []DoctorResult{{Name: "mac keyboard", OK: true, Detail: "modifier swap active, key repeat on, " + helper}}
 	}
 	return []DoctorResult{{Name: "mac keyboard", OK: false, Detail: strings.Join(problems, "; "),
-		Extra: []string{"run `dfinstall install mackeys`"}}}
+		Extra: []string{"run `dfinstall install mackeys`", "the login helper logs to " + mackeysLog()}}}
 }
