@@ -137,42 +137,66 @@ func TestPassthroughShortcutsHaveNoCtrl(t *testing.T) {
 	}
 }
 
-// Runs the generated login helper against a fake hidutil: it must leave a
-// live swap alone, and set exactly modifierPairsJSON when the swap is gone.
+// Runs the generated login helper against a fake hidutil and defaults: it must
+// leave a live swap and scrolling alone, set exactly modifierPairsJSON when the
+// swap is gone or predates the vendor Globe entry, and turn natural scrolling
+// off when it is back on.
 func TestMackeysApplyScript(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "mackeys-apply")
 	if err := os.WriteFile(script, mackeysApplyScript(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fake := `#!/bin/sh
+	fakes := map[string]string{
+		"hidutil": `#!/bin/sh
 case "$*" in
 *--get*) cat "$FAKE_LIVE" ;;
 *--set*) shift 3; printf '%s' "$2" > "$FAKE_SET" ;;
 esac
-`
-	if err := os.WriteFile(filepath.Join(dir, "hidutil"), []byte(fake), 0o755); err != nil {
-		t.Fatal(err)
+`,
+		"defaults": `#!/bin/sh
+case "$1" in
+read) cat "$FAKE_SCROLL" ;;
+write) printf '%s' "$*" > "$FAKE_SCROLL_SET" ;;
+esac
+`,
 	}
-	live := fmt.Sprintf("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (\n{ HIDKeyboardModifierMappingDst = %d; HIDKeyboardModifierMappingSrc = %d; },\n{ HIDKeyboardModifierMappingDst = %d; HIDKeyboardModifierMappingSrc = %d; }\n)\n",
+	for name, body := range fakes {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pair := "{ HIDKeyboardModifierMappingDst = %d; HIDKeyboardModifierMappingSrc = %d; }"
+	live := fmt.Sprintf("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (\n"+pair+",\n"+pair+",\n"+pair+"\n)\n",
+		hidLeftCtrl, hidGlobe, hidLeftCtrl, hidGlobeVendor, hidLeftOpt, hidLeftCmd)
+	noVendor := fmt.Sprintf("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (\n"+pair+",\n"+pair+"\n)\n",
 		hidLeftCtrl, hidGlobe, hidLeftOpt, hidLeftCmd)
 	for _, c := range []struct {
-		name, live string
-		wantSet    bool
+		name, live, scroll    string
+		wantSet, wantNoScroll bool
 	}{
-		{"swap live", live, false},
-		{"swap gone", "RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (null)\n", true},
+		{"all live", live, "0", false, false},
+		{"swap gone", "RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (null)\n", "0", true, false},
+		{"swap without vendor Globe", noVendor, "0", true, false},
+		{"natural scrolling back on", live, "1", false, true},
+		{"natural scrolling never set", live, "", false, true},
 	} {
 		liveFile, setFile := filepath.Join(dir, "live"), filepath.Join(dir, "set")
+		scrollFile, scrollSetFile := filepath.Join(dir, "scroll"), filepath.Join(dir, "scroll-set")
 		_ = os.Remove(setFile)
+		_ = os.Remove(scrollSetFile)
 		if err := os.WriteFile(liveFile, []byte(c.live), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(scrollFile, []byte(c.scroll), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		if c.wantSet == modifierSwapLive(c.live) {
 			t.Errorf("%s: modifierSwapLive disagrees with the fixture", c.name)
 		}
 		cmd := exec.Command("/bin/sh", script)
-		cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_LIVE="+liveFile, "FAKE_SET="+setFile)
+		cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_LIVE="+liveFile, "FAKE_SET="+setFile,
+			"FAKE_SCROLL="+scrollFile, "FAKE_SCROLL_SET="+scrollSetFile)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%s: %v\n%s", c.name, err, out)
 		}
@@ -183,5 +207,21 @@ esac
 		case c.wantSet && string(set) != modifierPairsJSON():
 			t.Errorf("%s: helper set %q, want %q", c.name, set, modifierPairsJSON())
 		}
+		scrollSet, err := os.ReadFile(scrollSetFile)
+		want := "write -g com.apple.swipescrolldirection -bool false"
+		switch {
+		case !c.wantNoScroll && err == nil:
+			t.Errorf("%s: helper rewrote scrolling: %s", c.name, scrollSet)
+		case c.wantNoScroll && string(scrollSet) != want:
+			t.Errorf("%s: helper ran defaults %q, want %q", c.name, scrollSet, want)
+		}
+	}
+}
+
+// 0xFF0100000003 is page 0xFF01 usage 3, the value System Settings writes for
+// Globe on recent Macs; a slipped digit would map nothing.
+func TestGlobeUsages(t *testing.T) {
+	if hidGlobe != 1095216660483 || hidGlobeVendor != 280379760050179 {
+		t.Errorf("Globe usages %d, %d", hidGlobe, hidGlobeVendor)
 	}
 }

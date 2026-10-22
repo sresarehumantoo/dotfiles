@@ -28,22 +28,30 @@ func (MackeysModule) Links() core.LinkSet {
 }
 
 // HID usages as the modifier-mapping preference stores them: page << 32 | usage.
+// Recent built-in keyboards report Globe on the Apple vendor page 0xFF01 as
+// well as on 0xFF, and System Settings maps both.
 const (
-	hidGlobe    int64 = 0xFF00000003
-	hidLeftCtrl int64 = 0x7000000E0
-	hidLeftOpt  int64 = 0x7000000E2
-	hidLeftCmd  int64 = 0x7000000E3
-	hidRightOpt int64 = 0x7000000E6
-	hidRightCmd int64 = 0x7000000E7
+	hidGlobe       int64 = 0xFF00000003
+	hidGlobeVendor int64 = 0xFF0100000003
+	hidLeftCtrl    int64 = 0x7000000E0
+	hidLeftOpt     int64 = 0x7000000E2
+	hidLeftCmd     int64 = 0x7000000E3
+	hidRightOpt    int64 = 0x7000000E6
+	hidRightCmd    int64 = 0x7000000E7
 )
 
 // The built-in row fn/Globe, Control, Option, Command becomes Control, Globe,
 // Command, Option: the Ctrl, Fn, Win, Alt order of a Windows laptop.
 var modifierSwaps = [][2]int64{
-	{hidGlobe, hidLeftCtrl}, {hidLeftCtrl, hidGlobe},
+	{hidGlobe, hidLeftCtrl}, {hidGlobeVendor, hidLeftCtrl}, {hidLeftCtrl, hidGlobe},
 	{hidLeftOpt, hidLeftCmd}, {hidLeftCmd, hidLeftOpt},
 	{hidRightOpt, hidRightCmd}, {hidRightCmd, hidRightOpt},
 }
+
+// liveSwapMarkers are the sources whose presence in the live mapping means the
+// swap is applied. The vendor Globe is listed so a mapping set before it was
+// added counts as missing and gets replaced.
+var liveSwapMarkers = []int64{hidGlobe, hidGlobeVendor, hidLeftCmd}
 
 const builtinKeyboardMatch = `{"PrimaryUsagePage":1,"PrimaryUsage":6,"Built-In":true}`
 
@@ -59,6 +67,9 @@ var macKeyDefaults = []macDefault{
 	{"NSGlobalDomain", "InitialKeyRepeat", int64(15)},
 	// Tapping Globe, now where Fn sits on a PC, does nothing.
 	{"com.apple.HIToolbox", "AppleFnUsageType", int64(0)},
+	// Scrolling moves the view the way the wheel turns, as on Windows. The
+	// login helper sets this again, since it is easily reset.
+	{"NSGlobalDomain", "com.apple.swipescrolldirection", false},
 }
 
 // appShortcut is a menu title bound to Ctrl in every app; to Ctrl+Shift or
@@ -73,6 +84,7 @@ type appShortcut struct {
 var appShortcuts = []appShortcut{
 	{"Copy", "^c", "^$c", "@c"},
 	{"Paste", "^v", "^$v", "@v"},
+	{"Paste and Match Style", "^$v", "@~$v", "@~$v"},
 	{"Cut", "^x", "^$x", "@x"},
 	{"Select All", "^a", "^$a", "@a"},
 	{"Undo", "^z", "@z", "@z"},
@@ -167,23 +179,43 @@ const mackeysAgentExtra = `
 // mackeysApplyScript is the login helper. The preference is what macOS
 // reapplies on its own; this covers the times it does not (a keyboard service
 // that restarted, a preference key the system ignored) by setting the live
-// mapping again whenever it has gone missing.
+// mapping again whenever it has gone missing. It does the same for natural
+// scrolling, which gets turned back on.
 func mackeysApplyScript() []byte {
+	markers := make([]string, 0, len(liveSwapMarkers))
+	for _, m := range liveSwapMarkers {
+		markers = append(markers, strconv.FormatInt(m, 10))
+	}
 	return []byte(fmt.Sprintf(`#!/bin/sh
 # Written by dfinstall's mackeys module and run by the %s
 # LaunchAgent at login, on wake and every 10 minutes. Silent unless it acts.
 match='%s'
 live=$(hidutil property --matching "$match" --get HIDKeyboardModifierMappingPairs 2>/dev/null)
-case $live in *%d*) case $live in *%d*) exit 0 ;; esac ;; esac
-hidutil property --matching "$match" --set '%s' >/dev/null &&
-	echo "$(date '+%%F %%T') reapplied the modifier swap"
-`, mackeysLabel, builtinKeyboardMatch, hidGlobe, hidLeftCmd, modifierPairsJSON()))
+stale=
+for v in %s; do
+	case $live in *"$v"*) ;; *) stale=1 ;; esac
+done
+if [ -n "$stale" ]; then
+	hidutil property --matching "$match" --set '%s' >/dev/null &&
+		echo "$(date '+%%F %%T') reapplied the modifier swap"
+fi
+if [ "$(defaults read -g com.apple.swipescrolldirection 2>/dev/null)" != 0 ]; then
+	defaults write -g com.apple.swipescrolldirection -bool false &&
+		echo "$(date '+%%F %%T') turned natural scrolling off again"
+fi
+exit 0
+`, mackeysLabel, builtinKeyboardMatch, strings.Join(markers, " "), modifierPairsJSON()))
 }
 
 // modifierSwapLive reads `hidutil property --get HIDKeyboardModifierMappingPairs`
 // the way the login helper does.
 func modifierSwapLive(out string) bool {
-	return strings.Contains(out, strconv.FormatInt(hidGlobe, 10)) && strings.Contains(out, strconv.FormatInt(hidLeftCmd, 10))
+	for _, m := range liveSwapMarkers {
+		if !strings.Contains(out, strconv.FormatInt(m, 10)) {
+			return false
+		}
+	}
+	return true
 }
 
 // installMackeysHelper adds the login helper on `install mackeys` and keeps
@@ -674,6 +706,9 @@ func mackeysDoctorResult(probe func(string, ...string) (string, bool)) []DoctorR
 	if v, _ := probe("defaults", "read", "NSGlobalDomain", "ApplePressAndHoldEnabled"); v != "0" {
 		problems = append(problems, "press-and-hold is on, so held keys do not repeat")
 	}
+	if v, _ := probe("defaults", "read", "NSGlobalDomain", "com.apple.swipescrolldirection"); v != "0" {
+		problems = append(problems, "natural scrolling is on")
+	}
 	helper := "login helper loaded"
 	if !fileExists(launchAgentPath(mackeysLabel)) {
 		helper = "no login helper (`dfinstall install mackeys` adds it)"
@@ -681,7 +716,7 @@ func mackeysDoctorResult(probe func(string, ...string) (string, bool)) []DoctorR
 		problems = append(problems, "login helper not loaded")
 	}
 	if len(problems) == 0 {
-		return []DoctorResult{{Name: "mac keyboard", OK: true, Detail: "modifier swap active, key repeat on, " + helper}}
+		return []DoctorResult{{Name: "mac keyboard", OK: true, Detail: "modifier swap active, key repeat on, natural scrolling off, " + helper}}
 	}
 	return []DoctorResult{{Name: "mac keyboard", OK: false, Detail: strings.Join(problems, "; "),
 		Extra: []string{"run `dfinstall install mackeys`", "the login helper logs to " + mackeysLog()}}}

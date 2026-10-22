@@ -33,6 +33,7 @@ The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a
 | Key | Action |
 |-----|--------|
 | `Ctrl+C` / `Ctrl+V` / `Ctrl+X` | Copy / Paste / Cut in GUI and web apps |
+| `Ctrl+Shift+V` | Paste and Match Style (paste as plain text) |
 | `Ctrl+A` / `Ctrl+Z` / `Ctrl+Y` | Select All / Undo / Redo |
 | `Ctrl+F` / `Ctrl+S` / `Ctrl+O` / `Ctrl+P` | Find / Save / Open / Print |
 | `Ctrl+T` / `Ctrl+W` / `Ctrl+Shift+T` | New tab / Close tab / Reopen closed tab |
