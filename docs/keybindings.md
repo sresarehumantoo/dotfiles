@@ -44,6 +44,8 @@ The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a
 | `Home` / `End` (`Fn+Left` / `Fn+Right`) | Start / end of line |
 | `Alt+Tab` / `Alt+Shift+Tab` | Switch apps (alttab); release Alt to switch, `Alt+Esc` cancels |
 | `Cmd+Space` | Spotlight (the Win+Space position) |
+| `Cmd+L` | Lock the screen, like Win+L (alttab) |
+| `Cmd+Shift+Q` | Log out (macOS default) |
 
 ### Ghostty on macOS
 

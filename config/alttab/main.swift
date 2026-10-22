@@ -1,5 +1,6 @@
-// alttab: an Option-Tab app switcher that looks like Command-Tab and needs no
-// Accessibility or Input Monitoring permission. Carbon hotkeys, the running
+// alttab: an Option-Tab app switcher that looks like Command-Tab, plus
+// Command-L to lock the screen (Win+L once mackeys has swapped the modifiers).
+// Needs no Accessibility or Input Monitoring permission. Carbon hotkeys, the running
 // application list, the modifier state and app activation are all available
 // to an ordinary process; reading or synthesizing other apps' keystrokes is
 // not, and nothing here does.
@@ -31,7 +32,7 @@ final class Switcher {
     private var labels: [NSTextField] = []
 
     // Hotkey ids, carried in each Carbon hotkey event.
-    static let forward: UInt32 = 1, backward: UInt32 = 2, cancelKey: UInt32 = 3
+    static let forward: UInt32 = 1, backward: UInt32 = 2, cancelKey: UInt32 = 3, lockKey: UInt32 = 4
     private static let signature = OSType(0x414C_5442)
 
     init() {
@@ -73,6 +74,9 @@ final class Switcher {
                 logLine("no backward hotkey; Shift-Tab will not step back")
             }
             logLine("switching on \(mods == UInt32(optionKey) ? "Option" : "Control-Option")-Tab")
+            if register(kVK_ANSI_L, UInt32(cmdKey), id: Switcher.lockKey) == nil {
+                logLine("Command-L is taken; it will not lock the screen")
+            }
             watchActivations()
             return true
         }
@@ -89,6 +93,9 @@ final class Switcher {
             if panel.isVisible { highlight() }
         case Switcher.cancelKey:
             finish()
+        case Switcher.lockKey:
+            finish()
+            lockScreen()
         default:
             break
         }
@@ -198,6 +205,23 @@ final class Switcher {
             config.activates = true
             NSWorkspace.shared.openApplication(at: url, configuration: config)
         }
+    }
+
+    // SACLockScreenImmediate is what the Lock Screen menu item calls. It is
+    // private, so it is looked up at run time; putting the display to sleep
+    // locks too when a password is required immediately after sleep.
+    private func lockScreen() {
+        if let login = dlopen("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login", RTLD_NOW),
+           let sym = dlsym(login, "SACLockScreenImmediate") {
+            typealias Lock = @convention(c) () -> Int32
+            _ = unsafeBitCast(sym, to: Lock.self)()
+            return
+        }
+        logLine("SACLockScreenImmediate not found; sleeping the display instead")
+        let pmset = Process()
+        pmset.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        pmset.arguments = ["displaysleepnow"]
+        try? pmset.run()
     }
 
     private func show() {
