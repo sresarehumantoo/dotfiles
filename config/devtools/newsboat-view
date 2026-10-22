@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# newsboat-view — newsboat's browser and image pager: links open in w3m,
+# images render in the terminal through chafa
+set -euo pipefail
+
+usage() {
+    cat <<'EOF'
+Usage: newsboat-view open   URL    image URLs render inline, anything else opens in w3m
+       newsboat-view gui    URL    hand the link to the desktop browser
+       newsboat-view yank   URL    copy the link to the clipboard (OSC 52)
+       newsboat-view images FILE   page through the images of a rendered article
+
+Called by newsboat (see ~/.config/newsboat/config):
+  browser "newsboat-view open %u"
+  macro i set pager "newsboat-view images %f"; open; set pager internal
+
+Images use the kitty graphics protocol under Ghostty, including inside tmux
+(which needs `allow-passthrough on`), and chafa's own detection elsewhere,
+falling back to text-cell art. Downloads are http(s) only, capped at 25 MB.
+EOF
+}
+
+# The first argument is a printf format, so callers can pass escapes and %s.
+# shellcheck disable=SC2059
+tty_out() { printf "$@" >/dev/tty; }
+
+# Under tmux, graphics escapes only reach the outer terminal wrapped in a DCS
+# passthrough, so the chafa flags and the cleanup sequence both depend on it.
+in_tmux() { [[ -n "${TMUX:-}" ]]; }
+is_ghostty() { [[ -n "${GHOSTTY_RESOURCES_DIR:-}${GHOSTTY_BIN_DIR:-}" ]]; }
+
+chafa_args() {
+    local cols lines
+    cols=$(tput cols </dev/tty)
+    lines=$(tput lines </dev/tty)
+    args=(--animate off --size "${cols}x$((lines - 2))")
+    if is_ghostty; then
+        args+=(--format kitty)
+        in_tmux && args+=(--passthrough tmux)
+    fi
+}
+
+# Kitty placements sit above the text layer, so clearing the screen leaves the
+# image up over whatever newsboat redraws next; delete them explicitly.
+clear_images() {
+    is_ghostty || return 0
+    if in_tmux; then
+        tty_out "\033Ptmux;\033\033_Ga=d\033\033\\\\\033\\\\"
+    else
+        tty_out "\033_Ga=d\033\\\\"
+    fi
+}
+
+fetch() {
+    curl -fsSL --proto '=http,https' --proto-redir '=http,https' \
+        --max-time 30 --max-filesize 25M -o "$2" -- "$1"
+}
+
+# show_image URL STATUS: draws one image and prints the key that dismissed it.
+show_image() {
+    local url="$1" status="$2" img key
+    img="$workdir/img"
+    rm -f -- "$img"
+    clear_images
+    tty_out '\033[2J\033[H'
+    if fetch "$url" "$img" 2>/dev/null; then
+        chafa_args
+        chafa "${args[@]}" -- "$img" >/dev/tty 2>/dev/null || tty_out 'chafa could not render this image\n'
+    else
+        tty_out 'download failed\n'
+    fi
+    tty_out '\n\033[7m %s \033[0m %s\n' "$status" "$url"
+    IFS= read -rsn1 key </dev/tty || key=q
+    clear_images
+    tty_out '\033[2J\033[H'
+    printf '%s' "$key"
+}
+
+is_image_url() {
+    local path
+    path=$(printf '%s' "${1%%[?#]*}" | tr '[:upper:]' '[:lower:]')
+    [[ "$path" =~ \.(png|jpe?g|gif|webp|bmp|avif|svg)$ ]]
+}
+
+open_gui() {
+    local opener
+    for opener in xdg-open open wslview; do
+        if command -v "$opener" >/dev/null 2>&1; then
+            setsid -f "$opener" "$1" >/dev/null 2>&1 </dev/null || "$opener" "$1" >/dev/null 2>&1
+            return
+        fi
+    done
+    echo "newsboat-view: no desktop opener (xdg-open/open/wslview) found" >&2
+    return 1
+}
+
+open_url() {
+    local url="$1"
+    if is_image_url "$url" && command -v chafa >/dev/null 2>&1; then
+        show_image "$url" "image  any key to return" >/dev/null
+        return
+    fi
+    if command -v w3m >/dev/null 2>&1; then
+        w3m -no-cookie -o confirm_qq=false "$url"
+    elif command -v lynx >/dev/null 2>&1; then
+        lynx "$url"
+    else
+        open_gui "$url"
+    fi
+}
+
+yank() {
+    local b64
+    b64=$(printf '%s' "$1" | base64 | tr -d '\n')
+    if in_tmux; then
+        tty_out "\033Ptmux;\033\033]52;c;%s\a\033\\\\" "$b64"
+    else
+        tty_out '\033]52;c;%s\a' "$b64"
+    fi
+}
+
+# Newsboat's renderer lists every link at the end of the article as
+# "[N]: URL (type)", and marks the ones that came from an <img> as (image).
+images() {
+    local file="$1" i=0 n=0 key url
+    local -a urls=()
+    command -v chafa >/dev/null 2>&1 || {
+        echo "newsboat-view: chafa is not installed" >&2
+        return 1
+    }
+    while IFS= read -r url; do
+        urls[n]="$url"
+        n=$((n + 1))
+    done < <(sed -nE 's/^\[[0-9]+\]: (https?:\/\/[^ ]+) \(image\)$/\1/p' "$file")
+    if ((n == 0)); then
+        tty_out 'No images in this article. Press any key.'
+        IFS= read -rsn1 _ </dev/tty || true
+        return 0
+    fi
+    while ((i < n)); do
+        key=$(show_image "${urls[i]}" "$((i + 1))/$n  n/space next  p prev  o browser  q quit")
+        case "$key" in
+        q | h) break ;;
+        p | k) ((i > 0)) && i=$((i - 1)) ;;
+        o) open_gui "${urls[i]}" || true ;;
+        *) i=$((i + 1)) ;;
+        esac
+    done
+}
+
+[[ $# -eq 2 ]] || {
+    case "${1:-}" in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    esac
+    usage >&2
+    exit 2
+}
+
+# Feeds are untrusted input: anything but a web URL (file://, javascript:, or
+# a string that a browser would parse as an option) is refused.
+if [[ "$1" != images && ! "$2" =~ ^https?:// ]]; then
+    echo "newsboat-view: refusing non-http(s) URL: $2" >&2
+    exit 1
+fi
+
+workdir=$(mktemp -d)
+trap 'rm -rf -- "$workdir"' EXIT
+
+case "$1" in
+open) open_url "$2" ;;
+gui) open_gui "$2" ;;
+yank) yank "$2" ;;
+images) images "$2" ;;
+*)
+    usage >&2
+    exit 2
+    ;;
+esac
