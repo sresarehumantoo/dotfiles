@@ -582,7 +582,16 @@ live on the next Ghostty restart with no `dfinstall` run. The `shaders/` symlink
 insurance for the case where that config is ever a real file. Config changes need a
 restart, not just a reload.
 
-**Status:** Checks 4 symlinks.
+On macOS it also links `config/ghostty/macos.conf`, which the config includes with
+`config-file = ?macos.conf`: Ghostty's Linux default bindings (Ctrl+Shift for the
+clipboard, tabs, windows and splits, Shift+PageUp/PageDown scrollback, prompt jumps,
+font size, the command palette), added on top of the macOS ones so plain Ctrl stays with
+the shell. Three Linux defaults are left out because something else owns them on the
+Mac: Alt+1..9 (tmux's window binds) and Ctrl+Alt+arrows and Ctrl+Alt+Shift+J
+(AeroSpace's mod is ctrl-alt); Cmd+Alt+arrows moves between splits instead. The include
+is optional, so the missing file is silent on Linux.
+
+**Status:** Checks 4 symlinks (5 on macOS).
 
 ---
 
@@ -611,6 +620,44 @@ Not carried over, for want of a macOS equivalent: one workspace row per output (
 The plugins run under launchd with Homebrew's bin and the system dirs on PATH, so they are POSIX `sh` against Apple's BSD userland. Every plugin must be listed in `sketchybarPlugins`; `TestSketchybarPluginsListed` fails otherwise.
 
 **Status:** Checks 10 symlinks, and reports nothing when SketchyBar isn't installed.
+
+---
+
+## mackeys
+
+**File:** `modules/mackeys.go`
+
+macOS only, and part of `install all`. Makes the built-in keyboard behave like a Windows laptop's without Accessibility, Input Monitoring or admin rights: every piece is a user preference or a key mapping any process may set, and each one persists across logins and reboots by itself, with no agent running.
+
+- **Modifier swap.** Globe and Control trade places, and so do Option and Command, so the bottom row reads Ctrl, Fn, Cmd, Opt like a laptop's Ctrl, Fn, Win, Alt. Option, which Ghostty sends as Alt, is next to space where Alt was. It writes the same per-keyboard preference as System Settings > Keyboard > Keyboard Shortcuts > Modifier Keys (`com.apple.keyboard.modifiermapping.<vendor>-<product>-0` in the ByHost global domain), which macOS reapplies at every login, and sets the same property on the live HID service with `hidutil` so it applies immediately. Both are the layer System Settings uses, so they replace each other rather than stacking into a double swap. The vendor and product IDs are read from `hidutil list`; when it does not report exactly one built-in keyboard the module warns and leaves the swap to System Settings. Globe is mapped on both HID pages a recent built-in keyboard reports it on (`0xFF00000003` and the vendor page `0xFF0100000003`), as System Settings does; mapping only the first leaves Globe unswapped on those models. External keyboards are not touched.
+- **Ctrl shortcuts in every app, web apps included.** Global `NSUserKeyEquivalents` (System Settings > App Shortcuts > All Applications) rebinds menu items by title: Copy, Paste, Paste and Match Style (Ctrl+Shift+V), Cut, Select All, Undo, Redo (Ctrl+Y), Find, Save, Open, Print, New/Close Tab and Window, Reopen Closed Tab, private windows, Reload, Open Location, zoom, Bold/Italic/Underline. A browser passes a key the page did not handle to its menu, which is how Ctrl+C reaches a web app. Terminals (Ghostty, Terminal, iTerm2) get their own table, which macOS consults before the global one: clipboard, tab and window items move to Ctrl+Shift and everything else goes back to Command, so Ctrl+C, Ctrl+Z and Ctrl+W stay with the shell. Entries a user set for other titles are left alone, and uninstall removes only entries that still hold this module's value.
+- **Key repeat.** `ApplePressAndHoldEnabled` off, so a held `j` repeats instead of offering accents, plus `KeyRepeat` 2 and `InitialKeyRepeat` 15. Tapping Globe does nothing (`AppleFnUsageType` 0), since it now sits where Fn does.
+- **Scroll direction.** Natural scrolling off (`com.apple.swipescrolldirection` false), so content moves the way a Windows wheel or touchpad moves it.
+- **Text navigation.** Links `config/macos/DefaultKeyBinding.dict` to `~/Library/KeyBindings/`: Home/End, Ctrl+Home/End, Ctrl+Left/Right by word and Ctrl+Backspace/Delete by word, with Shift variants, in Cocoa text fields.
+- **System shortcuts that took those keys.** Disables Mission Control (Ctrl+Up/Down), moving between Spaces (Ctrl+Left/Right) and switching input sources (Ctrl+Space), and applies the change with `activateSettings -u`. AeroSpace does not use native Spaces.
+
+- **Passthrough apps.** Remote desktops and VMs (Windows App/Remote Desktop, Citrix Workspace, Horizon, VMware Fusion, Parallels, UTM) get the macOS defaults back, so Ctrl+C reaches the guest instead of copying on the Mac. Add a bundle ID to `passthroughApps` for another one; `osascript -e 'id of app "Name"'` prints it.
+- **Login helper.** `dfinstall install mackeys` also writes `~/.local/bin/mackeys-apply` and a LaunchAgent (`io.github.sresarehumantoo.mackeys`) that runs it at login, on wake and every 10 minutes. It reads the live mapping and sets it again only if it has gone, logging to `~/Library/Logs/mackeys.log`. The preferences above persist by themselves; the live HID mapping is the one piece macOS can drop (a keyboard service that restarts, or a preference key it does not honor), so it is what the helper mainly guards. It also turns natural scrolling off again whenever it finds it back on, since that setting is easily reset. Because it is a login item, `install all` never creates it, only keeps an existing one current. While it is installed, changing Modifier Keys in System Settings gets reverted within 10 minutes: uninstall the module to change the layout.
+
+Running apps keep the shortcuts and key repeat they started with, so the module prints a notice to reopen them when it changed something. Not covered, because each needs Accessibility: a scroll direction for the mouse that differs from the trackpad's (macOS has one setting for both), and window-level switching. Alt+Tab is the separate `alttab` module.
+
+**When an app ignores a Ctrl shortcut.** Open its Edit menu and read the shortcut shown next to the item. If it shows ⌘ rather than ⌃, the menu title differs from the table (an app-specific "Copy Link", a different ellipsis): add the title, or a per-app entry. If it shows ⌃ and Ctrl still does nothing, the app consumes the key before its menu sees it. Without Accessibility nothing can rewrite the key at that point; Cmd still works there (the Win-key position), and Karabiner-Elements, deployed by IT, is the only general fix. If the app is a remote session that should receive Ctrl itself, add it to `passthroughApps`.
+
+**Status:** Checks the `DefaultKeyBinding.dict` symlink. `dfinstall doctor` adds a `mac keyboard` row once installed, failing when the swap is not active on the built-in keyboard, press-and-hold or natural scrolling is back on, or an installed login helper is not loaded.
+
+---
+
+## alttab
+
+**File:** `modules/alttab.go`
+
+macOS only. An Option-Tab app switcher for Windows muscle memory, plus Command-L to lock the screen (Win+L, since mackeys puts Command where the Windows key is; it calls `SACLockScreenImmediate`, the same private function as the Lock Screen menu item, and falls back to sleeping the display). A Command hotkey is global, so Command-L locks from every app, a remote desktop included, and no app's own Command-L reaches it; browsers keep the address bar on Ctrl+L. Log Out stays on the stock Shift-Command-Q. The switcher: hold Option, tap Tab to step through apps in most-recently-used order (Shift-Tab steps back, Escape cancels), release Option to switch. A quick tap switches to the previous app without showing the panel, and the panel itself copies Command-Tab: app icons on a blurred rounded strip, the selected app's name under its icon.
+
+It needs no Accessibility, Input Monitoring or admin rights, which is the point on a managed Mac where AltTab or Karabiner would need them granted. Everything it does is open to an ordinary process: a Carbon `RegisterEventHotKey`, the running application list, a poll of the current modifier state to notice Option being released, and app activation. macOS 15.0 refused hotkeys whose only modifier is Option (Apple says 15.2 lifted that); if registration fails it falls back to Control-Option-Tab and logs which one it got. Activation is cooperative since macOS 14, so when a request is refused it opens the app through Launch Services the way a Dock click does. It switches apps, not windows, like Command-Tab: window titles need Screen Recording and raising one window needs Accessibility.
+
+`dfinstall install alttab` compiles `config/alttab/main.swift` with `swiftc` from the Command Line Tools into `~/.local/bin/alttab`, writes `~/Library/LaunchAgents/io.github.sresarehumantoo.alttab.plist` and loads it, so it starts at every login and restarts after a crash. The agent is a login item, which macOS announces and an MDM may forbid, so `install all` never creates it and only rebuilds and restarts one that is already installed, whenever `main.swift` is newer than the binary. Logs go to `~/Library/Logs/alttab.log`. Uninstall unloads the agent and removes the plist and the binary.
+
+**Status:** Notes a missing or out-of-date binary; reports nothing when not installed. `dfinstall doctor` adds an `alttab` row once installed, failing when the agent is not loaded or not running.
 
 ---
 

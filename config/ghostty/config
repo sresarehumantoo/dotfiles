@@ -160,6 +160,9 @@ scrollback-limit = 10000
 custom-shader = shaders/cursor_warp.glsl
 custom-shader-animation = always
 
+# Linux-style Ctrl+Shift bindings on macOS. Only linked there, so a no-op here.
+config-file = ?macos.conf
+
 # ── Machine-local overrides, loaded LAST so they win ──────────────────────────
 # The `?` prefix means "silently skip if absent", so this is a no-op on every
 # machine that has not written one (verified: `ghostty +validate-config` exits 0

@@ -1,6 +1,6 @@
 # Keybindings Reference
 
-Quick reference for all custom keybindings across interactive menus, tmux, neovim, zsh, and shell aliases.
+Quick reference for all custom keybindings across interactive menus, macOS, tmux, neovim, zsh, and shell aliases.
 
 ---
 
@@ -23,6 +23,52 @@ Quick reference for all custom keybindings across interactive menus, tmux, neovi
 | `Space` | Toggle selection |
 | `Enter` | Confirm selections |
 | `Esc` / `q` | Go back to categories (no changes) |
+
+---
+
+## macOS (mackeys, alttab, Ghostty)
+
+The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a Windows laptop's Ctrl, Fn, Win, Alt. Keys below are named by what they send after that swap.
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` / `Ctrl+V` / `Ctrl+X` | Copy / Paste / Cut in GUI and web apps |
+| `Ctrl+Shift+V` | Paste and Match Style (paste as plain text) |
+| `Ctrl+A` / `Ctrl+Z` / `Ctrl+Y` | Select All / Undo / Redo |
+| `Ctrl+F` / `Ctrl+S` / `Ctrl+O` / `Ctrl+P` | Find / Save / Open / Print |
+| `Ctrl+T` / `Ctrl+W` / `Ctrl+Shift+T` | New tab / Close tab / Reopen closed tab |
+| `Ctrl+N` / `Ctrl+Shift+N` / `Ctrl+Shift+W` | New window / Private window / Close window |
+| `Ctrl+R` / `Ctrl+L` | Reload / Address bar |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset |
+| `Ctrl+Left` / `Ctrl+Right` | Word left / right in text fields (Shift selects) |
+| `Ctrl+Backspace` / `Ctrl+Delete` | Delete word back / forward |
+| `Home` / `End` (`Fn+Left` / `Fn+Right`) | Start / end of line |
+| `Alt+Tab` / `Alt+Shift+Tab` | Switch apps (alttab); release Alt to switch, `Alt+Esc` cancels |
+| `Cmd+Space` | Spotlight (the Win+Space position) |
+| `Cmd+L` | Lock the screen, like Win+L (alttab) |
+| `Cmd+Shift+Q` | Log out (macOS default) |
+
+### Ghostty on macOS
+
+Ghostty's Linux defaults, on top of the macOS ones (`config/ghostty/macos.conf`).
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` / `Ctrl+Z` / `Ctrl+W` | Go to the shell, as on Linux |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` / `Ctrl+Shift+A` | Copy / Paste / Select all |
+| `Ctrl+Shift+T` / `Ctrl+Shift+W` / `Ctrl+Shift+N` | New tab / Close tab / New window |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PageDown`/`PageUp`, `Ctrl+Shift+Right`/`Left`) |
+| `Ctrl+Shift+O` / `Ctrl+Shift+E` | Split right / split down |
+| `Ctrl+Shift+Enter` | Zoom the split |
+| `Cmd+Alt+arrows` | Move between splits (`Ctrl+Alt+arrows` belongs to AeroSpace) |
+| `Cmd+Ctrl+[` / `Cmd+Ctrl+]` | Previous / next split |
+| `Cmd+Ctrl+Shift+arrows` | Resize the split |
+| `Shift+PageUp` / `Shift+PageDown` (`Shift+Fn+Up` / `Shift+Fn+Down`) | Scroll back / forward |
+| `Shift+Home` / `Shift+End` | Top / bottom of scrollback |
+| `Ctrl+Shift+PageUp` / `Ctrl+Shift+PageDown` | Previous / next prompt |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Font size bigger / smaller / reset |
+| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+,` / `Ctrl+Shift+,` | Open / reload config |
 
 ---
 
