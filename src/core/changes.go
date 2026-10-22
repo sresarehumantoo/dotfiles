@@ -55,6 +55,17 @@ func (s *InstallSession) Run(ctx context.Context, m Module) error {
 	return err
 }
 
+// CurrentModule names the module the active install session is running, or
+// "" outside one.
+func CurrentModule() string {
+	changesMu.Lock()
+	defer changesMu.Unlock()
+	if activeSession != nil && activeSession.current != nil {
+		return activeSession.current.Name
+	}
+	return ""
+}
+
 // Skip records a module the run left out, so the report can say so.
 func (s *InstallSession) Skip(name string) {
 	changesMu.Lock()

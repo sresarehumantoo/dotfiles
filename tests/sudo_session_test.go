@@ -110,3 +110,15 @@ func TestSudoCmd_PrimesLazily(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// The password prompt must say what it is for: it used to print only "This
+// step requires sudo access", leaving nothing to judge the request by.
+func TestEnsureSudo_PromptNamesTheCommand(t *testing.T) {
+	fakeSudo(t, 1)
+	out := captureStdout(t, func() {
+		core.SudoCmd(context.Background(), "apt-get", "install", "-y", "fzf")
+	})
+	if want := "needs sudo to run: apt-get install -y fzf"; !strings.Contains(out, want) {
+		t.Fatalf("prompt output %q does not contain %q", out, want)
+	}
+}
