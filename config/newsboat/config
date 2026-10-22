@@ -1,0 +1,100 @@
+# Feeds come from the tagged `urls` file next to this one. To sync with a
+# FreshRSS (or other) server instead, set urls-source and its credentials in
+# config.local; query feeds in `urls` keep working because FreshRSS
+# categories arrive as tags with the same names.
+
+auto-reload yes
+reload-time 30
+reload-threads 8
+refresh-on-startup no
+download-retries 2
+download-timeout 30
+max-items 500
+keep-articles-days 120
+show-read-feeds yes
+show-read-articles yes
+mark-as-read-on-hover no
+confirm-mark-feed-read no
+confirm-exit no
+prepopulate-query-feeds yes
+feed-sort-order none
+article-sort-order date-desc
+cleanup-on-quit yes
+history-limit 100
+
+# Never fetch the full page behind an item: articles render from the feed
+# body alone, so opening one does not contact the publisher.
+download-full-page no
+html-renderer internal
+text-width 100
+scrolloff 5
+
+datetime-format "%Y-%m-%d"
+feedlist-format "%4i %n %11u  %t %?T?{%T}?"
+articlelist-format "%4i %f %D  %?T?%-17T  ?%t"
+articlelist-title-format "%N %V - %T (%u unread, %t total)"
+feedlist-title-format "%N %V - %u feeds with unread"
+selecttag-format "%T  (%n unread in %u feeds)"
+
+# Links open in the terminal (w3m), images render inline (chafa). See
+# newsboat-view; `,o` sends the link to the desktop browser instead.
+browser "newsboat-view open %u"
+
+macro o set browser "newsboat-view gui %u"; open-in-browser; set browser "newsboat-view open %u" -- "open in desktop browser"
+macro i set pager "newsboat-view images %f"; open; set pager internal -- "view article images"
+macro y set browser "newsboat-view yank %u"; open-in-browser; set browser "newsboat-view open %u" -- "copy link"
+
+# vim motions. h/l walk out of and into lists; h never quits from the feed
+# list itself, which would end the session.
+bind-key j down
+bind-key k up
+bind-key l open
+bind-key h quit articlelist
+bind-key h quit article
+bind-key h quit tagselection
+bind-key h quit filterselection
+bind-key h quit urlview
+bind-key h quit help
+bind-key h quit searchresultslist
+bind-key g home
+bind-key G end
+bind-key ^D halfpagedown
+bind-key ^U halfpageup
+bind-key ^F pagedown
+bind-key ^B pageup
+bind-key J next-feed articlelist
+bind-key K prev-feed articlelist
+bind-key J next article
+bind-key K prev article
+bind-key n next-unread
+bind-key N prev-unread
+bind-key a toggle-article-read
+bind-key u show-urls
+bind-key U toggle-show-read-feeds
+bind-key s sort
+bind-key S rev-sort
+bind-key t select-tag
+bind-key T clear-tag
+bind-key f goto-title
+bind-key ^R reload-all
+
+color background          default   default
+color listnormal          default   default
+color listnormal_unread   default   default   bold
+color listfocus           black     cyan
+color listfocus_unread    black     cyan      bold
+color info                black     blue      bold
+color article             default   default
+color title               cyan      default   bold
+color hint-key            yellow    default   bold
+color hint-description    default   default
+
+highlight article "^(Feed|Title|Author|Date|Link|Podcast Download URL):" cyan default bold
+highlight article "https?://[^ ]+" blue default underline
+highlight article "\\[[0-9]+\\]" yellow default bold
+highlight article "\\[image [0-9]+[^]]*\\]" magenta default bold
+highlight all "CVE-[0-9]{4}-[0-9]{4,}" red default bold
+highlight all "(0-day|zero-day|0day|actively exploited|exploited in the wild|KEV)" red default bold
+highlight all "(ransomware|supply[- ]chain|backdoor)" yellow default bold
+
+include "~/.config/newsboat/config.local"

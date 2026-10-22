@@ -396,6 +396,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 | `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
+| `newsboat-view` | newsboat's browser and image pager: images inline via chafa, links in w3m (`open`/`gui`/`yank`/`images`) |
 
 `tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
 
@@ -666,6 +667,22 @@ It needs no Accessibility, Input Monitoring or admin rights, which is the point 
 Symlinks `config/htop/htoprc` to `$XDG_CONFIG_HOME/htop/htoprc`.
 
 **Status:** Checks 1 symlink.
+
+---
+
+## newsboat
+
+**File:** `modules/newsboat.go`
+
+Installs `newsboat`, `chafa` and `w3m`, links `config/newsboat/config` and `config/newsboat/urls` into `$XDG_CONFIG_HOME/newsboat/`, and creates an empty `config.local` beside them if there is none. A failed package install warns and still links the config.
+
+- **Feeds:** `urls` holds a curated security set (advisories, threat intel, DFIR and detection, offensive research, malware/RE, cloud and appsec, news), tagged by category, plus query feeds: *Exploited in the wild* (0-day, KEV, actively exploited), *CVEs*, *Unread* and *Starred* (flag `s`). Titles mentioning CVE IDs, 0-days or KEV are highlighted everywhere.
+- **Sync instead of local feeds:** set `urls-source` in `config.local` (e.g. `freshrss` with `freshrss-url`/`freshrss-login`/`freshrss-passwordeval`). The query feeds keep working because FreshRSS categories become tags with the same names. The config never fetches the page behind an item (`download-full-page no`), so reading an article contacts only the feed.
+- **Images and links:** `browser` is `newsboat-view open`, which renders image URLs in the terminal and opens anything else in w3m (cookies off). `,i` pages through an article's images, `,o` hands a link to the desktop browser, `,y` copies it over OSC 52. Under Ghostty, chafa uses the kitty graphics protocol, through tmux too (`allow-passthrough on` in `tmux.conf`); elsewhere it picks sixel or text-cell art itself. Only `http(s)` URLs are opened, and downloads are capped at 25 MB.
+- `config.local` is the user's file: `install` never overwrites it and `uninstall` leaves it. newsboat refuses to start when an `include` is missing, which is why the empty one is created.
+- If `~/.newsboat` exists, newsboat uses it and ignores the XDG dir entirely; `install` warns about that.
+
+**Status:** Checks 2 symlinks.
 
 ---
 

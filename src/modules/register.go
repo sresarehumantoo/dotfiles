@@ -30,6 +30,7 @@ func RegisterAllModules() {
 	core.RegisterModule(&MackeysModule{})
 	core.RegisterModule(&AlttabModule{})
 	core.RegisterModule(&HtopModule{})
+	core.RegisterModule(&NewsboatModule{})
 	core.RegisterModule(&ClaudeModule{})
 	core.RegisterModule(&WslModule{})
 	core.RegisterModule(&VMGuestModule{})
