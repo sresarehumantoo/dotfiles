@@ -1,12 +1,9 @@
 package modules
 
 import (
-	"bytes"
 	"context"
-	"encoding/xml"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,17 +22,8 @@ func (AlttabModule) Name() string { return "alttab" }
 
 func alttabSource() string { return core.ConfigPath("alttab", "main.swift") }
 func alttabBinary() string { return core.HomeTarget(".local", "bin", "alttab") }
-func alttabAgent() string {
-	return core.HomeTarget("Library", "LaunchAgents", alttabLabel+".plist")
-}
-func alttabLog() string { return core.HomeTarget("Library", "Logs", "alttab.log") }
-
-func launchdDomain() string { return fmt.Sprintf("gui/%d", os.Getuid()) }
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
+func alttabAgent() string  { return launchAgentPath(alttabLabel) }
+func alttabLog() string    { return core.HomeTarget("Library", "Logs", "alttab.log") }
 
 // alttabStale reports whether the binary is missing or older than its source.
 // mtime is enough: a pull or checkout that changes main.swift rewrites it.
@@ -48,46 +36,16 @@ func alttabStale() bool {
 	return err != nil || bin.ModTime().Before(src.ModTime())
 }
 
-// alttabPlist renders the LaunchAgent. KeepAlive restarts it only after a
-// failed exit, so the switcher can stop for good when no hotkey registers.
-func alttabPlist(bin, logPath string) []byte {
-	esc := func(s string) string {
-		var b bytes.Buffer
-		_ = xml.EscapeText(&b, []byte(s))
-		return b.String()
-	}
-	return []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-	<key>Label</key>
-	<string>` + alttabLabel + `</string>
-	<key>ProgramArguments</key>
-	<array>
-		<string>` + esc(bin) + `</string>
-	</array>
-	<key>RunAtLoad</key>
-	<true/>
+// KeepAlive restarts the switcher only after a failed exit, so it can stop for
+// good when no hotkey registers.
+const alttabAgentExtra = `
 	<key>KeepAlive</key>
 	<dict>
 		<key>SuccessfulExit</key>
 		<false/>
 	</dict>
-	<key>LimitLoadToSessionType</key>
-	<string>Aqua</string>
 	<key>ProcessType</key>
-	<string>Interactive</string>
-	<key>StandardErrorPath</key>
-	<string>` + esc(logPath) + `</string>
-</dict>
-</plist>
-`)
-}
-
-func alttabLoaded(ctx context.Context) bool {
-	_, err := runProbe(ctx, "launchctl", "print", launchdDomain()+"/"+alttabLabel)
-	return err == nil
-}
+	<string>Interactive</string>`
 
 func (m AlttabModule) Install(ctx context.Context) error {
 	if !core.IsMac() {
@@ -116,35 +74,15 @@ func (m AlttabModule) Install(ctx context.Context) error {
 		}
 		rebuilt = true
 	}
-	agentChanged, err := core.WriteFileIfChanged(agent, alttabPlist(bin, alttabLog()), 0o644)
+	agentChanged, err := core.WriteFileIfChanged(agent, launchAgentPlist(alttabLabel, bin, alttabLog(), alttabAgentExtra), 0o644)
 	if err != nil {
 		return err
 	}
 	if core.DryRun {
 		return nil
 	}
-
-	domain := launchdDomain()
-	loaded := alttabLoaded(ctx)
-	// kickstart reruns the binary but keeps the plist launchd already read,
-	// so a changed plist needs a fresh bootstrap.
-	if loaded && agentChanged {
-		if err := runCmd(ctx, "launchctl", "bootout", domain+"/"+alttabLabel); err != nil {
-			return fmt.Errorf("unloading the old alttab agent: %w", err)
-		}
-		loaded = false
-	}
-	switch {
-	case !loaded:
-		if err := runCmd(ctx, "launchctl", "bootstrap", domain, agent); err != nil {
-			return fmt.Errorf("loading the alttab agent: %w", err)
-		}
-		core.Changed("started alttab")
-	case rebuilt:
-		if err := runCmd(ctx, "launchctl", "kickstart", "-k", domain+"/"+alttabLabel); err != nil {
-			return fmt.Errorf("restarting alttab: %w", err)
-		}
-		core.Changed("restarted alttab")
+	if err := loadLaunchAgent(ctx, alttabLabel, agentChanged, rebuilt); err != nil {
+		return err
 	}
 	core.Ok("alttab done (log: %s)", alttabLog())
 	return nil
@@ -180,24 +118,8 @@ func (m AlttabModule) Uninstall(ctx context.Context) error {
 	if !core.IsMac() {
 		return nil
 	}
-	if core.DryRun {
-		core.Changed("would stop alttab and remove %s and %s", alttabAgent(), alttabBinary())
-		return nil
-	}
-	if alttabLoaded(ctx) {
-		if err := runCmd(ctx, "launchctl", "bootout", launchdDomain()+"/"+alttabLabel); err != nil {
-			core.Warn("Could not stop alttab: %v", err)
-		}
-	}
-	for _, p := range []string{alttabAgent(), alttabBinary()} {
-		if err := core.CheckTarget(p); err != nil {
-			return err
-		}
-		if err := os.Remove(p); err == nil {
-			core.Changed("removed %s", p)
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
+	if err := removeLaunchAgent(ctx, alttabLabel, alttabBinary()); err != nil {
+		return err
 	}
 	core.Ok("alttab uninstalled")
 	return nil

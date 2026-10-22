@@ -9,11 +9,10 @@ import (
 	"testing"
 )
 
-// The agent is the only thing that starts the switcher, and launchd rejects
-// a malformed plist without saying much, so it must parse and must escape the
-// paths it is given.
-func TestAlttabPlist(t *testing.T) {
-	data := alttabPlist("/Users/a&b/.local/bin/alttab", "/Users/a&b/Library/Logs/alttab.log")
+// launchd rejects a malformed plist without saying much, so every agent must
+// parse, extra keys included, and must escape the paths it is given.
+func TestLaunchAgentPlist(t *testing.T) {
+	data := launchAgentPlist(alttabLabel, "/Users/a&b/.local/bin/alttab", "/Users/a&b/Library/Logs/alttab.log", alttabAgentExtra)
 	dec := xml.NewDecoder(strings.NewReader(string(data)))
 	dec.Strict = true
 	var strs []string
