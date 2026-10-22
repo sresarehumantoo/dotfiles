@@ -109,6 +109,31 @@ All of these repeat: after the prefix, keep pressing `H`/`J`/`K`/`L` (or the arr
 
 ---
 
+## Newsboat
+
+vim motions on top of the defaults (`config/newsboat/config`). `h` backs out of every view except the feed list, so it can never quit the app.
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Down / up |
+| `l` / `h` | Open / back |
+| `g` / `G` | Top / bottom |
+| `Ctrl+d` / `Ctrl+u` | Half page down / up |
+| `Ctrl+f` / `Ctrl+b` | Page down / up |
+| `J` / `K` | Next / previous feed (article list), article (article view) |
+| `n` / `N` | Next / previous unread |
+| `a` | Toggle read |
+| `u` | List the article's links |
+| `U` | Toggle showing read feeds |
+| `t` / `T` | Filter by tag / clear the filter |
+| `s` / `S` | Sort / reverse sort |
+| `f` | Jump to a feed by title |
+| `Ctrl+r` | Reload all feeds |
+| `o` | Open the link in the terminal: inline if it is an image, w3m otherwise |
+| `,i` | Page through the article's images (`n`/space next, `p` prev, `o` browser, `q` quit) |
+| `,o` | Open in the desktop browser |
+| `,y` | Copy the link |
+
 ## Neovim
 
 Leader: **Space**
