@@ -581,7 +581,12 @@ live on the next Ghostty restart with no `dfinstall` run. The `shaders/` symlink
 insurance for the case where that config is ever a real file. Config changes need a
 restart, not just a reload.
 
-**Status:** Checks 4 symlinks.
+On macOS it also links `config/ghostty/macos.conf`, which the config includes with
+`config-file = ?macos.conf`: the Linux Ctrl+Shift bindings for the clipboard, tabs and
+windows, Shift+PageUp/PageDown scrollback and Ctrl+=/- font size, so plain Ctrl stays
+with the shell. The include is optional, so the missing file is silent on Linux.
+
+**Status:** Checks 4 symlinks (5 on macOS).
 
 ---
 
@@ -610,6 +615,24 @@ Not carried over, for want of a macOS equivalent: one workspace row per output (
 The plugins run under launchd with Homebrew's bin and the system dirs on PATH, so they are POSIX `sh` against Apple's BSD userland. Every plugin must be listed in `sketchybarPlugins`; `TestSketchybarPluginsListed` fails otherwise.
 
 **Status:** Checks 10 symlinks, and reports nothing when SketchyBar isn't installed.
+
+---
+
+## mackeys
+
+**File:** `modules/mackeys.go`
+
+macOS only, and part of `install all`. Makes the built-in keyboard behave like a Windows laptop's without Accessibility, Input Monitoring or admin rights: every piece is a user preference or a key mapping any process may set, and each one persists across logins and reboots by itself, with no agent running.
+
+- **Modifier swap.** Globe and Control trade places, and so do Option and Command, so the bottom row reads Ctrl, Fn, Cmd, Opt like a laptop's Ctrl, Fn, Win, Alt. Option, which Ghostty sends as Alt, is next to space where Alt was. It writes the same per-keyboard preference as System Settings > Keyboard > Keyboard Shortcuts > Modifier Keys (`com.apple.keyboard.modifiermapping.<vendor>-<product>-0` in the ByHost global domain), which macOS reapplies at every login, and sets the same property on the live HID service with `hidutil` so it applies immediately. Both are the layer System Settings uses, so they replace each other rather than stacking into a double swap. The vendor and product IDs are read from `hidutil list`; when it does not report exactly one built-in keyboard the module warns and leaves the swap to System Settings. External keyboards are not touched.
+- **Ctrl shortcuts in every app, web apps included.** Global `NSUserKeyEquivalents` (System Settings > App Shortcuts > All Applications) rebinds menu items by title: Copy, Paste, Cut, Select All, Undo, Redo (Ctrl+Y), Find, Save, Open, Print, New/Close Tab and Window, Reopen Closed Tab, private windows, Reload, Open Location, zoom, Bold/Italic/Underline. A browser passes a key the page did not handle to its menu, which is how Ctrl+C reaches a web app. Terminals (Ghostty, Terminal, iTerm2) get their own table, which macOS consults before the global one: clipboard, tab and window items move to Ctrl+Shift and everything else goes back to Command, so Ctrl+C, Ctrl+Z and Ctrl+W stay with the shell. Entries a user set for other titles are left alone, and uninstall removes only entries that still hold this module's value.
+- **Key repeat.** `ApplePressAndHoldEnabled` off, so a held `j` repeats instead of offering accents, plus `KeyRepeat` 2 and `InitialKeyRepeat` 15. Tapping Globe does nothing (`AppleFnUsageType` 0), since it now sits where Fn does.
+- **Text navigation.** Links `config/macos/DefaultKeyBinding.dict` to `~/Library/KeyBindings/`: Home/End, Ctrl+Home/End, Ctrl+Left/Right by word and Ctrl+Backspace/Delete by word, with Shift variants, in Cocoa text fields.
+- **System shortcuts that took those keys.** Disables Mission Control (Ctrl+Up/Down), moving between Spaces (Ctrl+Left/Right) and switching input sources (Ctrl+Space), and applies the change with `activateSettings -u`. AeroSpace does not use native Spaces.
+
+Running apps keep the shortcuts and key repeat they started with, so the module prints a notice to reopen them when it changed something. Not covered, because each needs Accessibility: a scroll direction for the mouse that differs from the trackpad's (macOS has one setting for both), and window-level switching. Alt+Tab is the separate `alttab` module.
+
+**Status:** Checks the `DefaultKeyBinding.dict` symlink. `dfinstall doctor` adds a `mac keyboard` row once installed, failing when the swap is not active on the built-in keyboard or press-and-hold is back on.
 
 ---
 

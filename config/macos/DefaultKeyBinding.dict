@@ -1,0 +1,19 @@
+/* Linux/Windows text navigation in Cocoa text fields. Linked to
+   ~/Library/KeyBindings/ by the mackeys module; apps read it at launch.
+   Terminals never see it: their keys go to the shell. */
+{
+    "\UF729"   = moveToBeginningOfLine:;                       /* Home */
+    "\UF72B"   = moveToEndOfLine:;                             /* End */
+    "$\UF729"  = moveToBeginningOfLineAndModifySelection:;
+    "$\UF72B"  = moveToEndOfLineAndModifySelection:;
+    "^\UF729"  = moveToBeginningOfDocument:;                   /* Ctrl+Home */
+    "^\UF72B"  = moveToEndOfDocument:;                         /* Ctrl+End */
+    "^$\UF729" = moveToBeginningOfDocumentAndModifySelection:;
+    "^$\UF72B" = moveToEndOfDocumentAndModifySelection:;
+    "^\UF702"  = moveWordLeft:;                                /* Ctrl+Left */
+    "^\UF703"  = moveWordRight:;                               /* Ctrl+Right */
+    "^$\UF702" = moveWordLeftAndModifySelection:;
+    "^$\UF703" = moveWordRightAndModifySelection:;
+    "^\U007F"  = deleteWordBackward:;                          /* Ctrl+Backspace */
+    "^\UF728"  = deleteWordForward:;                           /* Ctrl+Delete */
+}

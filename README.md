@@ -264,12 +264,13 @@ Modules run in this order — dependencies first:
 | 16 | **sway** | Sway + waybar + swaync desktop — see [docs](docs/sway.md). No-ops without `sway` |
 | 17 | **aerospace** | macOS tiling window manager (AeroSpace). No-ops off macOS |
 | 18 | **sketchybar** | macOS status bar (SketchyBar). No-ops off macOS |
-| 19 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, no Accessibility needed. Only `install alttab` sets it up |
-| 20 | **htop** | htop config |
-| 21 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
-| 22 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 23 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 24 | **defaultshell** | Sets zsh as the default login shell |
+| 19 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, no Accessibility needed. No-ops off macOS |
+| 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, no Accessibility needed. Only `install alttab` sets it up |
+| 21 | **htop** | htop config |
+| 22 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
+| 23 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 24 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 25 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
 > **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's just **windev**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
