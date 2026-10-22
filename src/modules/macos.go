@@ -108,6 +108,7 @@ func macDoctorResults() []DoctorResult {
 	}
 
 	results = append(results, tlsTrustResult(probe))
+	results = append(results, alttabDoctorResult(probe)...)
 
 	gk := "unknown"
 	if out, _ := probe("spctl", "--status"); out != "" {

@@ -613,6 +613,20 @@ The plugins run under launchd with Homebrew's bin and the system dirs on PATH, s
 
 ---
 
+## alttab
+
+**File:** `modules/alttab.go`
+
+macOS only. An Option-Tab app switcher for Windows muscle memory: hold Option, tap Tab to step through apps in most-recently-used order (Shift-Tab steps back, Escape cancels), release Option to switch. A quick tap switches to the previous app without showing the panel, and the panel itself copies Command-Tab: app icons on a blurred rounded strip, the selected app's name under its icon.
+
+It needs no Accessibility, Input Monitoring or admin rights, which is the point on a managed Mac where AltTab or Karabiner would need them granted. Everything it does is open to an ordinary process: a Carbon `RegisterEventHotKey`, the running application list, a poll of the current modifier state to notice Option being released, and app activation. macOS 15.0 refused hotkeys whose only modifier is Option (Apple says 15.2 lifted that); if registration fails it falls back to Control-Option-Tab and logs which one it got. Activation is cooperative since macOS 14, so when a request is refused it opens the app through Launch Services the way a Dock click does. It switches apps, not windows, like Command-Tab: window titles need Screen Recording and raising one window needs Accessibility.
+
+`dfinstall install alttab` compiles `config/alttab/main.swift` with `swiftc` from the Command Line Tools into `~/.local/bin/alttab`, writes `~/Library/LaunchAgents/io.github.sresarehumantoo.alttab.plist` and loads it, so it starts at every login and restarts after a crash. The agent is a login item, which macOS announces and an MDM may forbid, so `install all` never creates it and only rebuilds and restarts one that is already installed, whenever `main.swift` is newer than the binary. Logs go to `~/Library/Logs/alttab.log`. Uninstall unloads the agent and removes the plist and the binary.
+
+**Status:** Notes a missing or out-of-date binary; reports nothing when not installed. `dfinstall doctor` adds an `alttab` row once installed, failing when the agent is not loaded or not running.
+
+---
+
 ## htop
 
 **File:** `modules/htop.go`
