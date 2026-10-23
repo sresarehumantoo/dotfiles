@@ -2,6 +2,18 @@
    ~/Library/KeyBindings/ by the mackeys module; apps read it at launch.
    Terminals never see it: their keys go to the shell. */
 {
+    /* Chromium (Chrome, Edge, Electron apps) gives each key-down to the page
+       first, with whatever these bindings name, and offers it to the menu only
+       if that goes unhandled. Apple's own "^v" = pageDown: and
+       "^V" = pageDownAndModifySelection: were consumed there, so Ctrl+V and
+       Ctrl+Shift+V scrolled instead of reaching the Paste shortcuts. */
+    "^c" = copy:;
+    "^v" = paste:;
+    "^V" = pasteAsPlainText:;
+    "^x" = cut:;
+    "^a" = selectAll:;
+    "^z" = undo:;
+    "^y" = redo:;
     "\UF729"   = moveToBeginningOfLine:;                       /* Home */
     "\UF72B"   = moveToEndOfLine:;                             /* End */
     "$\UF729"  = moveToBeginningOfLineAndModifySelection:;
