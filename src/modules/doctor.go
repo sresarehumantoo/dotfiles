@@ -138,6 +138,12 @@ func RunDoctorChecks() []DoctorResult {
 		results = append(results, wslconfigDoctorResult())
 	}
 
+	if core.DotfilesDir() == "" {
+		results = append(results, DoctorResult{Name: "dotfiles clones", OK: false, Detail: "no dotfiles checkout found",
+			Extra: []string{"run 'dfinstall init' to clone one, or set $DOTFILES"}})
+		return append(results, mirrorsDoctorResult())
+	}
+
 	// Managed symlinks should all point at one (canonical) dotfiles clone.
 	if d := core.DetectLinkDrift(); d.Split() {
 		extra := make([]string, 0, len(d.Roots)+1)

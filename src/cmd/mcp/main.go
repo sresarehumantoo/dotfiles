@@ -176,6 +176,9 @@ func registerTools(s *server.MCPServer) {
 // --- Tool handlers ---
 
 func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 	var b strings.Builder
 	modules.WriteStatus(&b, modules.StatusHints{
 		Install:    "dfinstall_install with module '%s'",
@@ -202,6 +205,9 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 	name := request.GetString("module", "")
 	if name == "" {
 		return mcp.NewToolResultError("module parameter is required"), nil
+	}
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
 	}
 
 	installMu.Lock()
@@ -309,8 +315,8 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 // on with the code it started with.
 func upgradeClone(ctx context.Context, all bool) string {
 	dir := core.DotfilesDir()
-	if all {
-		dir = core.InvokingCloneDir()
+	if invoking := core.InvokingCloneDir(); all && invoking != "" {
+		dir = invoking
 	}
 	var b strings.Builder
 	stop := core.CaptureOutput(&b)
@@ -578,6 +584,9 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	if name == "" {
 		return mcp.NewToolResultError("module parameter is required"), nil
 	}
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 
 	if name == "all" {
 		defer core.ReleaseSudo()
@@ -634,6 +643,9 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 }
 
 func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
 	var b strings.Builder
 	modules.CollectDiff().Write(&b,
 		"run dfinstall_install with module 'all' to fix",

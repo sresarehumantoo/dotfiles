@@ -258,6 +258,7 @@ func TestDoctorFontsCheck_PassesOnCorrectInstall(t *testing.T) {
 	data := filepath.Join(home, ".local", "share")
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_DATA_HOME", data)
+	t.Setenv("DOTFILES", filepath.Join(home, "dotfiles"))
 	core.ResetDotfilesDir()
 	t.Cleanup(core.ResetDotfilesDir)
 

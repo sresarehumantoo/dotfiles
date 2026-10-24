@@ -134,7 +134,7 @@ func ConfigFilePath() string {
 // written or removed, so an older dfinstall on the same clone still finds its
 // settings rather than taking itself for a first run.
 func LegacyConfigFilePath() string {
-	return filepath.Join(DotfilesDir(), ".config.yaml")
+	return SubPath(DotfilesDir(), ".config.yaml")
 }
 
 // cfgLoadedFrom is the file LoadConfig read, "" when there was none.

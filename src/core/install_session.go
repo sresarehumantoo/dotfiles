@@ -67,8 +67,9 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 	// silently to a WSL box or a server during `install all`.
 	InstallingAll = opt.All
 
-	if opt.All {
-		invoking := InvokingCloneDir()
+	// A binary running from no clone (a release or package) keeps whichever
+	// checkout `init` recorded.
+	if invoking := InvokingCloneDir(); opt.All && invoking != "" {
 		switch {
 		case DryRun:
 			// The canonical pointer is machine-global, so adopting during a

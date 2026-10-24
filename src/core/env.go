@@ -379,6 +379,10 @@ func ResetDotfilesDir() {
 //  3. walk up from the executable looking for go.mod
 //  4. current working directory
 //
+// Steps 2-4 count only when the directory holds a config/ tree, and "" means
+// none did: a released or packaged binary runs from no clone at all, and
+// treating whatever directory it was started in as one would link from it.
+//
 // This answers "where am I running from", as opposed to DotfilesDir which
 // answers "which clone should I link from". It is used when adopting a new
 // canonical (install all) and when warning about non-canonical runs.
@@ -389,7 +393,7 @@ func InvokingCloneDir() string {
 	}
 
 	// 2. Build-time baked path
-	if DefaultDotfilesDir != "" {
+	if LooksLikeDotfilesRepo(DefaultDotfilesDir) {
 		return DefaultDotfilesDir
 	}
 
@@ -399,7 +403,10 @@ func InvokingCloneDir() string {
 		dir := filepath.Dir(exe)
 		for {
 			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-				return dir
+				if LooksLikeDotfilesRepo(dir) {
+					return dir
+				}
+				break
 			}
 			parent := filepath.Dir(dir)
 			if parent == dir {
@@ -410,8 +417,10 @@ func InvokingCloneDir() string {
 	}
 
 	// 4. Fallback: current working directory
-	cwd, _ := os.Getwd()
-	return cwd
+	if cwd, err := os.Getwd(); err == nil && LooksLikeDotfilesRepo(cwd) {
+		return cwd
+	}
+	return ""
 }
 
 // DotfilesDir returns the root of the dotfiles repository that symlinks should
@@ -420,6 +429,9 @@ func InvokingCloneDir() string {
 //  2. the machine-global canonical pointer, if it points at a valid checkout —
 //     this makes every clone link to one authoritative source, preventing drift
 //  3. the clone we're physically running from (InvokingCloneDir)
+//
+// "" when none of them resolves; RequireDotfiles turns that into an error that
+// points at `dfinstall init`.
 //
 // The result is cached; call ResetDotfilesDir after changing $DOTFILES or the
 // canonical pointer.
@@ -449,9 +461,20 @@ func DotfilesDir() string {
 	return dotfilesDir
 }
 
-// ConfigDir returns the path to config/ under the dotfiles root.
+// RequireDotfiles reports an error when there is no dotfiles checkout to link
+// from. Every command that applies, removes or inspects managed files checks
+// it first.
+func RequireDotfiles() error {
+	if DotfilesDir() == "" {
+		return fmt.Errorf("no dotfiles checkout found; run 'dfinstall init' to clone one (or set $DOTFILES)")
+	}
+	return nil
+}
+
+// ConfigDir returns the path to config/ under the dotfiles root. Empty when
+// there is no checkout, so a source path built from it is never relative.
 func ConfigDir() string {
-	return filepath.Join(DotfilesDir(), "config")
+	return SubPath(DotfilesDir(), "config")
 }
 
 // HomeDir returns the user's home directory.

@@ -83,6 +83,9 @@ func main() {
 
 		core.DetectEnvironment()
 		core.AssertEnvironment()
+		if err := core.RequireDotfiles(); err != nil {
+			return err
+		}
 
 		// Infer module from standalone flags when no positional arg given
 		var target string
@@ -245,6 +248,9 @@ func main() {
 		Short: "Show status of all modules",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			core.DetectEnvironment()
+			if err := core.RequireDotfiles(); err != nil {
+				return err
+			}
 			modules.PrintStatus()
 			return nil
 		},
@@ -273,6 +279,9 @@ func main() {
 			}
 
 			core.DetectEnvironment()
+			if err := core.RequireDotfiles(); err != nil {
+				return err
+			}
 
 			defer core.ReleaseSudo()
 
@@ -329,6 +338,9 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			core.DetectEnvironment()
+			if err := core.RequireDotfiles(); err != nil {
+				return err
+			}
 			defer core.ReleaseSudo()
 			target := args[0]
 			if target == "all" {
@@ -349,6 +361,9 @@ func main() {
 		Short: "Show drift between config and filesystem",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			core.DetectEnvironment()
+			if err := core.RequireDotfiles(); err != nil {
+				return err
+			}
 			if err := core.LoadConfig(); err != nil {
 				core.AlwaysWarn("%v", err)
 			}
@@ -404,8 +419,8 @@ func upgradeClone(ctx context.Context, all bool) {
 	// install all adopts the clone it runs from; anything else links into
 	// the canonical one.
 	dir := core.DotfilesDir()
-	if all {
-		dir = core.InvokingCloneDir()
+	if invoking := core.InvokingCloneDir(); all && invoking != "" {
+		dir = invoking
 	}
 	exe := modules.UpgradeClone(ctx, dir)
 	if exe == "" {
@@ -512,7 +527,7 @@ func installOne(ctx context.Context, m core.Module) error {
 	// canonical clone, not necessarily the one you're sitting in. Say so, so it
 	// isn't surprising — and point at how to switch.
 	if canon := core.ReadCanonicalDir(); canon != "" {
-		if invoking := core.InvokingCloneDir(); invoking != canon {
+		if invoking := core.InvokingCloneDir(); invoking != "" && invoking != canon {
 			core.AlwaysWarn("running from %s, but canonical dotfiles dir is %s", invoking, canon)
 			core.AlwaysWarn("links will target the canonical clone; run 'dfinstall install all' here to switch")
 		}

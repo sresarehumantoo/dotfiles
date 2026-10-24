@@ -20,10 +20,10 @@ func CanonicalPointerPath() string {
 	return AppConfigPath("dotfiles-dir")
 }
 
-// looksLikeDotfilesRepo reports whether dir is plausibly a dotfiles checkout:
+// LooksLikeDotfilesRepo reports whether dir is plausibly a dotfiles checkout:
 // it must exist and contain a config/ subdirectory (the source of every managed
 // symlink). Used to ignore a stale pointer to a moved/deleted clone.
-func looksLikeDotfilesRepo(dir string) bool {
+func LooksLikeDotfilesRepo(dir string) bool {
 	if dir == "" {
 		return false
 	}
@@ -42,7 +42,7 @@ func ReadCanonicalDir() string {
 		return ""
 	}
 	dir := strings.TrimSpace(string(data))
-	if !looksLikeDotfilesRepo(dir) {
+	if !LooksLikeDotfilesRepo(dir) {
 		return ""
 	}
 	return dir

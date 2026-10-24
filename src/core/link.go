@@ -185,8 +185,7 @@ func UnlinkFile(src, dst string) error {
 
 // ConfigPath returns the absolute path to a file under config/.
 func ConfigPath(parts ...string) string {
-	args := append([]string{ConfigDir()}, parts...)
-	return filepath.Join(args...)
+	return SubPath(ConfigDir(), parts...)
 }
 
 // HomeTarget returns a path under $HOME.
