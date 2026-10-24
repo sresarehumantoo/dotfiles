@@ -136,11 +136,16 @@ func (m AlttabModule) Status() core.ModuleStatus {
 	if !core.IsMac() || !fileExists(alttabAgent()) {
 		return s
 	}
+	s.Linked++
 	var notes []string
 	if !fileExists(alttabBinary()) {
+		s.Missing++
 		notes = append(notes, "binary missing")
-	} else if alttabStale() {
-		notes = append(notes, "binary older than source")
+	} else {
+		s.Linked++
+		if alttabStale() {
+			notes = append(notes, "binary older than source")
+		}
 	}
 	s.Extra = strings.Join(notes, "; ")
 	return s
