@@ -10,6 +10,8 @@ type KonsoleModule struct{}
 
 func (KonsoleModule) Name() string { return "konsole" }
 
+func (KonsoleModule) Unsupported() string { return linuxOnly() }
+
 // Links spans two roots: konsolerc lives in ~/.config, while the profile and
 // colorscheme go to ~/.local/share/konsole. Spelling both out here removes the
 // konsoleLinks[1:] slicing that Install/Uninstall/Links/Status each had to
