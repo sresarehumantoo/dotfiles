@@ -155,11 +155,11 @@ func RunToolkitMenu(ctx context.Context) ([]string, error) {
 		for _, t := range cat.tools {
 			indicator := "  "
 			if installed[t.Name] {
-				indicator = "✓ "
+				indicator = core.G.Ok + " "
 			} else if selected[t.Name] {
 				indicator = "~ "
 			}
-			label := fmt.Sprintf("%s%s — %s", indicator, t.Name, t.Description)
+			label := fmt.Sprintf("%s%s %s %s", indicator, t.Name, core.G.Dash, t.Description)
 			toolOptions = append(toolOptions, huh.NewOption(label, t.Name))
 			if selected[t.Name] {
 				catSelected = append(catSelected, t.Name)

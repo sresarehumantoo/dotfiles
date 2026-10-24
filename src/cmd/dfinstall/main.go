@@ -379,7 +379,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("✓ registry valid (%d tools)\n", len(reg.Tools))
+			fmt.Printf("%s registry valid (%d tools)\n", core.G.Ok, len(reg.Tools))
 			return nil
 		},
 	}
