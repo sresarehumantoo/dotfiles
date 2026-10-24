@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
-	"github.com/sresarehumantoo/dotfiles/internal/modules"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/modules"
 )
 
 func TestFormatStatusLine_ExactColumns(t *testing.T) {

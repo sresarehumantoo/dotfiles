@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // MackeysModule makes a Mac keyboard behave like a Windows laptop's without

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // Ghostty's cursor-trail shader is the most expensive thing on this desktop

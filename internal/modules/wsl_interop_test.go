@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // The template must never carry sizing of its own. It used to hardcode

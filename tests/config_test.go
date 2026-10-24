@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 func TestLoadConfig_MissingFile(t *testing.T) {

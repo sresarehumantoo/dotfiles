@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/huh"
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 	"golang.org/x/term"
 )
 

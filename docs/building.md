@@ -26,7 +26,7 @@ The compiled binary is written to `bin/dfinstall`.
 
 ```bash
 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=$(pwd)" \
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=$(pwd)" \
   -o bin/dfinstall ./cmd/dfinstall
 ```
 
@@ -169,12 +169,12 @@ Go supports cross-compilation natively. To build for a different platform:
 ```bash
 # Linux ARM64 (e.g. Raspberry Pi)
 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
   -o bin/dfinstall-arm64 ./cmd/dfinstall
 
 # Linux AMD64
 GOOS=linux GOARCH=amd64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
   -o bin/dfinstall-amd64 ./cmd/dfinstall
 ```
 

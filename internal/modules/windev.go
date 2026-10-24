@@ -9,7 +9,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // WindevModule installs a cross-development environment for building Windows

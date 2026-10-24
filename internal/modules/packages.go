@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // aptUpdateAttempts and aptUpdateBackoff control retry behavior for

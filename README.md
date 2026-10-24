@@ -117,6 +117,10 @@ sudo apt-get update && sudo apt-get install dfinstall
 # the keyring's fingerprint is 68923E9D2B5D025E4EB9FBCE48E2D3B9E6EE8E62:
 #   gpg --show-keys /etc/apt/keyrings/dfinstall.gpg
 
+# With Go: builds through GOPROXY, so a corporate Go mirror serves it
+go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall@latest
+go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall-mcp@latest
+
 # Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
 ```
 
@@ -362,8 +366,8 @@ Without Make — note both `-X` flags:
 
 ```bash
 go build -ldflags "\
-  -X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=$(pwd) \
-  -X github.com/sresarehumantoo/dotfiles/internal/core.Version=$(git describe --tags --always --dirty)" \
+  -X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=$(pwd) \
+  -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version=$(git describe --tags --always --dirty)" \
   -o bin/dfinstall ./cmd/dfinstall
 ```
 

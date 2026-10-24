@@ -11,8 +11,8 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"github.com/sresarehumantoo/dotfiles/internal/core"
-	"github.com/sresarehumantoo/dotfiles/internal/modules"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/modules"
 )
 
 func main() {

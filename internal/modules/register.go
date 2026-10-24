@@ -3,7 +3,7 @@ package modules
 import (
 	"fmt"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // RegisterAllModules registers every module in the correct install order.

@@ -24,8 +24,8 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X github.com/sresarehumantoo/dotfiles/internal/core.Version={{ .Tag }}
-      - -X github.com/sresarehumantoo/dotfiles/internal/core.Channel=release
+      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version={{ .Tag }}
+      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Channel=release
   - <<: *build
     id: dfinstall-mcp
     main: ./cmd/dfinstall-mcp
@@ -35,8 +35,8 @@ builds:
     goos: [linux]
     ldflags: &debldflags
       - -s -w
-      - -X github.com/sresarehumantoo/dotfiles/internal/core.Version={{ .Tag }}
-      - -X github.com/sresarehumantoo/dotfiles/internal/core.Channel=deb
+      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version={{ .Tag }}
+      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Channel=deb
   - <<: *build
     id: dfinstall-mcp-deb
     main: ./cmd/dfinstall-mcp

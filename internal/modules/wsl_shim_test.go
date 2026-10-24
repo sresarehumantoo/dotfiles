@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // newFakeWindows stands up a fake Windows tree plus a `wslpath` on PATH that

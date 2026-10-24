@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 func TestParseOsRelease(t *testing.T) {

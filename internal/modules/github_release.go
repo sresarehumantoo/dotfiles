@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // GitHub release asset handling, shared by the deb, AppImage and

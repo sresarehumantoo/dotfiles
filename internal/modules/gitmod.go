@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 type GitModule struct{}

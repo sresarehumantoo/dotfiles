@@ -9,8 +9,8 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/sresarehumantoo/dotfiles/internal/core"
-	"github.com/sresarehumantoo/dotfiles/internal/modules"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/modules"
 )
 
 var (

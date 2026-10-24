@@ -8,8 +8,8 @@ GO         := go
 # release it was built at. Falls back to the short SHA on an untagged tree, and
 # to "dev" outside a git checkout.
 VERSION    := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
-LDFLAGS    := -X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=$(CURDIR) \
-              -X github.com/sresarehumantoo/dotfiles/internal/core.Version=$(VERSION)
+LDFLAGS    := -X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=$(CURDIR) \
+              -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version=$(VERSION)
 LOCAL_BIN  := $(HOME)/.local/bin
 
 .DEFAULT_GOAL := help

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // Third-party apt signing keys rotate on the upstream's own schedule, which
