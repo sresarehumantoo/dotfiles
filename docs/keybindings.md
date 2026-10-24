@@ -28,7 +28,7 @@ Quick reference for all custom keybindings across interactive menus, macOS, tmux
 
 ## macOS (mackeys, alttab, Ghostty)
 
-The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a Windows laptop's Ctrl, Fn, Win, Alt. Keys below are named by what they send after that swap, except `Win`, which is the key in the Windows key's position. In browsers and Electron apps the Ctrl key sends Cmd and the Win key sends Ctrl, so web apps get the Cmd shortcuts they expect while the letters stay where Windows has them.
+The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a Windows laptop's Ctrl, Fn, Win, Alt. Keys below are named by what they send after that swap, except `Win`, which is the key in the Windows key's position. In browsers, Electron apps and Office the Ctrl key sends Cmd and the Win key sends Ctrl, so web apps and Office get the Cmd shortcuts they expect while the letters stay where Windows has them.
 
 | Key | Action |
 |-----|--------|

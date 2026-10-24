@@ -1,7 +1,8 @@
 // mackeys-layout: switches the built-in keyboard between two modifier layouts
-// as the frontmost app changes. Web pages bind their shortcuts to Command on a
-// Mac, so in browsers and Electron apps the Ctrl key sends Command and the Win
-// key sends Control; everywhere else the standard mackeys layout applies.
+// as the frontmost app changes. Web pages and Mac Office bind their shortcuts
+// to Command, so in browsers, Electron apps and Office the Ctrl key sends
+// Command and the Win key sends Control; everywhere else the standard mackeys
+// layout applies.
 //
 // Needs no Accessibility or Input Monitoring permission: activation
 // notifications, the modifier state and `hidutil property --set` are all open

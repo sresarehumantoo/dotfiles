@@ -143,8 +143,9 @@ var passthroughApps = []string{
 }
 
 // Web pages bind their shortcuts to Cmd on a Mac and ignore a Ctrl+Z they
-// cannot see as one, so in browsers and Electron apps the mackeys-layout agent
-// puts Command on the Ctrl key (and Ctrl on the Win key). Matched exactly: a
+// cannot see as one, and Mac Office uses the Windows letters on Cmd, so in
+// these apps the mackeys-layout agent puts Command on the Ctrl key (and Ctrl
+// on the Win key). Matched exactly: a
 // Chrome PWA has its own bundle ID and keeps the standard layout.
 var commandLayoutApps = []string{
 	"com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.canary",
@@ -152,6 +153,8 @@ var commandLayoutApps = []string{
 	"com.vivaldi.Vivaldi", "org.mozilla.firefox", "com.apple.Safari",
 	"com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.VSCode",
 	"com.hnc.Discord", "notion.id", "md.obsidian",
+	"com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint",
+	"com.microsoft.Outlook", "com.microsoft.onenote.mac",
 }
 
 // Apps on the command layout get the macOS shortcuts back, which already put
