@@ -110,6 +110,8 @@ The registry defines 50 tools across 15 categories: Active Directory, Applicatio
 - **AppImage:** Downloaded from the GitHub releases API to `~/.local/bin/<binary>.AppImage`, chmod +x
 - **deb:** `.deb` from a GitHub release, installed with `dpkg -i` (falls back to `apt install -f` for dependencies)
 - **release_binary:** A bare binary (or one inside a `.tar.gz`) from a GitHub release, placed at `~/.local/bin/<binary>`
+
+GitHub release downloads try a Nexus proxy of GitHub first when one is found through npm's registry setting; see [Package Mirrors](architecture.md#package-mirrors).
 - **rustup:** Installs the rustup toolchain to `~/.cargo/bin/rustup`
 
 The three GitHub-release methods (deb, AppImage, release_binary) share one

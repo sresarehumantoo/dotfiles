@@ -176,6 +176,9 @@ src/
     omz_extended.go    #   Extended plugin menu and file writer
     shell_preserve.go  #   Custom shell file scan and custom-sources.zsh writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
+    github_release.go  #   GitHub release lookup and verified download, through a Nexus mirror when found
+    mirrors.go         #   npm/pip/Go/cargo mirror detection (doctor's package mirrors row)
+    json_settings.go   #   managedJSON: merge tracked keys into a settings file a program also writes
     ...                #   19 modules total
 tests/                 # Black-box tests (package tests)
                        # In-package tests also live in src/core/*_test.go
