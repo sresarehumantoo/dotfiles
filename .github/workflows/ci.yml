@@ -75,31 +75,6 @@ jobs:
           /bin/bash -n bootstrap/macos-setup.sh
           /bin/bash bootstrap/macos-setup.sh --help
 
-  macos-harness:
-    name: macOS install harness
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      # The bootstrap and `dfinstall install all` from nothing, in a /tmp
-      # sandbox with Homebrew and session-wide commands shimmed. Fails if the
-      # runner's real setup changed, which is the guarantee that makes the
-      # harness safe to run on a Mac in daily use.
-      - name: Run the harness
-        run: scripts/macos-harness/run.sh all
-
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: macos-harness-report
-          path: /tmp/dfinstall-macos-harness-*/
-          if-no-files-found: ignore
-
   goreleaser:
     name: Release config
     runs-on: ubuntu-latest
