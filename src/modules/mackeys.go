@@ -260,7 +260,7 @@ func layoutLog() string    { return core.HomeTarget("Library", "Logs", "mackeys-
 // lock hotkey with the layout. It lives under Library rather than
 // XDG_CONFIG_HOME, which a LaunchAgent does not inherit.
 func layoutConfigPath() string {
-	return core.HomeTarget("Library", "Application Support", "dfinstall", "mackeys-layout.json")
+	return core.HomeTarget("Library", "Application Support", core.AppDirName, "mackeys-layout.json")
 }
 
 // layoutConfig holds both layouts as the JSON hidutil --set takes, so the HID

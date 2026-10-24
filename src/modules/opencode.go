@@ -78,13 +78,13 @@ func opencodeOverrides() []string {
 	return found
 }
 
-func opencodeEnvPath() string { return core.XDGTarget("dfinstall", "opencode.zsh") }
+func opencodeEnvPath() string { return core.AppConfigPath("opencode.zsh") }
 
 // opencodeLocal is where dfinstall puts the binary, from either source.
 func opencodeLocal() string { return core.HomeTarget(".local", "bin", "opencode") }
 
 // opencodeNpmDir is the npm prefix the npm source installs into.
-func opencodeNpmDir() string { return core.HomeTarget(".local", "share", "dfinstall", "opencode") }
+func opencodeNpmDir() string { return core.AppDataPath("opencode") }
 
 func (m OpencodeModule) Install(ctx context.Context) error {
 	core.Info("Setting up opencode...")

@@ -272,7 +272,7 @@ func RunExtendedPluginMenu() ([]string, error) {
 
 // WriteExtendedPluginsFile writes the generated plugins.zsh sourced by zshrc.
 func WriteExtendedPluginsFile(plugins []string) error {
-	dir := core.XDGTarget("dfinstall")
+	dir := core.AppConfigPath()
 	if err := core.CheckTarget(dir); err != nil {
 		return fmt.Errorf("dfinstall config dir: %w", err)
 	}
@@ -311,5 +311,5 @@ func WriteExtendedPluginsFile(plugins []string) error {
 
 // ExtendedPluginsFilePath returns the path to the generated plugins.zsh file.
 func ExtendedPluginsFilePath() string {
-	return core.XDGTarget("dfinstall", "plugins.zsh")
+	return core.AppConfigPath("plugins.zsh")
 }

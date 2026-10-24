@@ -48,7 +48,7 @@ func BackupDir() string {
 	if Cfg.BackupDirP != "" {
 		return Cfg.BackupDirP
 	}
-	return HomeTarget(".local", "share", "dfinstall", "backups")
+	return AppDataPath("backups")
 }
 
 // StartBackup begins a new backup session.

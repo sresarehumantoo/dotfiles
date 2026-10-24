@@ -105,7 +105,7 @@ type Registry struct {
 
 // RegistryCachePath returns the path to the cached toolkit registry.
 func RegistryCachePath() string {
-	return HomeTarget(".local", "share", "dfinstall", "toolkit-registry.json")
+	return AppDataPath("toolkit-registry.json")
 }
 
 // maxRegistrySize caps how much we'll read from a registry URL, so a hostile

@@ -30,7 +30,7 @@ func BrewWritable(prefix string) bool {
 
 // BrewPrefixFile is where the macOS bootstrap records the prefix it settled on.
 func BrewPrefixFile() string {
-	return XDGTarget("dfinstall", "brew-prefix")
+	return AppConfigPath("brew-prefix")
 }
 
 // BrewPrefix returns the Homebrew prefix to use, or "" when there is none.

@@ -128,8 +128,8 @@ func macDoctorResults() []DoctorResult {
 // pointed at the bundle then fails verification.
 func tlsTrustResult(probe func(string, ...string) (string, bool)) DoctorResult {
 	const name = "tls trust"
-	bundlePath := core.HomeTarget(".local", "share", "dfinstall", "ca-bundle.pem")
-	if _, err := os.Stat(core.HomeTarget(".config", "dfinstall", "ca.sh")); err != nil {
+	bundlePath := core.AppDataPath("ca-bundle.pem")
+	if _, err := os.Stat(core.HomeTarget(".config", core.AppDirName, "ca.sh")); err != nil {
 		return DoctorResult{Name: name, OK: true, Detail: "no CA bundle wired (bootstrap saw no TLS inspection)"}
 	}
 	bundle, err := os.ReadFile(bundlePath)

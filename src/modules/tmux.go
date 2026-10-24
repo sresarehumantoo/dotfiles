@@ -92,7 +92,7 @@ func detectDistroIcon() string {
 // ~/.config/dfinstall/distro-icon for tmux status bar consumption.
 func writeDistroIcon() {
 	icon := detectDistroIcon()
-	dir := core.XDGTarget("dfinstall")
+	dir := core.AppConfigPath()
 	if err := core.CheckTarget(dir); err != nil {
 		core.Debug("dfinstall config dir: %v", err)
 		return

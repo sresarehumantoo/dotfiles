@@ -17,7 +17,7 @@ import (
 // CanonicalPointerPath returns the machine-global file that records the
 // authoritative dotfiles clone for this host.
 func CanonicalPointerPath() string {
-	return XDGTarget("dfinstall", "dotfiles-dir")
+	return AppConfigPath("dotfiles-dir")
 }
 
 // looksLikeDotfilesRepo reports whether dir is plausibly a dotfiles checkout:

@@ -256,6 +256,22 @@ func XDGTarget(parts ...string) string {
 	return filepath.Join(append([]string{base}, parts...)...)
 }
 
+// AppDirName names dfinstall's own directories: its config, state and data.
+const AppDirName = "dfinstall"
+
+// AppConfigPath returns a path under dfinstall's config directory,
+// $XDG_CONFIG_HOME/dfinstall. Empty when the config home can't be resolved.
+func AppConfigPath(parts ...string) string {
+	return XDGTarget(append([]string{AppDirName}, parts...)...)
+}
+
+// AppDataPath returns a path under dfinstall's data directory,
+// ~/.local/share/dfinstall. It ignores XDG_DATA_HOME because the bootstrap
+// scripts write the CA bundle there by that literal path.
+func AppDataPath(parts ...string) string {
+	return HomeTarget(append([]string{".local", "share", AppDirName}, parts...)...)
+}
+
 // XDGDataTarget returns a path under $XDG_DATA_HOME. Empty when the data home
 // can't be resolved, for the same reason as HomeTarget.
 func XDGDataTarget(parts ...string) string {
