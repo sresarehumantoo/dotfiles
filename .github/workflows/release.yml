@@ -71,29 +71,31 @@ jobs:
     needs: goreleaser
     if: needs.goreleaser.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
+    # A write deploy key on homebrew-tap, so the credential reaches that one
+    # repository and nothing else.
     env:
-      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+      TAP_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
     steps:
-      - if: env.TAP_TOKEN == ''
-        run: echo "::notice::HOMEBREW_TAP_GITHUB_TOKEN is not set; the tap was not updated"
+      - if: env.TAP_KEY == ''
+        run: echo "::notice::HOMEBREW_TAP_DEPLOY_KEY is not set; the tap was not updated"
 
-      - if: env.TAP_TOKEN != ''
+      - if: env.TAP_KEY != ''
         uses: actions/checkout@v7
 
-      - if: env.TAP_TOKEN != ''
+      - if: env.TAP_KEY != ''
         uses: actions/download-artifact@v4
         with:
           name: packages
           path: packages
 
-      - if: env.TAP_TOKEN != ''
+      - if: env.TAP_KEY != ''
         uses: actions/checkout@v7
         with:
           repository: sresarehumantoo/homebrew-tap
-          token: ${{ env.TAP_TOKEN }}
+          ssh-key: ${{ env.TAP_KEY }}
           path: tap
 
-      - if: env.TAP_TOKEN != ''
+      - if: env.TAP_KEY != ''
         run: |
           mkdir -p tap/Formula
           scripts/release/brew-formula.sh "$GITHUB_REF_NAME" packages/checksums.txt >tap/Formula/dfinstall.rb

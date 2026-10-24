@@ -86,7 +86,7 @@ One-time setup the workflow needs, without which steps 2 and 3 skip with a notic
 | What | Where |
 |---|---|
 | `sresarehumantoo/homebrew-tap` repository | GitHub |
-| `HOMEBREW_TAP_GITHUB_TOKEN`: a fine-grained token with contents write on the tap only | repo Actions secret |
+| `HOMEBREW_TAP_DEPLOY_KEY`: private half of an SSH key whose public half is a write deploy key on the tap only | repo Actions secret |
 | `APT_SIGNING_KEY`: ASCII-armored private key of a dedicated, passphrase-less signing subkey | repo Actions secret |
 | GitHub Pages from the `gh-pages` branch | repo settings |
 
