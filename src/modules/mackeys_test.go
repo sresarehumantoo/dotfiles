@@ -145,6 +145,7 @@ func TestPassthroughShortcutsHaveNoCtrl(t *testing.T) {
 // off when it is back on.
 func TestMackeysApplyScript(t *testing.T) {
 	dir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 	script := filepath.Join(dir, "mackeys-apply")
 	if err := os.WriteFile(script, mackeysApplyScript(), 0o755); err != nil {
 		t.Fatal(err)
@@ -217,6 +218,34 @@ esac
 		case c.wantNoScroll && string(scrollSet) != want:
 			t.Errorf("%s: helper ran defaults %q, want %q", c.name, scrollSet, want)
 		}
+	}
+
+	// With the layout agent installed the mapping is the agent's: the helper
+	// cannot read it back, so it must not write the standard layout over a
+	// browser's command layout.
+	agent := launchAgentPath(layoutLabel)
+	if err := os.MkdirAll(filepath.Dir(agent), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(agent, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(script, mackeysApplyScript(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	liveFile, setFile := filepath.Join(dir, "live"), filepath.Join(dir, "set")
+	_ = os.Remove(setFile)
+	if err := os.WriteFile(liveFile, []byte("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (null)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("/bin/sh", script)
+	cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_LIVE="+liveFile, "FAKE_SET="+setFile,
+		"FAKE_SCROLL="+filepath.Join(dir, "scroll"), "FAKE_SCROLL_SET="+filepath.Join(dir, "scroll-set"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("with the agent: %v\n%s", err, out)
+	}
+	if set, err := os.ReadFile(setFile); err == nil {
+		t.Errorf("helper set the mapping with the layout agent installed: %s", set)
 	}
 }
 

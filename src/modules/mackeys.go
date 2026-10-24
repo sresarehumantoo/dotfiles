@@ -221,7 +221,10 @@ const mackeysAgentExtra = `
 // reapplies on its own; this covers the times it does not (a keyboard service
 // that restarted, a preference key the system ignored) by setting the live
 // mapping again whenever it has gone missing. It does the same for natural
-// scrolling, which gets turned back on.
+// scrolling, which gets turned back on. While the mackeys-layout agent is
+// installed the mapping is the agent's to keep: the helper's check reads a
+// property that is null on every Mac, so it would put the standard layout
+// back in a browser every 10 minutes.
 func mackeysApplyScript() []byte {
 	markers := make([]string, 0, len(liveSwapMarkers))
 	for _, m := range liveSwapMarkers {
@@ -231,6 +234,7 @@ func mackeysApplyScript() []byte {
 # Written by dfinstall's mackeys module and run by the %s
 # LaunchAgent at login, on wake and every 10 minutes. Silent unless it acts.
 match='%s'
+if [ ! -f '%s' ]; then
 live=$(hidutil property --matching "$match" --get HIDKeyboardModifierMappingPairs 2>/dev/null)
 stale=
 for v in %s; do
@@ -240,12 +244,13 @@ if [ -n "$stale" ]; then
 	hidutil property --matching "$match" --set '%s' >/dev/null &&
 		echo "$(date '+%%F %%T') reapplied the modifier swap"
 fi
+fi
 if [ "$(defaults read -g com.apple.swipescrolldirection 2>/dev/null)" != 0 ]; then
 	defaults write -g com.apple.swipescrolldirection -bool false &&
 		echo "$(date '+%%F %%T') turned natural scrolling off again"
 fi
 exit 0
-`, mackeysLabel, builtinKeyboardMatch, strings.Join(markers, " "), modifierPairsJSON()))
+`, mackeysLabel, builtinKeyboardMatch, launchAgentPath(layoutLabel), strings.Join(markers, " "), modifierPairsJSON()))
 }
 
 // modifierSwapLive reads `hidutil property --get HIDKeyboardModifierMappingPairs`
