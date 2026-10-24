@@ -24,6 +24,18 @@ jobs:
         with:
           fetch-depth: 0
 
+      # A release tag goes on the develop side of the release merge
+      # (origin/main^2): the tree main has, on a commit develop also has, so
+      # develop builds describe themselves from the latest release.
+      - name: Tag is on both main and develop
+        run: |
+          for branch in main develop; do
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" "origin/$branch"; then
+              echo "::error::$GITHUB_REF_NAME is not reachable from $branch. Delete it and tag the develop side of the release merge: git tag $GITHUB_REF_NAME origin/main^2"
+              exit 1
+            fi
+          done
+
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod

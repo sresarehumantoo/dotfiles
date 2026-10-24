@@ -61,6 +61,18 @@ dfinstall version v1.0.0
 
 ## Releases
 
+Releases are cut by promoting `develop` to `main` with a PR, then tagging the `develop` side of that merge:
+
+```bash
+gh pr create --base main --head develop   # CI green, then:
+gh pr merge
+git fetch origin
+git diff --quiet origin/main origin/main^2 && git tag v1.11.0 origin/main^2
+git push origin v1.11.0
+```
+
+`origin/main^2` has exactly the tree `main` has, and unlike the merge commit it is also on `develop`, so `git describe` (and Go's version stamp) on a `develop` build names the latest release. Tags before `v1.11.0` sit on the merge commits instead, which is why `develop` merged `main` back once. The workflow refuses a tag that is not reachable from both branches.
+
 Pushing a `v*` tag runs `.github/workflows/release.yml`:
 
 1. **GoReleaser** (`.goreleaser.yaml`) builds both binaries for linux and darwin on amd64 and arm64 and publishes the GitHub release: one `dfinstall_<version>_<os>_<arch>.tar.gz` per platform, a `.deb` per Linux arch, and `checksums.txt`. Each binary is built twice, with `core.Channel=release` for the archives and `core.Channel=deb` for the packages. ⚠ `modules.releaseArchiveName` looks for exactly that archive name to self-update, so the `name_template` must not change without it.
