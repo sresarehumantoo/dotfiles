@@ -98,12 +98,26 @@ make install
 > [!TIP]
 > Not sure what it'll do to your machine? Run `./bin/dfinstall install all --dry-run` first. It prints every change and writes nothing.
 
+### A binary without the repo
+
+A `dfinstall` built or installed outside a clone has no configs to link until it has a checkout. `dfinstall init` clones one to `~/.local/share/dfinstall/dotfiles` and records it as the machine's checkout; every command that links or inspects managed files says to run it when none is found.
+
+```bash
+dfinstall init                          # clone this repo's default branch
+dfinstall init --repo <url> --ref <ref> # another remote, branch or tag
+dfinstall init --dir ~/dotfiles         # another location, or adopt a checkout already there
+dfinstall install all
+```
+
+`init` is a no-op once a checkout is recorded. The default branch is the default ref because `update` fast-forwards a branch, and a tag checkout has none.
+
 ## Usage
 
 **Installing and updating**
 
 | Command | What it does |
 |---------|--------------|
+| `dfinstall init` | Clone the dotfiles checkout, for a binary installed without the repo |
 | `dfinstall install all` | Install every module (except opt-in ones) |
 | `dfinstall install shell` | Install a single module |
 | `dfinstall update all` | Pull the clone, then install and update what dfinstall installed earlier (`install all --upgrade`) |
