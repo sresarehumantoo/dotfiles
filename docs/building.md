@@ -302,6 +302,17 @@ scripts/corplab/compose.yaml down -v` removes it with Nexus's cache).
 | `nexus` | The internet blocked outright: the `package mirrors` doctor row, opencode from npm through Nexus, delta from the GitHub release through Nexus's GitHub proxy, and a clear failure once that proxy is offline too |
 | `ghostty-macos` | The macOS bootstrap's Ghostty step: Homebrew while Ghostty's site answers, the verified GitHub nightly once it is blocked, and a clear failure when GitHub is blocked as well. `brew`, `ditto` and `shasum` are stand-ins; the bootstrap code is not |
 
+### macOS harness
+
+`scripts/macos-harness/run.sh [fresh|upgrade|all]` tests the macOS bootstrap and dfinstall on a Mac that is already set up and in daily use, without changing it. No Mac in this project is a clean machine, and uninstalling a work Mac's tooling to test from scratch is not an option.
+
+- **`fresh`** runs `bootstrap/macos-setup.sh --from-source` and `dfinstall install all` as a new account would: `HOME`, every `XDG_*` and `TMPDIR` under `/tmp/dfinstall-macos-harness-<time>/`, and a Homebrew that installs nothing. Each formula and cask it is asked for is looked up in the real Homebrew, read-only, so a misspelled name fails as it would for real, and the list is in the report.
+- **`upgrade`** runs this checkout's dfinstall against the real setup with read-only commands only (`status`, `doctor`, `diff`, `install all --dry-run`), plus the bootstrap's preflight and TLS-inspection probe, sourced.
+- **Shims** stand in for every command that acts on the whole machine or the login session whatever `HOME` says: `defaults` writes, `launchctl`, `hidutil`, `chsh`, `sudo`, `activateSettings`, `osascript`, `ditto` and more. They record each call, and reads go through to the real tool, except a sandboxed app's preferences: reading another app's container needs Full Disk Access and can raise a privacy prompt, so the shim refuses and records it. ⚠ A shim only works for a command run by name, and only ahead of the Homebrew `bin` that dfinstall puts first on `PATH`; anything new run by absolute path (as `activateSettings` was) needs a PATH lookup first.
+- **The guarantee**: the real state dfinstall manages is snapshotted before and after (dotfile links, `~/.config/dfinstall`, the dotfiles clone, the `defaults` domains it writes, key remapping, launch agents, login shell, Homebrew's package list). Any difference fails the run. CI runs it on GitHub's macOS runner, a real Mac with Homebrew in `/opt/homebrew`.
+
+Not covered, because it cannot be sandboxed: real package installs, apps in `/Applications`, and the effect of `defaults`/`hidutil`/`launchctl` calls (the report lists which would have been made). `--interactive` keeps the terminal so prompts can be answered; review `report.md` before sharing it.
+
 ## Continuous Integration
 
 CI runs on every push and pull request to `main` and `develop` via GitHub Actions (`.github/workflows/ci.yml`). Two jobs must pass:
