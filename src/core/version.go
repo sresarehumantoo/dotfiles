@@ -1,6 +1,12 @@
 package core
 
-import "runtime/debug"
+import (
+	"os"
+	"path/filepath"
+	"runtime/debug"
+	"slices"
+	"strings"
+)
 
 // Version is the build's version string, set at build time via -ldflags from
 // `git describe --tags`. Without ldflags it falls back to the module version Go
@@ -37,11 +43,17 @@ const (
 // means BuildChannel infers it.
 var Channel = ""
 
-// BuildChannel reports how this binary was installed. Without an explicit
-// Channel, a build that carries a module version but no VCS stamp came from
-// `go install pkg@version` (a build inside a checkout records the commit), and
-// anything else is a source build.
+// BuildChannel reports how this binary was installed. The Homebrew formula
+// installs the release archive, so a release binary running from a Cellar is
+// a Homebrew one. Without an explicit Channel, a build that carries a module
+// version but no VCS stamp came from `go install pkg@version` (a build inside
+// a checkout records the commit), and anything else is a source build.
 func BuildChannel() string {
+	if Channel == ChannelRelease {
+		if exe, err := os.Executable(); err == nil && InHomebrewCellar(exe) {
+			return ChannelBrew
+		}
+	}
 	if Channel != "" {
 		return Channel
 	}
@@ -55,6 +67,15 @@ func BuildChannel() string {
 		}
 	}
 	return ChannelGo
+}
+
+// InHomebrewCellar reports whether exe, after resolving symlinks, lives in a
+// Homebrew Cellar (<prefix>/Cellar/<formula>/<version>/bin/...).
+func InHomebrewCellar(exe string) bool {
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = r
+	}
+	return slices.Contains(strings.Split(filepath.ToSlash(exe), "/"), "Cellar")
 }
 
 // MainPackagePath is the import path of the running binary's main package, ""
