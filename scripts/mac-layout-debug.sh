@@ -3,8 +3,8 @@
 # Mac. Remove once the layout works.
 #
 #   scripts/mac-layout-debug.sh [JIRA_URL]       report, with Chrome restarted
-#   scripts/mac-layout-debug.sh --manual          force the command layout on every
-#                                                 built-in HID service, by hand
+#   scripts/mac-layout-debug.sh --manual          swap Ctrl and Cmd with UserKeyMapping,
+#                                                 on top of the System Settings layout
 #   scripts/mac-layout-debug.sh --restore         undo --manual
 #
 # The report is also saved to $TMPDIR/mackeys-debug.txt.
@@ -17,12 +17,12 @@ BIN="$HOME/.local/bin/mackeys-layout"
 CONF="$HOME/Library/Application Support/dfinstall/mackeys-layout.json"
 LOG="$HOME/Library/Logs/mackeys-layout.log"
 MATCH='{"PrimaryUsagePage":1,"PrimaryUsage":6,"Built-In":true}'
-# Every built-in HID service: the Globe key may come from a vendor service
-# rather than the keyboard one MATCH selects.
-ALL='{"Built-In":true}'
 GLOBE=1095216660483
 CMD=30064771299
 CTRL=30064771296
+# Applied after the System Settings mapping, so swapping its Ctrl and Cmd
+# output gives the command layout on top of the standard one.
+SWAP="{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":$CTRL,\"HIDKeyboardModifierMappingDst\":$CMD},{\"HIDKeyboardModifierMappingSrc\":$CMD,\"HIDKeyboardModifierMappingDst\":$CTRL}]}"
 OUT="${TMPDIR:-/tmp}/mackeys-debug.txt"
 
 usage() {
@@ -52,6 +52,17 @@ layout() {
 	plutil -extract "$1" raw -o - "$CONF"
 }
 
+# The keyboard filter never returns the mapping properties themselves (they
+# read as null on every Mac); its ServiceFilterDebug dump holds the live maps.
+live_maps() {
+	hidutil property --matching "$MATCH" --get ServiceFilterDebug 2>&1 |
+		grep -A12 -E 'HIDKeyboardModifierMappingPairs|UserKeyMapping|UnifiedKeyMapping'
+}
+
+remap_log() {
+	log show --last "${1:-15m}" --style compact --predicate 'eventMessage CONTAINS[c] "remap"' 2>&1 | tail -n 20
+}
+
 case ${1:-} in
 -h | --help)
 	usage
@@ -59,10 +70,13 @@ case ${1:-} in
 	;;
 --manual)
 	launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
-	hidutil property --matching "$ALL" --set "$(layout command)" >/dev/null || exit 1
-	echo "Command layout forced on every built-in service, agent stopped."
+	hidutil property --matching "$MATCH" --set "$SWAP" >/dev/null || exit 1
+	echo "UserKeyMapping Ctrl<->Cmd set on the keyboard, agent stopped."
 	echo "If it took, the Ctrl key now sends Cmd everywhere, this terminal included."
-	hidutil property --matching "$ALL" --get HIDKeyboardModifierMappingPairs
+	section "live maps"
+	live_maps
+	section "remap log"
+	remap_log 2m
 	echo
 	echo "1. Here in Ghostty: Ctrl key + C should now act as Cmd+C (copy), not interrupt."
 	echo "2. In Jira: Ctrl key + Z with the console trace open; look for meta true."
@@ -70,9 +84,9 @@ case ${1:-} in
 	exit 0
 	;;
 --restore)
-	hidutil property --matching "$ALL" --set "$(layout standard)" >/dev/null
+	hidutil property --matching "$MATCH" --set '{"UserKeyMapping":[]}' >/dev/null
 	launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null
-	echo "Standard layout restored, agent started. Globe sends: $(globe_sends)"
+	echo "UserKeyMapping cleared, agent started."
 	exit 0
 	;;
 esac
@@ -88,9 +102,6 @@ URL=${1:-}
 	ls -la "$BIN" "$PLIST" "$CONF" "$LOG" 2>&1
 	echo "LaunchAgents:"
 	ls "$HOME/Library/LaunchAgents/" 2>&1
-
-	section "built-in HID services"
-	hidutil list --matching "$ALL" 2>&1
 
 	section "agent"
 	launchctl print "$DOMAIN/$LABEL" 2>&1 | grep -E 'state|pid =|last exit|program' || echo "not loaded"
@@ -122,8 +133,12 @@ URL=${1:-}
 	section "mapping with Chrome in front"
 	echo "Globe sends: $(globe_sends)"
 	mapping
-	echo "every built-in service:"
-	hidutil property --matching "$ALL" --get HIDKeyboardModifierMappingPairs 2>&1
+
+	section "live maps in the keyboard filter, Chrome in front"
+	live_maps
+
+	section "remap log (last 15 minutes)"
+	remap_log 15m
 
 	section "agent log (last 30 lines)"
 	tail -n 30 "$LOG" 2>&1
