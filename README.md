@@ -264,8 +264,8 @@ Modules run in this order — dependencies first:
 | 16 | **sway** | Sway + waybar + swaync desktop — see [docs](docs/sway.md). No-ops without `sway` |
 | 17 | **aerospace** | macOS tiling window manager (AeroSpace). No-ops off macOS |
 | 18 | **sketchybar** | macOS status bar (SketchyBar). No-ops off macOS |
-| 19 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, no Accessibility needed. No-ops off macOS |
-| 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Command-L (Win+L) to lock, no Accessibility needed. Only `install alttab` sets it up |
+| 19 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, no Accessibility needed. Tested only on macOS 26.7.1 (25G241). No-ops off macOS |
+| 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Tested only on macOS 26.7.1 (25G241). Only `install alttab` sets it up |
 | 21 | **htop** | htop config |
 | 22 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
 | 23 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
