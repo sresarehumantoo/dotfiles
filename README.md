@@ -98,7 +98,24 @@ make install
 > [!TIP]
 > Not sure what it'll do to your machine? Run `./bin/dfinstall install all --dry-run` first. It prints every change and writes nothing.
 
-### A binary without the repo
+### Without cloning first
+
+Every release publishes `dfinstall` and `dfinstall-mcp` for Linux and macOS on amd64 and arm64, as archives, a Homebrew formula and a `.deb`:
+
+```bash
+# Homebrew (macOS or Linux)
+brew install sresarehumantoo/tap/dfinstall
+
+# Debian, Ubuntu
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://sresarehumantoo.github.io/dotfiles/apt/dfinstall-archive-keyring.gpg | sudo tee /etc/apt/keyrings/dfinstall.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/dfinstall.gpg] https://sresarehumantoo.github.io/dotfiles/apt stable main" | sudo tee /etc/apt/sources.list.d/dfinstall.list
+sudo apt-get update && sudo apt-get install dfinstall
+
+# Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
+```
+
+`dfinstall --version` names the channel it came from (`release`, `brew`, `deb`, `go`, or `source` for a `make` build), which is what `update` goes by.
 
 A `dfinstall` built or installed outside a clone has no configs to link until it has a checkout. `dfinstall init` clones one to `~/.local/share/dfinstall/dotfiles` and records it as the machine's checkout; every command that links or inspects managed files says to run it when none is found.
 

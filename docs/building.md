@@ -59,6 +59,27 @@ $ make build && ./bin/dfinstall --version
 dfinstall version v1.0.0
 ```
 
+## Releases
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`:
+
+1. **GoReleaser** (`.goreleaser.yaml`) builds both binaries for linux and darwin on amd64 and arm64 and publishes the GitHub release: one `dfinstall_<version>_<os>_<arch>.tar.gz` per platform, a `.deb` per Linux arch, and `checksums.txt`. Each binary is built twice, with `core.Channel=release` for the archives and `core.Channel=deb` for the packages. ⚠ `modules.releaseArchiveName` looks for exactly that archive name to self-update, so the `name_template` must not change without it.
+2. **Homebrew**: `scripts/release/brew-formula.sh` writes `Formula/dfinstall.rb` from `checksums.txt` and pushes it to `sresarehumantoo/homebrew-tap`. The formula installs the release archive, and a release binary running from a Cellar reports the `brew` channel. GoReleaser's own formula support is deprecated in favor of casks, which quarantine what they download.
+3. **apt**: `scripts/release/apt-repo.sh` adds the `.deb`s to a signed repository (suite `stable`, component `main`, newest three versions kept) on the `gh-pages` branch under `apt/`, served by GitHub Pages.
+
+Tags containing `-` (`v2.0.0-rc1`) are GitHub prereleases and skip steps 2 and 3. CI runs `goreleaser check` on every push, so a broken config fails before a tag does.
+
+One-time setup the workflow needs, without which steps 2 and 3 skip with a notice:
+
+| What | Where |
+|---|---|
+| `sresarehumantoo/homebrew-tap` repository | GitHub |
+| `HOMEBREW_TAP_GITHUB_TOKEN`: a fine-grained token with contents write on the tap only | repo Actions secret |
+| `APT_SIGNING_KEY`: ASCII-armored private key of a dedicated, passphrase-less signing subkey | repo Actions secret |
+| GitHub Pages from the `gh-pages` branch | repo settings |
+
+To try a release locally: `goreleaser release --snapshot --clean` writes everything to `dist/` without publishing. The snapshot version comes from the newest tag reachable from `HEAD`.
+
 ## Go Dependencies
 
 Dependencies are managed via Go modules (`go.mod` / `go.sum`) and fetched automatically on first build.

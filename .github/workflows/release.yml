@@ -1,0 +1,144 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  goreleaser:
+    name: Build and publish the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      prerelease: ${{ steps.kind.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # GoReleaser marks a tag like v2.0.0-rc1 as a prerelease; the tap and the
+      # apt repository only ever get full releases.
+      - id: kind
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            echo "prerelease=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "prerelease=false" >>"$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: |
+            dist/*.deb
+            dist/checksums.txt
+          if-no-files-found: error
+
+  homebrew:
+    name: Update the Homebrew tap
+    needs: goreleaser
+    if: needs.goreleaser.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    env:
+      TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_GITHUB_TOKEN }}
+    steps:
+      - if: env.TAP_TOKEN == ''
+        run: echo "::notice::HOMEBREW_TAP_GITHUB_TOKEN is not set; the tap was not updated"
+
+      - if: env.TAP_TOKEN != ''
+        uses: actions/checkout@v7
+
+      - if: env.TAP_TOKEN != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages
+
+      - if: env.TAP_TOKEN != ''
+        uses: actions/checkout@v7
+        with:
+          repository: sresarehumantoo/homebrew-tap
+          token: ${{ env.TAP_TOKEN }}
+          path: tap
+
+      - if: env.TAP_TOKEN != ''
+        run: |
+          mkdir -p tap/Formula
+          scripts/release/brew-formula.sh "$GITHUB_REF_NAME" packages/checksums.txt >tap/Formula/dfinstall.rb
+          cd tap
+          git config user.name SREsAreHumanToo
+          git config user.email 88474954+sresarehumantoo@users.noreply.github.com
+          git add Formula/dfinstall.rb
+          git diff --cached --quiet || git commit -m "dfinstall ${GITHUB_REF_NAME#v}"
+          git push
+
+  apt:
+    name: Update the apt repository
+    needs: goreleaser
+    if: needs.goreleaser.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      SIGNING_KEY: ${{ secrets.APT_SIGNING_KEY }}
+    steps:
+      - if: env.SIGNING_KEY == ''
+        run: echo "::notice::APT_SIGNING_KEY is not set; the apt repository was not updated"
+
+      - if: env.SIGNING_KEY != ''
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - if: env.SIGNING_KEY != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages
+
+      - if: env.SIGNING_KEY != ''
+        name: Import the signing key
+        run: |
+          printf '%s\n' "$SIGNING_KEY" | gpg --batch --import
+          fpr="$(gpg --list-secret-keys --with-colons | awk -F: '/^fpr/ { print $10; exit }')"
+          echo "APT_SIGNING_KEY_ID=$fpr" >>"$GITHUB_ENV"
+
+      # The repository is served by GitHub Pages from the gh-pages branch,
+      # under apt/.
+      - if: env.SIGNING_KEY != ''
+        name: Regenerate and publish the repository
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+            git fetch origin gh-pages
+            git worktree add -B gh-pages site origin/gh-pages
+          else
+            git worktree add --orphan -b gh-pages site
+          fi
+          scripts/release/apt-repo.sh site/apt packages/*.deb
+          touch site/.nojekyll
+          cd site
+          git config user.name SREsAreHumanToo
+          git config user.email 88474954+sresarehumantoo@users.noreply.github.com
+          git add -A .
+          git diff --cached --quiet || git commit -m "apt: dfinstall ${GITHUB_REF_NAME#v}"
+          git push origin gh-pages

@@ -58,3 +58,6 @@ __pycache__/
 # Compiled binaries built outside bin/ (make build targets bin/)
 /dfinstall
 /dfinstall-mcp
+
+# goreleaser output
+/dist/
