@@ -3,7 +3,6 @@ package modules
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,113 +138,78 @@ func TestPassthroughShortcutsHaveNoCtrl(t *testing.T) {
 	}
 }
 
-// Runs the generated login helper against a fake hidutil and defaults: it must
-// leave a live swap and scrolling alone, set exactly modifierPairsJSON when the
-// swap is gone or predates the vendor Globe entry, and turn natural scrolling
-// off when it is back on.
+// Runs the generated login helper against a fake defaults: it must leave
+// scrolling alone when it is off, and turn natural scrolling off when it is
+// back on or was never set.
 func TestMackeysApplyScript(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
 	script := filepath.Join(dir, "mackeys-apply")
 	if err := os.WriteFile(script, mackeysApplyScript(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fakes := map[string]string{
-		"hidutil": `#!/bin/sh
-case "$*" in
-*--get*) cat "$FAKE_LIVE" ;;
-*--set*) shift 3; printf '%s' "$2" > "$FAKE_SET" ;;
-esac
-`,
-		"defaults": `#!/bin/sh
+	fake := `#!/bin/sh
 case "$1" in
 read) cat "$FAKE_SCROLL" ;;
 write) printf '%s' "$*" > "$FAKE_SCROLL_SET" ;;
 esac
-`,
+`
+	if err := os.WriteFile(filepath.Join(dir, "defaults"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for name, body := range fakes {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	pair := "{ HIDKeyboardModifierMappingDst = %d; HIDKeyboardModifierMappingSrc = %d; }"
-	live := fmt.Sprintf("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (\n"+pair+",\n"+pair+",\n"+pair+"\n)\n",
-		hidLeftCtrl, hidGlobe, hidLeftCtrl, hidGlobeVendor, hidLeftOpt, hidLeftCmd)
-	noVendor := fmt.Sprintf("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (\n"+pair+",\n"+pair+"\n)\n",
-		hidLeftCtrl, hidGlobe, hidLeftOpt, hidLeftCmd)
 	for _, c := range []struct {
-		name, live, scroll    string
-		wantSet, wantNoScroll bool
+		name, scroll string
+		wantWrite    bool
 	}{
-		{"all live", live, "0", false, false},
-		{"swap gone", "RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (null)\n", "0", true, false},
-		{"swap without vendor Globe", noVendor, "0", true, false},
-		{"natural scrolling back on", live, "1", false, true},
-		{"natural scrolling never set", live, "", false, true},
+		{"natural scrolling off", "0", false},
+		{"natural scrolling back on", "1", true},
+		{"natural scrolling never set", "", true},
 	} {
-		liveFile, setFile := filepath.Join(dir, "live"), filepath.Join(dir, "set")
-		scrollFile, scrollSetFile := filepath.Join(dir, "scroll"), filepath.Join(dir, "scroll-set")
+		scrollFile, setFile := filepath.Join(dir, "scroll"), filepath.Join(dir, "scroll-set")
 		_ = os.Remove(setFile)
-		_ = os.Remove(scrollSetFile)
-		if err := os.WriteFile(liveFile, []byte(c.live), 0o644); err != nil {
-			t.Fatal(err)
-		}
 		if err := os.WriteFile(scrollFile, []byte(c.scroll), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if c.wantSet == modifierSwapLive(c.live) {
-			t.Errorf("%s: modifierSwapLive disagrees with the fixture", c.name)
-		}
 		cmd := exec.Command("/bin/sh", script)
-		cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_LIVE="+liveFile, "FAKE_SET="+setFile,
-			"FAKE_SCROLL="+scrollFile, "FAKE_SCROLL_SET="+scrollSetFile)
+		cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_SCROLL="+scrollFile, "FAKE_SCROLL_SET="+setFile)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%s: %v\n%s", c.name, err, out)
 		}
-		set, err := os.ReadFile(setFile)
-		switch {
-		case !c.wantSet && err == nil:
-			t.Errorf("%s: helper set the mapping again: %s", c.name, set)
-		case c.wantSet && string(set) != modifierPairsJSON():
-			t.Errorf("%s: helper set %q, want %q", c.name, set, modifierPairsJSON())
-		}
-		scrollSet, err := os.ReadFile(scrollSetFile)
+		got, err := os.ReadFile(setFile)
 		want := "write -g com.apple.swipescrolldirection -bool false"
 		switch {
-		case !c.wantNoScroll && err == nil:
-			t.Errorf("%s: helper rewrote scrolling: %s", c.name, scrollSet)
-		case c.wantNoScroll && string(scrollSet) != want:
-			t.Errorf("%s: helper ran defaults %q, want %q", c.name, scrollSet, want)
+		case !c.wantWrite && err == nil:
+			t.Errorf("%s: helper rewrote scrolling: %s", c.name, got)
+		case c.wantWrite && string(got) != want:
+			t.Errorf("%s: helper ran defaults %q, want %q", c.name, got, want)
 		}
 	}
+}
 
-	// With the layout agent installed the mapping is the agent's: the helper
-	// cannot read it back, so it must not write the standard layout over a
-	// browser's command layout.
-	agent := launchAgentPath(layoutLabel)
-	if err := os.MkdirAll(filepath.Dir(agent), 0o755); err != nil {
-		t.Fatal(err)
+// The doctor reads the swap from the preference, the only place it can be
+// read back; the live mapping is null on every Mac.
+func TestModifierSwapSaved(t *testing.T) {
+	list := "Services:\nVendorID ProductID LocationID UsagePage Usage\n0x0 0x0 0x11a 0x1 0x6\n"
+	key := modifierMappingKey([2]int64{0, 0})
+	prefs := func(value string) string {
+		return `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>` + key + `</key>` + value + `</dict></plist>`
 	}
-	if err := os.WriteFile(agent, nil, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(script, mackeysApplyScript(), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	liveFile, setFile := filepath.Join(dir, "live"), filepath.Join(dir, "set")
-	_ = os.Remove(setFile)
-	if err := os.WriteFile(liveFile, []byte("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (null)\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	cmd := exec.Command("/bin/sh", script)
-	cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_LIVE="+liveFile, "FAKE_SET="+setFile,
-		"FAKE_SCROLL="+filepath.Join(dir, "scroll"), "FAKE_SCROLL_SET="+filepath.Join(dir, "scroll-set"))
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("with the agent: %v\n%s", err, out)
-	}
-	if set, err := os.ReadFile(setFile); err == nil {
-		t.Errorf("helper set the mapping with the layout agent installed: %s", set)
+	for _, c := range []struct {
+		name, prefs string
+		want        bool
+	}{
+		{"swap saved", prefs(modifierPairsPlist()), true},
+		{"partial swap", prefs("<array><dict><key>HIDKeyboardModifierMappingSrc</key><integer>1</integer><key>HIDKeyboardModifierMappingDst</key><integer>2</integer></dict></array>"), false},
+		{"no preference", prefs("<string>x</string>"), false},
+	} {
+		probe := func(name string, args ...string) (string, bool) {
+			if name == "hidutil" {
+				return list, true
+			}
+			return c.prefs, true
+		}
+		if got := modifierSwapSaved(probe); got != c.want {
+			t.Errorf("%s: modifierSwapSaved = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 
