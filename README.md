@@ -49,18 +49,21 @@ Bootstraps a WSL Debian distro from nothing — creates a user, installs package
 
 ```powershell
 git clone https://github.com/sresarehumantoo/dotfiles
-.\dotfiles\bootstrap\wsl-bootstrap.ps1
+cd dotfiles
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1
 ```
+
+Windows refuses to run scripts by default (execution policy `Restricted`), so a plain `.\bootstrap\wsl-bootstrap.ps1` fails before doing anything. `-ExecutionPolicy Bypass` applies to that one PowerShell process and changes no setting on the machine.
 
 The wizard prompts for distro and username. To skip the prompts or trim the scope:
 
 ```powershell
-.\bootstrap\wsl-bootstrap.ps1 -Distro Debian -Username owen   # skip prompts
-.\bootstrap\wsl-bootstrap.ps1 -SkipNeovim                     # skip neovim build
-.\bootstrap\wsl-bootstrap.ps1 -SkipGhostty                    # skip ghostty install
-.\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles                   # core tools only
-.\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
-.\bootstrap\wsl-bootstrap.ps1 -Branch develop                     # another branch: builds dfinstall from source
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -Distro Debian -Username owen   # skip prompts
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipNeovim                     # skip neovim build
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipGhostty                    # skip ghostty install
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles                   # core tools only
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -Branch develop                 # another branch: builds dfinstall from source
 ```
 
 The released dfinstall is only used on `main`, which releases are cut from: another branch's configs may need code no release has yet, so `-Branch` anything else (or `-FromSource`) builds it from the clone with Go, as does an apt repository that cannot be reached. `DFINSTALL_APT_URL` in the distro points the install at a mirror of the repository instead.
