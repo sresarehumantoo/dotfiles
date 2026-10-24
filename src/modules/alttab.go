@@ -2,7 +2,6 @@ package modules
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,15 +24,17 @@ func alttabBinary() string { return core.HomeTarget(".local", "bin", "alttab") }
 func alttabAgent() string  { return launchAgentPath(alttabLabel) }
 func alttabLog() string    { return core.HomeTarget("Library", "Logs", "alttab.log") }
 
-// alttabStale reports whether the binary is missing or older than its source.
-// mtime is enough: a pull or checkout that changes main.swift rewrites it.
-func alttabStale() bool {
-	src, err := os.Stat(alttabSource())
+func alttabStale() bool { return swiftStale(alttabSource(), alttabBinary()) }
+
+// swiftStale reports whether a binary is missing or older than its source.
+// mtime is enough: a pull or checkout that changes the source rewrites it.
+func swiftStale(source, bin string) bool {
+	src, err := os.Stat(source)
 	if err != nil {
 		return false
 	}
-	bin, err := os.Stat(alttabBinary())
-	return err != nil || bin.ModTime().Before(src.ModTime())
+	b, err := os.Stat(bin)
+	return err != nil || b.ModTime().Before(src.ModTime())
 }
 
 // KeepAlive restarts the switcher only after a failed exit, so it can stop for
@@ -69,7 +70,7 @@ func (m AlttabModule) Install(ctx context.Context) error {
 
 	rebuilt := false
 	if alttabStale() {
-		if err := buildAlttab(ctx, bin); err != nil {
+		if err := buildSwift(ctx, "alttab", alttabSource(), bin); err != nil {
 			return err
 		}
 		rebuilt = true
@@ -88,13 +89,14 @@ func (m AlttabModule) Install(ctx context.Context) error {
 	return nil
 }
 
-func buildAlttab(ctx context.Context, bin string) error {
+// buildSwift compiles one Swift source file into bin.
+func buildSwift(ctx context.Context, name, source, bin string) error {
 	if core.DryRun {
-		core.Changed("would build %s from %s", bin, alttabSource())
+		core.Changed("would build %s from %s", bin, source)
 		return nil
 	}
 	if _, err := exec.LookPath("swiftc"); err != nil {
-		return errors.New("swiftc not found: alttab needs the Command Line Tools (xcode-select --install)")
+		return fmt.Errorf("swiftc not found: %s needs the Command Line Tools (xcode-select --install)", name)
 	}
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
 		return err
@@ -102,10 +104,10 @@ func buildAlttab(ctx context.Context, bin string) error {
 	// Built beside the target and renamed over it, so the running copy is
 	// never a half-written file.
 	tmp := bin + ".new"
-	core.Info("Building alttab...")
-	if err := runCmd(ctx, "swiftc", "-O", "-swift-version", "5", "-o", tmp, alttabSource()); err != nil {
+	core.Info("Building %s...", name)
+	if err := runCmd(ctx, "swiftc", "-O", "-swift-version", "5", "-o", tmp, source); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("building alttab: %w", err)
+		return fmt.Errorf("building %s: %w", name, err)
 	}
 	if err := os.Rename(tmp, bin); err != nil {
 		return err
