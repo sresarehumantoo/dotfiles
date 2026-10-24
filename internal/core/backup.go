@@ -1,0 +1,432 @@
+package core
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+// BackupEntry records the pre-install state of a single path.
+type BackupEntry struct {
+	Path          string `json:"path"`
+	Type          string `json:"type"` // "file", "symlink", "missing"
+	SymlinkTarget string `json:"symlink_target,omitempty"`
+	BackupFile    string `json:"backup_file,omitempty"`
+	Hash          string `json:"hash,omitempty"`
+}
+
+// BackupManifest is the serialized form of one backup session.
+type BackupManifest struct {
+	Timestamp string        `json:"timestamp"`
+	Entries   []BackupEntry `json:"entries"`
+}
+
+// BackupListEntry is the summary returned by ListBackups.
+type BackupListEntry struct {
+	Timestamp string
+	Count     int
+}
+
+// backupManager tracks the active backup session.
+type backupManager struct {
+	dir      string
+	filesDir string
+	entries  []BackupEntry
+	seen     map[string]bool
+	ts       string
+}
+
+var activeBackup *backupManager
+
+// BackupDir returns the base directory for all backups.
+func BackupDir() string {
+	if Cfg.BackupDirP != "" {
+		return Cfg.BackupDirP
+	}
+	return AppDataPath("backups")
+}
+
+// StartBackup begins a new backup session.
+func StartBackup() error {
+	ts := time.Now().Format("20060102-150405")
+	dir := filepath.Join(BackupDir(), ts)
+	filesDir := filepath.Join(dir, "files")
+
+	// Backups hold copies of private files (~/.ssh/config, ~/.gitconfig,
+	// tokens), so the per-session dirs are owner-only. The shared parent keeps
+	// default perms so it behaves like any other XDG data dir.
+	if err := os.MkdirAll(BackupDir(), 0755); err != nil {
+		return fmt.Errorf("create backup dir: %w", err)
+	}
+	if err := os.MkdirAll(filesDir, 0700); err != nil {
+		return fmt.Errorf("create backup dir: %w", err)
+	}
+
+	activeBackup = &backupManager{
+		dir:      dir,
+		filesDir: filesDir,
+		seen:     make(map[string]bool),
+		ts:       ts,
+	}
+
+	Info("backup session started: %s", ts)
+	return nil
+}
+
+// BackupActive returns true if a backup session is running.
+func BackupActive() bool {
+	return activeBackup != nil
+}
+
+// BackupFile records the current state of dst before LinkFile modifies it.
+// No-op if no session is active. Skips /etc/ paths.
+func BackupFile(dst string) error {
+	if activeBackup == nil {
+		return nil
+	}
+
+	if DryRun {
+		return nil
+	}
+
+	if IsSystemPath(dst) {
+		Debug("backup: skipping system path %s", dst)
+		return nil
+	}
+
+	// Deduplicate
+	if activeBackup.seen[dst] {
+		return nil
+	}
+	activeBackup.seen[dst] = true
+
+	fi, err := os.Lstat(dst)
+	if os.IsNotExist(err) {
+		activeBackup.entries = append(activeBackup.entries, BackupEntry{
+			Path: dst,
+			Type: "missing",
+		})
+		Debug("backup: %s (missing)", dst)
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("stat %s: %w", dst, err)
+	}
+
+	if fi.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(dst)
+		if err != nil {
+			return fmt.Errorf("readlink %s: %w", dst, err)
+		}
+		activeBackup.entries = append(activeBackup.entries, BackupEntry{
+			Path:          dst,
+			Type:          "symlink",
+			SymlinkTarget: target,
+		})
+		Debug("backup: %s (symlink -> %s)", dst, target)
+		return nil
+	}
+
+	// Regular file — copy into backup
+	flat := FlattenPath(dst)
+	backupDst := filepath.Join(activeBackup.filesDir, flat)
+
+	if err := copyFile(dst, backupDst); err != nil {
+		return fmt.Errorf("copy %s: %w", dst, err)
+	}
+
+	hash, _ := FileHash(dst)
+
+	activeBackup.entries = append(activeBackup.entries, BackupEntry{
+		Path:       dst,
+		Type:       "file",
+		BackupFile: flat,
+		Hash:       hash,
+	})
+	shortHash := hash
+	if len(shortHash) > 12 {
+		shortHash = shortHash[:12]
+	}
+	Debug("backup: %s (file, hash=%s)", dst, shortHash)
+	return nil
+}
+
+// FinishBackup writes the manifest and cleans up empty sessions.
+func FinishBackup() error {
+	if activeBackup == nil {
+		return nil
+	}
+	defer func() { activeBackup = nil }()
+
+	// If nothing was recorded, clean up the empty directory
+	if len(activeBackup.entries) == 0 {
+		Info("backup: no entries recorded, cleaning up")
+		if err := os.RemoveAll(activeBackup.dir); err != nil {
+			Warn("backup: failed to clean up empty backup dir: %v", err)
+		}
+		return nil
+	}
+
+	manifest := BackupManifest{
+		Timestamp: activeBackup.ts,
+		Entries:   activeBackup.entries,
+	}
+
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal manifest: %w", err)
+	}
+
+	// Atomic write: temp file + rename to avoid corrupt manifest on crash.
+	manifestPath := filepath.Join(activeBackup.dir, "manifest.json")
+	tmpPath := manifestPath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
+	}
+	if err := os.Rename(tmpPath, manifestPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename manifest: %w", err)
+	}
+
+	Info("backup saved: %s (%d entries)", activeBackup.ts, len(activeBackup.entries))
+	return nil
+}
+
+// ListBackups returns available backups, newest first.
+func ListBackups() ([]BackupListEntry, error) {
+	baseDir := BackupDir()
+	entries, err := os.ReadDir(baseDir)
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	var result []BackupListEntry
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		manifest, err := loadManifest(filepath.Join(baseDir, e.Name()))
+		if err != nil {
+			continue
+		}
+		result = append(result, BackupListEntry{
+			Timestamp: e.Name(),
+			Count:     len(manifest.Entries),
+		})
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Timestamp > result[j].Timestamp
+	})
+	return result, nil
+}
+
+// RestoreBackup restores the state recorded in a backup.
+func RestoreBackup(ts string) (RestoreResult, error) {
+	dir := filepath.Join(BackupDir(), ts)
+	manifest, err := loadManifest(dir)
+	if err != nil {
+		return RestoreResult{}, fmt.Errorf("load backup %s: %w", ts, err)
+	}
+
+	if DryRun {
+		for _, entry := range manifest.Entries {
+			switch entry.Type {
+			case "missing":
+				Info("would remove: %s", entry.Path)
+			case "symlink":
+				Info("would restore symlink: %s -> %s", entry.Path, entry.SymlinkTarget)
+			case "file":
+				Info("would restore file: %s", entry.Path)
+			}
+		}
+		Info("dry run: %d entries from backup %s left untouched", len(manifest.Entries), ts)
+		return RestoreResult{Total: len(manifest.Entries)}, nil
+	}
+
+	var failures int
+	for _, entry := range manifest.Entries {
+		var restoreErr error
+
+		switch entry.Type {
+		case "missing":
+			// Path didn't exist before — remove whatever dfinstall placed
+			restoreErr = os.Remove(entry.Path)
+			if os.IsNotExist(restoreErr) {
+				restoreErr = nil // already gone
+			}
+			if restoreErr == nil {
+				Ok("removed: %s", entry.Path)
+			}
+
+		case "symlink":
+			// Restore original symlink
+			os.Remove(entry.Path)
+			restoreErr = os.Symlink(entry.SymlinkTarget, entry.Path)
+			if restoreErr == nil {
+				Ok("restored symlink: %s -> %s", entry.Path, entry.SymlinkTarget)
+			}
+
+		case "file":
+			// Restore original file from backup
+			src := filepath.Join(dir, "files", entry.BackupFile)
+			os.Remove(entry.Path)
+			if err := EnsureDir(filepath.Dir(entry.Path)); err != nil {
+				restoreErr = err
+			} else {
+				restoreErr = copyFile(src, entry.Path)
+			}
+			if restoreErr == nil {
+				Ok("restored file: %s", entry.Path)
+			}
+		}
+
+		if restoreErr != nil {
+			Warn("restore failed for %s: %v", entry.Path, restoreErr)
+			failures++
+		}
+	}
+
+	// ⚠ A SNAPSHOT CAN BE FAITHFULLY RESTORED AND STILL LEAVE THE MACHINE
+	// BROKEN, AND IT USED TO REPORT SUCCESS WHEN IT DID. A "symlink" entry
+	// records the target as a STRING, so restoring one recreates a link to
+	// wherever it pointed when the snapshot was taken -- which may be a clone
+	// that has since moved or been deleted. Seen for real on 2026-09-12: a
+	// backup from June restored 46 entries pointing at /home/owen/dotfiles, a
+	// spare clone that no longer existed, so every managed file in $HOME became
+	// a dangling link and the next new terminal would have come up bare. The
+	// restore had done exactly what it was asked; it printed "successfully",
+	// and only `dfinstall status` showed the damage.
+	//
+	// Stat (not Lstat) follows the link, so this is precisely the "does it
+	// resolve" question. Entries that were removed or restored as regular
+	// files cannot dangle and are not checked.
+	var dangling []string
+	for _, entry := range manifest.Entries {
+		if entry.Type != "symlink" {
+			continue
+		}
+		if _, err := os.Stat(entry.Path); err != nil {
+			dangling = append(dangling, entry.Path)
+		}
+	}
+
+	total := len(manifest.Entries)
+	if failures > 0 {
+		return RestoreResult{Total: total}, fmt.Errorf("restored %d/%d entries (%d failures)", total-failures, total, failures)
+	}
+
+	// ⚠ DANGLING IS NOT A FAILURE, AND MAKING IT ONE WAS THE FIRST ATTEMPT AT
+	// THIS FIX. The snapshot may faithfully record a link that already pointed
+	// at something absent, and reproducing that is correct: restore's contract
+	// is "put back what was there", not "leave a working machine".
+	// TestRestoreRoundTrip is the case that settles it -- it snapshots a link to
+	// a placeholder target and asserts the target string comes back, which an
+	// error return would have failed for a restore that did its job perfectly.
+	//
+	// So this reports rather than refuses. What was actually broken was the
+	// REPORT: callers printed an unqualified "successfully" over a machine whose
+	// every managed file had just been left dangling.
+	if len(dangling) > 0 {
+		for _, p := range dangling {
+			AlwaysWarn("restored link does not resolve: %s", p)
+		}
+		AlwaysWarn("%d of %d restored entries point at paths that no longer exist; "+
+			"run `dfinstall install all` to repoint them at the canonical clone",
+			len(dangling), total)
+	}
+
+	Info("restored %d entries from backup %s", total, ts)
+	return RestoreResult{Total: total, Dangling: dangling}, nil
+}
+
+// RestoreResult reports what a restore did, so callers can say so instead of
+// printing a bare success. See the dangling note in RestoreBackup.
+type RestoreResult struct {
+	Total    int
+	Dangling []string
+}
+
+// Summary is the one-line outcome, suitable for a CLI or a tool result.
+func (r RestoreResult) Summary(ts string) string {
+	if len(r.Dangling) == 0 {
+		return fmt.Sprintf("Restored backup %s successfully (%d entries).", ts, r.Total)
+	}
+	return fmt.Sprintf("Restored backup %s: %d entries, but %d link(s) now point at "+
+		"paths that no longer exist. Run `dfinstall install all` to repoint them.",
+		ts, r.Total, len(r.Dangling))
+}
+
+// WriteBackupList renders the backup table. Shared so the CLI and the MCP
+// server cannot drift into two different listings of the same thing.
+func WriteBackupList(w io.Writer, backups []BackupListEntry) {
+	if len(backups) == 0 {
+		fmt.Fprintln(w, "No backups found.")
+		return
+	}
+	fmt.Fprintf(w, "%-20s %s\n", "TIMESTAMP", "ENTRIES")
+	for _, b := range backups {
+		fmt.Fprintf(w, "%-20s %d\n", b.Timestamp, b.Count)
+	}
+}
+
+// FlattenPath converts a filesystem path to a flat filename (/ -> --).
+func FlattenPath(p string) string {
+	p = strings.TrimPrefix(p, "/")
+	return strings.ReplaceAll(p, "/", "--")
+}
+
+// IsSystemPath returns true for paths that should be skipped (e.g. /etc/).
+func IsSystemPath(p string) bool {
+	return strings.HasPrefix(p, "/etc/")
+}
+
+// loadManifest reads a manifest.json from a backup directory.
+func loadManifest(dir string) (*BackupManifest, error) {
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		return nil, err
+	}
+	var m BackupManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, err
+	}
+	return &m, nil
+}
+
+// copyFile copies src to dst, preserving permissions.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	fi, err := in.Stat()
+	if err != nil {
+		return err
+	}
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, fi.Mode())
+	if err != nil {
+		return err
+	}
+
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Sync(); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}

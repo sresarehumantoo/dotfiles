@@ -6,16 +6,21 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
-// withConfigDir points DotfilesDir at a temp dir and restores global config
-// state afterwards, so these tests can't leak into their neighbours.
+// withConfigDir points the config dir and DotfilesDir at temp dirs, returns
+// the config dir, and restores global config state afterwards, so these tests
+// can't leak into their neighbours.
 func withConfigDir(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	t.Setenv("DOTFILES", dir)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DOTFILES", t.TempDir())
 	core.ResetDotfilesDir()
+	dir := filepath.Dir(core.ConfigFilePath())
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
 
 	origCfg, origExists := core.Cfg, core.CfgFileExists
 	t.Cleanup(func() {
@@ -158,5 +163,51 @@ func TestSaveConfig_LeavesNoTempFiles(t *testing.T) {
 		if strings.Contains(e.Name(), ".tmp") {
 			t.Errorf("temp file left behind: %s", filepath.Join(dir, e.Name()))
 		}
+	}
+}
+
+// A config left in the clone by a pre-2.0 release is still read while the new
+// location is empty, so upgrading is not mistaken for a first run.
+func TestLoadConfig_FallsBackToLegacyClonePath(t *testing.T) {
+	withConfigDir(t)
+	legacy := core.LegacyConfigFilePath()
+	if err := os.WriteFile(legacy, []byte(realUserConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := core.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !core.CfgFileExists || !core.Cfg.SkipBackup || len(core.Cfg.ToolkitTools) != 1 {
+		t.Fatalf("legacy config not loaded: exists=%v %+v", core.CfgFileExists, core.Cfg)
+	}
+
+	if err := core.SaveConfig(); err != nil {
+		t.Fatalf("SaveConfig: %v", err)
+	}
+	if _, err := os.Stat(core.ConfigFilePath()); err != nil {
+		t.Fatalf("config not written to the new location: %v", err)
+	}
+	data, err := os.ReadFile(legacy)
+	if err != nil || string(data) != realUserConfig {
+		t.Errorf("legacy config changed or removed (err=%v):\n%s", err, data)
+	}
+}
+
+// Once the new file exists, a stale legacy one is ignored.
+func TestLoadConfig_NewPathWinsOverLegacy(t *testing.T) {
+	withConfigDir(t)
+	if err := os.WriteFile(core.LegacyConfigFilePath(), []byte(realUserConfig), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(core.ConfigFilePath(), []byte("skip_backup: false\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := core.LoadConfig(); err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if core.Cfg.SkipBackup || len(core.Cfg.ToolkitTools) != 0 {
+		t.Errorf("legacy config read although the new one exists: %+v", core.Cfg)
 	}
 }

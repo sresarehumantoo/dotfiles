@@ -26,8 +26,8 @@ The compiled binary is written to `bin/dfinstall`.
 
 ```bash
 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(pwd)" \
-  -o bin/dfinstall ./src/cmd/dfinstall
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=$(pwd)" \
+  -o bin/dfinstall ./cmd/dfinstall
 ```
 
 The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This is only one input to how `dfinstall` locates its `config/` directory. At runtime `DotfilesDir()` resolves in order:
@@ -59,6 +59,39 @@ $ make build && ./bin/dfinstall --version
 dfinstall version v1.0.0
 ```
 
+## Releases
+
+Releases are cut by promoting `develop` to `main` with a PR, then tagging the `develop` side of that merge:
+
+```bash
+gh pr create --base main --head develop   # CI green, then:
+gh pr merge
+git fetch origin
+git diff --quiet origin/main origin/main^2 && git tag v1.11.0 origin/main^2
+git push origin v1.11.0
+```
+
+`origin/main^2` has exactly the tree `main` has, and unlike the merge commit it is also on `develop`, so `git describe` (and Go's version stamp) on a `develop` build names the latest release. Tags before `v1.11.0` sit on the merge commits instead, which is why `develop` merged `main` back once. The workflow refuses a tag that is not reachable from both branches.
+
+Pushing a `v*` tag runs `.github/workflows/release.yml`:
+
+1. **GoReleaser** (`.goreleaser.yaml`) builds both binaries for linux and darwin on amd64 and arm64 and publishes the GitHub release: one `dfinstall_<version>_<os>_<arch>.tar.gz` per platform, a `.deb` per Linux arch, and `checksums.txt`. Each binary is built twice, with `core.Channel=release` for the archives and `core.Channel=deb` for the packages. ⚠ `modules.releaseArchiveName` looks for exactly that archive name to self-update, so the `name_template` must not change without it.
+2. **Homebrew**: `scripts/release/brew-formula.sh` writes `Formula/dfinstall.rb` from `checksums.txt` and pushes it to `sresarehumantoo/homebrew-tap`. The formula installs the release archive, and a release binary running from a Cellar reports the `brew` channel. GoReleaser's own formula support is deprecated in favor of casks, which quarantine what they download.
+3. **apt**: `scripts/release/apt-repo.sh` adds the `.deb`s to a signed repository (suite `stable`, component `main`, newest three versions kept) on the `gh-pages` branch under `apt/`, served by GitHub Pages.
+
+Tags containing `-` (`v2.0.0-rc1`) are GitHub prereleases and skip steps 2 and 3. CI runs `goreleaser check` on every push, so a broken config fails before a tag does.
+
+One-time setup the workflow needs, without which steps 2 and 3 skip with a notice:
+
+| What | Where |
+|---|---|
+| `sresarehumantoo/homebrew-tap` repository | GitHub |
+| `HOMEBREW_TAP_DEPLOY_KEY`: private half of an SSH key whose public half is a write deploy key on the tap only | repo Actions secret |
+| `APT_SIGNING_KEY`: ASCII-armored private key of the passphrase-less ed25519 signing key `68923E9D2B5D025E4EB9FBCE48E2D3B9E6EE8E62` (no expiry: an expired key makes apt reject the repository) | repo Actions secret; the secret cannot be read back, so keep a backup of the key outside GitHub |
+| GitHub Pages from the `gh-pages` branch | repo settings |
+
+To try a release locally: `goreleaser release --snapshot --clean` writes everything to `dist/` without publishing. The snapshot version comes from the newest tag reachable from `HEAD`.
+
 ## Go Dependencies
 
 Dependencies are managed via Go modules (`go.mod` / `go.sum`) and fetched automatically on first build.
@@ -71,7 +104,7 @@ Dependencies are managed via Go modules (`go.mod` / `go.sum`) and fetched automa
 | `github.com/charmbracelet/bubbles` | Terminal UI components used by the menus |
 | `github.com/mark3labs/mcp-go` | MCP protocol/stdio server (`bin/dfinstall-mcp`) |
 | `golang.org/x/term` | Terminal detection (TTY guard for menus) |
-| `gopkg.in/yaml.v3` | YAML config parsing (`.config.yaml`) |
+| `gopkg.in/yaml.v3` | YAML config parsing (`config.yaml`) |
 
 `go.mod` is the authority on versions; the seven above are the direct requirements.
 
@@ -92,11 +125,11 @@ Run `make` (or `make help`) to list every target.
 | `build` | `go build ...` | Compile to `bin/dfinstall` |
 | `build-mcp` | `go build ...` | Compile the MCP server to `bin/dfinstall-mcp` |
 | `build-all` | `build` + `build-mcp` | Compile both binaries |
-| `test` | `go test ./src/... ./tests/...` | Run all unit tests |
-| `test-race` | `go test -race ./src/... ./tests/...` | Run the suite under the race detector |
-| `lint` | `go vet ./src/... ./tests/...` | Static analysis |
-| `fmt` | `gofmt -s -w src/ tests/` | Format source code in place |
-| `fmt-check` | `gofmt -s -l src tests` | Check formatting without modifying (same check as CI) |
+| `test` | `go test ./cmd/... ./internal/... ./tests/...` | Run all unit tests |
+| `test-race` | `go test -race ./cmd/... ./internal/... ./tests/...` | Run the suite under the race detector |
+| `lint` | `go vet ./cmd/... ./internal/... ./tests/...` | Static analysis |
+| `fmt` | `gofmt -s -w cmd/ internal/ tests/` | Format source code in place |
+| `fmt-check` | `gofmt -s -l cmd internal tests` | Check formatting without modifying (same check as CI) |
 | `ci` | `fmt-check` + `lint` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
 | `e2e` | `scripts/e2e/run.sh <scenario>` | End-to-end scenarios in Docker; `SCENARIO=sudo` runs one |
 | `corplab` | `scripts/corplab/run.sh [scenario]` | Corporate-network scenarios (TLS inspection, Nexus) in Docker Compose; `SCENARIO=nexus` runs one |
@@ -136,13 +169,13 @@ Go supports cross-compilation natively. To build for a different platform:
 ```bash
 # Linux ARM64 (e.g. Raspberry Pi)
 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=/home/user/dotfiles" \
-  -o bin/dfinstall-arm64 ./src/cmd/dfinstall
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -o bin/dfinstall-arm64 ./cmd/dfinstall
 
 # Linux AMD64
 GOOS=linux GOARCH=amd64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=/home/user/dotfiles" \
-  -o bin/dfinstall-amd64 ./src/cmd/dfinstall
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -o bin/dfinstall-amd64 ./cmd/dfinstall
 ```
 
 Note: the baked-in dotfiles path should match the target machine. If the path varies, use the `$DOTFILES` environment variable at runtime instead.
@@ -150,9 +183,10 @@ Note: the baked-in dotfiles path should match the target machine. If the path va
 ## Project Structure
 
 ```
-src/
-  cmd/dfinstall/     # CLI entry point (main.go)
-  cmd/mcp/           # MCP server entry point (main.go) → bin/dfinstall-mcp
+cmd/
+  dfinstall/         # CLI entry point (main.go)
+  dfinstall-mcp/     # MCP server entry point (main.go) → bin/dfinstall-mcp
+internal/
   core/              # Shared libraries
     apt.go           #   apt/dpkg helpers
     backup.go        #   Backup/restore system
@@ -181,8 +215,8 @@ src/
     json_settings.go   #   managedJSON: merge tracked keys into a settings file a program also writes
     ...                #   19 modules total
 tests/                 # Black-box tests (package tests)
-                       # In-package tests also live in src/core/*_test.go
-                       # and src/modules/*_test.go for unexported internals
+                       # In-package tests also live in internal/core/*_test.go
+                       # and internal/modules/*_test.go for unexported internals
 ```
 
 ## Testing

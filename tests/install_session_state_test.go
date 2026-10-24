@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // sandboxHome points HOME, XDG_CONFIG_HOME, XDG_DATA_HOME and DOTFILES at

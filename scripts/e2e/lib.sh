@@ -31,14 +31,15 @@ expect_step() {
 owned_by() { [[ "$(stat -c %U "$2")" == "$1" ]]; }
 
 # stage_repo USER: copy the read-only /src mount into USER's home as their
-# dotfiles clone, with a config that skips the first-run backup prompt.
+# dotfiles clone, with a dfinstall config that skips the first-run backup.
 stage_repo() {
     local user="$1" home
     home="$(getent passwd "$user" | cut -d: -f6)"
     cp -a /src "$home/dotfiles"
     rm -rf "$home/dotfiles/bin"
-    printf 'skip_backup: true\n' > "$home/dotfiles/.config.yaml"
-    chown -R "$user:" "$home/dotfiles"
+    mkdir -p "$home/.config/dfinstall"
+    printf 'skip_backup: true\n' > "$home/.config/dfinstall/config.yaml"
+    chown -R "$user:" "$home/dotfiles" "$home/.config"
 }
 
 finish() {

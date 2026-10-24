@@ -20,7 +20,12 @@
     Linux username to create. If omitted, prompts interactively.
 
 .PARAMETER Branch
-    Dotfiles branch to checkout. Defaults to 'develop'.
+    Dotfiles branch to checkout. Defaults to 'main', which installs the released
+    dfinstall from its apt repository. Any other branch builds dfinstall from
+    the clone, since its configs may need code no release has yet.
+
+.PARAMETER FromSource
+    Build dfinstall from the clone even on main.
 
 .PARAMETER SkipNeovim
     Skip building Neovim from source.
@@ -63,7 +68,8 @@
 param(
     [string]$Distro,
     [string]$Username,
-    [string]$Branch = "develop",
+    [string]$Branch = "main",
+    [switch]$FromSource,
     [switch]$SkipNeovim,
     [switch]$SkipGhostty,
     [switch]$SkipDotfiles,
@@ -447,6 +453,9 @@ function Main {
     Write-Info "Neovim:   $(if ($SkipNeovim) { 'skip' } else { 'build from source' })"
     Write-Info "Ghostty:  $(if ($SkipGhostty) { 'skip' } else { 'latest .deb' })"
     Write-Info "Dotfiles: $(if ($SkipDotfiles) { 'skip' } else { 'clone + install' })"
+    if (-not $SkipDotfiles) {
+        Write-Info "dfinstall: $(if ($FromSource -or $Branch -ne 'main') { 'build from source' } else { 'release from apt, else build from source' })"
+    }
     if ($CorpCert) { Write-Info "Corp CA:  $CorpCert" }
     if ($PreHook)  { Write-Info "Pre-hook: $PreHook" }
     if ($PostHook) { Write-Info "Post-hook: $PostHook" }
@@ -541,19 +550,20 @@ function Main {
         # Step 6: Copy repo into distro and install dotfiles
         if (-not $SkipDotfiles) {
             Write-Header "Dotfiles"
+            $sourceFlag = if ($FromSource) { " --from-source" } else { "" }
             $repoPath = Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser
             if ($repoPath) {
                 Invoke-Phase `
                     -Name "Install dotfiles" `
                     -DistroName $selectedDistro `
                     -User "user" `
-                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
+                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'$sourceFlag"
             } else {
                 Invoke-Phase `
                     -Name "Install dotfiles" `
                     -DistroName $selectedDistro `
                     -User "user" `
-                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch"
+                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch ''$sourceFlag"
             }
         }
 

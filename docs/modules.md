@@ -1,6 +1,6 @@
 # Module Reference
 
-Most modules are a single Go file in `src/modules/`. They run in the order listed here.
+Most modules are a single Go file in `internal/modules/`. They run in the order listed here.
 
 ---
 
@@ -93,7 +93,7 @@ Tool metadata (names, descriptions, install methods) is stored in a separate Git
 
 **Offline / custom registries:**
 - `--registry <path>` CLI flag overrides the registry URL for a single run
-- `toolkit_registry_url` in `.config.yaml` sets a persistent override
+- `toolkit_registry_url` in `config.yaml` sets a persistent override
 - Supports `file://` paths, plain file paths, and HTTP(S) URLs
 
 ### Tool Categories
@@ -119,7 +119,7 @@ engine in `modules/github_release.go` — it fetches the latest release's assets
 and picks the one matching this machine's architecture, skipping checksums,
 signatures and other platforms' builds.
 
-Selections are saved to `.config.yaml` under `toolkit_tools`. Subsequent installs (without `--toolkit`) use the saved selections. To change, re-run with `--toolkit`.
+Selections are saved to `config.yaml` under `toolkit_tools`. Subsequent installs (without `--toolkit`) use the saved selections. To change, re-run with `--toolkit`.
 
 **Status:** Shows `N/M tools` when tools are configured. Shows "run --toolkit to configure" when no tools are selected. Shows "registry not fetched" when no cache exists.
 
@@ -240,7 +240,7 @@ Running `dfinstall install omz --extended` or `dfinstall install all --extended`
 | DevOps | ansible, vagrant |
 | Utilities | sudo, rsync, systemd, encode64, jsontools, urltools, command-not-found |
 
-Selections are saved to `.config.yaml` under `extended_plugins` and written to `~/.config/dfinstall/plugins.zsh`, which the zshrc sources before the `plugins=()` declaration. Plugin names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` before writing to prevent shell injection.
+Selections are saved to `config.yaml` under `extended_plugins` and written to `~/.config/dfinstall/plugins.zsh`, which the zshrc sources before the `plugins=()` declaration. Plugin names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$` before writing to prevent shell injection.
 
 Subsequent installs (without `--extended`) regenerate the `plugins.zsh` file from the saved config. To change selections, re-run with `--extended`.
 
@@ -364,7 +364,7 @@ Before linking, the shell module scans `$HOME` for custom shell files that aren'
 
 Preserved files are written to `~/.config/dfinstall/custom-sources.zsh`, which the zshrc sources after aliases. Each entry uses a guard: `[[ -f ~/.companyrc ]] && source ~/.companyrc`.
 
-Kept files are recorded in `.config.yaml` under `preserved_files`. To stop sourcing one, list it under `dismissed_files`: dismissed wins over preserved, and a file in either list is never reported again. Paths are validated against `^\.[a-zA-Z0-9][a-zA-Z0-9._-]*$` before writing to the shell-sourced file.
+Kept files are recorded in `config.yaml` under `preserved_files`. To stop sourcing one, list it under `dismissed_files`: dismissed wins over preserved, and a file in either list is never reported again. Paths are validated against `^\.[a-zA-Z0-9][a-zA-Z0-9._-]*$` before writing to the shell-sourced file.
 
 The scan filters out: managed shell destinations (`.zshrc`, `.aliases`, etc.), known non-shell dotfiles (`.vimrc`, `.npmrc`, `.netrc`, etc.), symlinks, directories, and files over 1MB.
 
@@ -462,7 +462,7 @@ force it off on a terminal without its own trail.
 
 **File:** `modules/windev.go` &nbsp;·&nbsp; **See also:** [Windows Cross-Development guide](windev.md) for install + per-language usage walkthroughs.
 
-**Opt-in.** Installs a Windows cross-development environment for building Windows software (C/C++, C#/.NET, Go, Rust) from WSL/Linux, plus the matching Neovim LSP/format/debug configs and a remote build-server helper. Excluded from `install all` until explicitly enabled with `dfinstall install windev`, which sets `windev_enabled: true` in `.config.yaml`; subsequent `install all` keeps it current. `dfinstall uninstall windev` clears the flag.
+**Opt-in.** Installs a Windows cross-development environment for building Windows software (C/C++, C#/.NET, Go, Rust) from WSL/Linux, plus the matching Neovim LSP/format/debug configs and a remote build-server helper. Excluded from `install all` until explicitly enabled with `dfinstall install windev`, which sets `windev_enabled: true` in `config.yaml`; subsequent `install all` keeps it current. `dfinstall uninstall windev` clears the flag.
 
 ### Local cross-compilation toolchains
 

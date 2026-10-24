@@ -6,7 +6,7 @@ How to extend the dotfiles project with new modules, scripts, and configs.
 
 ### 1. Create the module file
 
-Create `src/modules/<name>.go`:
+Create `internal/modules/<name>.go`:
 
 ```go
 package modules
@@ -14,7 +14,7 @@ package modules
 import (
     "context"
 
-    "github.com/sresarehumantoo/dotfiles/src/core"
+    "github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 type FooModule struct{}
@@ -68,7 +68,7 @@ Put your config files under `config/foo/`. These are the source files that get s
 
 ### 3. Register the module
 
-Add it to `src/modules/register.go`. **Placement determines install order** -- put it after its dependencies:
+Add it to `internal/modules/register.go`. **Placement determines install order** -- put it after its dependencies:
 
 ```go
 func RegisterAllModules() {
@@ -149,7 +149,7 @@ ok "Done."
 
 ### 2. Add to devtools module
 
-In `src/modules/devtools.go`, add to the `devtoolsScripts` slice:
+In `internal/modules/devtools.go`, add to the `devtoolsScripts` slice:
 
 ```go
 var devtoolsScripts = []string{
@@ -212,9 +212,9 @@ In default (quiet) mode, the CLI shows a spinner. `Info`/`Ok` calls are suppress
 **Never `exec.Command`** — every subprocess must be cancelable, so it takes a
 `context.Context`. `go vet` won't catch a new one, so this is on you.
 
-Beyond cancellation, prefer the wrappers in `src/modules/packages.go` —
+Beyond cancellation, prefer the wrappers in `internal/modules/packages.go` —
 `runCmd(ctx, ...)`, `runProbe(ctx, ...)`, `runNetProbe(ctx, ...)`. They add a
-deadline from `src/core/exec.go`, output capture with a tail replayed on
+deadline from `internal/core/exec.go`, output capture with a tail replayed on
 failure, and spinner/sudo handling. A bare `exec.CommandContext` gets none of
 that; a handful remain (`fonts.go`, `extras.go`, `wsl.go`, `tmux.go`) and are
 debt, not a pattern to copy. `defaultshell.go`'s `chsh` is the one deliberate
@@ -239,7 +239,7 @@ if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
   already root.
 - **Quick queries use `runProbe(ctx, ...)`**, network fetches `runNetProbe`.
   They carry `ProbeTimeout` (30s) and `NetworkTimeout` (10m) from
-  `src/core/exec.go`; `runCmd` carries `InstallTimeout` (45m). Every command
+  `internal/core/exec.go`; `runCmd` carries `InstallTimeout` (45m). Every command
   must have a deadline — a hung `curl` or an apt blocked on a dpkg lock used to
   hang the whole run with no way out.
 - **`PauseSpinner`/`ResumeSpinner` are for interactive prompts only** (huh
@@ -253,7 +253,7 @@ Tests live in two places, deliberately:
 
 - **`tests/`** (`package tests`) — black-box. Anything reachable
   through the exported API goes here.
-- **In-package** (`src/core/*_test.go`, `src/modules/*_test.go`) — for
+- **In-package** (`internal/core/*_test.go`, `internal/modules/*_test.go`) — for
   invariants about unexported state: the spinner's state machine, `checkTarget`,
   `pickAsset`, `artifactFor`. Asserting these from `tests/` would mean exporting
   internals purely for the test.
@@ -265,15 +265,17 @@ to overwrite an unreadable config), registry validation as a security boundary,
 spinner concurrency, and GitHub release asset selection from a fixture.
 
 ```bash
-make test       # go test ./src/... ./tests/...
-make test-race  # go test -race ./src/... ./tests/...
+make test       # go test ./cmd/... ./internal/... ./tests/...
+make test-race  # go test -race ./cmd/... ./internal/... ./tests/...
 make lint       # go vet
 make ci         # fmt-check + lint + build both binaries + test + test-race
 ```
 
-Tests use `t.TempDir()` and `t.Setenv` and don't touch real system files. Any
-test that writes config must point `$DOTFILES` at a temp dir — otherwise
-`SaveConfig` writes to the real repo's `.config.yaml`.
+Tests use `t.TempDir()` and `t.Setenv` and don't touch real system files. Each
+test package's `TestMain` points `$HOME` at a scratch directory and clears the
+`XDG_*` variables, so a test that sets `$HOME` gets config and data paths under
+it. A test that writes config should still set `XDG_CONFIG_HOME` (or `$HOME`)
+itself rather than rely on that.
 
 ### Verifying a change by hand
 

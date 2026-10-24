@@ -45,7 +45,7 @@ Most dotfiles repos are a pile of symlinks and a `bootstrap.sh` that nobody dare
 
 ### Fresh WSL setup (from PowerShell)
 
-Bootstraps a WSL Debian distro from nothing — creates a user, installs packages, builds Neovim, installs Ghostty, and runs the full dotfiles install:
+Bootstraps a WSL Debian distro from nothing — creates a user, installs packages, builds Neovim, installs Ghostty, installs dfinstall from its apt repository, and runs the full dotfiles install:
 
 ```powershell
 git clone https://github.com/sresarehumantoo/dotfiles
@@ -60,21 +60,24 @@ The wizard prompts for distro and username. To skip the prompts or trim the scop
 .\bootstrap\wsl-bootstrap.ps1 -SkipGhostty                    # skip ghostty install
 .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles                   # core tools only
 .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
+.\bootstrap\wsl-bootstrap.ps1 -Branch develop                     # another branch: builds dfinstall from source
 ```
+
+The released dfinstall is only used on `main`, which releases are cut from: another branch's configs may need code no release has yet, so `-Branch` anything else (or `-FromSource`) builds it from the clone with Go, as does an apt repository that cannot be reached. `DFINSTALL_APT_URL` in the distro points the install at a mirror of the repository instead.
 
 ### Fresh Mac
 
-Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones to `~/dotfiles` and runs `make install`:
+Installs the Xcode Command Line Tools, Homebrew and Ghostty, then dfinstall from the Homebrew tap, clones to `~/dotfiles` and runs `dfinstall install all`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 ```
 
-From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS. Bootstrap shows its plan and asks before every step that changes the machine; declining stops there with nothing further changed, and re-running picks up where it left off. `--yes` answers every prompt.
+From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. On a branch other than `main`, with `--from-source`, or when the tap cannot be reached, it installs Go and builds dfinstall from the clone (`make install`) instead. `DFINSTALL_TAP_URL` clones the tap from a mirror, and Homebrew's own `HOMEBREW_ARTIFACT_DOMAIN` mirrors the download. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS. Bootstrap shows its plan and asks before every step that changes the machine; declining stops there with nothing further changed, and re-running picks up where it left off. `--yes` answers every prompt.
 
 Which Homebrew to use is discovered, not assumed. Bootstrap uses the first one this account can write to: one recorded by an earlier run, the `brew` on `PATH`, then `/opt/homebrew`, `/usr/local` and `~/homebrew`. It records the choice in `~/.config/dfinstall/brew-prefix`, which `~/.profile` and dfinstall read first, so a read-only Homebrew (an IT-owned `/opt/homebrew`, say) never shadows yours. With none usable it offers Homebrew's official installer at its default prefix, and if that cannot finish it stops with the options rather than picking a path for you. `--brew-prefix <path>` installs a separate Homebrew this account owns: at most 13 characters (as long as `/opt/homebrew`) and every prebuilt bottle works there, through the official installer; longer, like `~/homebrew`, it comes from Homebrew's release tarball and the bottles that are not relocatable (coreutils, gawk, make, bash, node, neovim, wget, openssl and a few more) compile from source on first install.
 
-On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up front and says what it found: whether the account is an admin, which Homebrew is usable, and Santa in Lockdown, which blocks the locally built `dfinstall`. Apps go to `~/Applications` when `/Applications` is not writable, casks installed by hand included (`HOMEBREW_CASK_OPTS`), `install all` creates no login items (only `install sketchybar`, `install alttab`, `install mackeys` and AeroSpace's own setting do), Rust comes from Homebrew's rustup rather than `curl | sh`, and an SSH agent that is already running is kept. Bootstrap ends by saving `dfinstall doctor` to `~/Library/Logs/`, which reports admin, Homebrew ownership, the app folder, MDM enrollment, Santa, TLS trust and Gatekeeper; run `dfinstall doctor` again any time to see the same.
+On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up front and says what it found: whether the account is an admin, which Homebrew is usable, and Santa in Lockdown, which blocks an unsigned `dfinstall`. Apps go to `~/Applications` when `/Applications` is not writable, casks installed by hand included (`HOMEBREW_CASK_OPTS`), `install all` creates no login items (only `install sketchybar`, `install alttab`, `install mackeys` and AeroSpace's own setting do), Rust comes from Homebrew's rustup rather than `curl | sh`, and an SSH agent that is already running is kept. Bootstrap ends by saving `dfinstall doctor` to `~/Library/Logs/`, which reports admin, Homebrew ownership, the app folder, MDM enrollment, Santa, TLS trust and Gatekeeper; run `dfinstall doctor` again any time to see the same.
 
 Behind a TLS-inspecting proxy, bootstrap detects the interception (hosts that fail against Apple's public roots but pass with the System keychain's certificates) and points the tools that ignore the keychain at a bundle of both: curl, git, Node, Python, cargo and Homebrew, through `~/.config/dfinstall/ca.sh`, which `~/.profile` sources. `SSL_CERT_FILE` is left alone, because it would turn off Go's keychain verification. Re-run the bootstrap with `--skip-ghostty --skip-dotfiles` after the proxy's root CA changes; `dfinstall doctor` flags a bundle that is missing a keychain certificate. The very first download can fail before any of that runs, since Apple's `curl` does not trust the keychain either; if it reports a certificate error, fetch with the keychain's certificates:
 
@@ -98,12 +101,49 @@ make install
 > [!TIP]
 > Not sure what it'll do to your machine? Run `./bin/dfinstall install all --dry-run` first. It prints every change and writes nothing.
 
+### Without cloning first
+
+Every release publishes `dfinstall` and `dfinstall-mcp` for Linux and macOS on amd64 and arm64, as archives, a Homebrew formula and a `.deb`:
+
+```bash
+# Homebrew (macOS or Linux)
+brew install sresarehumantoo/tap/dfinstall
+
+# Debian, Ubuntu
+sudo install -d /etc/apt/keyrings
+curl -fsSL https://sresarehumantoo.github.io/dotfiles/apt/dfinstall-archive-keyring.gpg | sudo tee /etc/apt/keyrings/dfinstall.gpg >/dev/null
+echo "deb [signed-by=/etc/apt/keyrings/dfinstall.gpg] https://sresarehumantoo.github.io/dotfiles/apt stable main" | sudo tee /etc/apt/sources.list.d/dfinstall.list
+sudo apt-get update && sudo apt-get install dfinstall
+# the keyring's fingerprint is 68923E9D2B5D025E4EB9FBCE48E2D3B9E6EE8E62:
+#   gpg --show-keys /etc/apt/keyrings/dfinstall.gpg
+
+# With Go: builds through GOPROXY, so a corporate Go mirror serves it
+go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall@latest
+go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall-mcp@latest
+
+# Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
+```
+
+`dfinstall --version` names the channel it came from (`release`, `brew`, `deb`, `go`, or `source` for a `make` build), which is what `update` goes by.
+
+A `dfinstall` built or installed outside a clone has no configs to link until it has a checkout. `dfinstall init` clones one to `~/.local/share/dfinstall/dotfiles` and records it as the machine's checkout; every command that links or inspects managed files says to run it when none is found.
+
+```bash
+dfinstall init                          # clone this repo's default branch
+dfinstall init --repo <url> --ref <ref> # another remote, branch or tag
+dfinstall init --dir ~/dotfiles         # another location, or adopt a checkout already there
+dfinstall install all
+```
+
+`init` is a no-op once a checkout is recorded. The default branch is the default ref because `update` fast-forwards a branch, and a tag checkout has none.
+
 ## Usage
 
 **Installing and updating**
 
 | Command | What it does |
 |---------|--------------|
+| `dfinstall init` | Clone the dotfiles checkout, for a binary installed without the repo |
 | `dfinstall install all` | Install every module (except opt-in ones) |
 | `dfinstall install shell` | Install a single module |
 | `dfinstall update all` | Pull the clone, then install and update what dfinstall installed earlier (`install all --upgrade`) |
@@ -163,7 +203,15 @@ Output falls back to ASCII symbols and drops the spinner on terminals that canno
 
 `install` adds what is missing and leaves what is already there. `update`, or `install --upgrade`, also brings everything dfinstall owns up to date:
 
-1. **The clone.** It fetches, then fast-forwards to the upstream branch. If the pull changed dfinstall's own source, it rebuilds the binary and re-runs it.
+1. **The clone and dfinstall itself.** The clone is fetched and fast-forwarded to its upstream branch. What happens to the binary depends on how it was installed:
+
+   | Installed by | `update` |
+   |---|---|
+   | `make` in a clone | rebuilds it when the pull changed dfinstall's source, then re-runs it |
+   | a release archive | downloads the newer release for this platform, checks its sha256 against the release listing, swaps `dfinstall` (and `dfinstall-mcp` if it is installed beside it) in place, then re-runs it |
+   | Homebrew, a `.deb`, `go install` | leaves the binary alone and prints the command that updates it |
+
+   Release downloads go through a Nexus GitHub mirror when npm points at one, falling back to GitHub.
 2. **Release binaries in `~/.local`** (nvim, tree-sitter, delta, terraform) are replaced when a newer release exists.
 3. **Cloned plugins** (oh-my-zsh, powerlevel10k, zsh-autosuggestions, TPM and the tmux plugins) are fast-forwarded.
 4. Then the normal install runs, asking for sudo only if something is missing.
@@ -206,7 +254,7 @@ It adds nothing to startup, runs at most every ten minutes, prints each finding 
 
 ## Backup & Restore
 
-On the **first** `install` run — when no `.config.yaml` exists yet — dfinstall automatically snapshots everything it's about to touch. After a successful run it writes `.config.yaml` with `skip_backup: true`, so later runs don't snapshot by default.
+On the **first** `install` run — when no `config.yaml` exists yet — dfinstall automatically snapshots everything it's about to touch. After a successful run it writes `config.yaml` with `skip_backup: true`, so later runs don't snapshot by default.
 
 > [!IMPORTANT]
 > A **failed** first run stays a first run. If any module errors, the config isn't written, so the automatic backup is still armed next time. `--dry-run` never consumes the first run either.
@@ -214,8 +262,8 @@ On the **first** `install` run — when no `.config.yaml` exists yet — dfinsta
 Override the default behavior with any of:
 
 - **`--backup`** — always snapshot, whatever the config says
-- **`skip_backup: false`** in `.config.yaml` — snapshot on every install
-- **`backup_dir`** in `.config.yaml` — custom location (default `~/.local/share/dfinstall/backups/`)
+- **`skip_backup: false`** in `config.yaml` — snapshot on every install
+- **`backup_dir`** in `config.yaml` — custom location (default `~/.local/share/dfinstall/backups/`)
 
 ```bash
 dfinstall install all --backup    # force a snapshot
@@ -230,7 +278,7 @@ Each entry records the original state — missing, symlink, or regular file — 
 
 ## Configuration
 
-Config lives at `<dotfiles>/.config.yaml`, generated on first run. [`.config.yaml.example`](.config.yaml.example) documents every key — it's a reference, not a template that gets copied.
+Config lives at `~/.config/dfinstall/config.yaml` (under `$XDG_CONFIG_HOME` when set), generated on first run. Releases before 2.0 kept it in the clone as `.config.yaml`; that file is read until the new one exists and is then left alone, so delete it once nothing older uses the clone. [`.config.yaml.example`](.config.yaml.example) documents every key — it's a reference, not a template that gets copied.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
@@ -279,7 +327,7 @@ Modules run in this order — dependencies first:
 | 26 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
-> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's **windev** and **opencode**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
+> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's **windev** and **opencode**. Once enabled the choice persists in `config.yaml`, and future `install all` runs keep it current.
 
 ## MCP Server
 
@@ -318,9 +366,9 @@ Without Make — note both `-X` flags:
 
 ```bash
 go build -ldflags "\
-  -X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(pwd) \
-  -X github.com/sresarehumantoo/dotfiles/src/core.Version=$(git describe --tags --always --dirty)" \
-  -o bin/dfinstall ./src/cmd/dfinstall
+  -X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=$(pwd) \
+  -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version=$(git describe --tags --always --dirty)" \
+  -o bin/dfinstall ./cmd/dfinstall
 ```
 
 `DefaultDotfilesDir` bakes in where the configs live; `Version` is what `dfinstall --version` reports (omit it and you get `dev`).
@@ -346,16 +394,17 @@ config/                  # Config files symlinked into ~
   git/ nvim/ tmux/       #   tool configs
   ghostty/ htop/ wsl/    #   more tool configs
   konsole/ fonts/        #   terminal + font configs
-src/
-  cmd/dfinstall/         # CLI entry point (Cobra)
-  cmd/mcp/               # MCP server (stdio JSON-RPC)
+cmd/
+  dfinstall/             # CLI entry point (Cobra)
+  dfinstall-mcp/         # MCP server (stdio JSON-RPC)
+internal/
   core/                  # Module interface + LinkSet, linking, backup/restore,
                          #   output, spinner, env detection, install session,
                          #   canonical dir + drift, subprocess timeouts,
                          #   toolkit registry, version stamp
   modules/               # One file per module, plus shared machinery
 tests/                   # Black-box tests (package tests)
-                         #   in-package tests live beside the code in src/
+                         #   in-package tests live beside the code in internal/
 docs/                    # In-depth documentation
 ```
 
@@ -372,7 +421,7 @@ Run `make` (or `make help`) to list everything.
 make build          # compile the CLI to bin/dfinstall
 make build-mcp      # compile the MCP server to bin/dfinstall-mcp
 make build-all      # compile both binaries
-make test           # go test ./src/... ./tests/...
+make test           # go test ./cmd/... ./internal/... ./tests/...
 make test-race      # run the suite under the race detector
 make lint           # go vet
 make fmt            # gofmt -s -w (in place)
