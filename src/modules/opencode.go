@@ -320,7 +320,9 @@ func installOpencodeRelease(ctx context.Context, target, dst string) error {
 // no install script runs at all.
 func installOpencodeNpm(ctx context.Context, target, dst string) error {
 	pkg := "opencode-" + target
-	out, err := runNetProbe(ctx, "npm", "view", pkg, "version")
+	// One retry, not npm's default backoff: a registry that is down here
+	// should hand over to the GitHub release in seconds, not over a minute.
+	out, err := runNetProbe(ctx, "npm", "view", "--fetch-retries=1", pkg, "version")
 	if err != nil {
 		return err
 	}
