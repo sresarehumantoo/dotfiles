@@ -114,6 +114,8 @@ sudo install -d /etc/apt/keyrings
 curl -fsSL https://sresarehumantoo.github.io/dotfiles/apt/dfinstall-archive-keyring.gpg | sudo tee /etc/apt/keyrings/dfinstall.gpg >/dev/null
 echo "deb [signed-by=/etc/apt/keyrings/dfinstall.gpg] https://sresarehumantoo.github.io/dotfiles/apt stable main" | sudo tee /etc/apt/sources.list.d/dfinstall.list
 sudo apt-get update && sudo apt-get install dfinstall
+# the keyring's fingerprint is 68923E9D2B5D025E4EB9FBCE48E2D3B9E6EE8E62:
+#   gpg --show-keys /etc/apt/keyrings/dfinstall.gpg
 
 # Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
 ```

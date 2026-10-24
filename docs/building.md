@@ -87,7 +87,7 @@ One-time setup the workflow needs, without which steps 2 and 3 skip with a notic
 |---|---|
 | `sresarehumantoo/homebrew-tap` repository | GitHub |
 | `HOMEBREW_TAP_DEPLOY_KEY`: private half of an SSH key whose public half is a write deploy key on the tap only | repo Actions secret |
-| `APT_SIGNING_KEY`: ASCII-armored private key of a dedicated, passphrase-less signing subkey | repo Actions secret |
+| `APT_SIGNING_KEY`: ASCII-armored private key of the passphrase-less ed25519 signing key `68923E9D2B5D025E4EB9FBCE48E2D3B9E6EE8E62` (no expiry: an expired key makes apt reject the repository) | repo Actions secret; backup in Vault at `homelab/dotfiles-release/apt-signing-key`, through the `dotfiles-release` scope |
 | GitHub Pages from the `gh-pages` branch | repo settings |
 
 To try a release locally: `goreleaser release --snapshot --clean` writes everything to `dist/` without publishing. The snapshot version comes from the newest tag reachable from `HEAD`.
