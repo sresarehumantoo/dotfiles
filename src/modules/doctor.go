@@ -154,6 +154,8 @@ func RunDoctorChecks() []DoctorResult {
 		results = append(results, DoctorResult{Name: "dotfiles clones", OK: true, Detail: "single source"})
 	}
 
+	results = append(results, mirrorsDoctorResult())
+
 	// Is the canonical clone itself current? Nothing else here can answer it.
 	if r := cloneFreshness(core.DotfilesDir()); r != nil {
 		results = append(results, *r)
