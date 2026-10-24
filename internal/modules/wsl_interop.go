@@ -432,7 +432,7 @@ func wslConfState() string {
 // wslconfigReport is how the installed .wslconfig compares to what this repo
 // declares.
 type wslconfigReport struct {
-	State string   // "ok", "outdated", "missing", "unknown"
+	State string   // "ok", "outdated", "missing", "foreign", "unknown"
 	Why   string   // why the comparison could not be made, when State == "unknown"
 	Drift []string // one line per key that differs, when State == "outdated"
 }
@@ -470,10 +470,24 @@ func wslconfigState() wslconfigReport {
 	if err != nil {
 		return wslconfigReport{State: "missing"}
 	}
+	if !ownedWslconfig(got) {
+		return wslconfigReport{State: "foreign", Drift: wslconfigDrift(string(tmpl), string(got))}
+	}
 	if drift := wslconfigDrift(string(tmpl), string(got)); len(drift) > 0 {
 		return wslconfigReport{State: "outdated", Drift: drift}
 	}
 	return wslconfigReport{State: "ok"}
+}
+
+// wslconfigMarker is in the header of every .wslconfig dfinstall renders. A
+// file without it was written by something else, such as a provisioning tool
+// that owns the VM's sizing, and installWslconfig leaves it alone rather than
+// replacing it. (So does one written by v1.0.0, before the header existed; the
+// doctor row says how to hand it back.)
+const wslconfigMarker = "by `dfinstall install wsl`"
+
+func ownedWslconfig(content []byte) bool {
+	return bytes.Contains(content, []byte(wslconfigMarker))
 }
 
 // wslconfigDrift returns one line per key the template declares that the

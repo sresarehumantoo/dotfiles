@@ -372,7 +372,9 @@ The second row is the WSL exception and is covered in `docs/modules.md`. Note
 that none of those three copies goes through the backup manifest: `BackupFile`
 is called only from `core.LinkFile`, so `dfinstall restore` cannot roll a copied
 file back. `wsl.conf` and `.wslconfig` leave a `.bak` sibling; the sysctl
-drop-in leaves nothing.
+drop-in leaves nothing. A `.wslconfig` dfinstall did not write is not replaced
+at all (see `docs/modules.md`). A `.wslconfig` dfinstall did not write is not replaced
+at all (see `docs/modules.md`).
 
 ## File Hashing
 

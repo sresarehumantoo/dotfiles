@@ -193,6 +193,14 @@ func renderWslconfigResult(rep wslconfigReport) DoctorResult {
 		return DoctorResult{Name: name, OK: false,
 			Detail: fmt.Sprintf("%d key(s) differ from what this repo declares", len(rep.Drift)),
 			Extra:  extra}
+	case "foreign":
+		detail := "not written by dfinstall, so it is left alone; it matches this repo"
+		if len(rep.Drift) > 0 {
+			detail = fmt.Sprintf("not written by dfinstall, so it is left alone; %d key(s) differ from this repo", len(rep.Drift))
+		}
+		extra := append(append([]string{}, rep.Drift...),
+			"to have dfinstall manage it, move it aside and run 'dfinstall install wsl'")
+		return DoctorResult{Name: name, OK: true, Detail: detail, Extra: extra}
 	default:
 		return DoctorResult{Name: name, OK: false, Detail: rep.Why}
 	}
