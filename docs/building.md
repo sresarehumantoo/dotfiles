@@ -309,9 +309,23 @@ scripts/corplab/compose.yaml down -v` removes it with Nexus's cache).
 - **`fresh`** runs `bootstrap/macos-setup.sh --from-source` and `dfinstall install all` as a new account would: `HOME`, every `XDG_*` and `TMPDIR` under `/tmp/dfinstall-macos-harness-<time>/`, and a Homebrew that installs nothing. Each formula and cask it is asked for is looked up in the real Homebrew, read-only, so a misspelled name fails as it would for real, and the list is in the report.
 - **`upgrade`** runs this checkout's dfinstall against the real setup with read-only commands only (`status`, `doctor`, `diff`, `install all --dry-run`), plus the bootstrap's preflight and TLS-inspection probe, sourced.
 - **Shims** stand in for every command that acts on the whole machine or the login session whatever `HOME` says: `defaults` writes, `launchctl`, `hidutil`, `chsh`, `sudo`, `activateSettings`, `osascript`, `ditto` and more. They record each call, and reads go through to the real tool, except a sandboxed app's preferences: reading another app's container needs Full Disk Access and can raise a privacy prompt, so the shim refuses and records it. ⚠ A shim only works for a command run by name, and only ahead of the Homebrew `bin` that dfinstall puts first on `PATH`; anything new run by absolute path (as `activateSettings` was) needs a PATH lookup first.
-- **The guarantee**: the real state dfinstall manages is snapshotted before and after (dotfile links, `~/.config/dfinstall`, the dotfiles clone, the `defaults` domains it writes, key remapping, launch agents, login shell, Homebrew's package list). Any difference fails the run. CI runs it on GitHub's macOS runner, a real Mac with Homebrew in `/opt/homebrew`.
+- **The guarantee**: the real state dfinstall manages is snapshotted before and after (dotfile links, `~/.config/dfinstall`, the dotfiles clone, the `defaults` domains it writes, key remapping, launch agents, login shell, Homebrew's package list). Any difference fails the run.
 
 Not covered, because it cannot be sandboxed: real package installs, apps in `/Applications`, and the effect of `defaults`/`hidutil`/`launchctl` calls (the report lists which would have been made). `--interactive` keeps the terminal so prompts can be answered; review `report.md` before sharing it.
+
+### macOS CI
+
+GitHub's macOS runners are throwaway Macs with passwordless sudo, so `.github/workflows/macos.yml` does for real what the harness can only record:
+
+| Job | Runner | What it proves |
+|---|---|---|
+| Install harness | Apple Silicon, Intel | the harness itself leaves a real Mac unchanged, and (`--strict`) every formula and cask dfinstall asks for exists |
+| Homebrew formula | Apple Silicon, Intel | the snapshot release installs with the real Homebrew from a tap, reports the `brew` channel, passes `brew test`/`audit --strict`/`style`, and `update` defers to `brew upgrade` |
+| Fresh install as a standard account | Apple Silicon | `scripts/macos-ci/fresh-user.sh`: a new non-admin user (the managed work Mac's shape) bootstraps from nothing with a Homebrew of its own, casks land in `~/Applications`, a second install changes nothing, uninstall removes every link |
+| macOS-only modules | Apple Silicon | `scripts/macos-ci/mac-modules.sh`: mackeys, alttab, sketchybar and aerospace installed and removed for real, checking the defaults keys, launch agents, Homebrew service and links each leaves behind |
+| TLS inspection | Apple Silicon | `scripts/macos-ci/tls-inspection.sh`: mitmproxy's CA trusted in the System keychain as MDM would install a proxy root; the bootstrap detects the inspection and wires curl, git, Node, pip and Homebrew, and Go verifies from the keychain alone |
+
+None of them can stand in for MDM, Santa, a corporate Nexus, or a particular Mac's existing setup: that is the harness's `upgrade` scenario, run on the Mac itself.
 
 ## Continuous Integration
 
