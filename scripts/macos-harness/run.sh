@@ -2,7 +2,7 @@
 # Exercise the macOS bootstrap and dfinstall on a Mac that is already set up and
 # in daily use, without changing it.
 #
-# Usage: scripts/macos-harness/run.sh [fresh|upgrade|all] [--interactive] [--keep]
+# Usage: scripts/macos-harness/run.sh [fresh|upgrade|all] [--interactive] [--keep] [--strict]
 #
 #   fresh    The bootstrap and `dfinstall install all` as a brand-new account
 #            would run them: HOME, XDG and TMPDIR under /tmp, a Homebrew that
@@ -21,6 +21,8 @@
 #   --interactive  Leave the terminal attached, so prompts can be answered.
 #                  Without it the run has no terminal, as in CI.
 #   --keep         Keep the sandbox (it is deleted otherwise; the report is not).
+#   --strict       Also fail when a formula or cask does not exist, or when the
+#                  real Homebrew could not be asked (CI).
 #
 # Before and after, the real state dfinstall manages is snapshotted (dotfile
 # links, ~/.config/dfinstall, the dotfiles clone, the defaults domains it
@@ -29,14 +31,15 @@
 # /tmp/dfinstall-macos-harness-<time>/; review it before sharing it.
 set -euo pipefail
 
-usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
 
-scenario=all interactive=false keep=false
+scenario=all interactive=false keep=false strict=false
 while [[ $# -gt 0 ]]; do
     case "$1" in
         fresh | upgrade | all) scenario="$1" ;;
         --interactive) interactive=true ;;
         --keep) keep=true ;;
+        --strict) strict=true ;;
         -h | --help) usage; exit 0 ;;
         *) usage >&2; exit 2 ;;
     esac
@@ -187,9 +190,14 @@ fi
 
 # --- real-state snapshot -------------------------------------------------
 
-# The defaults domains dfinstall writes, read from its own source.
+# The defaults domains dfinstall writes, read from its own source: those named
+# in a write or delete, and the system ones its settings tables list.
 defaults_domains() {
-    { echo NSGlobalDomain; grep -rhoE '"(write|delete)", "[A-Za-z0-9.-]+"' "$repo/internal" | sed -E 's/.*", "//; s/"$//'; } | sort -u
+    {
+        echo NSGlobalDomain
+        grep -rhoE '"(write|delete)", "[A-Za-z0-9.-]+"' "$repo/internal" | sed -E 's/.*", "//; s/"$//'
+        grep -rhoE '\{"com\.apple\.[A-Za-z0-9.]+", "' "$repo/internal" | sed -E 's/^\{"//; s/", "$//'
+    } | sort -u
 }
 
 # Every probe here is informational: one that fails (no launch agents of
@@ -426,6 +434,18 @@ else
     printf 'CHANGED during the run (by the harness, or by you or the system meanwhile):\n\n' >>"$report"
     fence <"$out/real-changes.diff"
     verdict=1
+fi
+
+if [[ "$strict" == true && "$scenario" != upgrade ]]; then
+    if [[ "$(cat "$out/brew-verify")" != yes ]]; then
+        echo "macos-harness: --strict: the real Homebrew could not be asked, so no formula name was checked" >&2
+        verdict=1
+    fi
+    if grep -q 'NO SUCH' "$out/brew-requests.log" 2>/dev/null; then
+        echo "macos-harness: --strict: dfinstall asked Homebrew for something that does not exist:" >&2
+        grep 'NO SUCH' "$out/brew-requests.log" | sort -u >&2
+        verdict=1
+    fi
 fi
 
 echo
