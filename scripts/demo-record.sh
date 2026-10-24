@@ -63,10 +63,10 @@ cleanup() { rm -rf "$clone" "$driver" "$cast"; }
 trap cleanup EXIT
 
 asciinema rec --overwrite \
-  --cols 92 --rows 48 \
+  --cols 92 --rows 51 \
   -c "bash $driver" \
   "$cast"
 
-agg --cols 92 --rows 48 --font-size 16 --theme dracula "$cast" "$out"
+agg --cols 92 --rows 51 --font-size 16 --theme dracula "$cast" "$out"
 echo "wrote $out"
 rm -f "$cast" "$driver"
