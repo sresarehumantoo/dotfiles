@@ -12,6 +12,19 @@ type VMGuestModule struct{}
 
 func (VMGuestModule) Name() string { return "vmguest" }
 
+func (VMGuestModule) Unsupported() string {
+	switch {
+	case core.IsMac():
+		return linuxOnly()
+	case core.IsWSL():
+		return "not on WSL"
+	// No context to inherit, as Status has none; DetectVirt bounds itself.
+	case !core.IsHardwareVirt(core.DetectVirt(context.Background())):
+		return "not a VM guest"
+	}
+	return ""
+}
+
 // guestPackages maps a hypervisor type to the canonical guest tool packages
 // to install. Names are Debian-canonical; installPkg translates for pacman.
 // dnf and brew use the same names.

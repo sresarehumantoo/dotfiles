@@ -21,6 +21,8 @@ type MackeysModule struct{}
 
 func (MackeysModule) Name() string { return "mackeys" }
 
+func (MackeysModule) Unsupported() string { return macOnly() }
+
 func (MackeysModule) Links() core.LinkSet {
 	if !core.IsMac() {
 		return nil

@@ -20,6 +20,8 @@ type SketchybarModule struct{}
 
 func (SketchybarModule) Name() string { return "sketchybar" }
 
+func (SketchybarModule) Unsupported() string { return macOnly() }
+
 func (SketchybarModule) Links() core.LinkSet {
 	if !core.IsMac() {
 		return nil

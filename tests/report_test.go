@@ -12,10 +12,11 @@ import (
 )
 
 func TestFormatStatusLine_ExactColumns(t *testing.T) {
-	got := modules.FormatStatusLine(core.ModuleStatus{
-		Name: "shell", Linked: 11, Missing: 0, Extra: "+2 preserved",
+	got := modules.FormatStatusLine(modules.StatusRow{
+		ModuleStatus: core.ModuleStatus{Name: "shell", Linked: 11, Extra: "+2 preserved"},
+		State:        modules.StateInstalled,
 	})
-	want := "shell                 11        0  +2 preserved"
+	want := "shell            11/11  +2 preserved"
 	if got != want {
 		t.Errorf("FormatStatusLine =\n%q\nwant\n%q", got, want)
 	}
@@ -31,13 +32,16 @@ func TestWriteStatusUsesFormatStatusLine(t *testing.T) {
 	modules.WriteStatus(&b)
 	out := b.String()
 
-	if !strings.HasPrefix(out, "MODULE") {
-		t.Fatalf("missing header:\n%s", out)
+	if !strings.HasPrefix(out, "Modules on ") {
+		t.Fatalf("missing summary line:\n%s", out)
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Errorf("a non-terminal writer got ANSI escapes:\n%q", out)
 	}
 	for _, row := range modules.StatusRows() {
 		line := modules.FormatStatusLine(row)
 		if !strings.Contains(out, line) {
-			t.Errorf("rendered table is missing the FormatStatusLine output for %q:\n%q", row.Name, line)
+			t.Errorf("rendered report is missing the FormatStatusLine output for %q:\n%q", row.Name, line)
 		}
 	}
 }
@@ -51,7 +55,7 @@ func TestStatusRows_CoversEveryModule(t *testing.T) {
 	}
 }
 
-func TestStatusRows_AnnotatesSkipped(t *testing.T) {
+func TestStatusRows_MarksSkipped(t *testing.T) {
 	modules.RegisterAllModules()
 
 	orig := core.Cfg.SkipModules
@@ -59,8 +63,8 @@ func TestStatusRows_AnnotatesSkipped(t *testing.T) {
 	core.Cfg.SkipModules = []string{"fonts"}
 
 	for _, r := range modules.StatusRows() {
-		if r.Name == "fonts" && !strings.Contains(r.Extra, "skipped") {
-			t.Errorf("fonts row not annotated as skipped: %+v", r)
+		if r.Name == "fonts" && r.State != modules.StateSkipped {
+			t.Errorf("fonts row not marked skipped: %+v", r)
 		}
 	}
 }

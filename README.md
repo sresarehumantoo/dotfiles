@@ -113,7 +113,7 @@ make install
 
 | Command | What it does |
 |---------|--------------|
-| `dfinstall status` | Link status for every module |
+| `dfinstall status` | Every module grouped as installed, partial, not installed, skipped, or not available on this platform |
 | `dfinstall diff` | Drift between config and filesystem, including managed keys in `~/.claude/settings.json` |
 | `dfinstall diff --brief` | Only what changed since install, one line each; silent when clean |
 | `dfinstall doctor` | Environment health checks, plus whether the clone itself is clean, pushed and level with its upstream |

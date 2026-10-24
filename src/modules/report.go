@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/fatih/color"
 	"github.com/sresarehumantoo/dotfiles/src/core"
+	"golang.org/x/term"
 )
 
 // Status and diff reporting, shared by the CLI and the MCP server.
@@ -19,39 +21,168 @@ import (
 // collection lives here and the callers only choose a writer and the wording
 // of the remediation hint.
 
-// StatusRows returns one row per module, with the "skipped" annotation applied.
-func StatusRows() []core.ModuleStatus {
+// StatusState is where a module stands on this machine.
+type StatusState int
+
+const (
+	StateInstalled StatusState = iota
+	StatePartial
+	StateNotInstalled
+	StateSkipped
+	StateUnavailable
+)
+
+// statusGroups is the order WriteStatus renders the states in.
+var statusGroups = []struct {
+	state  StatusState
+	title  string
+	symbol string
+	color  *color.Color
+}{
+	{StateInstalled, "Installed", "✓", color.New(color.FgGreen, color.Bold)},
+	{StatePartial, "Partially installed", "!", color.New(color.FgYellow, color.Bold)},
+	{StateNotInstalled, "Not installed", "✗", color.New(color.FgRed, color.Bold)},
+	{StateSkipped, "Skipped", "-", color.New(color.FgCyan)},
+	{StateUnavailable, "Not available here", "·", color.New(color.Faint)},
+}
+
+// StatusRow is one module's status with its state decided.
+type StatusRow struct {
+	core.ModuleStatus
+	State StatusState
+	// Reason says why a module is skipped or unavailable.
+	Reason string
+}
+
+// platformGated is a module that only applies on some platforms. Unsupported
+// returns "" where it applies, and otherwise says where it does ("macOS only").
+type platformGated interface {
+	Unsupported() string
+}
+
+func macOnly() string {
+	if core.IsMac() {
+		return ""
+	}
+	return "macOS only"
+}
+
+func linuxOnly() string {
+	if core.IsMac() {
+		return "Linux only"
+	}
+	return ""
+}
+
+// StatusRows returns one row per module, in install order.
+func StatusRows() []StatusRow {
 	all := core.AllModules()
-	rows := make([]core.ModuleStatus, 0, len(all))
+	rows := make([]StatusRow, 0, len(all))
 	for _, m := range all {
-		s := m.Status()
-		if core.IsModuleSkipped(m.Name()) {
-			if s.Extra != "" {
-				s.Extra += ", skipped"
-			} else {
-				s.Extra = "skipped"
-			}
-		}
-		rows = append(rows, s)
+		rows = append(rows, statusRow(m))
 	}
 	return rows
 }
 
-// FormatStatusLine formats a single module status line.
-func FormatStatusLine(s core.ModuleStatus) string {
-	return fmt.Sprintf("%-15s  %7d  %7d  %s", s.Name, s.Linked, s.Missing, s.Extra)
+func statusRow(m core.Module) StatusRow {
+	// Unavailable is decided before Status runs: a module for another
+	// platform has nothing to report, and some probe tools that are absent.
+	if pg, ok := m.(platformGated); ok {
+		if why := pg.Unsupported(); why != "" {
+			return StatusRow{ModuleStatus: core.ModuleStatus{Name: m.Name()}, State: StateUnavailable, Reason: why}
+		}
+	}
+	if a, ok := m.(appModule); ok && !a.AppInstalled() {
+		return StatusRow{ModuleStatus: core.ModuleStatus{Name: m.Name()}, State: StateUnavailable, Reason: m.Name() + " not found"}
+	}
+
+	r := StatusRow{ModuleStatus: m.Status()}
+	switch {
+	case core.IsModuleSkipped(m.Name()):
+		r.State, r.Reason = StateSkipped, "skip_modules"
+	case core.SkipInAll(m.Name()):
+		r.State, r.Reason = StateSkipped, "opt-in: dfinstall install "+m.Name()
+	case r.Missing == 0 && r.Linked > 0:
+		r.State = StateInstalled
+	case r.Missing > 0 && r.Linked > 0:
+		r.State = StatePartial
+	default:
+		r.State = StateNotInstalled
+	}
+	return r
 }
 
-// WriteStatus renders the status table.
+// FormatStatusLine formats a single module status line, without the symbol.
+func FormatStatusLine(r StatusRow) string {
+	var count string
+	if r.State != StateUnavailable && r.Linked+r.Missing > 0 {
+		count = fmt.Sprintf("%d/%d", r.Linked, r.Linked+r.Missing)
+	}
+	// A skipped module's own note restates why it was skipped ("disabled").
+	info := r.Extra
+	switch {
+	case r.State == StateSkipped:
+		info = r.Reason
+	case r.Reason != "" && info != "":
+		info = r.Reason + ", " + info
+	case r.Reason != "":
+		info = r.Reason
+	}
+	return strings.TrimRight(fmt.Sprintf("%-14s %7s  %s", r.Name, count, info), " ")
+}
+
+// WriteStatus renders the status report, grouped by state. It colors the
+// output only when w is a terminal color is enabled for.
 func WriteStatus(w io.Writer) {
-	fmt.Fprintf(w, "%-15s  %7s  %7s  %s\n", "MODULE", "LINKED", "MISSING", "INFO")
-	fmt.Fprintf(w, "%-15s  %7s  %7s  %s\n", "------", "------", "-------", "----")
-	for _, s := range StatusRows() {
-		fmt.Fprintln(w, FormatStatusLine(s))
+	paint := func(c *color.Color, s string) string { return s }
+	if f, ok := w.(*os.File); ok && !color.NoColor && term.IsTerminal(int(f.Fd())) {
+		paint = func(c *color.Color, s string) string { return c.Sprint(s) }
+	}
+	bold := color.New(color.Bold)
+
+	rows := StatusRows()
+	counts := map[StatusState]int{}
+	for _, r := range rows {
+		counts[r.State]++
+	}
+
+	var summary []string
+	for _, g := range statusGroups {
+		if n := counts[g.state]; n > 0 {
+			summary = append(summary, paint(g.color, fmt.Sprintf("%d %s", n, strings.ToLower(g.title))))
+		}
+	}
+	fmt.Fprintf(w, "%s  %s\n", paint(bold, "Modules on "+platformName()), strings.Join(summary, ", "))
+
+	for _, g := range statusGroups {
+		if counts[g.state] == 0 {
+			continue
+		}
+		fmt.Fprintf(w, "\n%s\n", paint(bold, fmt.Sprintf("%s (%d)", g.title, counts[g.state])))
+		for _, r := range rows {
+			if r.State != g.state {
+				continue
+			}
+			line := FormatStatusLine(r)
+			if g.state == StateUnavailable {
+				line = paint(g.color, line)
+			}
+			fmt.Fprintf(w, "  %s %s\n", paint(g.color, g.symbol), line)
+		}
 	}
 }
 
-// PrintStatus prints the status table to stdout.
+func platformName() string {
+	switch {
+	case core.IsMac():
+		return "macOS"
+	case core.IsWSL():
+		return "WSL"
+	}
+	return "Linux"
+}
+
+// PrintStatus prints the status report to stdout.
 func PrintStatus() { WriteStatus(os.Stdout) }
 
 // DiffProblem is one managed path that isn't in the state we expect.

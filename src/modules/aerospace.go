@@ -15,6 +15,8 @@ type AerospaceModule struct{}
 
 func (AerospaceModule) Name() string { return "aerospace" }
 
+func (AerospaceModule) Unsupported() string { return macOnly() }
+
 func (AerospaceModule) Links() core.LinkSet {
 	if !core.IsMac() {
 		return nil

@@ -43,13 +43,12 @@ Presence is checked by probing for each package's **binary on `PATH`**, not by
 asking dpkg. A package query is per-distro and says nothing about a compositor
 built from source or installed to `/opt` — which is this machine's own case
 (`/opt/sway-next/bin`). What the configs require is that the command is
-callable, so that is what gets tested. `dfinstall status` reports any gap in its
-INFO column:
-
+callable, so that is what gets tested. `dfinstall status` reports any gap after
+the module's link count:
 
 ```
-MODULE            LINKED  MISSING  INFO
-sway                   9        0  1 package(s) missing: pavucontrol
+Installed (18)
+  ✓ sway             21/21  1 package(s) missing: pavucontrol
 ```
 
 > [!NOTE]
