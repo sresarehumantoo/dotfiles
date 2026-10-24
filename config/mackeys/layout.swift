@@ -1,5 +1,6 @@
 // mackeys-layout: switches the built-in keyboard between two modifier layouts
-// as the frontmost app changes. Web pages and Mac Office bind their shortcuts
+// as the frontmost app changes, by setting or clearing a Control/Command swap
+// (a UserKeyMapping) on top of the standard mackeys layout. Web pages and Mac Office bind their shortcuts
 // to Command, so in browsers, Electron apps and Office the Ctrl key sends
 // Command and the Win key sends Control; everywhere else the standard mackeys
 // layout applies.

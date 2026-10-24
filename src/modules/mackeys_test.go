@@ -257,27 +257,24 @@ func TestGlobeUsages(t *testing.T) {
 	}
 }
 
-// The login helper only checks which sources are mapped, so it must accept
-// either layout; otherwise it would put the standard one back in a browser.
-func TestCommandLayoutKeepsSources(t *testing.T) {
-	sources := func(swaps [][2]int64) map[int64]bool {
-		m := map[int64]bool{}
-		for _, s := range swaps {
-			m[s[0]] = true
-		}
-		return m
+// The command layout is applied on top of the standard one, so it must swap
+// only the Control and Command the standard layout produces; anything more
+// would remap keys in browsers that the standard layout already placed.
+func TestCommandLayoutSwapsCtrlAndCmd(t *testing.T) {
+	var m struct{ UserKeyMapping []map[string]int64 }
+	if err := json.Unmarshal([]byte(commandLayoutJSON()), &m); err != nil {
+		t.Fatal(err)
 	}
-	std, cmd := sources(modifierSwaps), sources(commandLayoutSwaps)
-	if len(std) != len(modifierSwaps) || len(cmd) != len(std) {
-		t.Fatalf("source sets differ in size: %d, %d", len(std), len(cmd))
+	got := map[int64]int64{}
+	for _, p := range m.UserKeyMapping {
+		got[p["HIDKeyboardModifierMappingSrc"]] = p["HIDKeyboardModifierMappingDst"]
 	}
-	for s := range std {
-		if !cmd[s] {
-			t.Errorf("source %#x missing from the command layout", s)
-		}
+	if len(got) != 2 || got[hidLeftCtrl] != hidLeftCmd || got[hidLeftCmd] != hidLeftCtrl {
+		t.Errorf("command layout maps %v, want only LeftCtrl<->LeftCmd", got)
 	}
-	if !modifierSwapLive(pairsJSON(commandLayoutSwaps)) {
-		t.Error("the command layout does not read as a live swap")
+	var std struct{ UserKeyMapping []any }
+	if err := json.Unmarshal([]byte(standardLayoutJSON), &std); err != nil || std.UserKeyMapping == nil || len(std.UserKeyMapping) != 0 {
+		t.Errorf("standard layout %q does not clear UserKeyMapping", standardLayoutJSON)
 	}
 }
 
@@ -330,12 +327,8 @@ func TestLayoutConfig(t *testing.T) {
 	if err := json.Unmarshal(layoutConfig(commandLayoutApps), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.Match != builtinKeyboardMatch || c.Standard != modifierPairsJSON() || c.Command != pairsJSON(commandLayoutSwaps) || len(c.Apps) != len(commandLayoutApps) {
+	if c.Match != builtinKeyboardMatch || c.Standard != standardLayoutJSON || c.Command != commandLayoutJSON() || len(c.Apps) != len(commandLayoutApps) {
 		t.Errorf("layout config = %+v", c)
-	}
-	var pairs struct{ HIDKeyboardModifierMappingPairs []map[string]int64 }
-	if err := json.Unmarshal([]byte(c.Command), &pairs); err != nil || len(pairs.HIDKeyboardModifierMappingPairs) != len(commandLayoutSwaps) {
-		t.Errorf("command layout is not hidutil JSON: %v %s", err, c.Command)
 	}
 }
 

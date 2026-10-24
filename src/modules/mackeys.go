@@ -51,14 +51,14 @@ var modifierSwaps = [][2]int64{
 	{hidRightOpt, hidRightCmd}, {hidRightCmd, hidRightOpt},
 }
 
-// The command layout, for commandLayoutApps: the Ctrl-position key sends
-// Command and the Win-position key sends Control. The sources match
-// modifierSwaps, so liveSwapMarkers holds for either layout.
-var commandLayoutSwaps = [][2]int64{
-	{hidGlobe, hidLeftCmd}, {hidGlobeVendor, hidLeftCmd}, {hidLeftCtrl, hidGlobe},
-	{hidLeftOpt, hidLeftCtrl}, {hidLeftCmd, hidLeftOpt},
-	{hidRightOpt, hidRightCmd}, {hidRightCmd, hidRightOpt},
-}
+// The command layout, for commandLayoutApps, swaps the Control and Command
+// the standard layout produces, so the Ctrl-position key sends Command and the
+// Win-position key sends Control. It is a UserKeyMapping, which the keyboard
+// filter applies after the modifier mapping, so it sits on top of the standard
+// layout rather than replacing it: on macOS 26 a live
+// HIDKeyboardModifierMappingPairs write never took effect, and UserKeyMapping
+// did.
+var commandLayoutSwaps = [][2]int64{{hidLeftCtrl, hidLeftCmd}, {hidLeftCmd, hidLeftCtrl}}
 
 // liveSwapMarkers are the sources whose presence in the live mapping means the
 // swap is applied. The vendor Globe is listed so a mapping set before it was
@@ -304,7 +304,7 @@ func layoutConfig(apps []string) []byte {
 		Standard string   `json:"standard"`
 		Command  string   `json:"command"`
 		Apps     []string `json:"apps"`
-	}{builtinKeyboardMatch, modifierPairsJSON(), pairsJSON(commandLayoutSwaps), apps}, "", "  ")
+	}{builtinKeyboardMatch, standardLayoutJSON, commandLayoutJSON(), apps}, "", "  ")
 	return append(b, '\n')
 }
 
@@ -398,6 +398,12 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 	}
 	if err := removeLaunchAgent(ctx, layoutLabel, layoutBinary(), layoutConfigPath()); err != nil {
 		return err
+	}
+	// The agent may have stopped with a browser in front.
+	if !core.DryRun {
+		if err := runCmd(ctx, "hidutil", "property", "--matching", builtinKeyboardMatch, "--set", standardLayoutJSON); err != nil {
+			core.Warn("Could not clear the command layout: %v", err)
+		}
 	}
 	if core.DryRun {
 		core.Changed("would remove the modifier swap, key defaults, app shortcuts and hotkey changes")
@@ -513,14 +519,22 @@ func modifierPairsPlist() string {
 	return b.String()
 }
 
-func modifierPairsJSON() string { return pairsJSON(modifierSwaps) }
+func modifierPairsJSON() string { return mappingJSON("HIDKeyboardModifierMappingPairs", modifierSwaps) }
 
-func pairsJSON(swaps [][2]int64) string {
+func commandLayoutJSON() string { return mappingJSON("UserKeyMapping", commandLayoutSwaps) }
+
+// standardLayoutJSON clears the command layout. It also clears any
+// UserKeyMapping set by hand, which this module would not know to restore.
+const standardLayoutJSON = `{"UserKeyMapping":[]}`
+
+// mappingJSON renders swaps as the JSON `hidutil property --set` takes for
+// property, which is either key the keyboard filter maps by.
+func mappingJSON(property string, swaps [][2]int64) string {
 	pairs := make([]string, 0, len(swaps))
 	for _, s := range swaps {
 		pairs = append(pairs, fmt.Sprintf(`{"HIDKeyboardModifierMappingSrc":%d,"HIDKeyboardModifierMappingDst":%d}`, s[0], s[1]))
 	}
-	return `{"HIDKeyboardModifierMappingPairs":[` + strings.Join(pairs, ",") + `]}`
+	return `{"` + property + `":[` + strings.Join(pairs, ",") + `]}`
 }
 
 // modifierSwapSet reports whether a modifiermapping preference value holds
