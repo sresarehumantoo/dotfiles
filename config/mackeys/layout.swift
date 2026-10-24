@@ -62,6 +62,8 @@ final class Layout {
         stop()
         if set(want) {
             applied = want
+            let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "no app"
+            logLine("\(want == config.command ? "command" : "standard") layout for \(app)")
         }
     }
 
@@ -98,6 +100,7 @@ else {
     exit(0)
 }
 
+logLine("started; command layout for \(config.apps.count) apps")
 NSApplication.shared.setActivationPolicy(.prohibited)
 let layout = Layout(config)
 let workspace = NSWorkspace.shared.notificationCenter
