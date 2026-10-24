@@ -23,7 +23,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		tools := core.Cfg.ToolkitTools
 		if len(tools) == 0 {
-			core.Info("would install toolkit tools (none configured — run with --toolkit to select)")
+			core.Info("would install toolkit tools (none configured; run with --toolkit to select)")
 			return nil
 		}
 		core.Info("would install toolkit tools: %s", strings.Join(tools, ", "))
@@ -32,7 +32,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 
 	tools := core.Cfg.ToolkitTools
 	if len(tools) == 0 {
-		core.Info("No toolkit tools configured — run with --toolkit to select")
+		core.Info("No toolkit tools configured; run with --toolkit to select")
 		return nil
 	}
 
@@ -42,7 +42,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 		// Try cache as fallback
 		reg, err = core.LoadCachedRegistry()
 		if err != nil {
-			core.Warn("Toolkit registry not available — run with --toolkit to fetch")
+			core.Warn("Toolkit registry not available; run with --toolkit to fetch")
 			return nil
 		}
 	}
@@ -68,11 +68,11 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	for _, name := range tools {
 		info, ok := lookup[name]
 		if !ok {
-			core.Warn("Unknown toolkit tool %q — skipping", name)
+			core.Warn("Unknown toolkit tool %q, skipping", name)
 			continue
 		}
 		if !toolAvailable(info) {
-			core.Debug("skipping %s — not available on this system", name)
+			core.Debug("skipping %s; not available on this system", name)
 			continue
 		}
 		// Skip already-installed tools at gather so we don't re-send them
@@ -80,7 +80,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 		// and don't redundantly hit pipx/cargo/go/git/curl per skipped tool.
 		// The pre-install summary already reported these as "Tools installed".
 		if isToolInstalled(info) {
-			core.Debug("skipping %s — already installed", name)
+			core.Debug("skipping %s; already installed", name)
 			continue
 		}
 		switch toolMethod(info) {
@@ -132,7 +132,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	// older cargo.
 	if rustupRequested {
 		if !installRustup(ctx) {
-			core.Warn("rustup install failed — cargo tools may fail with apt cargo's MSRV")
+			core.Warn("rustup install failed; cargo tools may fail with apt cargo's MSRV")
 		}
 	}
 
@@ -214,7 +214,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	// Install git clone tools
 	if len(gitCloneTools) > 0 {
 		if _, err := exec.LookPath("git"); err != nil {
-			core.Warn("git not found — skipping %d git-clone tools", len(gitCloneTools))
+			core.Warn("git not found, skipping %d git-clone tools", len(gitCloneTools))
 		} else {
 			for _, t := range gitCloneTools {
 				if err := installGitClone(ctx, t.Binary, t.GitRepo); err != nil {
@@ -227,7 +227,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	// Install AppImage tools
 	if len(appImageTools) > 0 {
 		if _, err := exec.LookPath("curl"); err != nil {
-			core.Warn("curl not found — skipping %d AppImage tools", len(appImageTools))
+			core.Warn("curl not found, skipping %d AppImage tools", len(appImageTools))
 		} else {
 			for _, t := range appImageTools {
 				if err := installAppImage(ctx, t.Binary, t.AppRepo); err != nil {
@@ -240,7 +240,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	// Install deb packages from GitHub releases
 	if len(debTools) > 0 {
 		if _, err := exec.LookPath("curl"); err != nil {
-			core.Warn("curl not found — skipping %d deb tools", len(debTools))
+			core.Warn("curl not found, skipping %d deb tools", len(debTools))
 		} else {
 			for _, t := range debTools {
 				if err := installDeb(ctx, t.Binary, t.DebRepo); err != nil {
@@ -253,7 +253,7 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	// Install single binaries from GitHub releases
 	if len(releaseBinaryTools) > 0 {
 		if _, err := exec.LookPath("curl"); err != nil {
-			core.Warn("curl not found — skipping %d release-binary tools", len(releaseBinaryTools))
+			core.Warn("curl not found, skipping %d release-binary tools", len(releaseBinaryTools))
 		} else {
 			for _, t := range releaseBinaryTools {
 				if err := installReleaseBinary(ctx, t.Binary, t.ReleaseRepo, t.AssetPattern); err != nil {
@@ -327,7 +327,7 @@ func (ToolkitModule) Status() core.ModuleStatus {
 func (ToolkitModule) Uninstall(ctx context.Context) error {
 	reg, err := core.LoadCachedRegistry()
 	if err != nil {
-		core.Warn("Registry not available — can only remove known paths")
+		core.Warn("Registry not available; can only remove known paths")
 		return nil
 	}
 
@@ -675,11 +675,11 @@ func cargoVersion(ctx context.Context) string {
 // don't kick off a 200MB download without consent.
 func confirmRustupInstall(failedCount int, oldVersion string) bool {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		core.AlwaysWarn("%d cargo install(s) failed — apt's cargo (%s) is likely too old. Stdin isn't a terminal so can't prompt for rustup; re-run interactively to opt in.", failedCount, oldVersion)
+		core.AlwaysWarn("%d cargo install(s) failed: apt's cargo (%s) is likely too old. Stdin isn't a terminal so can't prompt for rustup; re-run interactively to opt in.", failedCount, oldVersion)
 		return false
 	}
 
-	title := fmt.Sprintf("%d cargo install(s) failed — install rustup?", failedCount)
+	title := fmt.Sprintf("%d cargo install(s) failed; install rustup?", failedCount)
 	desc := fmt.Sprintf("apt's cargo (%s) is too old for some crates' MSRV. Rustup provides the latest stable Rust toolchain (~200MB download), adds ~/.cargo/bin to your shell PATH, and the failed tools will be retried with the new cargo.", oldVersion)
 
 	var confirm bool
@@ -699,7 +699,7 @@ func confirmRustupInstall(failedCount int, oldVersion string) bool {
 		if errors.Is(err, huh.ErrUserAborted) {
 			return false
 		}
-		core.Warn("Confirm prompt failed: %v — skipping rustup", err)
+		core.Warn("Confirm prompt failed: %v, skipping rustup", err)
 		return false
 	}
 	return confirm
@@ -731,7 +731,7 @@ func installRustup(ctx context.Context) bool {
 	}
 
 	if _, err := exec.LookPath("curl"); err != nil {
-		core.AlwaysWarn("curl not found — cannot install rustup")
+		core.AlwaysWarn("curl not found; cannot install rustup")
 		return false
 	}
 	core.Info("Installing rustup (downloads ~200MB)...")
@@ -757,13 +757,13 @@ func ensureToolchain(ctx context.Context, binName, pkgName string, n int, label 
 	if _, err := exec.LookPath(binName); err == nil {
 		return true
 	}
-	core.Info("%s not found — installing %q (required for %d %s)...", binName, pkgName, n, label)
+	core.Info("%s not found, installing %q (required for %d %s)...", binName, pkgName, n, label)
 	if err := installPkg(ctx, pkgName); err != nil {
-		core.AlwaysWarn("Failed to install %s: %v — skipping %d %s", pkgName, err, n, label)
+		core.AlwaysWarn("Failed to install %s: %v, skipping %d %s", pkgName, err, n, label)
 		return false
 	}
 	if _, err := exec.LookPath(binName); err != nil {
-		core.AlwaysWarn("Installed %s but %s still not on PATH — skipping %d %s (open a new shell or check PATH)", pkgName, binName, n, label)
+		core.AlwaysWarn("Installed %s but %s still not on PATH, skipping %d %s (open a new shell or check PATH)", pkgName, binName, n, label)
 		return false
 	}
 	core.Changed("%s installed via %s", binName, pkgName)
@@ -800,7 +800,7 @@ func findExtractedBinary(root, name string) (string, error) {
 func installRustupBrew(ctx context.Context) bool {
 	prefix := brewPrefix()
 	if prefix == "" {
-		core.AlwaysWarn("Homebrew not found — cannot install rustup")
+		core.AlwaysWarn("Homebrew not found; cannot install rustup")
 		return false
 	}
 	bin := filepath.Join(prefix, "opt", "rustup", "bin")

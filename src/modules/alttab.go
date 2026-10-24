@@ -60,7 +60,7 @@ func (m AlttabModule) Install(ctx context.Context) error {
 	// forbid, so only `install alttab` creates it. `install all` keeps an
 	// existing one current.
 	if core.InstallingAll && !fileExists(agent) {
-		core.Debug("alttab not installed — skipping")
+		core.Debug("alttab not installed, skipping")
 		return nil
 	}
 	bin := alttabBinary()

@@ -17,7 +17,7 @@ func (DefaultShellModule) Name() string { return "defaultshell" }
 func (DefaultShellModule) Install(ctx context.Context) error {
 	zshPath, err := loginZsh()
 	if err != nil {
-		core.Warn("zsh not found — install it first")
+		core.Warn("zsh not found; install it first")
 		return nil
 	}
 
@@ -56,7 +56,7 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 			return nil
 		}
 	}
-	core.Warn("Could not change shell — run: chsh -s %s", zshPath)
+	core.Warn("Could not change shell; run: chsh -s %s", zshPath)
 	return nil
 }
 

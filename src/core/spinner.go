@@ -13,7 +13,6 @@ import (
 // A 4-dot snake round all 8 dots of a braille cell. The common 10-frame set
 // only uses the top three rows, so it never reaches the bottom of the cell and
 // sits high beside the text.
-var spinFrames = []string{"⠹", "⢸", "⣰", "⣤", "⣆", "⡇", "⠏", "⠛"}
 
 var (
 	spinColor = color.New(color.FgCyan, color.Bold).SprintFunc()
@@ -71,7 +70,7 @@ func getActiveSpinner() *Spinner {
 func NewSpinner() *Spinner {
 	s := &Spinner{
 		done: make(chan struct{}),
-		tty:  term.IsTerminal(int(os.Stdout.Fd())),
+		tty:  term.IsTerminal(int(os.Stdout.Fd())) && !DumbTerminal(),
 	}
 	setActiveSpinner(s)
 	return s
@@ -110,9 +109,9 @@ func (s *Spinner) Start() {
 				// would invert the lock order and could deadlock.
 				s.mu.Lock()
 				draw := s.running && s.pauseDepth == 0
-				frame, text := spinFrames[s.frame], s.text
+				frame, text := G.Spin[s.frame%len(G.Spin)], s.text
 				if draw {
-					s.frame = (s.frame + 1) % len(spinFrames)
+					s.frame = (s.frame + 1) % len(G.Spin)
 				}
 				s.mu.Unlock()
 
@@ -142,7 +141,7 @@ func (s *Spinner) Update(msg string, args ...any) {
 		// Count and slice runes, not bytes: package names and paths are not
 		// always ASCII, and cutting mid-rune renders as replacement junk.
 		if r := []rune(text); len(r) > avail {
-			text = string(r[:avail-1]) + "…"
+			text = string(r[:avail-len([]rune(G.Ellipsis))]) + G.Ellipsis
 		}
 	}
 
@@ -242,14 +241,14 @@ func SpinnerDetail(msg string, args ...any) {
 func PrintResult(total, failed int) {
 	if failed == 0 {
 		if total == 1 {
-			emitRaw(fmt.Sprintf("  %s Done\n", doneColor("✓")))
+			emitRaw(fmt.Sprintf("  %s Done\n", doneColor(G.Ok)))
 		} else {
-			emitRaw(fmt.Sprintf("  %s Done — %d modules installed\n", doneColor("✓"), total))
+			emitRaw(fmt.Sprintf("  %s Done: %d modules installed\n", doneColor(G.Ok), total))
 		}
 		return
 	}
 	installed := total - failed
-	emitRaw(fmt.Sprintf("  %s Done — %d/%d modules installed\n", failColor("⚠"), installed, total))
+	emitRaw(fmt.Sprintf("  %s Done: %d/%d modules installed\n", failColor(G.Warn), installed, total))
 }
 
 // PrintHint prints a dimmed hint message.

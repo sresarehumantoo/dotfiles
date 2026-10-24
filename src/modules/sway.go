@@ -339,7 +339,7 @@ func (m SwayModule) Install(ctx context.Context) error {
 	// for sway by name is a request to set it up; `install all` on a WSL box
 	// or a server is not, and must never start apt-getting a compositor.
 	if !swayInstalled() && core.InstallingAll {
-		core.Debug("sway not installed — skipping config")
+		core.Debug("sway not installed, skipping config")
 		return nil
 	}
 

@@ -64,7 +64,7 @@ func (GhosttyModule) AppInstalled() bool { return ghosttyInstalled() }
 
 func (m GhosttyModule) Install(ctx context.Context) error {
 	if !ghosttyInstalled() {
-		core.Debug("ghostty not installed — skipping config")
+		core.Debug("ghostty not installed, skipping config")
 		return nil
 	}
 	core.Info("Linking Ghostty config...")

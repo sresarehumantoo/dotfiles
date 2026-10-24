@@ -277,7 +277,7 @@ func WriteCustomSourcesFile(paths []string) error {
 	// Validate paths before writing to a shell-sourced file
 	for _, p := range paths {
 		if !validPreservePath.MatchString(p) {
-			return fmt.Errorf("invalid preserved path %q — must be a dotfile name (no slashes or special chars)", p)
+			return fmt.Errorf("invalid preserved path %q: must be a dotfile name (no slashes or special chars)", p)
 		}
 	}
 

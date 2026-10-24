@@ -106,7 +106,7 @@ func installOmz(ctx context.Context, omzDir string) error {
 	customDir := filepath.Join(omzDir, "custom")
 	var savedCustom string
 	if _, err := os.Stat(omzDir); err == nil {
-		core.Notice("oh-my-zsh dir exists but oh-my-zsh.sh is missing — reinstalling")
+		core.Notice("oh-my-zsh dir exists but oh-my-zsh.sh is missing, reinstalling")
 		if _, err := os.Stat(customDir); err == nil {
 			// Use a temp dir on the SAME filesystem as omzDir — /tmp is
 			// usually tmpfs, and os.Rename across filesystems returns

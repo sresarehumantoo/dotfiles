@@ -61,12 +61,20 @@ func (m ClaudeModule) Uninstall(ctx context.Context) error {
 // reported in Extra.
 func (m ClaudeModule) Status() core.ModuleStatus {
 	s := m.Links().Status("claude")
+	if _, err := os.Stat(claudeSettingsPath()); errors.Is(err, fs.ErrNotExist) {
+		s.Extra = "settings.json not merged yet"
+		return s
+	}
+	// A count, not the names: the list can run past a terminal's width, and
+	// diff already names each key.
 	_, _, stale, err := claudeSettingsState()
 	switch {
 	case err != nil:
 		s.Extra = "settings.json unreadable"
-	case len(stale) > 0:
-		s.Extra = "settings.json stale: " + strings.Join(stale, ", ")
+	case len(stale) == 1:
+		s.Extra = "settings.json: 1 managed key differs"
+	case len(stale) > 1:
+		s.Extra = fmt.Sprintf("settings.json: %d managed keys differ", len(stale))
 	}
 	return s
 }

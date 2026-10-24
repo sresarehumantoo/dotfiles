@@ -57,7 +57,7 @@ func (VMGuestModule) Install(ctx context.Context) error {
 	virt := core.DetectVirt(ctx)
 	if !core.IsHardwareVirt(virt) {
 		if virt == core.VirtUnknown {
-			core.Notice("vmguest: virtualization detected but type unrecognized — skipping. Install guest tools manually if needed.")
+			core.Notice("vmguest: virtualization detected but type unrecognized, skipping. Install guest tools manually if needed.")
 		} else {
 			core.Ok("Not running in a VM (%s), skipping vmguest", virt)
 		}
@@ -66,7 +66,7 @@ func (VMGuestModule) Install(ctx context.Context) error {
 
 	pkgs := guestPackages[virt]
 	if len(pkgs) == 0 {
-		core.Notice("vmguest: detected %s but no guest tools mapping — skipping", virt)
+		core.Notice("vmguest: detected %s but no guest tools mapping, skipping", virt)
 		return nil
 	}
 
@@ -82,7 +82,7 @@ func (VMGuestModule) Install(ctx context.Context) error {
 
 	for _, svc := range guestServices[virt] {
 		if !systemdAvailable() {
-			core.Notice("systemctl not found — skipping service enablement for %s", svc)
+			core.Notice("systemctl not found, skipping service enablement for %s", svc)
 			break
 		}
 		if err := startSystemdUnit(ctx, svc); err != nil {
@@ -146,7 +146,7 @@ func startSystemdUnit(ctx context.Context, svc string) error {
 		// back to plain start if enable refuses.
 		core.Info("Enabling %s...", svc)
 		if err := runCmd(ctx, "sudo", "systemctl", "enable", "--now", svc); err != nil {
-			core.Notice("enable %s failed (state=%q) — starting only", svc, state)
+			core.Notice("enable %s failed (state=%q), starting only", svc, state)
 			return start()
 		}
 		core.Changed("enabled and started %s", svc)
