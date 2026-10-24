@@ -1,7 +1,8 @@
 package modules
 
 import (
-	"fmt"
+	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,83 +138,77 @@ func TestPassthroughShortcutsHaveNoCtrl(t *testing.T) {
 	}
 }
 
-// Runs the generated login helper against a fake hidutil and defaults: it must
-// leave a live swap and scrolling alone, set exactly modifierPairsJSON when the
-// swap is gone or predates the vendor Globe entry, and turn natural scrolling
-// off when it is back on.
+// Runs the generated login helper against a fake defaults: it must leave
+// scrolling alone when it is off, and turn natural scrolling off when it is
+// back on or was never set.
 func TestMackeysApplyScript(t *testing.T) {
 	dir := t.TempDir()
 	script := filepath.Join(dir, "mackeys-apply")
 	if err := os.WriteFile(script, mackeysApplyScript(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fakes := map[string]string{
-		"hidutil": `#!/bin/sh
-case "$*" in
-*--get*) cat "$FAKE_LIVE" ;;
-*--set*) shift 3; printf '%s' "$2" > "$FAKE_SET" ;;
-esac
-`,
-		"defaults": `#!/bin/sh
+	fake := `#!/bin/sh
 case "$1" in
 read) cat "$FAKE_SCROLL" ;;
 write) printf '%s' "$*" > "$FAKE_SCROLL_SET" ;;
 esac
-`,
+`
+	if err := os.WriteFile(filepath.Join(dir, "defaults"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	for name, body := range fakes {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	pair := "{ HIDKeyboardModifierMappingDst = %d; HIDKeyboardModifierMappingSrc = %d; }"
-	live := fmt.Sprintf("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (\n"+pair+",\n"+pair+",\n"+pair+"\n)\n",
-		hidLeftCtrl, hidGlobe, hidLeftCtrl, hidGlobeVendor, hidLeftOpt, hidLeftCmd)
-	noVendor := fmt.Sprintf("RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (\n"+pair+",\n"+pair+"\n)\n",
-		hidLeftCtrl, hidGlobe, hidLeftOpt, hidLeftCmd)
 	for _, c := range []struct {
-		name, live, scroll    string
-		wantSet, wantNoScroll bool
+		name, scroll string
+		wantWrite    bool
 	}{
-		{"all live", live, "0", false, false},
-		{"swap gone", "RegistryID Key Value\n100 HIDKeyboardModifierMappingPairs (null)\n", "0", true, false},
-		{"swap without vendor Globe", noVendor, "0", true, false},
-		{"natural scrolling back on", live, "1", false, true},
-		{"natural scrolling never set", live, "", false, true},
+		{"natural scrolling off", "0", false},
+		{"natural scrolling back on", "1", true},
+		{"natural scrolling never set", "", true},
 	} {
-		liveFile, setFile := filepath.Join(dir, "live"), filepath.Join(dir, "set")
-		scrollFile, scrollSetFile := filepath.Join(dir, "scroll"), filepath.Join(dir, "scroll-set")
+		scrollFile, setFile := filepath.Join(dir, "scroll"), filepath.Join(dir, "scroll-set")
 		_ = os.Remove(setFile)
-		_ = os.Remove(scrollSetFile)
-		if err := os.WriteFile(liveFile, []byte(c.live), 0o644); err != nil {
-			t.Fatal(err)
-		}
 		if err := os.WriteFile(scrollFile, []byte(c.scroll), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if c.wantSet == modifierSwapLive(c.live) {
-			t.Errorf("%s: modifierSwapLive disagrees with the fixture", c.name)
-		}
 		cmd := exec.Command("/bin/sh", script)
-		cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_LIVE="+liveFile, "FAKE_SET="+setFile,
-			"FAKE_SCROLL="+scrollFile, "FAKE_SCROLL_SET="+scrollSetFile)
+		cmd.Env = append(os.Environ(), "PATH="+dir+":/usr/bin:/bin", "FAKE_SCROLL="+scrollFile, "FAKE_SCROLL_SET="+setFile)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("%s: %v\n%s", c.name, err, out)
 		}
-		set, err := os.ReadFile(setFile)
-		switch {
-		case !c.wantSet && err == nil:
-			t.Errorf("%s: helper set the mapping again: %s", c.name, set)
-		case c.wantSet && string(set) != modifierPairsJSON():
-			t.Errorf("%s: helper set %q, want %q", c.name, set, modifierPairsJSON())
-		}
-		scrollSet, err := os.ReadFile(scrollSetFile)
+		got, err := os.ReadFile(setFile)
 		want := "write -g com.apple.swipescrolldirection -bool false"
 		switch {
-		case !c.wantNoScroll && err == nil:
-			t.Errorf("%s: helper rewrote scrolling: %s", c.name, scrollSet)
-		case c.wantNoScroll && string(scrollSet) != want:
-			t.Errorf("%s: helper ran defaults %q, want %q", c.name, scrollSet, want)
+		case !c.wantWrite && err == nil:
+			t.Errorf("%s: helper rewrote scrolling: %s", c.name, got)
+		case c.wantWrite && string(got) != want:
+			t.Errorf("%s: helper ran defaults %q, want %q", c.name, got, want)
+		}
+	}
+}
+
+// The doctor reads the swap from the preference, the only place it can be
+// read back; the live mapping is null on every Mac.
+func TestModifierSwapSaved(t *testing.T) {
+	list := "Services:\nVendorID ProductID LocationID UsagePage Usage\n0x0 0x0 0x11a 0x1 0x6\n"
+	key := modifierMappingKey([2]int64{0, 0})
+	prefs := func(value string) string {
+		return `<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>` + key + `</key>` + value + `</dict></plist>`
+	}
+	for _, c := range []struct {
+		name, prefs string
+		want        bool
+	}{
+		{"swap saved", prefs(modifierPairsPlist()), true},
+		{"partial swap", prefs("<array><dict><key>HIDKeyboardModifierMappingSrc</key><integer>1</integer><key>HIDKeyboardModifierMappingDst</key><integer>2</integer></dict></array>"), false},
+		{"no preference", prefs("<string>x</string>"), false},
+	} {
+		probe := func(name string, args ...string) (string, bool) {
+			if name == "hidutil" {
+				return list, true
+			}
+			return c.prefs, true
+		}
+		if got := modifierSwapSaved(probe); got != c.want {
+			t.Errorf("%s: modifierSwapSaved = %v, want %v", c.name, got, c.want)
 		}
 	}
 }
@@ -223,5 +218,110 @@ esac
 func TestGlobeUsages(t *testing.T) {
 	if hidGlobe != 1095216660483 || hidGlobeVendor != 280379760050179 {
 		t.Errorf("Globe usages %d, %d", hidGlobe, hidGlobeVendor)
+	}
+}
+
+// The command layout is applied on top of the standard one, so it must swap
+// only the Control and Command the standard layout produces; anything more
+// would remap keys in browsers that the standard layout already placed.
+func TestCommandLayoutSwapsCtrlAndCmd(t *testing.T) {
+	var m struct{ UserKeyMapping []map[string]int64 }
+	if err := json.Unmarshal([]byte(commandLayoutJSON()), &m); err != nil {
+		t.Fatal(err)
+	}
+	got := map[int64]int64{}
+	for _, p := range m.UserKeyMapping {
+		got[p["HIDKeyboardModifierMappingSrc"]] = p["HIDKeyboardModifierMappingDst"]
+	}
+	if len(got) != 2 || got[hidLeftCtrl] != hidLeftCmd || got[hidLeftCmd] != hidLeftCtrl {
+		t.Errorf("command layout maps %v, want only LeftCtrl<->LeftCmd", got)
+	}
+	var std struct{ UserKeyMapping []any }
+	if err := json.Unmarshal([]byte(standardLayoutJSON), &std); err != nil || std.UserKeyMapping == nil || len(std.UserKeyMapping) != 0 {
+		t.Errorf("standard layout %q does not clear UserKeyMapping", standardLayoutJSON)
+	}
+}
+
+// An app in two lists would get two shortcut tables written over each other.
+func TestShortcutAppListsDisjoint(t *testing.T) {
+	seen := map[string]string{}
+	for name, list := range map[string][]string{"terminal": terminalApps, "passthrough": passthroughApps, "command layout": commandLayoutApps} {
+		for _, app := range list {
+			if other, ok := seen[app]; ok {
+				t.Errorf("%s is in both the %s and %s lists", app, other, name)
+			}
+			seen[app] = name
+		}
+	}
+}
+
+func TestCommandLayoutShortcutsUseCmd(t *testing.T) {
+	var table *shortcutTable
+	for _, tb := range shortcutTables() {
+		if tb.domain == commandLayoutApps[0] {
+			table = &tb
+		}
+	}
+	if table == nil {
+		t.Fatal("no shortcut table for command layout apps")
+	}
+	for _, s := range appShortcuts {
+		if k := table.key(s); strings.Contains(k, "^") {
+			t.Errorf("%q: %q needs the Ctrl key, which sends Command in these apps", s.title, k)
+		}
+	}
+	for title := range commandLayoutShortcuts {
+		found := false
+		for _, s := range appShortcuts {
+			found = found || s.title == title
+		}
+		if !found {
+			t.Errorf("commandLayoutShortcuts names %q, which is not in appShortcuts", title)
+		}
+	}
+}
+
+// mackeys-layout and alttab decode this file; the Go side is the only place
+// the HID values live.
+func TestLayoutConfig(t *testing.T) {
+	var c struct {
+		Match, Standard, Command string
+		Apps                     []string
+	}
+	if err := json.Unmarshal(layoutConfig(commandLayoutApps), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Match != builtinKeyboardMatch || c.Standard != standardLayoutJSON || c.Command != commandLayoutJSON() || len(c.Apps) != len(commandLayoutApps) {
+		t.Errorf("layout config = %+v", c)
+	}
+}
+
+// A protected container (Safari's, without Full Disk Access) refuses the
+// write. That app must be reported, not fail the module; the global table
+// stays required.
+func TestAppShortcutsSurviveUnwritableApp(t *testing.T) {
+	dir := t.TempDir()
+	fake := `#!/bin/sh
+[ "$1" = write ] || exit 1
+[ "$2" = "$FAKE_REFUSE" ] && { echo "Could not write domain $2; exiting" >&2; exit 1; }
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(dir, "defaults"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+
+	t.Setenv("FAKE_REFUSE", "com.google.Chrome")
+	_, unwritable, err := applyAppShortcuts(context.Background())
+	if err != nil {
+		t.Fatalf("an unwritable app failed the module: %v", err)
+	}
+	if len(unwritable) != 1 || unwritable[0] != "com.google.Chrome" {
+		t.Errorf("unwritable = %v, want [com.google.Chrome]", unwritable)
+	}
+
+	t.Setenv("FAKE_REFUSE", "NSGlobalDomain")
+	if _, _, err := applyAppShortcuts(context.Background()); err == nil {
+		t.Error("a failed global table write was not an error")
 	}
 }

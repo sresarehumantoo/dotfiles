@@ -3,8 +3,11 @@ package modules
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -48,10 +51,14 @@ var modifierSwaps = [][2]int64{
 	{hidRightOpt, hidRightCmd}, {hidRightCmd, hidRightOpt},
 }
 
-// liveSwapMarkers are the sources whose presence in the live mapping means the
-// swap is applied. The vendor Globe is listed so a mapping set before it was
-// added counts as missing and gets replaced.
-var liveSwapMarkers = []int64{hidGlobe, hidGlobeVendor, hidLeftCmd}
+// The command layout, for commandLayoutApps, swaps the Control and Command
+// the standard layout produces, so the Ctrl-position key sends Command and the
+// Win-position key sends Control. It is a UserKeyMapping, which the keyboard
+// filter applies after the modifier mapping, so it sits on top of the standard
+// layout rather than replacing it: on macOS 26 a live
+// HIDKeyboardModifierMappingPairs write never took effect, and UserKeyMapping
+// did.
+var commandLayoutSwaps = [][2]int64{{hidLeftCtrl, hidLeftCmd}, {hidLeftCmd, hidLeftCtrl}}
 
 const builtinKeyboardMatch = `{"PrimaryUsagePage":1,"PrimaryUsage":6,"Built-In":true}`
 
@@ -131,6 +138,27 @@ var passthroughApps = []string{
 	"com.utmapp.UTM",                // UTM
 }
 
+// Web pages bind their shortcuts to Cmd on a Mac and ignore a Ctrl+Z they
+// cannot see as one, and Mac Office uses the Windows letters on Cmd, so in
+// these apps the mackeys-layout agent puts Command on the Ctrl key (and Ctrl
+// on the Win key). Matched exactly: a
+// Chrome PWA has its own bundle ID and keeps the standard layout. Safari is
+// left out because its preferences cannot be written without Full Disk
+// Access, and an app on this layout needs its menus moved back to Cmd.
+var commandLayoutApps = []string{
+	"com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.canary",
+	"com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser",
+	"com.vivaldi.Vivaldi", "org.mozilla.firefox",
+	"com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.VSCode",
+	"com.hnc.Discord", "notion.id", "md.obsidian",
+	"com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint",
+	"com.microsoft.Outlook", "com.microsoft.onenote.mac",
+}
+
+// Apps on the command layout get the macOS shortcuts back, which already put
+// Windows' letters on the key that now sends Cmd, except where Windows differs.
+var commandLayoutShortcuts = map[string]string{"Paste and Match Style": "@$v"}
+
 // shortcutTable pairs a preference domain with the column it gets.
 type shortcutTable struct {
 	domain string
@@ -144,6 +172,14 @@ func shortcutTables() []shortcutTable {
 	}
 	for _, app := range passthroughApps {
 		tables = append(tables, shortcutTable{app, func(s appShortcut) string { return s.mac }})
+	}
+	for _, app := range commandLayoutApps {
+		tables = append(tables, shortcutTable{app, func(s appShortcut) string {
+			if k, ok := commandLayoutShortcuts[s.title]; ok {
+				return k
+			}
+			return s.mac
+		}})
 	}
 	return tables
 }
@@ -176,46 +212,21 @@ const mackeysAgentExtra = `
 	<key>StartInterval</key>
 	<integer>600</integer>`
 
-// mackeysApplyScript is the login helper. The preference is what macOS
-// reapplies on its own; this covers the times it does not (a keyboard service
-// that restarted, a preference key the system ignored) by setting the live
-// mapping again whenever it has gone missing. It does the same for natural
-// scrolling, which gets turned back on.
+// mackeysApplyScript is the login helper: it turns natural scrolling off again
+// whenever something turns it back on. The modifier swap needs no such help,
+// since macOS reapplies the preference itself, and could not be checked from
+// here anyway: the keyboard filter never reports its live mapping, so it reads
+// as null on every Mac.
 func mackeysApplyScript() []byte {
-	markers := make([]string, 0, len(liveSwapMarkers))
-	for _, m := range liveSwapMarkers {
-		markers = append(markers, strconv.FormatInt(m, 10))
-	}
 	return []byte(fmt.Sprintf(`#!/bin/sh
 # Written by dfinstall's mackeys module and run by the %s
 # LaunchAgent at login, on wake and every 10 minutes. Silent unless it acts.
-match='%s'
-live=$(hidutil property --matching "$match" --get HIDKeyboardModifierMappingPairs 2>/dev/null)
-stale=
-for v in %s; do
-	case $live in *"$v"*) ;; *) stale=1 ;; esac
-done
-if [ -n "$stale" ]; then
-	hidutil property --matching "$match" --set '%s' >/dev/null &&
-		echo "$(date '+%%F %%T') reapplied the modifier swap"
-fi
 if [ "$(defaults read -g com.apple.swipescrolldirection 2>/dev/null)" != 0 ]; then
 	defaults write -g com.apple.swipescrolldirection -bool false &&
 		echo "$(date '+%%F %%T') turned natural scrolling off again"
 fi
 exit 0
-`, mackeysLabel, builtinKeyboardMatch, strings.Join(markers, " "), modifierPairsJSON()))
-}
-
-// modifierSwapLive reads `hidutil property --get HIDKeyboardModifierMappingPairs`
-// the way the login helper does.
-func modifierSwapLive(out string) bool {
-	for _, m := range liveSwapMarkers {
-		if !strings.Contains(out, strconv.FormatInt(m, 10)) {
-			return false
-		}
-	}
-	return true
+`, mackeysLabel))
 }
 
 // installMackeysHelper adds the login helper on `install mackeys` and keeps
@@ -237,6 +248,71 @@ func installMackeysHelper(ctx context.Context) error {
 	return loadLaunchAgent(ctx, mackeysLabel, agentChanged, scriptChanged)
 }
 
+const layoutLabel = "io.github.sresarehumantoo.mackeys-layout"
+
+func layoutSource() string { return core.ConfigPath("mackeys", "layout.swift") }
+func layoutBinary() string { return core.HomeTarget(".local", "bin", "mackeys-layout") }
+func layoutLog() string    { return core.HomeTarget("Library", "Logs", "mackeys-layout.log") }
+
+// layoutConfigPath is read by mackeys-layout and by alttab, which moves its
+// lock hotkey with the layout. It lives under Library rather than
+// XDG_CONFIG_HOME, which a LaunchAgent does not inherit.
+func layoutConfigPath() string {
+	return core.HomeTarget("Library", "Application Support", "dfinstall", "mackeys-layout.json")
+}
+
+// layoutConfig holds both layouts as the JSON hidutil --set takes, so the HID
+// values live only in this file.
+func layoutConfig(apps []string) []byte {
+	b, _ := json.MarshalIndent(struct {
+		Match    string   `json:"match"`
+		Standard string   `json:"standard"`
+		Command  string   `json:"command"`
+		Apps     []string `json:"apps"`
+	}{builtinKeyboardMatch, standardLayoutJSON, commandLayoutJSON(), apps}, "", "  ")
+	return append(b, '\n')
+}
+
+// installLayoutAgent builds and starts mackeys-layout on `install mackeys`,
+// and keeps an existing one current under `install all`. Without swiftc every
+// app keeps the standard layout, which is a degraded setup, not a failed one.
+// unwritable names the preference domains applyAppShortcuts could not write:
+// such an app keeps the standard layout, since with the Ctrl key sending Cmd
+// its menus would still be waiting for Ctrl.
+func installLayoutAgent(ctx context.Context, unwritable []string) error {
+	agent := launchAgentPath(layoutLabel)
+	if core.InstallingAll && !fileExists(agent) {
+		core.Debug("mackeys layout agent not installed — skipping")
+		return nil
+	}
+	rebuilt := false
+	if swiftStale(layoutSource(), layoutBinary()) {
+		if _, err := exec.LookPath("swiftc"); err != nil && !core.DryRun {
+			core.Warn("swiftc not found, so browsers keep the standard layout: run xcode-select --install, then install mackeys again")
+			return nil
+		}
+		if err := buildSwift(ctx, "mackeys-layout", layoutSource(), layoutBinary()); err != nil {
+			return err
+		}
+		rebuilt = true
+	}
+	var apps []string
+	for _, app := range commandLayoutApps {
+		if !slices.Contains(unwritable, app) {
+			apps = append(apps, app)
+		}
+	}
+	configChanged, err := core.WriteFileIfChanged(layoutConfigPath(), layoutConfig(apps), 0o644)
+	if err != nil {
+		return err
+	}
+	agentChanged, err := core.WriteFileIfChanged(agent, launchAgentPlist(layoutLabel, layoutBinary(), layoutLog(), alttabAgentExtra), 0o644)
+	if err != nil || core.DryRun {
+		return err
+	}
+	return loadLaunchAgent(ctx, layoutLabel, agentChanged, rebuilt || configChanged)
+}
+
 const activateSettings = "/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings"
 
 func (m MackeysModule) Install(ctx context.Context) error {
@@ -249,7 +325,7 @@ func (m MackeysModule) Install(ctx context.Context) error {
 	}
 	changed := false
 	for _, step := range []func(context.Context) (bool, error){
-		applyModifierSwap, applyKeyDefaults, applyAppShortcuts, applyHotkeys,
+		applyModifierSwap, applyKeyDefaults, applyHotkeys,
 	} {
 		c, err := step(ctx)
 		if err != nil {
@@ -257,7 +333,15 @@ func (m MackeysModule) Install(ctx context.Context) error {
 		}
 		changed = changed || c
 	}
+	c, unwritable, err := applyAppShortcuts(ctx)
+	if err != nil {
+		return err
+	}
+	changed = changed || c
 	if err := installMackeysHelper(ctx); err != nil {
+		return err
+	}
+	if err := installLayoutAgent(ctx, unwritable); err != nil {
 		return err
 	}
 	if changed && !core.DryRun {
@@ -276,6 +360,15 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 	}
 	if err := removeLaunchAgent(ctx, mackeysLabel, mackeysHelper()); err != nil {
 		return err
+	}
+	if err := removeLaunchAgent(ctx, layoutLabel, layoutBinary(), layoutConfigPath()); err != nil {
+		return err
+	}
+	// The agent may have stopped with a browser in front.
+	if !core.DryRun {
+		if err := runCmd(ctx, "hidutil", "property", "--matching", builtinKeyboardMatch, "--set", standardLayoutJSON); err != nil {
+			core.Warn("Could not clear the command layout: %v", err)
+		}
 	}
 	if core.DryRun {
 		core.Changed("would remove the modifier swap, key defaults, app shortcuts and hotkey changes")
@@ -297,7 +390,10 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 	}
 	for _, t := range shortcutTables() {
 		if err := removeShortcuts(ctx, t.domain, t.key); err != nil {
-			return err
+			if t.domain == "NSGlobalDomain" {
+				return err
+			}
+			core.Warn("Could not remove the app shortcuts for %s: %v", t.domain, err)
 		}
 	}
 	for _, h := range disabledHotkeys {
@@ -330,7 +426,31 @@ func builtinKeyboardKey(ctx context.Context) (string, bool) {
 		core.Warn("Expected one built-in keyboard from hidutil, found %d; set the modifier keys in System Settings > Keyboard > Keyboard Shortcuts > Modifier Keys instead", len(ids))
 		return "", false
 	}
-	return fmt.Sprintf("com.apple.keyboard.modifiermapping.%d-%d-0", ids[0][0], ids[0][1]), true
+	return modifierMappingKey(ids[0]), true
+}
+
+func modifierMappingKey(id [2]int64) string {
+	return fmt.Sprintf("com.apple.keyboard.modifiermapping.%d-%d-0", id[0], id[1])
+}
+
+// modifierSwapSaved reports whether the built-in keyboard's preference holds
+// the swap. That preference is the only part of it that can be read back.
+func modifierSwapSaved(probe func(string, ...string) (string, bool)) bool {
+	out, ok := probe("hidutil", "list", "--matching", builtinKeyboardMatch)
+	if !ok {
+		return false
+	}
+	ids := parseHidutilServices(out)
+	if len(ids) != 1 {
+		return false
+	}
+	prefs, ok := probe("defaults", "-currentHost", "export", "NSGlobalDomain", "-")
+	if !ok {
+		return false
+	}
+	v, err := parsePlist([]byte(prefs))
+	m, _ := v.(map[string]any)
+	return err == nil && modifierSwapSet(m[modifierMappingKey(ids[0])])
 }
 
 // parseHidutilServices returns the distinct VendorID/ProductID pairs in the
@@ -388,12 +508,22 @@ func modifierPairsPlist() string {
 	return b.String()
 }
 
-func modifierPairsJSON() string {
-	pairs := make([]string, 0, len(modifierSwaps))
-	for _, s := range modifierSwaps {
+func modifierPairsJSON() string { return mappingJSON("HIDKeyboardModifierMappingPairs", modifierSwaps) }
+
+func commandLayoutJSON() string { return mappingJSON("UserKeyMapping", commandLayoutSwaps) }
+
+// standardLayoutJSON clears the command layout. It also clears any
+// UserKeyMapping set by hand, which this module would not know to restore.
+const standardLayoutJSON = `{"UserKeyMapping":[]}`
+
+// mappingJSON renders swaps as the JSON `hidutil property --set` takes for
+// property, which is either key the keyboard filter maps by.
+func mappingJSON(property string, swaps [][2]int64) string {
+	pairs := make([]string, 0, len(swaps))
+	for _, s := range swaps {
 		pairs = append(pairs, fmt.Sprintf(`{"HIDKeyboardModifierMappingSrc":%d,"HIDKeyboardModifierMappingDst":%d}`, s[0], s[1]))
 	}
-	return `{"HIDKeyboardModifierMappingPairs":[` + strings.Join(pairs, ",") + `]}`
+	return `{"` + property + `":[` + strings.Join(pairs, ",") + `]}`
 }
 
 // modifierSwapSet reports whether a modifiermapping preference value holds
@@ -478,16 +608,29 @@ func applyKeyDefaults(ctx context.Context) (bool, error) {
 	return changed, nil
 }
 
-func applyAppShortcuts(ctx context.Context) (bool, error) {
+// applyAppShortcuts writes every shortcut table. Only the global one is
+// required: a sandboxed app whose container macOS protects (Safari, anything
+// under App Data protection) refuses the write without Full Disk Access, and
+// that app is reported back rather than failing the module.
+func applyAppShortcuts(ctx context.Context) (bool, []string, error) {
 	changed := false
+	var unwritable []string
 	for _, t := range shortcutTables() {
 		c, err := addShortcuts(ctx, t.domain, t.key)
 		if err != nil {
-			return changed, err
+			if t.domain == "NSGlobalDomain" {
+				return changed, nil, err
+			}
+			unwritable = append(unwritable, t.domain)
+			continue
 		}
 		changed = changed || c
 	}
-	return changed, nil
+	if len(unwritable) > 0 {
+		core.AlwaysWarn("Could not write the app shortcuts for %s. A sandboxed app's preferences can need Full Disk Access for this terminal; those apps keep the standard layout and the global shortcuts.",
+			strings.Join(unwritable, ", "))
+	}
+	return changed, unwritable, nil
 }
 
 // addShortcuts merges the shortcuts into a domain's NSUserKeyEquivalents,
@@ -700,8 +843,8 @@ func mackeysDoctorResult(probe func(string, ...string) (string, bool)) []DoctorR
 		return nil
 	}
 	var problems []string
-	if out, ok := probe("hidutil", "property", "--matching", builtinKeyboardMatch, "--get", "HIDKeyboardModifierMappingPairs"); !ok || !modifierSwapLive(out) {
-		problems = append(problems, "modifier swap not active on the built-in keyboard")
+	if !modifierSwapSaved(probe) {
+		problems = append(problems, "modifier swap not saved for the built-in keyboard")
 	}
 	if v, _ := probe("defaults", "read", "NSGlobalDomain", "ApplePressAndHoldEnabled"); v != "0" {
 		problems = append(problems, "press-and-hold is on, so held keys do not repeat")
@@ -715,9 +858,14 @@ func mackeysDoctorResult(probe func(string, ...string) (string, bool)) []DoctorR
 	} else if _, ok := probe("launchctl", "print", launchdDomain()+"/"+mackeysLabel); !ok {
 		problems = append(problems, "login helper not loaded")
 	}
+	if fileExists(launchAgentPath(layoutLabel)) {
+		if out, ok := probe("launchctl", "print", launchdDomain()+"/"+layoutLabel); !ok || !strings.Contains(out, "state = running") {
+			problems = append(problems, "layout agent not running, so browsers get the standard layout")
+		}
+	}
 	if len(problems) == 0 {
-		return []DoctorResult{{Name: "mac keyboard", OK: true, Detail: "modifier swap active, key repeat on, natural scrolling off, " + helper}}
+		return []DoctorResult{{Name: "mac keyboard", OK: true, Detail: "modifier swap saved, key repeat on, natural scrolling off, " + helper}}
 	}
 	return []DoctorResult{{Name: "mac keyboard", OK: false, Detail: strings.Join(problems, "; "),
-		Extra: []string{"run `dfinstall install mackeys`", "the login helper logs to " + mackeysLog()}}}
+		Extra: []string{"run `dfinstall install mackeys`", "the login helper logs to " + mackeysLog(), "the layout agent logs to " + layoutLog()}}}
 }

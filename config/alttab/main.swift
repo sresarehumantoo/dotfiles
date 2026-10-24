@@ -1,5 +1,6 @@
 // alttab: an Option-Tab app switcher that looks like Command-Tab, plus
-// Command-L to lock the screen (Win+L once mackeys has swapped the modifiers).
+// Win+L to lock the screen: Command-L once mackeys has swapped the modifiers,
+// Control-L in the apps its layout agent gives the command layout.
 // Needs no Accessibility or Input Monitoring permission. Carbon hotkeys, the running
 // application list, the modifier state and app activation are all available
 // to an ordinary process; reading or synthesizing other apps' keystrokes is
@@ -22,6 +23,8 @@ final class Switcher {
     private var active = false
     private var modifiers = UInt32(optionKey)
     private var escape: EventHotKeyRef?
+    private var lock: EventHotKeyRef?
+    private var lockModifiers: UInt32 = 0
     private var poll: Timer?
     private var reveal: Timer?
 
@@ -74,9 +77,6 @@ final class Switcher {
                 logLine("no backward hotkey; Shift-Tab will not step back")
             }
             logLine("switching on \(mods == UInt32(optionKey) ? "Option" : "Control-Option")-Tab")
-            if register(kVK_ANSI_L, UInt32(cmdKey), id: Switcher.lockKey) == nil {
-                logLine("Command-L is taken; it will not lock the screen")
-            }
             watchActivations()
             return true
         }
@@ -116,10 +116,12 @@ final class Switcher {
         if let front = NSWorkspace.shared.frontmostApplication {
             touch(front.processIdentifier)
         }
+        updateLock(NSWorkspace.shared.frontmostApplication)
         let center = NSWorkspace.shared.notificationCenter
         center.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { note in
             if let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication {
                 self.touch(app.processIdentifier)
+                self.updateLock(app)
             }
         }
         center.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { note in
@@ -127,6 +129,33 @@ final class Switcher {
                 self.recent.removeAll { $0 == app.processIdentifier }
             }
         }
+    }
+
+    // In the apps mackeys-layout gives the command layout, the Win key sends
+    // Control and the Ctrl key sends Command, so Win+L arrives as Control-L
+    // there and Command-L is the address bar.
+    private func updateLock(_ app: NSRunningApplication?) {
+        let mods = commandLayoutApps().contains(app?.bundleIdentifier ?? "") ? UInt32(controlKey) : UInt32(cmdKey)
+        guard mods != lockModifiers else { return }
+        if let lock {
+            UnregisterEventHotKey(lock)
+        }
+        lockModifiers = mods
+        lock = register(kVK_ANSI_L, mods, id: Switcher.lockKey)
+        if lock == nil {
+            logLine("\(mods == UInt32(cmdKey) ? "Command" : "Control")-L is taken; it will not lock the screen")
+        }
+    }
+
+    // Read on every activation, so a reinstall of mackeys needs no restart
+    // here. A missing file means no app has the command layout.
+    private func commandLayoutApps() -> [String] {
+        let url = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Application Support/dfinstall/mackeys-layout.json")
+        guard let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return [] }
+        return json["apps"] as? [String] ?? []
     }
 
     private func touch(_ pid: pid_t) {
