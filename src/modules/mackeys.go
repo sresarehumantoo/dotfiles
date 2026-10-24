@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -146,11 +147,13 @@ var passthroughApps = []string{
 // cannot see as one, and Mac Office uses the Windows letters on Cmd, so in
 // these apps the mackeys-layout agent puts Command on the Ctrl key (and Ctrl
 // on the Win key). Matched exactly: a
-// Chrome PWA has its own bundle ID and keeps the standard layout.
+// Chrome PWA has its own bundle ID and keeps the standard layout. Safari is
+// left out because its preferences cannot be written without Full Disk
+// Access, and an app on this layout needs its menus moved back to Cmd.
 var commandLayoutApps = []string{
 	"com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.canary",
 	"com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser",
-	"com.vivaldi.Vivaldi", "org.mozilla.firefox", "com.apple.Safari",
+	"com.vivaldi.Vivaldi", "org.mozilla.firefox",
 	"com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.VSCode",
 	"com.hnc.Discord", "notion.id", "md.obsidian",
 	"com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint",
@@ -290,20 +293,23 @@ func layoutConfigPath() string {
 
 // layoutConfig holds both layouts as the JSON hidutil --set takes, so the HID
 // values live only in this file.
-func layoutConfig() []byte {
+func layoutConfig(apps []string) []byte {
 	b, _ := json.MarshalIndent(struct {
 		Match    string   `json:"match"`
 		Standard string   `json:"standard"`
 		Command  string   `json:"command"`
 		Apps     []string `json:"apps"`
-	}{builtinKeyboardMatch, modifierPairsJSON(), pairsJSON(commandLayoutSwaps), commandLayoutApps}, "", "  ")
+	}{builtinKeyboardMatch, modifierPairsJSON(), pairsJSON(commandLayoutSwaps), apps}, "", "  ")
 	return append(b, '\n')
 }
 
 // installLayoutAgent builds and starts mackeys-layout on `install mackeys`,
 // and keeps an existing one current under `install all`. Without swiftc every
 // app keeps the standard layout, which is a degraded setup, not a failed one.
-func installLayoutAgent(ctx context.Context) error {
+// unwritable names the preference domains applyAppShortcuts could not write:
+// such an app keeps the standard layout, since with the Ctrl key sending Cmd
+// its menus would still be waiting for Ctrl.
+func installLayoutAgent(ctx context.Context, unwritable []string) error {
 	agent := launchAgentPath(layoutLabel)
 	if core.InstallingAll && !fileExists(agent) {
 		core.Debug("mackeys layout agent not installed — skipping")
@@ -320,7 +326,13 @@ func installLayoutAgent(ctx context.Context) error {
 		}
 		rebuilt = true
 	}
-	configChanged, err := core.WriteFileIfChanged(layoutConfigPath(), layoutConfig(), 0o644)
+	var apps []string
+	for _, app := range commandLayoutApps {
+		if !slices.Contains(unwritable, app) {
+			apps = append(apps, app)
+		}
+	}
+	configChanged, err := core.WriteFileIfChanged(layoutConfigPath(), layoutConfig(apps), 0o644)
 	if err != nil {
 		return err
 	}
@@ -343,7 +355,7 @@ func (m MackeysModule) Install(ctx context.Context) error {
 	}
 	changed := false
 	for _, step := range []func(context.Context) (bool, error){
-		applyModifierSwap, applyKeyDefaults, applyAppShortcuts, applyHotkeys,
+		applyModifierSwap, applyKeyDefaults, applyHotkeys,
 	} {
 		c, err := step(ctx)
 		if err != nil {
@@ -351,10 +363,15 @@ func (m MackeysModule) Install(ctx context.Context) error {
 		}
 		changed = changed || c
 	}
+	c, unwritable, err := applyAppShortcuts(ctx)
+	if err != nil {
+		return err
+	}
+	changed = changed || c
 	if err := installMackeysHelper(ctx); err != nil {
 		return err
 	}
-	if err := installLayoutAgent(ctx); err != nil {
+	if err := installLayoutAgent(ctx, unwritable); err != nil {
 		return err
 	}
 	if changed && !core.DryRun {
@@ -397,7 +414,10 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 	}
 	for _, t := range shortcutTables() {
 		if err := removeShortcuts(ctx, t.domain, t.key); err != nil {
-			return err
+			if t.domain == "NSGlobalDomain" {
+				return err
+			}
+			core.Warn("Could not remove the app shortcuts for %s: %v", t.domain, err)
 		}
 	}
 	for _, h := range disabledHotkeys {
@@ -580,16 +600,29 @@ func applyKeyDefaults(ctx context.Context) (bool, error) {
 	return changed, nil
 }
 
-func applyAppShortcuts(ctx context.Context) (bool, error) {
+// applyAppShortcuts writes every shortcut table. Only the global one is
+// required: a sandboxed app whose container macOS protects (Safari, anything
+// under App Data protection) refuses the write without Full Disk Access, and
+// that app is reported back rather than failing the module.
+func applyAppShortcuts(ctx context.Context) (bool, []string, error) {
 	changed := false
+	var unwritable []string
 	for _, t := range shortcutTables() {
 		c, err := addShortcuts(ctx, t.domain, t.key)
 		if err != nil {
-			return changed, err
+			if t.domain == "NSGlobalDomain" {
+				return changed, nil, err
+			}
+			unwritable = append(unwritable, t.domain)
+			continue
 		}
 		changed = changed || c
 	}
-	return changed, nil
+	if len(unwritable) > 0 {
+		core.AlwaysWarn("Could not write the app shortcuts for %s. A sandboxed app's preferences can need Full Disk Access for this terminal; those apps keep the standard layout and the global shortcuts.",
+			strings.Join(unwritable, ", "))
+	}
+	return changed, unwritable, nil
 }
 
 // addShortcuts merges the shortcuts into a domain's NSUserKeyEquivalents,

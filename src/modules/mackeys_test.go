@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -297,7 +298,7 @@ func TestLayoutConfig(t *testing.T) {
 		Match, Standard, Command string
 		Apps                     []string
 	}
-	if err := json.Unmarshal(layoutConfig(), &c); err != nil {
+	if err := json.Unmarshal(layoutConfig(commandLayoutApps), &c); err != nil {
 		t.Fatal(err)
 	}
 	if c.Match != builtinKeyboardMatch || c.Standard != modifierPairsJSON() || c.Command != pairsJSON(commandLayoutSwaps) || len(c.Apps) != len(commandLayoutApps) {
@@ -306,5 +307,35 @@ func TestLayoutConfig(t *testing.T) {
 	var pairs struct{ HIDKeyboardModifierMappingPairs []map[string]int64 }
 	if err := json.Unmarshal([]byte(c.Command), &pairs); err != nil || len(pairs.HIDKeyboardModifierMappingPairs) != len(commandLayoutSwaps) {
 		t.Errorf("command layout is not hidutil JSON: %v %s", err, c.Command)
+	}
+}
+
+// A protected container (Safari's, without Full Disk Access) refuses the
+// write. That app must be reported, not fail the module; the global table
+// stays required.
+func TestAppShortcutsSurviveUnwritableApp(t *testing.T) {
+	dir := t.TempDir()
+	fake := `#!/bin/sh
+[ "$1" = write ] || exit 1
+[ "$2" = "$FAKE_REFUSE" ] && { echo "Could not write domain $2; exiting" >&2; exit 1; }
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(dir, "defaults"), []byte(fake), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+
+	t.Setenv("FAKE_REFUSE", "com.google.Chrome")
+	_, unwritable, err := applyAppShortcuts(context.Background())
+	if err != nil {
+		t.Fatalf("an unwritable app failed the module: %v", err)
+	}
+	if len(unwritable) != 1 || unwritable[0] != "com.google.Chrome" {
+		t.Errorf("unwritable = %v, want [com.google.Chrome]", unwritable)
+	}
+
+	t.Setenv("FAKE_REFUSE", "NSGlobalDomain")
+	if _, _, err := applyAppShortcuts(context.Background()); err == nil {
+		t.Error("a failed global table write was not an error")
 	}
 }
