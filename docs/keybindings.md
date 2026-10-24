@@ -28,7 +28,7 @@ Quick reference for all custom keybindings across interactive menus, macOS, tmux
 
 ## macOS (mackeys, alttab, Ghostty)
 
-The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a Windows laptop's Ctrl, Fn, Win, Alt. Keys below are named by what they send after that swap.
+The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a Windows laptop's Ctrl, Fn, Win, Alt. Keys below are named by what they send after that swap, except `Win`, which is the key in the Windows key's position. In browsers and Electron apps the Ctrl key sends Cmd and the Win key sends Ctrl, so web apps get the Cmd shortcuts they expect while the letters stay where Windows has them.
 
 | Key | Action |
 |-----|--------|
@@ -45,7 +45,8 @@ The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a
 | `Home` / `End` (`Fn+Left` / `Fn+Right`) | Start / end of line |
 | `Alt+Tab` / `Alt+Shift+Tab` | Switch apps (alttab); release Alt to switch, `Alt+Esc` cancels |
 | `Cmd+Space` | Spotlight (the Win+Space position) |
-| `Cmd+L` | Lock the screen, like Win+L (alttab) |
+| `Win+L` | Lock the screen (alttab) |
+| `Win+Tab` | Next browser tab (Ctrl+Tab is the macOS app switcher in browsers, which get the command layout) |
 | `Cmd+Shift+Q` | Log out (macOS default) |
 
 ### Ghostty on macOS

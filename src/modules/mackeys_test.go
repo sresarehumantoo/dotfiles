@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -223,5 +224,87 @@ esac
 func TestGlobeUsages(t *testing.T) {
 	if hidGlobe != 1095216660483 || hidGlobeVendor != 280379760050179 {
 		t.Errorf("Globe usages %d, %d", hidGlobe, hidGlobeVendor)
+	}
+}
+
+// The login helper only checks which sources are mapped, so it must accept
+// either layout; otherwise it would put the standard one back in a browser.
+func TestCommandLayoutKeepsSources(t *testing.T) {
+	sources := func(swaps [][2]int64) map[int64]bool {
+		m := map[int64]bool{}
+		for _, s := range swaps {
+			m[s[0]] = true
+		}
+		return m
+	}
+	std, cmd := sources(modifierSwaps), sources(commandLayoutSwaps)
+	if len(std) != len(modifierSwaps) || len(cmd) != len(std) {
+		t.Fatalf("source sets differ in size: %d, %d", len(std), len(cmd))
+	}
+	for s := range std {
+		if !cmd[s] {
+			t.Errorf("source %#x missing from the command layout", s)
+		}
+	}
+	if !modifierSwapLive(pairsJSON(commandLayoutSwaps)) {
+		t.Error("the command layout does not read as a live swap")
+	}
+}
+
+// An app in two lists would get two shortcut tables written over each other.
+func TestShortcutAppListsDisjoint(t *testing.T) {
+	seen := map[string]string{}
+	for name, list := range map[string][]string{"terminal": terminalApps, "passthrough": passthroughApps, "command layout": commandLayoutApps} {
+		for _, app := range list {
+			if other, ok := seen[app]; ok {
+				t.Errorf("%s is in both the %s and %s lists", app, other, name)
+			}
+			seen[app] = name
+		}
+	}
+}
+
+func TestCommandLayoutShortcutsUseCmd(t *testing.T) {
+	var table *shortcutTable
+	for _, tb := range shortcutTables() {
+		if tb.domain == commandLayoutApps[0] {
+			table = &tb
+		}
+	}
+	if table == nil {
+		t.Fatal("no shortcut table for command layout apps")
+	}
+	for _, s := range appShortcuts {
+		if k := table.key(s); strings.Contains(k, "^") {
+			t.Errorf("%q: %q needs the Ctrl key, which sends Command in these apps", s.title, k)
+		}
+	}
+	for title := range commandLayoutShortcuts {
+		found := false
+		for _, s := range appShortcuts {
+			found = found || s.title == title
+		}
+		if !found {
+			t.Errorf("commandLayoutShortcuts names %q, which is not in appShortcuts", title)
+		}
+	}
+}
+
+// mackeys-layout and alttab decode this file; the Go side is the only place
+// the HID values live.
+func TestLayoutConfig(t *testing.T) {
+	var c struct {
+		Match, Standard, Command string
+		Apps                     []string
+	}
+	if err := json.Unmarshal(layoutConfig(), &c); err != nil {
+		t.Fatal(err)
+	}
+	if c.Match != builtinKeyboardMatch || c.Standard != modifierPairsJSON() || c.Command != pairsJSON(commandLayoutSwaps) || len(c.Apps) != len(commandLayoutApps) {
+		t.Errorf("layout config = %+v", c)
+	}
+	var pairs struct{ HIDKeyboardModifierMappingPairs []map[string]int64 }
+	if err := json.Unmarshal([]byte(c.Command), &pairs); err != nil || len(pairs.HIDKeyboardModifierMappingPairs) != len(commandLayoutSwaps) {
+		t.Errorf("command layout is not hidutil JSON: %v %s", err, c.Command)
 	}
 }
