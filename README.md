@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif?v=1" alt="dfinstall status, doctor, and a dry-run install" width="760">
+  <img src="assets/demo.gif?v=2" alt="dfinstall status, doctor, and a dry-run install" width="760">
 </p>
 
 ---
