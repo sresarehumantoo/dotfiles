@@ -2,6 +2,8 @@ package modules
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
@@ -63,5 +65,37 @@ func TestStatusRowSkipsStatusWhenUnsupported(t *testing.T) {
 	}
 	if r.Reason != "macOS only" {
 		t.Errorf("Reason = %q, want %q", r.Reason, "macOS only")
+	}
+}
+
+type linkedFake struct {
+	fakeModule
+	links core.LinkSet
+}
+
+func (l linkedFake) Links() core.LinkSet { return l.links }
+
+// A partial module names the links that are not in place, so status can say
+// what is missing without a trip to diff.
+func TestStatusRowListsPartialProblems(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src")
+	if err := os.WriteFile(src, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ok, gone := filepath.Join(dir, "ok"), filepath.Join(dir, "gone")
+	if err := os.Symlink(src, ok); err != nil {
+		t.Fatal(err)
+	}
+	m := linkedFake{
+		fakeModule: fakeModule{name: "p", status: core.ModuleStatus{Linked: 1, Missing: 1}},
+		links:      core.LinkSet{{Src: src, Dst: ok}, {Src: src, Dst: gone}},
+	}
+	r := statusRow(m)
+	if r.State != StatePartial {
+		t.Fatalf("state = %d, want StatePartial", r.State)
+	}
+	if len(r.Problems) != 1 || r.Problems[0].Dst != gone || r.Problems[0].State != "missing" {
+		t.Errorf("Problems = %+v, want one missing %s", r.Problems, gone)
 	}
 }

@@ -29,7 +29,7 @@ func TestWriteStatusUsesFormatStatusLine(t *testing.T) {
 	modules.RegisterAllModules()
 
 	var b strings.Builder
-	modules.WriteStatus(&b)
+	modules.WriteStatus(&b, modules.CLIStatusHints)
 	out := b.String()
 
 	if !strings.HasPrefix(out, "Modules on ") {
@@ -42,6 +42,22 @@ func TestWriteStatusUsesFormatStatusLine(t *testing.T) {
 		line := modules.FormatStatusLine(row)
 		if !strings.Contains(out, line) {
 			t.Errorf("rendered report is missing the FormatStatusLine output for %q:\n%q", row.Name, line)
+		}
+	}
+}
+
+// With the ASCII set, the report must carry none of the Unicode status glyphs.
+func TestWriteStatus_ASCIIGlyphs(t *testing.T) {
+	modules.RegisterAllModules()
+	orig := core.G
+	defer func() { core.G = orig }()
+	core.UseASCII(true)
+
+	var b strings.Builder
+	modules.WriteStatus(&b, modules.CLIStatusHints)
+	for _, g := range []string{"✓", "✗", "·", "⚠"} {
+		if strings.Contains(b.String(), g) {
+			t.Errorf("ASCII report contains %q:\n%s", g, b.String())
 		}
 	}
 }

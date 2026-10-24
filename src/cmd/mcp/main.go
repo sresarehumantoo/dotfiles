@@ -177,7 +177,11 @@ func registerTools(s *server.MCPServer) {
 
 func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	var b strings.Builder
-	modules.WriteStatus(&b)
+	modules.WriteStatus(&b, modules.StatusHints{
+		Install:    "dfinstall_install with module '%s'",
+		InstallAll: "dfinstall_install with module 'all'",
+		Diff:       "dfinstall_diff",
+	})
 	return mcp.NewToolResultText(b.String()), nil
 }
 
