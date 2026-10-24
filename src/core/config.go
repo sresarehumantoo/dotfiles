@@ -21,6 +21,7 @@ type Config struct {
 	ToolkitTools       []string `yaml:"toolkit_tools,omitempty"`
 	ToolkitRegistryURL string   `yaml:"toolkit_registry_url,omitempty"`
 	WindevEnabled      bool     `yaml:"windev_enabled,omitempty"`
+	OpencodeEnabled    bool     `yaml:"opencode_enabled,omitempty"`
 }
 
 // IsModuleSkipped returns true if the named module is in the SkipModules list.
@@ -35,8 +36,8 @@ func IsModuleSkipped(name string) bool {
 
 // SkipInAll reports whether a module should be omitted from `install all`.
 // Combines user SkipModules with opt-in modules that haven't been enabled yet
-// (currently just windev — explicit `install windev` flips Cfg.WindevEnabled
-// on, after which it's included like any other module).
+// (windev, opencode): an explicit `install <name>` flips its flag on, after
+// which it's included like any other module.
 //
 // Every caller that iterates AllModules for an "install all" must use this, not
 // IsModuleSkipped alone; the MCP server previously used the latter and so
@@ -45,30 +46,45 @@ func SkipInAll(name string) bool {
 	if IsModuleSkipped(name) {
 		return true
 	}
-	if name == "windev" && !Cfg.WindevEnabled {
+	if f := optInFlag(name); f != nil && !*f {
 		return true
 	}
 	return false
 }
 
-// SetWindevOptIn records an explicit `install windev` so later `install all`
-// runs keep it current. The flag is persisted by InstallSession.Finish via
-// WindevMode. No-op under --dry-run so a preview never mutates config state.
-func SetWindevOptIn() {
-	if DryRun {
-		return
+// optInFlag returns the config flag that enables an opt-in module, or nil for
+// a module that is not opt-in.
+func optInFlag(name string) *bool {
+	switch name {
+	case "windev":
+		return &Cfg.WindevEnabled
+	case "opencode":
+		return &Cfg.OpencodeEnabled
 	}
-	WindevMode = true
-	Cfg.WindevEnabled = true
+	return nil
 }
 
-// ClearWindevOptIn drops the opt-in on an explicit `uninstall windev` so
-// `install all` stops re-applying it. Best-effort: warns but doesn't fail.
-func ClearWindevOptIn() {
-	if DryRun || !Cfg.WindevEnabled {
+// SetOptIn records an explicit `install <name>` of an opt-in module so later
+// `install all` runs keep it current. The flag is persisted by
+// InstallSession.Finish via OptInMode. No-op for other modules and under
+// --dry-run, so a preview never mutates config state.
+func SetOptIn(name string) {
+	f := optInFlag(name)
+	if f == nil || DryRun {
 		return
 	}
-	Cfg.WindevEnabled = false
+	OptInMode = true
+	*f = true
+}
+
+// ClearOptIn drops the opt-in on an explicit `uninstall <name>` so `install
+// all` stops re-applying it. Best-effort: warns but doesn't fail.
+func ClearOptIn(name string) {
+	f := optInFlag(name)
+	if f == nil || DryRun || !*f {
+		return
+	}
+	*f = false
 	if err := SaveConfig(); err != nil {
 		Warn("failed to save config: %v", err)
 	}
@@ -89,9 +105,10 @@ var ToolkitMode bool
 // to it.
 var UpgradeMode bool
 
-// WindevMode is set when the windev module is the explicit install target.
-// Like ExtendedMode/ToolkitMode, it gates persisting the windev opt-in to config.
-var WindevMode bool
+// OptInMode is set when an opt-in module (windev, opencode) is the explicit
+// install target. Like ExtendedMode/ToolkitMode, it gates persisting the
+// opt-in to config.
+var OptInMode bool
 
 // InstallingAll reports whether the current install session is `install all`
 // rather than a single named module. Owned and reset by BeginInstall/Finish —

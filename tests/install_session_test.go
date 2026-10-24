@@ -33,6 +33,58 @@ func TestSkipInAll_WindevRequiresOptIn(t *testing.T) {
 	}
 }
 
+// opencode is opt-in like windev, and the flags are independent: enabling one
+// must not pull the other into `install all`.
+func TestSkipInAll_OpencodeRequiresOptIn(t *testing.T) {
+	saved := core.Cfg
+	defer func() { core.Cfg = saved }()
+	core.Cfg = core.Config{WindevEnabled: true}
+
+	if !core.SkipInAll("opencode") {
+		t.Error("opencode must be skipped in `install all` until explicitly enabled")
+	}
+	core.Cfg.OpencodeEnabled = true
+	core.Cfg.WindevEnabled = false
+	if core.SkipInAll("opencode") {
+		t.Error("opencode should be included once opted in")
+	}
+	if !core.SkipInAll("windev") {
+		t.Error("enabling opencode must not enable windev")
+	}
+}
+
+// SetOptIn/ClearOptIn flip only the named module's flag, and nothing under
+// --dry-run.
+func TestSetClearOptIn(t *testing.T) {
+	saved, savedMode := core.Cfg, core.OptInMode
+	defer func() { core.Cfg, core.OptInMode, core.DryRun = saved, savedMode, false }()
+	t.Setenv("DOTFILES", t.TempDir())
+	core.ResetDotfilesDir()
+	defer core.ResetDotfilesDir()
+	core.Cfg = core.Config{}
+	core.OptInMode = false
+
+	core.DryRun = true
+	core.SetOptIn("opencode")
+	if core.Cfg.OpencodeEnabled || core.OptInMode {
+		t.Fatal("SetOptIn changed state under --dry-run")
+	}
+	core.DryRun = false
+
+	core.SetOptIn("shell")
+	if core.OptInMode {
+		t.Error("SetOptIn on a module that is not opt-in set OptInMode")
+	}
+	core.SetOptIn("opencode")
+	if !core.Cfg.OpencodeEnabled || core.Cfg.WindevEnabled || !core.OptInMode {
+		t.Errorf("after SetOptIn(opencode): %+v, OptInMode=%v", core.Cfg, core.OptInMode)
+	}
+	core.ClearOptIn("opencode")
+	if core.Cfg.OpencodeEnabled {
+		t.Error("ClearOptIn left opencode enabled")
+	}
+}
+
 func TestSkipInAll_HonorsSkipModules(t *testing.T) {
 	origSkip := core.Cfg.SkipModules
 	origWindev := core.Cfg.WindevEnabled
