@@ -19,6 +19,8 @@ type AlttabModule struct{}
 
 func (AlttabModule) Name() string { return "alttab" }
 
+func (AlttabModule) Unsupported() string { return macOnly() }
+
 func alttabSource() string { return core.ConfigPath("alttab", "main.swift") }
 func alttabBinary() string { return core.HomeTarget(".local", "bin", "alttab") }
 func alttabAgent() string  { return launchAgentPath(alttabLabel) }

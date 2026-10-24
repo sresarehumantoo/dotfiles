@@ -25,6 +25,8 @@ type WindevModule struct{}
 
 func (WindevModule) Name() string { return "windev" }
 
+func (WindevModule) Unsupported() string { return linuxOnly() }
+
 // windevDir holds module-managed binaries that have no system package
 // (OmniSharp, netcoredbg).
 func windevDir() string { return core.HomeTarget(".local", "share", "windev") }

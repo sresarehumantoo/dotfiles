@@ -15,6 +15,8 @@ type SwayModule struct{}
 
 func (SwayModule) Name() string { return "sway" }
 
+func (SwayModule) Unsupported() string { return linuxOnly() }
+
 func (SwayModule) Links() core.LinkSet {
 	if core.IsMac() {
 		return nil

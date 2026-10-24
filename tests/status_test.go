@@ -10,38 +10,51 @@ import (
 
 func TestFormatStatusLine(t *testing.T) {
 	tests := []struct {
-		name   string
-		status core.ModuleStatus
-		want   []string // substrings that should be present
+		name string
+		row  modules.StatusRow
+		want []string
+		not  []string
 	}{
 		{
-			name:   "all linked",
-			status: core.ModuleStatus{Name: "shell", Linked: 5, Missing: 0},
-			want:   []string{"shell", "5", "0"},
+			name: "installed",
+			row:  modules.StatusRow{ModuleStatus: core.ModuleStatus{Name: "shell", Linked: 5}, State: modules.StateInstalled},
+			want: []string{"shell", "5/5"},
 		},
 		{
-			name:   "some missing",
-			status: core.ModuleStatus{Name: "nvim", Linked: 10, Missing: 7},
-			want:   []string{"nvim", "10", "7"},
+			name: "partial",
+			row:  modules.StatusRow{ModuleStatus: core.ModuleStatus{Name: "nvim", Linked: 10, Missing: 7}, State: modules.StatePartial},
+			want: []string{"nvim", "10/17"},
 		},
 		{
-			name:   "with extra info",
-			status: core.ModuleStatus{Name: "delta", Linked: 1, Missing: 0, Extra: "installed"},
-			want:   []string{"delta", "1", "0", "installed"},
+			name: "with extra info",
+			row:  modules.StatusRow{ModuleStatus: core.ModuleStatus{Name: "delta", Linked: 1, Extra: "installed"}, State: modules.StateInstalled},
+			want: []string{"delta", "1/1", "installed"},
 		},
 		{
-			name:   "not WSL",
-			status: core.ModuleStatus{Name: "wsl", Linked: 0, Missing: 0, Extra: "not WSL"},
-			want:   []string{"wsl", "0", "not WSL"},
+			name: "unavailable shows the reason and no count",
+			row:  modules.StatusRow{ModuleStatus: core.ModuleStatus{Name: "wsl"}, State: modules.StateUnavailable, Reason: "WSL only"},
+			want: []string{"wsl", "WSL only"},
+			not:  []string{"0/0"},
+		},
+		{
+			name: "skipped shows the reason, not the module's own note",
+			row:  modules.StatusRow{ModuleStatus: core.ModuleStatus{Name: "windev", Extra: "disabled"}, State: modules.StateSkipped, Reason: "opt-in: dfinstall install windev"},
+			want: []string{"windev", "opt-in"},
+			not:  []string{"disabled"},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := modules.FormatStatusLine(tt.status)
-			for _, substr := range tt.want {
-				if !strings.Contains(got, substr) {
-					t.Errorf("FormatStatusLine() = %q, missing substring %q", got, substr)
+			got := modules.FormatStatusLine(tt.row)
+			for _, s := range tt.want {
+				if !strings.Contains(got, s) {
+					t.Errorf("FormatStatusLine() = %q, missing %q", got, s)
+				}
+			}
+			for _, s := range tt.not {
+				if strings.Contains(got, s) {
+					t.Errorf("FormatStatusLine() = %q, should not contain %q", got, s)
 				}
 			}
 		})

@@ -15,6 +15,13 @@ type WslModule struct{}
 
 func (WslModule) Name() string { return "wsl" }
 
+func (WslModule) Unsupported() string {
+	if core.IsWSL() {
+		return ""
+	}
+	return "WSL only"
+}
+
 func (WslModule) Install(ctx context.Context) error {
 	if !core.IsWSL() {
 		core.Ok("Not running in WSL, skipping")
