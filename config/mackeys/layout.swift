@@ -26,10 +26,18 @@ struct Config: Decodable {
 let configURL = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/Application Support/dfinstall/mackeys-layout.json")
 
+let heldModifiers: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
+
+func modifiersHeld() -> Bool {
+    !CGEventSource.flagsState(.combinedSessionState).intersection(heldModifiers).isEmpty
+}
+
 final class Layout {
     private let config: Config
     private var applied: String?
     private var poll: Timer?
+    private var settle: Timer?
+    private var reassert: Timer?
 
     init(_ config: Config) {
         self.config = config
@@ -44,13 +52,22 @@ final class Layout {
     // a different modifier, leaving the first one stuck: Ctrl+Tab out of a
     // browser holds Command until the key comes up. So the switch waits for
     // every modifier to be released.
+    //
+    // A mapping set the instant an app activates did not take effect, while
+    // the same mapping set seconds later did, so the switch starts half a
+    // second after the last activation and is sent again a second and a half
+    // after that.
     func update(force: Bool = false) {
         if force {
             applied = nil
         }
-        guard poll == nil else { return }
-        poll = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in self.tick() }
-        tick()
+        settle?.invalidate()
+        settle = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { _ in
+            self.settle = nil
+            guard self.poll == nil else { return }
+            self.poll = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in self.tick() }
+            self.tick()
+        }
     }
 
     private func tick() {
@@ -59,13 +76,17 @@ final class Layout {
             stop()
             return
         }
-        let held: CGEventFlags = [.maskCommand, .maskControl, .maskAlternate, .maskShift]
-        guard CGEventSource.flagsState(.combinedSessionState).intersection(held).isEmpty else { return }
+        guard !modifiersHeld() else { return }
         stop()
-        if set(want) {
-            applied = want
-            let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "no app"
-            logLine("\(want == config.command ? "command" : "standard") layout for \(app)")
+        guard set(want) else { return }
+        applied = want
+        let name = want == config.command ? "command" : "standard"
+        let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "no app"
+        logLine("\(name) layout for \(app)")
+        reassert?.invalidate()
+        reassert = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
+            guard self.applied == want, self.wanted() == want, !modifiersHeld(), self.set(want) else { return }
+            logLine("\(name) layout sent again for \(app)")
         }
     }
 
