@@ -378,6 +378,26 @@ drop-in leaves nothing.
 
 `core/hash.go` provides SHA-256 file hashing used by the `fonts` and `wsl` modules to detect whether installed files match the source. This avoids unnecessary writes and enables status checks without reading full file contents.
 
+## Package Mirrors
+
+`modules/mirrors.go` reads how npm, pip, Go and cargo are pointed at a mirror
+(Nexus, Artifactory), each through its own configuration; `doctor` reports it
+in a `package mirrors` row. pipx, `go install` and `cargo install` already use
+those mirrors on their own.
+
+GitHub downloads go through `githubProbe`/`githubDownload` in
+`modules/github_release.go`, which `latestRelease`, `downloadVerified`, fonts and
+the toolkit installers use. When npm's registry is a Nexus repository URL, the
+Nexus is asked anonymously (`/service/rest/v1/repositories`) for raw proxies of
+`https://github.com` and `https://api.github.com`. Each GitHub fetch then tries
+the mirror first and GitHub second. Verified downloads stay verified: the
+mirror serves the same release JSON and bytes, so the GitHub digest still
+matches. Not covered: git clones (oh-my-zsh, tmux plugins), the toolkit
+registry on `raw.githubusercontent.com`, and a Nexus without anonymous read.
+
+`scripts/corplab` tests all of this against a real Nexus CE behind a
+TLS-inspecting firewall; see [Building](building.md#corporate-network-lab).
+
 ## Toolkit Registry
 
 `core/registry.go` manages the external toolkit registry — a JSON catalog of installable tools fetched at runtime so no tool names are compiled into the binary. The registry is fetched from `DefaultRegistryURL` (raw GitHub, `sresarehumantoo/dotfiles-toolkit`), overridable via the `toolkit_registry_url` config field or the `--registry` flag.

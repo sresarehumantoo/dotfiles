@@ -78,6 +78,8 @@ On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up
 
 Behind a TLS-inspecting proxy, bootstrap detects the interception (hosts that fail against Apple's public roots but pass with the System keychain's certificates) and points the tools that ignore the keychain at a bundle of both: curl, git, Node, Python, cargo and Homebrew, through `~/.config/dfinstall/ca.sh`, which `~/.profile` sources. `SSL_CERT_FILE` is left alone, because it would turn off Go's keychain verification. Re-run the bootstrap with `--skip-ghostty --skip-dotfiles` after the proxy's root CA changes; `dfinstall doctor` flags a bundle that is missing a keychain certificate. The very first download can fail before any of that runs, since Apple's `curl` does not trust the keychain either; if it reports a certificate error, fetch with the keychain's certificates:
 
+When Ghostty's download site is blocked, so `brew install --cask ghostty` fails, bootstrap offers Ghostty's nightly build from GitHub instead (GitHub carries no stable release of it), checked against GitHub's sha256.
+
 ```bash
 security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain > /tmp/ca.pem
 curl --cacert /tmp/ca.pem -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
