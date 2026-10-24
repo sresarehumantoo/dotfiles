@@ -45,7 +45,7 @@ Most dotfiles repos are a pile of symlinks and a `bootstrap.sh` that nobody dare
 
 ### Fresh WSL setup (from PowerShell)
 
-Bootstraps a WSL Debian distro from nothing — creates a user, installs packages, builds Neovim, installs Ghostty, and runs the full dotfiles install:
+Bootstraps a WSL Debian distro from nothing — creates a user, installs packages, builds Neovim, installs Ghostty, installs dfinstall from its apt repository, and runs the full dotfiles install:
 
 ```powershell
 git clone https://github.com/sresarehumantoo/dotfiles
@@ -60,21 +60,24 @@ The wizard prompts for distro and username. To skip the prompts or trim the scop
 .\bootstrap\wsl-bootstrap.ps1 -SkipGhostty                    # skip ghostty install
 .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles                   # core tools only
 .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
+.\bootstrap\wsl-bootstrap.ps1 -Branch develop                     # another branch: builds dfinstall from source
 ```
+
+The released dfinstall is only used on `main`, which releases are cut from: another branch's configs may need code no release has yet, so `-Branch` anything else (or `-FromSource`) builds it from the clone with Go, as does an apt repository that cannot be reached. `DFINSTALL_APT_URL` in the distro points the install at a mirror of the repository instead.
 
 ### Fresh Mac
 
-Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones to `~/dotfiles` and runs `make install`:
+Installs the Xcode Command Line Tools, Homebrew and Ghostty, then dfinstall from the Homebrew tap, clones to `~/dotfiles` and runs `dfinstall install all`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 ```
 
-From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS. Bootstrap shows its plan and asks before every step that changes the machine; declining stops there with nothing further changed, and re-running picks up where it left off. `--yes` answers every prompt.
+From an existing clone, `./bootstrap/macos-setup.sh` uses that clone instead. `--skip-ghostty` and `--skip-dotfiles` trim the scope. On a branch other than `main`, with `--from-source`, or when the tap cannot be reached, it installs Go and builds dfinstall from the clone (`make install`) instead. `DFINSTALL_TAP_URL` clones the tap from a mirror, and Homebrew's own `HOMEBREW_ARTIFACT_DOMAIN` mirrors the download. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS. Bootstrap shows its plan and asks before every step that changes the machine; declining stops there with nothing further changed, and re-running picks up where it left off. `--yes` answers every prompt.
 
 Which Homebrew to use is discovered, not assumed. Bootstrap uses the first one this account can write to: one recorded by an earlier run, the `brew` on `PATH`, then `/opt/homebrew`, `/usr/local` and `~/homebrew`. It records the choice in `~/.config/dfinstall/brew-prefix`, which `~/.profile` and dfinstall read first, so a read-only Homebrew (an IT-owned `/opt/homebrew`, say) never shadows yours. With none usable it offers Homebrew's official installer at its default prefix, and if that cannot finish it stops with the options rather than picking a path for you. `--brew-prefix <path>` installs a separate Homebrew this account owns: at most 13 characters (as long as `/opt/homebrew`) and every prebuilt bottle works there, through the official installer; longer, like `~/homebrew`, it comes from Homebrew's release tarball and the bottles that are not relocatable (coreutils, gawk, make, bash, node, neovim, wget, openssl and a few more) compile from source on first install.
 
-On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up front and says what it found: whether the account is an admin, which Homebrew is usable, and Santa in Lockdown, which blocks the locally built `dfinstall`. Apps go to `~/Applications` when `/Applications` is not writable, casks installed by hand included (`HOMEBREW_CASK_OPTS`), `install all` creates no login items (only `install sketchybar`, `install alttab`, `install mackeys` and AeroSpace's own setting do), Rust comes from Homebrew's rustup rather than `curl | sh`, and an SSH agent that is already running is kept. Bootstrap ends by saving `dfinstall doctor` to `~/Library/Logs/`, which reports admin, Homebrew ownership, the app folder, MDM enrollment, Santa, TLS trust and Gatekeeper; run `dfinstall doctor` again any time to see the same.
+On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up front and says what it found: whether the account is an admin, which Homebrew is usable, and Santa in Lockdown, which blocks an unsigned `dfinstall`. Apps go to `~/Applications` when `/Applications` is not writable, casks installed by hand included (`HOMEBREW_CASK_OPTS`), `install all` creates no login items (only `install sketchybar`, `install alttab`, `install mackeys` and AeroSpace's own setting do), Rust comes from Homebrew's rustup rather than `curl | sh`, and an SSH agent that is already running is kept. Bootstrap ends by saving `dfinstall doctor` to `~/Library/Logs/`, which reports admin, Homebrew ownership, the app folder, MDM enrollment, Santa, TLS trust and Gatekeeper; run `dfinstall doctor` again any time to see the same.
 
 Behind a TLS-inspecting proxy, bootstrap detects the interception (hosts that fail against Apple's public roots but pass with the System keychain's certificates) and points the tools that ignore the keychain at a bundle of both: curl, git, Node, Python, cargo and Homebrew, through `~/.config/dfinstall/ca.sh`, which `~/.profile` sources. `SSL_CERT_FILE` is left alone, because it would turn off Go's keychain verification. Re-run the bootstrap with `--skip-ghostty --skip-dotfiles` after the proxy's root CA changes; `dfinstall doctor` flags a bundle that is missing a keychain certificate. The very first download can fail before any of that runs, since Apple's `curl` does not trust the keychain either; if it reports a certificate error, fetch with the keychain's certificates:
 
