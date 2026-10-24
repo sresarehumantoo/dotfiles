@@ -23,7 +23,9 @@ driver="$(mktemp -t dfinstall-driver.XXXXXX.sh)"
 # Pin DOTFILES to a pristine clone at the latest tag so the recording is stable
 # across re-shoots: doctor's clone-freshness then reads a clean, upstream-tracked
 # checkout instead of whatever branch happens to be checked out here.
-tag="$(git -C "$repo" describe --tags --abbrev=0 2>/dev/null || echo main)"
+# Release tags sit on main's merge commits, which develop never contains, so a
+# describe from develop's HEAD would find a tag many releases old.
+tag="$(git -C "$repo" describe --tags --abbrev=0 origin/main 2>/dev/null || echo main)"
 clone="$(mktemp -d -t dfinstall-src.XXXXXX)"
 git clone --quiet --no-hardlinks "$repo" "$clone"
 git -C "$clone" checkout --quiet "$tag"
@@ -46,11 +48,11 @@ R='\033[0m'
 
 run() {
   printf "\$P \${C}%s\${R}\n" "\$1"; sleep 0.7
-  eval "\$2"; echo; sleep 1.2
+  eval "\$2"; echo; sleep "\${3:-1.2}"
 }
 
 sleep 0.6
-run "dfinstall status"            "\$df status"
+run "dfinstall status"            "\$df status" 4
 run "dfinstall doctor"            "\$df doctor"
 run "dfinstall install all --dry-run | head -20"  "\$df install all --dry-run 2>&1 | head -20"
 sleep 1.2
@@ -61,10 +63,10 @@ cleanup() { rm -rf "$clone" "$driver" "$cast"; }
 trap cleanup EXIT
 
 asciinema rec --overwrite \
-  --cols 92 --rows 34 \
+  --cols 92 --rows 48 \
   -c "bash $driver" \
   "$cast"
 
-agg --cols 92 --rows 34 --font-size 16 --theme dracula "$cast" "$out"
+agg --cols 92 --rows 48 --font-size 16 --theme dracula "$cast" "$out"
 echo "wrote $out"
 rm -f "$cast" "$driver"
