@@ -16,7 +16,7 @@ before:
 builds:
   - &build
     id: dfinstall
-    main: ./src/cmd/dfinstall
+    main: ./cmd/dfinstall
     binary: dfinstall
     env: [CGO_ENABLED=0]
     goos: [linux, darwin]
@@ -24,22 +24,22 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X github.com/sresarehumantoo/dotfiles/src/core.Version={{ .Tag }}
-      - -X github.com/sresarehumantoo/dotfiles/src/core.Channel=release
+      - -X github.com/sresarehumantoo/dotfiles/internal/core.Version={{ .Tag }}
+      - -X github.com/sresarehumantoo/dotfiles/internal/core.Channel=release
   - <<: *build
     id: dfinstall-mcp
-    main: ./src/cmd/mcp
+    main: ./cmd/dfinstall-mcp
     binary: dfinstall-mcp
   - <<: *build
     id: dfinstall-deb
     goos: [linux]
     ldflags: &debldflags
       - -s -w
-      - -X github.com/sresarehumantoo/dotfiles/src/core.Version={{ .Tag }}
-      - -X github.com/sresarehumantoo/dotfiles/src/core.Channel=deb
+      - -X github.com/sresarehumantoo/dotfiles/internal/core.Version={{ .Tag }}
+      - -X github.com/sresarehumantoo/dotfiles/internal/core.Channel=deb
   - <<: *build
     id: dfinstall-mcp-deb
-    main: ./src/cmd/mcp
+    main: ./cmd/dfinstall-mcp
     binary: dfinstall-mcp
     goos: [linux]
     ldflags: *debldflags

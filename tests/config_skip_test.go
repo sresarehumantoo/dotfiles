@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
 )
 
 func TestIsModuleSkipped(t *testing.T) {

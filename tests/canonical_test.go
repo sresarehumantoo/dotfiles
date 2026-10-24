@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
 )
 
 // makeRepo creates a dir that looks like a dotfiles checkout (has config/).

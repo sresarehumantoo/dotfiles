@@ -1,6 +1,6 @@
 # Module Reference
 
-Most modules are a single Go file in `src/modules/`. They run in the order listed here.
+Most modules are a single Go file in `internal/modules/`. They run in the order listed here.
 
 ---
 

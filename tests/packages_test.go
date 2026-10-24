@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/modules"
+	"github.com/sresarehumantoo/dotfiles/internal/modules"
 )
 
 func TestResolvePkgs(t *testing.T) {

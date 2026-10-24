@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
 )
 
 const validRegistryJSON = `{"version":1,"tools":[

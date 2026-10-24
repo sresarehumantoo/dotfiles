@@ -31,7 +31,7 @@ trap 'rm -rf "$work"' EXIT
 chmod 755 "$work"
 
 echo "Building dfinstall..."
-(cd "$repo" && CGO_ENABLED=0 go build -o "$work/dfinstall" ./src/cmd/dfinstall)
+(cd "$repo" && CGO_ENABLED=0 go build -o "$work/dfinstall" ./cmd/dfinstall)
 
 echo "Building image..."
 docker build -q -t dfinstall-e2e "$here" >/dev/null

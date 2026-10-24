@@ -22,7 +22,7 @@ The configs name binaries directly — in keybinds, in waybar `exec`/`on-click`,
 in swaync's button grid — and **a missing one does not announce itself**. It
 produces a key that does nothing, a bar module that silently hides, or a panel
 button that no-ops. So the dependency set is declared as data in
-`src/modules/sway.go` (`swayPackages`) rather than living in someone's memory.
+`internal/modules/sway.go` (`swayPackages`) rather than living in someone's memory.
 
 | Group | Packages | What breaks without it |
 |---|---|---|
@@ -56,7 +56,7 @@ Installed (18)
 > on `PATH`.** They ship a GObject-introspection typelib and a Python package
 > respectively, and no binary, so `exec.LookPath` would report them missing forever
 > and `install sway` would reinstall them on every run. `swayPkgGlobs` in
-> `src/modules/sway.go` checks for a marker file instead — for the typelib, globbing
+> `internal/modules/sway.go` checks for a marker file instead — for the typelib, globbing
 > both Debian's multiarch directory and the plain one; for PyGObject, both Debian's
 > `dist-packages` and everyone else's `site-packages`. Adding another binary-less
 > package means adding a glob there.

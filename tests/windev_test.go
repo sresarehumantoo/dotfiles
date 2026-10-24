@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
-	"github.com/sresarehumantoo/dotfiles/src/modules"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/internal/modules"
 )
 
 // TestWindevModule_DryRunInstall_NoOp verifies the dry-run guard short-circuits

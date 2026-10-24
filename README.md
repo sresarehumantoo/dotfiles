@@ -360,9 +360,9 @@ Without Make — note both `-X` flags:
 
 ```bash
 go build -ldflags "\
-  -X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(pwd) \
-  -X github.com/sresarehumantoo/dotfiles/src/core.Version=$(git describe --tags --always --dirty)" \
-  -o bin/dfinstall ./src/cmd/dfinstall
+  -X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=$(pwd) \
+  -X github.com/sresarehumantoo/dotfiles/internal/core.Version=$(git describe --tags --always --dirty)" \
+  -o bin/dfinstall ./cmd/dfinstall
 ```
 
 `DefaultDotfilesDir` bakes in where the configs live; `Version` is what `dfinstall --version` reports (omit it and you get `dev`).
@@ -388,16 +388,17 @@ config/                  # Config files symlinked into ~
   git/ nvim/ tmux/       #   tool configs
   ghostty/ htop/ wsl/    #   more tool configs
   konsole/ fonts/        #   terminal + font configs
-src/
-  cmd/dfinstall/         # CLI entry point (Cobra)
-  cmd/mcp/               # MCP server (stdio JSON-RPC)
+cmd/
+  dfinstall/             # CLI entry point (Cobra)
+  dfinstall-mcp/         # MCP server (stdio JSON-RPC)
+internal/
   core/                  # Module interface + LinkSet, linking, backup/restore,
                          #   output, spinner, env detection, install session,
                          #   canonical dir + drift, subprocess timeouts,
                          #   toolkit registry, version stamp
   modules/               # One file per module, plus shared machinery
 tests/                   # Black-box tests (package tests)
-                         #   in-package tests live beside the code in src/
+                         #   in-package tests live beside the code in internal/
 docs/                    # In-depth documentation
 ```
 
@@ -414,7 +415,7 @@ Run `make` (or `make help`) to list everything.
 make build          # compile the CLI to bin/dfinstall
 make build-mcp      # compile the MCP server to bin/dfinstall-mcp
 make build-all      # compile both binaries
-make test           # go test ./src/... ./tests/...
+make test           # go test ./cmd/... ./internal/... ./tests/...
 make test-race      # run the suite under the race detector
 make lint           # go vet
 make fmt            # gofmt -s -w (in place)

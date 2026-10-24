@@ -26,8 +26,8 @@ The compiled binary is written to `bin/dfinstall`.
 
 ```bash
 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=$(pwd)" \
-  -o bin/dfinstall ./src/cmd/dfinstall
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=$(pwd)" \
+  -o bin/dfinstall ./cmd/dfinstall
 ```
 
 The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This is only one input to how `dfinstall` locates its `config/` directory. At runtime `DotfilesDir()` resolves in order:
@@ -125,11 +125,11 @@ Run `make` (or `make help`) to list every target.
 | `build` | `go build ...` | Compile to `bin/dfinstall` |
 | `build-mcp` | `go build ...` | Compile the MCP server to `bin/dfinstall-mcp` |
 | `build-all` | `build` + `build-mcp` | Compile both binaries |
-| `test` | `go test ./src/... ./tests/...` | Run all unit tests |
-| `test-race` | `go test -race ./src/... ./tests/...` | Run the suite under the race detector |
-| `lint` | `go vet ./src/... ./tests/...` | Static analysis |
-| `fmt` | `gofmt -s -w src/ tests/` | Format source code in place |
-| `fmt-check` | `gofmt -s -l src tests` | Check formatting without modifying (same check as CI) |
+| `test` | `go test ./cmd/... ./internal/... ./tests/...` | Run all unit tests |
+| `test-race` | `go test -race ./cmd/... ./internal/... ./tests/...` | Run the suite under the race detector |
+| `lint` | `go vet ./cmd/... ./internal/... ./tests/...` | Static analysis |
+| `fmt` | `gofmt -s -w cmd/ internal/ tests/` | Format source code in place |
+| `fmt-check` | `gofmt -s -l cmd internal tests` | Check formatting without modifying (same check as CI) |
 | `ci` | `fmt-check` + `lint` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
 | `e2e` | `scripts/e2e/run.sh <scenario>` | End-to-end scenarios in Docker; `SCENARIO=sudo` runs one |
 | `corplab` | `scripts/corplab/run.sh [scenario]` | Corporate-network scenarios (TLS inspection, Nexus) in Docker Compose; `SCENARIO=nexus` runs one |
@@ -169,13 +169,13 @@ Go supports cross-compilation natively. To build for a different platform:
 ```bash
 # Linux ARM64 (e.g. Raspberry Pi)
 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=/home/user/dotfiles" \
-  -o bin/dfinstall-arm64 ./src/cmd/dfinstall
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -o bin/dfinstall-arm64 ./cmd/dfinstall
 
 # Linux AMD64
 GOOS=linux GOARCH=amd64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/src/core.DefaultDotfilesDir=/home/user/dotfiles" \
-  -o bin/dfinstall-amd64 ./src/cmd/dfinstall
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -o bin/dfinstall-amd64 ./cmd/dfinstall
 ```
 
 Note: the baked-in dotfiles path should match the target machine. If the path varies, use the `$DOTFILES` environment variable at runtime instead.
@@ -183,9 +183,10 @@ Note: the baked-in dotfiles path should match the target machine. If the path va
 ## Project Structure
 
 ```
-src/
-  cmd/dfinstall/     # CLI entry point (main.go)
-  cmd/mcp/           # MCP server entry point (main.go) → bin/dfinstall-mcp
+cmd/
+  dfinstall/         # CLI entry point (main.go)
+  dfinstall-mcp/     # MCP server entry point (main.go) → bin/dfinstall-mcp
+internal/
   core/              # Shared libraries
     apt.go           #   apt/dpkg helpers
     backup.go        #   Backup/restore system
@@ -214,8 +215,8 @@ src/
     json_settings.go   #   managedJSON: merge tracked keys into a settings file a program also writes
     ...                #   19 modules total
 tests/                 # Black-box tests (package tests)
-                       # In-package tests also live in src/core/*_test.go
-                       # and src/modules/*_test.go for unexported internals
+                       # In-package tests also live in internal/core/*_test.go
+                       # and internal/modules/*_test.go for unexported internals
 ```
 
 ## Testing

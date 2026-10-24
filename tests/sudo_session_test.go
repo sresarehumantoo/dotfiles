@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
 )
 
 // fakeSudo puts a sudo on PATH that logs its arguments and answers `-n true`

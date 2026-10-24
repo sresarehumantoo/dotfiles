@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
 )
 
 // noCloneHome isolates HOME and XDG, unsets $DOTFILES, and runs the test from

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
-	"github.com/sresarehumantoo/dotfiles/src/modules"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/internal/modules"
 )
 
 // captureStdout runs fn with os.Stdout redirected to a pipe and returns what

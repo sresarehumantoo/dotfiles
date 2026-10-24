@@ -52,7 +52,7 @@ unset _brew_prefix _brew_fallback _p
 # GNU userland ahead of Apple's BSD tools, so sed/grep/find/ls/tar/make behave
 # as on Linux. A named list, not opt/*/libexec/gnubin: libtool has a gnubin too,
 # and GNU libtool shadowing Apple's /usr/bin/libtool breaks native builds. Keep
-# in step with macGNUFormulae (src/modules/packages.go) and zsh/path.zsh.
+# in step with macGNUFormulae (internal/modules/packages.go) and zsh/path.zsh.
 if [ -n "$HOMEBREW_PREFIX" ]; then
     for _gnu in coreutils findutils gnu-sed grep gawk gnu-tar make; do
         if [ -d "$HOMEBREW_PREFIX/opt/$_gnu/libexec/gnubin" ]; then

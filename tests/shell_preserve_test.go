@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
-	"github.com/sresarehumantoo/dotfiles/src/modules"
+	"github.com/sresarehumantoo/dotfiles/internal/core"
+	"github.com/sresarehumantoo/dotfiles/internal/modules"
 )
 
 func TestScanCustomShellFiles_FindsCustomRC(t *testing.T) {

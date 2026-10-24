@@ -171,7 +171,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `--extended` | Show interactive menu to select extended OMZ plugins |
 | `--toolkit` | Show interactive menu to select toolkit tools |
 | `--registry <path\|url>` | Override toolkit registry URL for a single run |
-| `--upgrade` | Default for `update` (`--no-upgrade` turns it off). Converge the clone first (`modules.ConvergeClone`: rescue replaced links, offer moves into override files, fast-forward with edits carried), rebuild and re-exec if `src/` changed, then set `core.UpgradeMode` so modules refresh release binaries and cloned plugins |
+| `--upgrade` | Default for `update` (`--no-upgrade` turns it off). Converge the clone first (`modules.ConvergeClone`: rescue replaced links, offer moves into override files, fast-forward with edits carried), rebuild and re-exec if `cmd/` or `internal/` changed, then set `core.UpgradeMode` so modules refresh release binaries and cloned plugins |
 | `--dry-run` | Preview changes without modifying the filesystem (forces verbose output) |
 
 ### Restore Flags
@@ -545,7 +545,7 @@ Individual failures are warned but don't stop the restore. A summary error is re
 
 `core/exec.go` defines the deadlines; `modules/packages.go` provides the wrappers.
 
-The rule is that **every** subprocess is cancelable: `src/` contains no
+The rule is that **every** subprocess is cancelable: `cmd/` and `internal/` contain no
 `exec.Command` calls at all, only `exec.CommandContext`, so a Ctrl-C (or an MCP
 request cancellation) tears down whatever is running. The three wrappers below
 are how a command *additionally* gets a deadline.
