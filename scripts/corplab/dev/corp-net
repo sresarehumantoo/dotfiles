@@ -1,0 +1,10 @@
+#!/bin/sh
+# Route through the inline proxy and use its DNS, as a workstation behind a
+# firewall would. Nexus stays on the local network.
+set -eu
+until proxy=$(getent hosts proxy | cut -d' ' -f1) && [ -n "$proxy" ]; do sleep 1; done
+nexus=$(getent hosts nexus | cut -d' ' -f1)
+ip route replace default via "$proxy"
+echo "$nexus nexus" >> /etc/hosts
+echo "nameserver $proxy" > /etc/resolv.conf
+exec sleep infinity

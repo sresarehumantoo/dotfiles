@@ -171,9 +171,9 @@ func (s *InstallSession) saveConfig() {
 	}
 
 	// The opt-in modes mutate Cfg in memory; persist so the choice sticks.
-	// WindevMode belongs here alongside the other two: omitting it meant
+	// OptInMode belongs here alongside the other two: omitting it meant
 	// `dfinstall install windev` recorded the opt-in only in verbose mode.
-	if ExtendedMode || ToolkitMode || WindevMode {
+	if ExtendedMode || ToolkitMode || OptInMode {
 		if err := SaveConfig(); err != nil {
 			Warn("failed to save config: %v", err)
 		}

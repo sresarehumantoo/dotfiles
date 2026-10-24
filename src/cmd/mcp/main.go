@@ -152,7 +152,7 @@ func registerTools(s *server.MCPServer) {
 				mcp.Description("'get' to read config, 'set' to write a value"),
 			),
 			mcp.WithString("key",
-				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled"),
+				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled"),
 			),
 			mcp.WithString("value",
 				mcp.Description("Value to set (required for 'set' action)"),
@@ -239,7 +239,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		var failures []string
 		for _, m := range core.AllModules() {
 			// core.SkipInAll, not IsModuleSkipped: the latter ignores the
-			// windev opt-in and installed it on machines that never enabled it.
+			// opt-in flags and installed windev on machines that never enabled it.
 			if core.SkipInAll(m.Name()) {
 				sess.Skip(m.Name())
 				continue
@@ -274,9 +274,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		), nil
 	}
 
-	if name == "windev" {
-		core.SetWindevOptIn()
-	}
+	core.SetOptIn(name)
 
 	sess, err := core.BeginInstall(core.InstallOptions{})
 	if err != nil {
@@ -464,6 +462,7 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			fmt.Fprintf(&b, "toolkit_tools: %v\n", core.Cfg.ToolkitTools)
 			fmt.Fprintf(&b, "toolkit_registry_url: %s\n", core.Cfg.ToolkitRegistryURL)
 			fmt.Fprintf(&b, "windev_enabled: %v\n", core.Cfg.WindevEnabled)
+			fmt.Fprintf(&b, "opencode_enabled: %v\n", core.Cfg.OpencodeEnabled)
 			fmt.Fprintf(&b, "\nconfig file: %s\n", core.ConfigFilePath())
 			return mcp.NewToolResultText(b.String()), nil
 		}
@@ -494,9 +493,11 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			return mcp.NewToolResultText(url), nil
 		case "windev_enabled":
 			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.WindevEnabled)), nil
+		case "opencode_enabled":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.OpencodeEnabled)), nil
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled)", key),
 			), nil
 		}
 
@@ -543,9 +544,11 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			core.Cfg.ToolkitRegistryURL = value
 		case "windev_enabled":
 			core.Cfg.WindevEnabled = value == "true"
+		case "opencode_enabled":
+			core.Cfg.OpencodeEnabled = value == "true"
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled)", key),
 			), nil
 		}
 		if err := core.SaveConfig(); err != nil {
@@ -612,14 +615,12 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 
 	defer core.ReleaseSudo()
 
-	// Read the before-state first: WindevModule.Status() short-circuits to
-	// "disabled" once the opt-in is cleared, so clearing first reported every
-	// windev uninstall as 0 links removed no matter how many it deleted.
+	// Read the before-state first: an opt-in module's Status() short-circuits
+	// to "disabled" once the opt-in is cleared, so clearing first reported
+	// every windev uninstall as 0 links removed no matter how many it deleted.
 	before := m.Status()
 
-	if name == "windev" {
-		core.ClearWindevOptIn()
-	}
+	core.ClearOptIn(name)
 
 	if err := u.Uninstall(ctx); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("uninstall %s: %v", name, err)), nil

@@ -1,0 +1,90 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Only these providers load, even when another provider's key is in the
+  // environment. To allow another one on every machine, add its ID here, e.g.
+  //   "xai"          xAI / Grok (API key or SuperGrok login)
+  //   "openai"       OpenAI API key, or ChatGPT Plus/Pro login via /connect
+  //   "google"       Gemini API
+  //   "openrouter"   OpenRouter
+  // `opencode models` lists the IDs your build knows.
+  "enabled_providers": ["anthropic", "amazon-bedrock"],
+
+  // Wins over enabled_providers. "opencode" is Zen and its free models, some of
+  // which may use prompts for training.
+  "disabled_providers": ["opencode"],
+
+  // To trim a provider to specific models, add a whitelist (exact IDs from
+  // `opencode models <provider>`), e.g. to hide Bedrock's non-Anthropic models:
+  //   "provider": {
+  //     "amazon-bedrock": { "whitelist": ["us.anthropic.claude-sonnet-5-5-v1:0"] }
+  //   }
+
+  "share": "disabled",
+  "autoupdate": false,
+  "plugin": [],
+
+  // opencode does not follow @imports in AGENTS.md, so the import at the end of
+  // the shared CLAUDE.md has to be listed here.
+  "instructions": ["~/.claude/CLAUDE.local.md"],
+
+  // Modeled on Claude Code's default mode: reads and searches run freely, edits
+  // and shell commands ask, the temp dir is open. opencode's own defaults are
+  // "allow" for nearly everything. For rules keyed by pattern the last match
+  // wins, so "*" comes first and denies come last.
+  "permission": {
+    "read": {
+      "*": "allow",
+      "*.env": "ask",
+      "*.env.*": "ask",
+      "*.env.example": "allow",
+      "~/.ssh/**": "deny",
+      "~/.aws/**": "deny",
+      "~/.gnupg/**": "deny",
+      "~/.vault-token": "deny",
+      "/run/vault-agent/**": "deny",
+      "~/.local/share/opencode/auth.json": "deny"
+    },
+
+    // Claude Code asks for edits. For opencode's default (edit without asking,
+    // undo through snapshots) change "*" to "allow".
+    "edit": {
+      "*": "ask",
+      "/tmp/**": "allow",
+      "/private/tmp/**": "allow",
+      "~/.config/opencode/**": "deny",
+      "~/.config/dfinstall/**": "deny",
+      "~/.claude/**": "deny"
+    },
+
+    // Any command not listed asks. Read-only commands that take a path (cat,
+    // head, find) are deliberately not here: bash bypasses the read denies
+    // above. For opencode's default (run anything) change "*" to "allow".
+    "bash": {
+      "*": "ask",
+      "git status*": "allow",
+      "git diff*": "allow",
+      "git log*": "allow",
+      "git show*": "allow",
+      "git branch": "allow",
+      "ls*": "allow",
+      "pwd": "allow",
+      "rg *": "allow",
+      "wc *": "allow"
+    },
+
+    // Paths outside the project. Claude Code reads anywhere and limits edits,
+    // which is what "allow" here plus the edit rules above gives. Set "*" to
+    // "ask" to be prompted for any access outside the project.
+    "external_directory": {
+      "*": "allow"
+    },
+
+    // Claude Code asks per domain; opencode 1 only has one rule for all URLs.
+    // Set to "allow" for opencode's default.
+    "webfetch": "ask",
+    "websearch": "ask",
+
+    "doom_loop": "ask"
+  }
+}

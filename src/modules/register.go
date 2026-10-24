@@ -32,6 +32,7 @@ func RegisterAllModules() {
 	core.RegisterModule(&HtopModule{})
 	core.RegisterModule(&NewsboatModule{})
 	core.RegisterModule(&ClaudeModule{})
+	core.RegisterModule(&OpencodeModule{})
 	core.RegisterModule(&WslModule{})
 	core.RegisterModule(&VMGuestModule{})
 	core.RegisterModule(&DefaultShellModule{})

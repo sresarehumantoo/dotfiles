@@ -371,6 +371,12 @@ install_go() {
     ok "$(go version)"
 }
 
+# Ghostty's stable builds live only on its own download site, which the cask
+# fetches from. GitHub carries just the rolling nightly ("tip"), so that is the
+# fallback when the site is blocked.
+GHOSTTY_TIP_API="https://api.github.com/repos/ghostty-org/ghostty/releases/tags/tip"
+GHOSTTY_TIP_ZIP="ghostty-macos-universal.zip"
+
 install_ghostty() {
     header "Ghostty"
     if [[ -d /Applications/Ghostty.app || -d "$HOME/Applications/Ghostty.app" ]]; then
@@ -382,12 +388,57 @@ install_ghostty() {
         return
     fi
     # /Applications is admin-only; a standard account installs per user.
-    if [[ -w /Applications ]]; then
-        brew install --cask ghostty
-    else
-        brew install --cask --appdir="$HOME/Applications" ghostty
+    local appdir=/Applications
+    [[ -w /Applications ]] || appdir="$HOME/Applications"
+    if brew install --cask --appdir="$appdir" ghostty; then
+        ok "Installed"
+        return
     fi
-    ok "Installed"
+    warn "Homebrew could not install Ghostty; its download site may be blocked on this network."
+    if ! confirm "Install Ghostty's nightly build from GitHub instead? (GitHub has no stable release of it)"; then
+        info "Skipped Ghostty"
+        return
+    fi
+    install_ghostty_tip "$appdir"
+}
+
+# The nightly macOS build from GitHub, checked against the sha256 GitHub
+# recorded for it.
+install_ghostty_tip() {
+    local appdir="$1" tmp digest
+    tmp="$(mktemp -d)"
+    if ! digest="$(curl -fsSL --max-time 60 "$GHOSTTY_TIP_API" | python3 -I -c '
+import json, sys
+for a in json.load(sys.stdin)["assets"]:
+    if a["name"] == sys.argv[1]:
+        print(a.get("digest") or "")' "$GHOSTTY_TIP_ZIP")"; then
+        rm -rf "$tmp"
+        die "Could not reach GitHub for Ghostty either. Install it from Self Service, or download it on another network."
+    fi
+    if [[ "$digest" != sha256:* ]]; then
+        rm -rf "$tmp"
+        die "${GHOSTTY_TIP_ZIP} has no published sha256 digest; refusing to install it"
+    fi
+    info "Downloading ${GHOSTTY_TIP_ZIP}..."
+    if ! curl -fsSL --retry 3 -o "$tmp/$GHOSTTY_TIP_ZIP" \
+        "https://github.com/ghostty-org/ghostty/releases/download/tip/$GHOSTTY_TIP_ZIP"; then
+        rm -rf "$tmp"
+        die "Downloading ${GHOSTTY_TIP_ZIP} failed"
+    fi
+    if ! echo "${digest#sha256:}  $tmp/$GHOSTTY_TIP_ZIP" | shasum -a 256 -c --quiet -; then
+        rm -rf "$tmp"
+        die "sha256 mismatch for ${GHOSTTY_TIP_ZIP}"
+    fi
+    # ditto keeps the bundle's signature and extended attributes intact.
+    ditto -x -k "$tmp/$GHOSTTY_TIP_ZIP" "$tmp/unzipped"
+    if [[ ! -d "$tmp/unzipped/Ghostty.app" ]]; then
+        rm -rf "$tmp"
+        die "${GHOSTTY_TIP_ZIP} holds no Ghostty.app"
+    fi
+    mkdir -p "$appdir"
+    ditto "$tmp/unzipped/Ghostty.app" "$appdir/Ghostty.app"
+    rm -rf "$tmp"
+    ok "Installed Ghostty's nightly build in ${appdir}. 'brew install --cask ghostty' moves to the stable release once the download site is reachable."
 }
 
 install_dotfiles() {
@@ -473,4 +524,6 @@ main() {
     ok "Setup complete. Open a new terminal (Ghostty) to pick up the new shell."
 }
 
-main "$@"
+# Sourced, as scripts/corplab does to exercise single steps, it only defines
+# the functions. Piped into bash it is not sourced, so main runs.
+(return 0 2>/dev/null) || main "$@"
