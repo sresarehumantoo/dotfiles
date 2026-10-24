@@ -93,7 +93,7 @@ func Info(msg string, args ...any) {
 	if Level < LogVerbose {
 		return
 	}
-	emit(infoSymbol("▸"), fmt.Sprintf(msg, args...))
+	emit(infoSymbol(G.Info), fmt.Sprintf(msg, args...))
 }
 
 // Ok prints a success message. Suppressed in quiet mode.
@@ -101,7 +101,7 @@ func Ok(msg string, args ...any) {
 	if Level < LogVerbose {
 		return
 	}
-	emit(okSymbol("✓"), fmt.Sprintf(msg, args...))
+	emit(okSymbol(G.Ok), fmt.Sprintf(msg, args...))
 }
 
 // Notice prints an informational notice. Always visible (buffered in quiet mode).
@@ -114,7 +114,7 @@ func Notice(msg string, args ...any) {
 		bufMu.Unlock()
 		return
 	}
-	emit(infoSymbol("ℹ"), formatted)
+	emit(infoSymbol(G.Notice), formatted)
 }
 
 // Warn prints a warning. Buffered in quiet mode, printed immediately otherwise.
@@ -126,25 +126,25 @@ func Warn(msg string, args ...any) {
 		bufMu.Unlock()
 		return
 	}
-	emit(warnSymbol("⚠"), formatted)
+	emit(warnSymbol(G.Warn), formatted)
 }
 
 // AlwaysWarn prints a warning that's always visible regardless of log level.
 // Use when the user needs to see it right now (e.g. during a decision point
 // where buffered output would arrive too late to act on).
 func AlwaysWarn(msg string, args ...any) {
-	emit(warnSymbol("⚠"), fmt.Sprintf(msg, args...))
+	emit(warnSymbol(G.Warn), fmt.Sprintf(msg, args...))
 }
 
 // Err prints an error message. Always printed regardless of log level.
 func Err(msg string, args ...any) {
-	emit(errSymbol("✗"), fmt.Sprintf(msg, args...))
+	emit(errSymbol(G.Fail), fmt.Sprintf(msg, args...))
 }
 
 // Status prints a success message. Always visible regardless of log level.
 // Use for direct user-facing feedback (e.g. after interactive prompts).
 func Status(msg string, args ...any) {
-	emit(okSymbol("✓"), fmt.Sprintf(msg, args...))
+	emit(okSymbol(G.Ok), fmt.Sprintf(msg, args...))
 }
 
 // Debug prints a debug message. Only shown in debug mode.
@@ -152,7 +152,7 @@ func Debug(msg string, args ...any) {
 	if Level < LogDebug {
 		return
 	}
-	emit(debugSymbol("◆"), fmt.Sprintf(msg, args...))
+	emit(debugSymbol(G.Debug), fmt.Sprintf(msg, args...))
 }
 
 // FlushWarnings prints all buffered notices and warnings, then clears both buffers.
@@ -163,9 +163,9 @@ func FlushWarnings() {
 	bufMu.Unlock()
 
 	for _, n := range notices {
-		emit(infoSymbol("ℹ"), n)
+		emit(infoSymbol(G.Notice), n)
 	}
 	for _, w := range warnings {
-		emit(warnSymbol("⚠"), w)
+		emit(warnSymbol(G.Warn), w)
 	}
 }

@@ -600,7 +600,7 @@ func sudoReason(command []string) string {
 		return who + " needs sudo"
 	}
 	if r := []rune(line); len(r) > 100 {
-		line = string(r[:99]) + "…"
+		line = string(r[:100-len([]rune(G.Ellipsis))]) + G.Ellipsis
 	}
 	return fmt.Sprintf("%s needs sudo to run: %s", who, line)
 }

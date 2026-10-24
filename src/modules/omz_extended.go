@@ -183,9 +183,9 @@ func RunExtendedPluginMenu() ([]string, error) {
 		for _, p := range cat.plugins {
 			indicator := "  "
 			if available[p.Name] {
-				indicator = "✓ "
+				indicator = core.G.Ok + " "
 			}
-			label := fmt.Sprintf("%s%s — %s", indicator, p.Name, p.Desc)
+			label := fmt.Sprintf("%s%s %s %s", indicator, p.Name, core.G.Dash, p.Desc)
 			pluginOptions = append(pluginOptions, huh.NewOption(label, p.Name))
 			if selected[p.Name] {
 				catSelected = append(catSelected, p.Name)
