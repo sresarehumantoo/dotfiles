@@ -59,10 +59,6 @@ live_maps() {
 		grep -A12 -E 'HIDKeyboardModifierMappingPairs|UserKeyMapping|UnifiedKeyMapping'
 }
 
-remap_log() {
-	log show --last "${1:-15m}" --style compact --predicate 'eventMessage CONTAINS[c] "remap"' 2>&1 | tail -n 20
-}
-
 case ${1:-} in
 -h | --help)
 	usage
@@ -75,8 +71,6 @@ case ${1:-} in
 	echo "If it took, the Ctrl key now sends Cmd everywhere, this terminal included."
 	section "live maps"
 	live_maps
-	section "remap log"
-	remap_log 2m
 	echo
 	echo "1. Here in Ghostty: Ctrl key + C should now act as Cmd+C (copy), not interrupt."
 	echo "2. In Jira: Ctrl key + Z with the console trace open; look for meta true."
@@ -136,9 +130,6 @@ URL=${1:-}
 
 	section "live maps in the keyboard filter, Chrome in front"
 	live_maps
-
-	section "remap log (last 15 minutes)"
-	remap_log 15m
 
 	section "agent log (last 30 lines)"
 	tail -n 30 "$LOG" 2>&1
