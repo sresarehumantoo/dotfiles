@@ -35,6 +35,12 @@ func (GhosttyModule) Links() core.LinkSet {
 			Dst: core.XDGTarget("ghostty", "shaders", shader),
 		})
 	}
+	if core.IsMac() {
+		links = append(links, core.LinkPair{
+			Src: core.ConfigPath("ghostty", "macos.conf"),
+			Dst: core.XDGTarget("ghostty", "macos.conf"),
+		})
+	}
 	return links
 }
 

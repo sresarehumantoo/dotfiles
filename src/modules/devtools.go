@@ -30,6 +30,7 @@ var devtoolsScripts = []string{
 	"demorec",
 	"wsl-ffmpeg",
 	"ghostty-shader",
+	"newsboat-view",
 }
 
 // linuxOnlyDevtools drive WSL or read /proc, /sys or /dev/dri, so they are not

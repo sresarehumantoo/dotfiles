@@ -1,6 +1,6 @@
 # Keybindings Reference
 
-Quick reference for all custom keybindings across interactive menus, tmux, neovim, zsh, and shell aliases.
+Quick reference for all custom keybindings across interactive menus, macOS, tmux, neovim, zsh, and shell aliases.
 
 ---
 
@@ -23,6 +23,53 @@ Quick reference for all custom keybindings across interactive menus, tmux, neovi
 | `Space` | Toggle selection |
 | `Enter` | Confirm selections |
 | `Esc` / `q` | Go back to categories (no changes) |
+
+---
+
+## macOS (mackeys, alttab, Ghostty)
+
+The built-in keyboard's bottom row is remapped to Ctrl, Fn, Cmd, Opt, matching a Windows laptop's Ctrl, Fn, Win, Alt. Keys below are named by what they send after that swap, except `Win`, which is the key in the Windows key's position. In browsers, Electron apps and Office the Ctrl key sends Cmd and the Win key sends Ctrl, so web apps and Office get the Cmd shortcuts they expect while the letters stay where Windows has them.
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` / `Ctrl+V` / `Ctrl+X` | Copy / Paste / Cut in GUI and web apps |
+| `Ctrl+Shift+V` | Paste and Match Style (paste as plain text) |
+| `Ctrl+A` / `Ctrl+Z` / `Ctrl+Y` | Select All / Undo / Redo |
+| `Ctrl+F` / `Ctrl+S` / `Ctrl+O` / `Ctrl+P` | Find / Save / Open / Print |
+| `Ctrl+T` / `Ctrl+W` / `Ctrl+Shift+T` | New tab / Close tab / Reopen closed tab |
+| `Ctrl+N` / `Ctrl+Shift+N` / `Ctrl+Shift+W` | New window / Private window / Close window |
+| `Ctrl+R` / `Ctrl+L` | Reload / Address bar |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Zoom in / out / reset |
+| `Ctrl+Left` / `Ctrl+Right` | Word left / right in text fields (Shift selects) |
+| `Ctrl+Backspace` / `Ctrl+Delete` | Delete word back / forward |
+| `Home` / `End` (`Fn+Left` / `Fn+Right`) | Start / end of line |
+| `Alt+Tab` / `Alt+Shift+Tab` | Switch apps (alttab); release Alt to switch, `Alt+Esc` cancels |
+| `Cmd+Space` | Spotlight (the Win+Space position) |
+| `Win+L` | Lock the screen (alttab) |
+| `Win+Tab` | Next browser tab (Ctrl+Tab is the macOS app switcher in browsers, which get the command layout) |
+| `Cmd+Shift+Q` | Log out (macOS default) |
+
+### Ghostty on macOS
+
+Ghostty's Linux defaults, on top of the macOS ones (`config/ghostty/macos.conf`).
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+C` / `Ctrl+Z` / `Ctrl+W` | Go to the shell, as on Linux |
+| `Ctrl+Shift+C` / `Ctrl+Shift+V` / `Ctrl+Shift+A` | Copy / Paste / Select all |
+| `Ctrl+Shift+T` / `Ctrl+Shift+W` / `Ctrl+Shift+N` | New tab / Close tab / New window |
+| `Ctrl+Tab` / `Ctrl+Shift+Tab` | Next / previous tab (also `Ctrl+PageDown`/`PageUp`, `Ctrl+Shift+Right`/`Left`) |
+| `Ctrl+Shift+O` / `Ctrl+Shift+E` | Split right / split down |
+| `Ctrl+Shift+Enter` | Zoom the split |
+| `Cmd+Alt+arrows` | Move between splits (`Ctrl+Alt+arrows` belongs to AeroSpace) |
+| `Cmd+Ctrl+[` / `Cmd+Ctrl+]` | Previous / next split |
+| `Cmd+Ctrl+Shift+arrows` | Resize the split |
+| `Shift+PageUp` / `Shift+PageDown` (`Shift+Fn+Up` / `Shift+Fn+Down`) | Scroll back / forward |
+| `Shift+Home` / `Shift+End` | Top / bottom of scrollback |
+| `Ctrl+Shift+PageUp` / `Ctrl+Shift+PageDown` | Previous / next prompt |
+| `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | Font size bigger / smaller / reset |
+| `Ctrl+Shift+P` | Command palette |
+| `Ctrl+,` / `Ctrl+Shift+,` | Open / reload config |
 
 ---
 
@@ -108,6 +155,31 @@ All of these repeat: after the prefix, keep pressing `H`/`J`/`K`/`L` (or the arr
 | `tclear` | Clear pane history |
 
 ---
+
+## Newsboat
+
+vim motions on top of the defaults (`config/newsboat/config`). `h` backs out of every view except the feed list, so it can never quit the app.
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Down / up |
+| `l` / `h` | Open / back |
+| `g` / `G` | Top / bottom |
+| `Ctrl+d` / `Ctrl+u` | Half page down / up |
+| `Ctrl+f` / `Ctrl+b` | Page down / up |
+| `J` / `K` | Next / previous feed (article list), article (article view) |
+| `n` / `N` | Next / previous unread |
+| `a` | Toggle read |
+| `u` | List the article's links |
+| `U` | Toggle showing read feeds |
+| `t` / `T` | Filter by tag / clear the filter |
+| `s` / `S` | Sort / reverse sort |
+| `f` | Jump to a feed by title |
+| `Ctrl+r` | Reload all feeds |
+| `o` | Open the link in the terminal: inline if it is an image, w3m otherwise |
+| `,i` | Page through the article's images (`n`/space next, `p` prev, `o` browser, `q` quit) |
+| `,o` | Open in the desktop browser |
+| `,y` | Copy the link |
 
 ## Neovim
 

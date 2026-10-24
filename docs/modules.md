@@ -396,6 +396,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 | `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
+| `newsboat-view` | newsboat's browser and image pager: images inline via chafa, links in w3m (`open`/`gui`/`yank`/`images`) |
 
 `tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
 
@@ -581,7 +582,16 @@ live on the next Ghostty restart with no `dfinstall` run. The `shaders/` symlink
 insurance for the case where that config is ever a real file. Config changes need a
 restart, not just a reload.
 
-**Status:** Checks 4 symlinks.
+On macOS it also links `config/ghostty/macos.conf`, which the config includes with
+`config-file = ?macos.conf`: Ghostty's Linux default bindings (Ctrl+Shift for the
+clipboard, tabs, windows and splits, Shift+PageUp/PageDown scrollback, prompt jumps,
+font size, the command palette), added on top of the macOS ones so plain Ctrl stays with
+the shell. Three Linux defaults are left out because something else owns them on the
+Mac: Alt+1..9 (tmux's window binds) and Ctrl+Alt+arrows and Ctrl+Alt+Shift+J
+(AeroSpace's mod is ctrl-alt); Cmd+Alt+arrows moves between splits instead. The include
+is optional, so the missing file is silent on Linux.
+
+**Status:** Checks 4 symlinks (5 on macOS).
 
 ---
 
@@ -613,6 +623,45 @@ The plugins run under launchd with Homebrew's bin and the system dirs on PATH, s
 
 ---
 
+## mackeys
+
+**File:** `modules/mackeys.go`
+
+macOS only, and part of `install all`. Makes the built-in keyboard behave like a Windows laptop's without Accessibility, Input Monitoring or admin rights: every piece is a user preference or a key mapping any process may set, and each one persists across logins and reboots by itself, with no agent running.
+
+- **Modifier swap.** Globe and Control trade places, and so do Option and Command, so the bottom row reads Ctrl, Fn, Cmd, Opt like a laptop's Ctrl, Fn, Win, Alt. Option, which Ghostty sends as Alt, is next to space where Alt was. It writes the same per-keyboard preference as System Settings > Keyboard > Keyboard Shortcuts > Modifier Keys (`com.apple.keyboard.modifiermapping.<vendor>-<product>-0` in the ByHost global domain), which macOS reapplies at every login, and sets the same property on the live HID service with `hidutil` so it applies immediately. Both are the layer System Settings uses, so they replace each other rather than stacking into a double swap. The vendor and product IDs are read from `hidutil list`; when it does not report exactly one built-in keyboard the module warns and leaves the swap to System Settings. Globe is mapped on both HID pages a recent built-in keyboard reports it on (`0xFF00000003` and the vendor page `0xFF0100000003`), as System Settings does; mapping only the first leaves Globe unswapped on those models. External keyboards are not touched.
+- **Ctrl shortcuts in every app, web apps included.** Global `NSUserKeyEquivalents` (System Settings > App Shortcuts > All Applications) rebinds menu items by title: Copy, Paste, Paste and Match Style (Ctrl+Shift+V), Cut, Select All, Undo, Redo (Ctrl+Y), Find, Save, Open, Print, New/Close Tab and Window, Reopen Closed Tab, private windows, Reload, Open Location, zoom, Bold/Italic/Underline. A browser passes a key the page did not handle to its menu, which is how Ctrl+C reaches a web app. Terminals (Ghostty, Terminal, iTerm2) get their own table, which macOS consults before the global one: clipboard, tab and window items move to Ctrl+Shift and everything else goes back to Command, so Ctrl+C, Ctrl+Z and Ctrl+W stay with the shell. Entries a user set for other titles are left alone, and uninstall removes only entries that still hold this module's value.
+- **Key repeat.** `ApplePressAndHoldEnabled` off, so a held `j` repeats instead of offering accents, plus `KeyRepeat` 2 and `InitialKeyRepeat` 15. Tapping Globe does nothing (`AppleFnUsageType` 0), since it now sits where Fn does.
+- **Scroll direction.** Natural scrolling off (`com.apple.swipescrolldirection` false), so content moves the way a Windows wheel or touchpad moves it.
+- **Text navigation.** Links `config/macos/DefaultKeyBinding.dict` to `~/Library/KeyBindings/`: Home/End, Ctrl+Home/End, Ctrl+Left/Right by word and Ctrl+Backspace/Delete by word, with Shift variants, in Cocoa text fields, and the same moves on Cmd for the apps on the command layout below, where the Ctrl key sends Cmd. It also binds Ctrl+C/V/X/A/Z/Y and Ctrl+Shift+V to the clipboard, select-all and undo commands: Chromium (Chrome, Edge, Electron apps) hands a key to the page and these bindings before the menu, so without them Apple's emacs defaults win there (Ctrl+V pages down, Ctrl+A goes to the line start). Apps read the file at launch, so relaunch them after installing.
+- **System shortcuts that took those keys.** Disables Mission Control (Ctrl+Up/Down), moving between Spaces (Ctrl+Left/Right) and switching input sources (Ctrl+Space), and applies the change with `activateSettings -u`. AeroSpace does not use native Spaces.
+
+- **Passthrough apps.** Remote desktops and VMs (Windows App/Remote Desktop, Citrix Workspace, Horizon, VMware Fusion, Parallels, UTM) get the macOS defaults back, so Ctrl+C reaches the guest instead of copying on the Mac. Add a bundle ID to `passthroughApps` for another one; `osascript -e 'id of app "Name"'` prints it.
+- **Login helper.** `dfinstall install mackeys` also writes `~/.local/bin/mackeys-apply` and a LaunchAgent (`io.github.sresarehumantoo.mackeys`) that runs it at login, on wake and every 10 minutes. It turns natural scrolling off again whenever it finds it back on, since that setting is easily reset, logging to `~/Library/Logs/mackeys.log`. It does not touch the modifier swap: macOS reapplies that preference itself, and the live mapping cannot be checked, since the keyboard filter never reports it (`hidutil --get` reads null on every Mac). Because it is a login item, `install all` never creates it, only keeps an existing one current.
+- **Command layout for browsers, Electron and Office apps.** Web pages bind their shortcuts to Cmd on a Mac and never see Ctrl+Z as one, and Mac Office puts the Windows letters on Cmd (Cmd+Y redoes, Cmd+B bolds): Jira's editor keeps its own undo history, so the browser's Undo (all a Ctrl shortcut can reach) does nothing. `install mackeys` also builds `config/mackeys/layout.swift` into `~/.local/bin/mackeys-layout` and runs it from a LaunchAgent (`io.github.sresarehumantoo.mackeys-layout`, log `~/Library/Logs/mackeys-layout.log`). While an app in `commandLayoutApps` (Chrome, Edge, Brave, Arc, Vivaldi, Firefox, Slack, Teams, VS Code, Discord, Notion, Obsidian, Word, Excel, PowerPoint, Outlook, OneNote) is in front, the Ctrl key sends Command and the Win key sends Control. It does this with a `UserKeyMapping` that swaps Control and Command, which macOS applies after the modifier mapping, so it sits on top of the standard layout. A live `HIDKeyboardModifierMappingPairs` write is accepted by `hidutil` but has no effect on macOS 26, and that property reads back as null on every Mac. Leaving such an app clears the `UserKeyMapping`, including one set by hand. Pages then get the Cmd shortcuts they expect, and Win+Tab switches tabs, since Ctrl+Tab is now Cmd+Tab, the macOS app switcher. Those apps' menus get the macOS shortcuts back, plus Paste and Match Style on Cmd+Shift+V. The agent waits until no modifier is held before switching, since a layout changed under a held key leaves it stuck, and sets the layout again on wake and every 5 minutes. Both layouts and the app list are written to `~/Library/Application Support/dfinstall/mackeys-layout.json`, which alttab reads too. A Chrome PWA has its own bundle ID and keeps the standard layout. Safari is not on the list: it is sandboxed, and its preferences cannot be written without Full Disk Access, so its menus could not be moved back to Cmd. Any other app whose preferences refuse the write gets a warning and keeps the standard layout and the global shortcuts, rather than failing the module. It needs `swiftc` (`xcode-select --install`); without it every app keeps the standard layout. In VS Code's terminal, Ctrl+C copies; Win+C sends the interrupt.
+
+Running apps keep the shortcuts and key repeat they started with, so the module prints a notice to reopen them when it changed something. Not covered, because each needs Accessibility: a scroll direction for the mouse that differs from the trackpad's (macOS has one setting for both), and window-level switching. Alt+Tab is the separate `alttab` module.
+
+**When an app ignores a Ctrl shortcut.** Open its Edit menu and read the shortcut shown next to the item. If it shows ⌘ rather than ⌃, the menu title differs from the table (an app-specific "Copy Link", a different ellipsis): add the title, or a per-app entry. If it shows ⌃ and Ctrl still does nothing, the app consumes the key before its menu sees it. Without Accessibility nothing can rewrite the key at that point; Cmd still works there (the Win-key position), and Karabiner-Elements, deployed by IT, is the only general fix. If the app is a remote session that should receive Ctrl itself, add it to `passthroughApps`.
+
+**Status:** Checks the `DefaultKeyBinding.dict` symlink. `dfinstall doctor` adds a `mac keyboard` row once installed, failing when the built-in keyboard's saved Modifier Keys preference does not hold the swap, press-and-hold or natural scrolling is back on, an installed login helper is not loaded, or an installed layout agent is not running.
+
+---
+
+## alttab
+
+**File:** `modules/alttab.go`
+
+macOS only. An Option-Tab app switcher for Windows muscle memory, plus Win+L to lock the screen (Command-L, since mackeys puts Command where the Windows key is, and Control-L in the apps on mackeys' command layout, where the Win key sends Control; it calls `SACLockScreenImmediate`, the same private function as the Lock Screen menu item, and falls back to sleeping the display). The hotkey is global, so Win+L locks from every app, a remote desktop included, and no app's own shortcut on that chord reaches it; browsers keep the address bar on Ctrl+L. Log Out stays on the stock Shift-Command-Q. The switcher: hold Option, tap Tab to step through apps in most-recently-used order (Shift-Tab steps back, Escape cancels), release Option to switch. A quick tap switches to the previous app without showing the panel, and the panel itself copies Command-Tab: app icons on a blurred rounded strip, the selected app's name under its icon.
+
+It needs no Accessibility, Input Monitoring or admin rights, which is the point on a managed Mac where AltTab or Karabiner would need them granted. Everything it does is open to an ordinary process: a Carbon `RegisterEventHotKey`, the running application list, a poll of the current modifier state to notice Option being released, and app activation. macOS 15.0 refused hotkeys whose only modifier is Option (Apple says 15.2 lifted that); if registration fails it falls back to Control-Option-Tab and logs which one it got. Activation is cooperative since macOS 14, so when a request is refused it opens the app through Launch Services the way a Dock click does. It switches apps, not windows, like Command-Tab: window titles need Screen Recording and raising one window needs Accessibility.
+
+`dfinstall install alttab` compiles `config/alttab/main.swift` with `swiftc` from the Command Line Tools into `~/.local/bin/alttab`, writes `~/Library/LaunchAgents/io.github.sresarehumantoo.alttab.plist` and loads it, so it starts at every login and restarts after a crash. The agent is a login item, which macOS announces and an MDM may forbid, so `install all` never creates it and only rebuilds and restarts one that is already installed, whenever `main.swift` is newer than the binary. Logs go to `~/Library/Logs/alttab.log`. Uninstall unloads the agent and removes the plist and the binary.
+
+**Status:** Notes a missing or out-of-date binary; reports nothing when not installed. `dfinstall doctor` adds an `alttab` row once installed, failing when the agent is not loaded or not running.
+
+---
+
 ## htop
 
 **File:** `modules/htop.go`
@@ -620,6 +669,22 @@ The plugins run under launchd with Homebrew's bin and the system dirs on PATH, s
 Symlinks `config/htop/htoprc` to `$XDG_CONFIG_HOME/htop/htoprc`.
 
 **Status:** Checks 1 symlink.
+
+---
+
+## newsboat
+
+**File:** `modules/newsboat.go`
+
+Installs `newsboat`, `chafa` and `w3m`, links `config/newsboat/config` and `config/newsboat/urls` into `$XDG_CONFIG_HOME/newsboat/`, and creates an empty `config.local` beside them if there is none. A failed package install warns and still links the config.
+
+- **Feeds:** `urls` holds a curated security set (advisories, threat intel, DFIR and detection, offensive research, malware/RE, cloud and appsec, news), tagged by category, plus query feeds: *Exploited in the wild* (0-day, KEV, actively exploited), *CVEs*, *Unread* and *Starred* (flag `s`). Titles mentioning CVE IDs, 0-days or KEV are highlighted everywhere.
+- **Sync instead of local feeds:** set `urls-source` in `config.local` (e.g. `freshrss` with `freshrss-url`/`freshrss-login`/`freshrss-passwordeval`). The query feeds keep working because FreshRSS categories become tags with the same names. The config never fetches the page behind an item (`download-full-page no`), so reading an article contacts only the feed.
+- **Images and links:** `browser` is `newsboat-view open`, which renders image URLs in the terminal and opens anything else in w3m (cookies off). `,i` pages through an article's images, `,o` hands a link to the desktop browser, `,y` copies it over OSC 52. Under Ghostty, chafa uses the kitty graphics protocol, through tmux too (`allow-passthrough on` in `tmux.conf`); elsewhere it picks sixel or text-cell art itself. Only `http(s)` URLs are opened, and downloads are capped at 25 MB.
+- `config.local` is the user's file: `install` never overwrites it and `uninstall` leaves it. newsboat refuses to start when an `include` is missing, which is why the empty one is created.
+- If `~/.newsboat` exists, newsboat uses it and ignores the XDG dir entirely; `install` warns about that.
+
+**Status:** Checks 2 symlinks.
 
 ---
 

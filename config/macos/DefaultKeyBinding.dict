@@ -1,0 +1,50 @@
+/* Linux/Windows text navigation in Cocoa text fields. Linked to
+   ~/Library/KeyBindings/ by the mackeys module; apps read it at launch.
+   Terminals never see it: their keys go to the shell. */
+{
+    /* Chromium (Chrome, Edge, Electron apps) gives each key-down to the page
+       first, with whatever these bindings name, and offers it to the menu only
+       if that goes unhandled. Apple's own "^v" = pageDown: and
+       "^V" = pageDownAndModifySelection: were consumed there, so Ctrl+V and
+       Ctrl+Shift+V scrolled instead of reaching the Paste shortcuts. */
+    "^c" = copy:;
+    "^v" = paste:;
+    "^V" = pasteAsPlainText:;
+    "^x" = cut:;
+    "^a" = selectAll:;
+    "^z" = undo:;
+    "^y" = redo:;
+    "\UF729"   = moveToBeginningOfLine:;                       /* Home */
+    "\UF72B"   = moveToEndOfLine:;                             /* End */
+    "$\UF729"  = moveToBeginningOfLineAndModifySelection:;
+    "$\UF72B"  = moveToEndOfLineAndModifySelection:;
+    "^\UF729"  = moveToBeginningOfDocument:;                   /* Ctrl+Home */
+    "^\UF72B"  = moveToEndOfDocument:;                         /* Ctrl+End */
+    "^$\UF729" = moveToBeginningOfDocumentAndModifySelection:;
+    "^$\UF72B" = moveToEndOfDocumentAndModifySelection:;
+    "^\UF702"  = moveWordLeft:;                                /* Ctrl+Left */
+    "^\UF703"  = moveWordRight:;                               /* Ctrl+Right */
+    "^$\UF702" = moveWordLeftAndModifySelection:;
+    "^$\UF703" = moveWordRightAndModifySelection:;
+    "^\U007F"  = deleteWordBackward:;                          /* Ctrl+Backspace */
+    "^\UF728"  = deleteWordForward:;                           /* Ctrl+Delete */
+
+    /* In apps on the mackeys command layout the Ctrl key sends Command, so
+       the Ctrl moves above arrive as Command and need the same meaning.
+       Elsewhere only the Win key sends Command, and Win+arrow edits no text
+       on Windows, so nothing is lost there. */
+    "@\UF729"  = moveToBeginningOfDocument:;                   /* Ctrl+Home */
+    "@\UF72B"  = moveToEndOfDocument:;                         /* Ctrl+End */
+    "@$\UF729" = moveToBeginningOfDocumentAndModifySelection:;
+    "@$\UF72B" = moveToEndOfDocumentAndModifySelection:;
+    "@\UF702"  = moveWordLeft:;                                /* Ctrl+Left */
+    "@\UF703"  = moveWordRight:;                               /* Ctrl+Right */
+    "@$\UF702" = moveWordLeftAndModifySelection:;
+    "@$\UF703" = moveWordRightAndModifySelection:;
+    "@\UF700"  = moveToBeginningOfParagraph:;                  /* Ctrl+Up */
+    "@\UF701"  = moveToEndOfParagraph:;                        /* Ctrl+Down */
+    "@$\UF700" = moveToBeginningOfParagraphAndModifySelection:;
+    "@$\UF701" = moveToEndOfParagraphAndModifySelection:;
+    "@\U007F"  = deleteWordBackward:;                          /* Ctrl+Backspace */
+    "@\UF728"  = deleteWordForward:;                           /* Ctrl+Delete */
+}

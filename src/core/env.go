@@ -542,7 +542,9 @@ var Interactive = true
 // them, prompting at most once per session, then keeps them fresh in the
 // background so a long install does not outlive sudo's timestamp. It is called
 // from SudoCmd, so a run that never escalates never asks for a password.
-func EnsureSudo(ctx context.Context) {
+// command is what is about to run under sudo; the prompt names it, so a
+// password request is never unexplained.
+func EnsureSudo(ctx context.Context, command ...string) {
 	sudoMu.Lock()
 	defer sudoMu.Unlock()
 	// Nothing dfinstall runs on macOS needs sudo: Homebrew refuses root, and
@@ -571,7 +573,8 @@ func EnsureSudo(ctx context.Context) {
 
 	PauseSpinner()
 	defer ResumeSpinner()
-	Status("This step requires sudo access")
+	Status("%s", sudoReason(command))
+	Status("dfinstall asks once per run and drops the cached credentials when it finishes")
 	cmd := exec.CommandContext(ctx, "sudo", "-v")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -582,6 +585,24 @@ func EnsureSudo(ctx context.Context) {
 	}
 	sudoPrompted = true
 	startSudoKeepAlive()
+}
+
+// sudoReason says which module wants sudo and for what. A script passed to
+// `bash -c` is collapsed to one line, and anything long is cut short: the
+// first words of an apt line are what explain it.
+func sudoReason(command []string) string {
+	who := "This step"
+	if m := CurrentModule(); m != "" {
+		who = "The " + m + " module"
+	}
+	line := strings.Join(strings.Fields(strings.Join(command, " ")), " ")
+	if line == "" {
+		return who + " needs sudo"
+	}
+	if r := []rune(line); len(r) > 100 {
+		line = string(r[:99]) + "…"
+	}
+	return fmt.Sprintf("%s needs sudo to run: %s", who, line)
 }
 
 // startSudoKeepAlive refreshes sudo credentials in the background until
@@ -644,7 +665,7 @@ func SudoCmd(ctx context.Context, args ...string) *exec.Cmd {
 		return cmd
 	}
 
-	EnsureSudo(ctx)
+	EnsureSudo(ctx, args...)
 	cmd := exec.CommandContext(ctx, "sudo", args...)
 	if Interactive {
 		cmd.Stdin = os.Stdin

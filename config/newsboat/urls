@@ -1,0 +1,61 @@
+# Security research feeds, tagged by category. Tag names match the FreshRSS
+# categories, so the query feeds below also work when config.local switches
+# urls-source to a FreshRSS server (feed lines are then ignored).
+
+"query:Exploited in the wild:title =~ \"(0-day|zero-day|0day|actively exploited|in the wild|KEV)\""
+"query:CVEs:title =~ \"CVE-[0-9]{4}-[0-9]+\""
+"query:Unread:unread = \"yes\""
+"query:Starred:flags # \"s\""
+
+https://www.cisa.gov/cybersecurity-advisories/all.xml "Advisories & Vulns" "~CISA Cybersecurity Advisories"
+https://www.zerodayinitiative.com/blog?format=rss "Advisories & Vulns" "~Zero Day Initiative Blog"
+https://projectzero.google/feed.xml "Advisories & Vulns" "~Google Project Zero"
+https://api.msrc.microsoft.com/update-guide/rss "Advisories & Vulns" "~MSRC Security Update Guide"
+https://labs.watchtowr.com/rss/ "Advisories & Vulns" "~watchTowr Labs"
+https://github.blog/tag/security/feed/ "Advisories & Vulns" "~GitHub Blog — Security"
+
+https://blog.talosintelligence.com/rss/ "Threat Intel" "~Cisco Talos"
+https://unit42.paloaltonetworks.com/feed/ "Threat Intel" "~Unit 42 (Palo Alto)"
+https://cloudblog.withgoogle.com/topics/threat-intelligence/rss/ "Threat Intel" "~Google Threat Intelligence (Mandiant)"
+https://www.microsoft.com/en-us/security/blog/feed/ "Threat Intel" "~Microsoft Security Blog"
+https://securelist.com/feed/ "Threat Intel" "~Securelist (Kaspersky)"
+https://research.checkpoint.com/feed/ "Threat Intel" "~Check Point Research"
+https://www.sentinelone.com/labs/feed/ "Threat Intel" "~SentinelOne Labs"
+https://www.welivesecurity.com/en/rss/feed/ "Threat Intel" "~ESET WeLiveSecurity"
+https://www.recordedfuture.com/feed "Threat Intel" "~Recorded Future"
+https://blog.sekoia.io/feed/ "Threat Intel" "~Sekoia"
+
+https://thedfirreport.com/feed/ "DFIR & Detection" "~The DFIR Report"
+https://redcanary.com/feed/ "DFIR & Detection" "~Red Canary"
+https://www.elastic.co/security-labs/rss/feed.xml "DFIR & Detection" "~Elastic Security Labs"
+https://specterops.io/feed/ "DFIR & Detection" "~SpecterOps"
+https://detect.fyi/feed "DFIR & Detection" "~Detect FYI"
+https://thisweekin4n6.com/feed/ "DFIR & Detection" "~This Week in 4n6"
+https://www.huntress.com/blog/rss.xml "DFIR & Detection" "~Huntress"
+https://isc.sans.edu/rssfeed_full.xml "DFIR & Detection" "~SANS Internet Storm Center"
+
+https://portswigger.net/research/rss "Offensive Research" "~PortSwigger Research"
+https://blog.trailofbits.com/feed/ "Offensive Research" "~Trail of Bits"
+https://www.outflank.nl/feed/ "Offensive Research" "~Outflank"
+https://www.synacktiv.com/en/feed/lastblog.xml "Offensive Research" "~Synacktiv"
+https://blog.doyensec.com/atom.xml "Offensive Research" "~Doyensec"
+https://www.mdsec.co.uk/feed/ "Offensive Research" "~MDSec"
+https://trustedsec.com/feed.rss "Offensive Research" "~TrustedSec"
+https://blog.orange.tw/atom.xml "Offensive Research" "~Orange Tsai"
+
+https://www.malwarebytes.com/blog/feed/index.xml "Malware & RE" "~Malwarebytes Labs"
+https://objective-see.org/rss.xml "Malware & RE" "~Objective-See"
+https://any.run/cybersecurity-blog/feed/ "Malware & RE" "~ANY.RUN"
+http://feeds.trendmicro.com/TrendMicroResearch "Malware & RE" "~Trend Micro Research"
+
+https://www.wiz.io/feed/rss.xml "Cloud & AppSec" "~Wiz Research"
+https://securitylabs.datadoghq.com/rss/feed.xml "Cloud & AppSec" "~Datadog Security Labs"
+https://aws.amazon.com/blogs/security/feed/ "Cloud & AppSec" "~AWS Security Blog"
+https://projectdiscovery.io/rss.xml "Cloud & AppSec" "~ProjectDiscovery"
+
+https://krebsonsecurity.com/feed/ "News & Newsletters" "~Krebs on Security"
+https://news.risky.biz/feed/ "News & Newsletters" "~Risky Business News"
+https://tldrsec.com/feed.xml "News & Newsletters" "~tl;dr sec"
+https://feeds.feedburner.com/TheHackersNews "News & Newsletters" "~The Hacker News"
+https://www.bleepingcomputer.com/feed/ "News & Newsletters" "~BleepingComputer"
+https://www.detectionengineering.net/feed "News & Newsletters" "~Detection Engineering Weekly"
