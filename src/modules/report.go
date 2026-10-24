@@ -34,16 +34,29 @@ const (
 
 // statusGroups is the order WriteStatus renders the states in.
 var statusGroups = []struct {
-	state  StatusState
-	title  string
-	symbol string
-	color  *color.Color
+	state StatusState
+	title string
+	color *color.Color
 }{
-	{StateInstalled, "Installed", "✓", color.New(color.FgGreen, color.Bold)},
-	{StatePartial, "Partially installed", "!", color.New(color.FgYellow, color.Bold)},
-	{StateNotInstalled, "Not installed", "✗", color.New(color.FgRed, color.Bold)},
-	{StateSkipped, "Skipped", "-", color.New(color.FgCyan)},
-	{StateUnavailable, "Not available here", "·", color.New(color.Faint)},
+	{StateInstalled, "Installed", color.New(color.FgGreen, color.Bold)},
+	{StatePartial, "Partially installed", color.New(color.FgYellow, color.Bold)},
+	{StateNotInstalled, "Not installed", color.New(color.FgRed, color.Bold)},
+	{StateSkipped, "Skipped", color.New(color.FgCyan)},
+	{StateUnavailable, "Not available here", color.New(color.Faint)},
+}
+
+func stateSymbol(s StatusState) string {
+	switch s {
+	case StateInstalled:
+		return core.G.Ok
+	case StatePartial:
+		return core.G.Partial
+	case StateNotInstalled:
+		return core.G.Fail
+	case StateSkipped:
+		return core.G.Skip
+	}
+	return core.G.Off
 }
 
 // StatusRow is one module's status with its state decided.
@@ -52,6 +65,9 @@ type StatusRow struct {
 	State StatusState
 	// Reason says why a module is skipped or unavailable.
 	Reason string
+	// Problems lists a partially installed module's links that are not in
+	// place. Empty for modules that do not export their links.
+	Problems []DiffProblem
 }
 
 // platformGated is a module that only applies on some platforms. Unsupported
@@ -106,6 +122,13 @@ func statusRow(m core.Module) StatusRow {
 		r.State = StateInstalled
 	case r.Missing > 0 && r.Linked > 0:
 		r.State = StatePartial
+		if le, ok := m.(core.LinkExporter); ok {
+			for _, lp := range le.Links() {
+				if state := core.CheckLink(lp.Src, lp.Dst); state != "ok" {
+					r.Problems = append(r.Problems, DiffProblem{Dst: lp.Dst, State: state})
+				}
+			}
+		}
 	default:
 		r.State = StateNotInstalled
 	}
@@ -131,19 +154,61 @@ func FormatStatusLine(r StatusRow) string {
 	return strings.TrimRight(fmt.Sprintf("%-14s %7s  %s", r.Name, count, info), " ")
 }
 
-// WriteStatus renders the status report, grouped by state. It colors the
-// output only when w is a terminal color is enabled for.
-func WriteStatus(w io.Writer) {
-	paint := func(c *color.Color, s string) string { return s }
-	if f, ok := w.(*os.File); ok && !color.NoColor && term.IsTerminal(int(f.Fd())) {
-		paint = func(c *color.Color, s string) string { return c.Sprint(s) }
+// linkProblemLabel names a core.CheckLink state, for status and diff alike.
+func linkProblemLabel(state string) string {
+	switch state {
+	case "missing":
+		return "missing"
+	case "wrong":
+		return "wrong target"
+	case "file":
+		return "regular file (not symlinked)"
 	}
-	bold := color.New(color.Bold)
+	return state
+}
+
+// tildePath shortens a path under $HOME for display.
+func tildePath(p string) string {
+	home, err := core.HomeDir()
+	if err != nil || home == "" {
+		return p
+	}
+	if rel, ok := strings.CutPrefix(p, home+string(filepath.Separator)); ok {
+		return filepath.Join("~", rel)
+	}
+	return p
+}
+
+// StatusHints is how a surface words its remediation commands: the CLI names
+// `dfinstall install`, the MCP server its own tools.
+type StatusHints struct {
+	// Install is a format string taking a module name.
+	Install string
+	// InstallAll and Diff are complete commands.
+	InstallAll, Diff string
+}
+
+// CLIStatusHints are the hints for the dfinstall command line.
+var CLIStatusHints = StatusHints{
+	Install:    "dfinstall install %s",
+	InstallAll: "dfinstall install all",
+	Diff:       "dfinstall diff",
+}
+
+// WriteStatus renders the status report, grouped by state, ending with the
+// commands that fix whatever is not installed. It colors the output only when
+// w is a terminal color is enabled for.
+func WriteStatus(w io.Writer, hints StatusHints) {
+	paint := painter(w)
 
 	rows := StatusRows()
 	counts := map[StatusState]int{}
+	var fix []string
 	for _, r := range rows {
 		counts[r.State]++
+		if r.State == StatePartial || r.State == StateNotInstalled {
+			fix = append(fix, r.Name)
+		}
 	}
 
 	var summary []string
@@ -167,9 +232,57 @@ func WriteStatus(w io.Writer) {
 			if g.state == StateUnavailable {
 				line = paint(g.color, line)
 			}
-			fmt.Fprintf(w, "  %s %s\n", paint(g.color, g.symbol), line)
+			fmt.Fprintf(w, "  %s %s\n", paint(g.color, stateSymbol(g.state)), line)
+			for _, p := range r.Problems {
+				fmt.Fprintf(w, "      %s\n", paint(faint, linkProblemLabel(p.State)+": "+tildePath(p.Dst)))
+			}
 		}
 	}
+
+	if len(fix) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "\n%s\n", paint(bold, "To fix"))
+	var steps [][2]string
+	// Past a handful, one command per module is a wall; install all is the
+	// command a fresh machine wants anyway.
+	if len(fix) <= 3 {
+		for _, name := range fix {
+			steps = append(steps, [2]string{fmt.Sprintf(hints.Install, name), ""})
+		}
+	} else {
+		steps = append(steps,
+			[2]string{hints.InstallAll, "everything above"},
+			[2]string{fmt.Sprintf(hints.Install, "<module>"), "one module"})
+	}
+	steps = append(steps, [2]string{hints.Diff, "every path that differs"})
+	width := 0
+	for _, st := range steps {
+		width = max(width, len(st[0]))
+	}
+	for _, st := range steps {
+		if st[1] == "" {
+			fmt.Fprintf(w, "  %s\n", st[0])
+			continue
+		}
+		fmt.Fprintf(w, "  %-*s  %s\n", width, st[0], paint(faint, st[1]))
+	}
+}
+
+var (
+	bold  = color.New(color.Bold)
+	faint = color.New(color.Faint)
+	red   = color.New(color.FgRed, color.Bold)
+	amber = color.New(color.FgYellow, color.Bold)
+)
+
+// painter colors text only when w is a terminal color is enabled for, so a
+// pipe, a file or the MCP server's buffer gets plain text.
+func painter(w io.Writer) func(*color.Color, string) string {
+	if f, ok := w.(*os.File); ok && !color.NoColor && term.IsTerminal(int(f.Fd())) {
+		return func(c *color.Color, s string) string { return c.Sprint(s) }
+	}
+	return func(_ *color.Color, s string) string { return s }
 }
 
 func platformName() string {
@@ -183,7 +296,7 @@ func platformName() string {
 }
 
 // PrintStatus prints the status report to stdout.
-func PrintStatus() { WriteStatus(os.Stdout) }
+func PrintStatus() { WriteStatus(os.Stdout, CLIStatusHints) }
 
 // DiffProblem is one managed path that isn't in the state we expect.
 type DiffProblem struct {
@@ -228,8 +341,10 @@ type DiffEntry struct {
 	Links    int
 	Problems []DiffProblem
 
-	// Absent is a module for an application this machine does not have.
+	// Absent is a module that does not apply here: another platform's, or
+	// one for an application this machine does not have. Reason says which.
 	Absent bool
+	Reason string
 
 	// Missing and Extra are the fallback for modules that don't, taken from
 	// Status() — less precise, since it can only report a count.
@@ -256,6 +371,12 @@ func CollectDiff() DiffReport {
 	edited := editedInClone(root)
 
 	for _, m := range core.AllModules() {
+		if pg, ok := m.(platformGated); ok {
+			if why := pg.Unsupported(); why != "" {
+				r.Entries = append(r.Entries, DiffEntry{Name: m.Name(), Absent: true, Reason: why})
+				continue
+			}
+		}
 		// SkipInAll, not IsModuleSkipped: this report ends with "run install
 		// all to fix", so it must use the same predicate `install all` does.
 		// Otherwise an opt-out module (windev) is listed as fixable drift that
@@ -266,7 +387,7 @@ func CollectDiff() DiffReport {
 		}
 
 		if a, ok := m.(appModule); ok && !a.AppInstalled() {
-			r.Entries = append(r.Entries, DiffEntry{Name: m.Name(), Absent: true})
+			r.Entries = append(r.Entries, DiffEntry{Name: m.Name(), Absent: true, Reason: m.Name() + " not found"})
 			continue
 		}
 
@@ -401,59 +522,71 @@ func editedUnder(edited []string, root, src string) string {
 // tool. They're separate strings because the original wording quoted the
 // command differently in each sentence.
 func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
+	paint := painter(w)
+	var inSync, skipped, absent int
 	for _, e := range r.Entries {
 		switch {
 		case e.Skipped:
-			fmt.Fprintf(w, "%-15s  skipped\n", e.Name)
-
+			skipped++
+			continue
 		case e.Absent:
-			fmt.Fprintf(w, "%-15s  not installed here\n", e.Name)
+			absent++
+			continue
+		case len(e.Problems) == 0 && e.Missing == 0:
+			inSync++
+			continue
+		}
 
-		case e.Exported && len(e.Problems) == 0:
-			fmt.Fprintf(w, "%-15s  ok (%d links)\n", e.Name, e.Links)
-
-		case e.Exported:
-			fmt.Fprintf(w, "%-15s\n", e.Name)
-			for _, p := range e.Problems {
-				switch p.State {
-				case "missing":
-					fmt.Fprintf(w, "  missing: %s\n", p.Dst)
-				case "wrong":
-					fmt.Fprintf(w, "  wrong target: %s\n", p.Dst)
-				case "file":
-					fmt.Fprintf(w, "  regular file (not symlinked): %s\n", p.Dst)
-				case "content":
-					fmt.Fprintf(w, "  %s: %s\n", p.Dst, p.Detail)
-				case "edited":
-					fmt.Fprintf(w, "  edited in the clone (uncommitted %s): %s\n", p.Detail, p.Dst)
-					for _, c := range p.Changes {
-						fmt.Fprintf(w, "      %s\n", c)
-					}
-					if p.MoveTo != "" {
-						fmt.Fprintf(w, "    install all --upgrade can move the edit into %s\n", p.MoveTo)
-					} else {
-						fmt.Fprintf(w, "    commit it to keep it on every machine, or revert it: git -C %s checkout -- %s\n", r.Root, p.Detail)
-					}
+		// An edit made through a link is the only problem install leaves
+		// alone, so a module with nothing else is flagged, not failed.
+		sym, c := core.G.Partial, amber
+		for _, p := range e.Problems {
+			if p.State != "edited" {
+				sym, c = core.G.Fail, red
+			}
+		}
+		if e.Missing > 0 {
+			sym, c = core.G.Fail, red
+			fmt.Fprintf(w, "  %s %-14s %d missing\n", paint(c, sym), e.Name, e.Missing)
+			continue
+		}
+		fmt.Fprintf(w, "  %s %s\n", paint(c, sym), e.Name)
+		for _, p := range e.Problems {
+			switch p.State {
+			case "missing", "wrong", "file":
+				fmt.Fprintf(w, "      %s: %s\n", linkProblemLabel(p.State), tildePath(p.Dst))
+			case "content":
+				fmt.Fprintf(w, "      %s: %s\n", tildePath(p.Dst), p.Detail)
+			case "edited":
+				fmt.Fprintf(w, "      edited in the clone (uncommitted %s): %s\n", p.Detail, tildePath(p.Dst))
+				for _, ch := range p.Changes {
+					fmt.Fprintf(w, "          %s\n", ch)
+				}
+				if p.MoveTo != "" {
+					fmt.Fprintf(w, "        %s\n", paint(faint, "install all --upgrade can move the edit into "+tildePath(p.MoveTo)))
+				} else {
+					fmt.Fprintf(w, "        %s\n", paint(faint, fmt.Sprintf("commit it to keep it on every machine, or revert it: git -C %s checkout -- %s", r.Root, p.Detail)))
 				}
 			}
-
-		case e.Missing > 0:
-			fmt.Fprintf(w, "%-15s  %d missing\n", e.Name, e.Missing)
-
-		default:
-			extra := ""
-			if e.Extra != "" {
-				extra = " (" + e.Extra + ")"
-			}
-			fmt.Fprintf(w, "%-15s  ok%s\n", e.Name, extra)
 		}
 	}
 
-	fmt.Fprintln(w)
+	summary := []string{fmt.Sprintf("%d in sync", inSync)}
+	if skipped > 0 {
+		summary = append(summary, fmt.Sprintf("%d skipped", skipped))
+	}
+	if absent > 0 {
+		summary = append(summary, fmt.Sprintf("%d not available here", absent))
+	}
+	if r.Issues > 0 || r.Edited > 0 {
+		fmt.Fprintln(w)
+	}
+	fmt.Fprintf(w, "%s\n\n", paint(faint, "Modules: "+strings.Join(summary, ", ")))
+
 	if r.Issues == 0 {
 		fmt.Fprintln(w, "No drift detected.")
 	} else {
-		fmt.Fprintf(w, "%d issue(s) — %s\n", r.Issues, fixHint)
+		fmt.Fprintf(w, "%d issue(s): %s\n", r.Issues, fixHint)
 	}
 	if r.Edited > 0 {
 		fmt.Fprintf(w, "%d managed file(s) edited through their link; install all leaves them as they are\n", r.Edited)
@@ -468,7 +601,7 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 			if root == r.Drift.Canonical {
 				marker = " (canonical)"
 			}
-			fmt.Fprintf(w, "  %s%s — %d link(s)\n", root, marker, len(r.Drift.Roots[root]))
+			fmt.Fprintf(w, "  %s%s: %d link(s)\n", root, marker, len(r.Drift.Roots[root]))
 		}
 		fmt.Fprintf(w, "Run %s from %s to consolidate.\n", consolidateCmd, r.Drift.Canonical)
 	}
@@ -481,13 +614,7 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 // (a module never installed there), and modules that do not export links,
 // whose counts include packages a machine may lack on purpose.
 func (r DiffReport) WriteBrief(w io.Writer) {
-	home, _ := core.HomeDir()
-	short := func(p string) string {
-		if home != "" && strings.HasPrefix(p, home+"/") {
-			return "~" + p[len(home):]
-		}
-		return p
-	}
+	short := tildePath
 	for _, e := range r.Entries {
 		for _, p := range e.Problems {
 			switch p.State {

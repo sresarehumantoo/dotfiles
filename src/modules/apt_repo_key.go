@@ -65,7 +65,7 @@ func ensureAptRepoKey(ctx context.Context, name, keyURL, keyPath, repoContent st
 		return false, nil
 	}
 
-	core.Notice("%s signing key no longer verifies the repo index — refreshing", name)
+	core.Notice("%s signing key no longer verifies the repo index, refreshing", name)
 
 	newKey, cleanupKey, err := fetchTemp(ctx, keyURL)
 	if err != nil {

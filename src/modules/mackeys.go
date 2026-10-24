@@ -236,7 +236,7 @@ exit 0
 func installMackeysHelper(ctx context.Context) error {
 	agent := launchAgentPath(mackeysLabel)
 	if core.InstallingAll && !fileExists(agent) {
-		core.Debug("mackeys login helper not installed — skipping")
+		core.Debug("mackeys login helper not installed, skipping")
 		return nil
 	}
 	scriptChanged, err := core.WriteFileIfChanged(mackeysHelper(), mackeysApplyScript(), 0o755)
@@ -284,7 +284,7 @@ func layoutConfig(apps []string) []byte {
 func installLayoutAgent(ctx context.Context, unwritable []string) error {
 	agent := launchAgentPath(layoutLabel)
 	if core.InstallingAll && !fileExists(agent) {
-		core.Debug("mackeys layout agent not installed — skipping")
+		core.Debug("mackeys layout agent not installed, skipping")
 		return nil
 	}
 	rebuilt := false

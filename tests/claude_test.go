@@ -40,7 +40,7 @@ func TestClaudeMergeKeepsUnmanagedKeys(t *testing.T) {
 	}
 
 	m := modules.ClaudeModule{}
-	if s := m.Status(); !strings.Contains(s.Extra, "attribution") || !strings.Contains(s.Extra, "includeCoAuthoredBy") {
+	if s := m.Status(); s.Extra != "settings.json: 2 managed keys differ" {
 		t.Fatalf("Status().Extra = %q, want both managed keys reported stale", s.Extra)
 	}
 	if err := m.Install(context.Background()); err != nil {
@@ -129,5 +129,27 @@ func TestClaudeContentDrift(t *testing.T) {
 	d := m.ContentDrift()
 	if len(d) != 1 || d[0].Dst != settings || d[0].Detail != "managed keys differ: includeCoAuthoredBy" {
 		t.Errorf("edited key: got %+v", d)
+	}
+}
+
+// A home that never had settings.json is not stale, it is not merged yet.
+func TestClaudeStatusExtra(t *testing.T) {
+	home := claudeSandbox(t)
+	m := modules.ClaudeModule{}
+	if got := m.Status().Extra; got != "settings.json not merged yet" {
+		t.Errorf("no settings.json: Extra = %q", got)
+	}
+	if err := m.Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Status().Extra; got != "" {
+		t.Errorf("after install: Extra = %q, want empty", got)
+	}
+	settings := filepath.Join(home, ".claude", "settings.json")
+	if err := os.WriteFile(settings, []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Status().Extra; got != "settings.json: 2 managed keys differ" {
+		t.Errorf("both keys removed: Extra = %q", got)
 	}
 }

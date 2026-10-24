@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif?v=1" alt="dfinstall status, doctor, and a dry-run install" width="760">
+  <img src="assets/demo.gif?v=2" alt="dfinstall status, doctor, and a dry-run install" width="760">
 </p>
 
 ---
@@ -154,6 +154,8 @@ dfinstall install all --toolkit      # pick toolkit tools
 dfinstall install windev             # opt-in Windows cross-dev module
 dfinstall install all --dry-run      # preview everything
 ```
+
+Output falls back to ASCII symbols and drops the spinner on terminals that cannot show them: `TERM=dumb`, the Linux text console (`TERM=linux`), and non-UTF-8 locales. Set `DF_ASCII=1` to force ASCII, for example when the terminal font lacks the symbols, or `DF_ASCII=0` to force Unicode. Color follows `NO_COLOR` and is off when output is not a terminal.
 
 ## Upgrading
 

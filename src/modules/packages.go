@@ -45,7 +45,7 @@ func aptUpdateWithRetry(ctx context.Context) error {
 		lastErr = err
 		if attempt < aptUpdateAttempts {
 			wait := time.Duration(attempt) * aptUpdateBackoff
-			core.Warn("%s update failed (attempt %d/%d): %v — retrying in %s", bin, attempt, aptUpdateAttempts, err, wait)
+			core.Warn("%s update failed (attempt %d/%d): %v, retrying in %s", bin, attempt, aptUpdateAttempts, err, wait)
 			time.Sleep(wait)
 		}
 	}
@@ -547,7 +547,7 @@ func (PackagesModule) Install(ctx context.Context) error {
 	}
 	if core.AptBin() != "" && nodeTooOld(ctx) {
 		if err := addNodeSourceRepo(ctx); err != nil {
-			core.Warn("NodeSource repo: %v — keeping the distro Node.js", err)
+			core.Warn("NodeSource repo: %v, keeping the distro Node.js", err)
 		} else {
 			pkgs = slices.DeleteFunc(pkgs, func(p string) bool { return p == "nodejs" || p == "npm" })
 			pkgs = append(pkgs, "nodejs")

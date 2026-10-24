@@ -21,7 +21,7 @@ func Changed(msg string, args ...any) {
 	}
 	changesMu.Unlock()
 	if Level >= LogVerbose {
-		emit(okSymbol("✓"), formatted)
+		emit(okSymbol(G.Ok), formatted)
 	}
 }
 

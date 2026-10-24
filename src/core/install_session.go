@@ -191,7 +191,7 @@ func shouldBackup(force bool) (doBackup, firstRun bool) {
 	}
 	// No config file → first run, auto-backup.
 	if !CfgFileExists {
-		Info("first run detected — creating automatic backup")
+		Info("first run detected, creating automatic backup")
 		return true, true
 	}
 	// Config exists — respect the skip_backup preference.

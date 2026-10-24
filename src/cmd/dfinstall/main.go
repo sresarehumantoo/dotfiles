@@ -94,11 +94,11 @@ func main() {
 		case flagExtended:
 			target = "omz"
 		default:
-			return fmt.Errorf("module argument required — %s", modules.ValidModuleNames())
+			return fmt.Errorf("module argument required (%s)", modules.ValidModuleNames())
 		}
 
 		if _, ok := core.GetModule(target); !ok && target != "all" {
-			return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
+			return fmt.Errorf("unknown module %q (%s)", target, modules.ValidModuleNames())
 		}
 
 		if flagUpgrade {
@@ -107,7 +107,7 @@ func main() {
 		}
 
 		if core.IsSteamOS() && !core.DryRun {
-			core.Info("SteamOS detected — disabling readonly filesystem...")
+			core.Info("SteamOS detected, disabling readonly filesystem...")
 			if err := core.DisableReadonly(ctx); err != nil {
 				return fmt.Errorf("failed to disable readonly mode: %w", err)
 			}
@@ -270,7 +270,7 @@ func main() {
 			ctx := cmd.Context()
 			if os.Geteuid() == 0 {
 				core.Err("Do not run this command as root directly.")
-				core.Err("Run as your normal user — sudo will be invoked automatically.")
+				core.Err("Run as your normal user; sudo will be invoked automatically.")
 				return fmt.Errorf("refusing to run as root")
 			}
 
@@ -338,7 +338,7 @@ func main() {
 			}
 			m, ok := core.GetModule(target)
 			if !ok {
-				return fmt.Errorf("unknown module %q — %s", target, modules.ValidModuleNames())
+				return fmt.Errorf("unknown module %q (%s)", target, modules.ValidModuleNames())
 			}
 			if target == "windev" {
 				core.ClearWindevOptIn()
@@ -379,7 +379,7 @@ func main() {
 			if err != nil {
 				return err
 			}
-			fmt.Printf("✓ registry valid (%d tools)\n", len(reg.Tools))
+			fmt.Printf("%s registry valid (%d tools)\n", core.G.Ok, len(reg.Tools))
 			return nil
 		},
 	}
@@ -429,7 +429,7 @@ func installAll(ctx context.Context) error {
 
 	if sess.CanonicalNow != "" {
 		if sess.CanonicalPrev != "" {
-			core.Status("Canonical dotfiles dir set to %s (was %s) — repointing symlinks",
+			core.Status("Canonical dotfiles dir set to %s (was %s), repointing symlinks",
 				sess.CanonicalNow, sess.CanonicalPrev)
 		} else {
 			core.Debug("canonical dotfiles dir set to %s", sess.CanonicalNow)
@@ -495,7 +495,7 @@ func installAll(ctx context.Context) error {
 
 	sess.Report().Write(os.Stdout, false)
 	if sess.DidBackup() {
-		core.PrintHint("Backup saved — restore with: dfinstall restore")
+		core.PrintHint("Backup saved; restore with: dfinstall restore")
 	}
 	core.PrintResult(total-skipped, len(failures))
 	core.PrintHint("Open a new terminal or run: exec zsh")
@@ -558,7 +558,7 @@ func installOne(ctx context.Context, m core.Module) error {
 	}
 
 	if sess.DidBackup() {
-		core.PrintHint("Backup saved — restore with: dfinstall restore")
+		core.PrintHint("Backup saved; restore with: dfinstall restore")
 	}
 	core.PrintResult(1, 0)
 	return nil

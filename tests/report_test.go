@@ -29,7 +29,7 @@ func TestWriteStatusUsesFormatStatusLine(t *testing.T) {
 	modules.RegisterAllModules()
 
 	var b strings.Builder
-	modules.WriteStatus(&b)
+	modules.WriteStatus(&b, modules.CLIStatusHints)
 	out := b.String()
 
 	if !strings.HasPrefix(out, "Modules on ") {
@@ -42,6 +42,22 @@ func TestWriteStatusUsesFormatStatusLine(t *testing.T) {
 		line := modules.FormatStatusLine(row)
 		if !strings.Contains(out, line) {
 			t.Errorf("rendered report is missing the FormatStatusLine output for %q:\n%q", row.Name, line)
+		}
+	}
+}
+
+// With the ASCII set, the report must carry none of the Unicode status glyphs.
+func TestWriteStatus_ASCIIGlyphs(t *testing.T) {
+	modules.RegisterAllModules()
+	orig := core.G
+	defer func() { core.G = orig }()
+	core.UseASCII(true)
+
+	var b strings.Builder
+	modules.WriteStatus(&b, modules.CLIStatusHints)
+	for _, g := range []string{"✓", "✗", "·", "⚠"} {
+		if strings.Contains(b.String(), g) {
+			t.Errorf("ASCII report contains %q:\n%s", g, b.String())
 		}
 	}
 }
@@ -110,6 +126,10 @@ func TestDiffReport_RendersEachEntryShape(t *testing.T) {
 			{Name: "skip-mod", Skipped: true},
 			{Name: "count-mod", Missing: 2},
 			{Name: "extra-mod", Extra: "not WSL"},
+			{Name: "mac-mod", Absent: true, Reason: "macOS only"},
+			{Name: "edit-mod", Exported: true, Links: 1, Problems: []modules.DiffProblem{
+				{Dst: "/e", State: "edited", Detail: "config/e"},
+			}},
 			{Name: "bad-mod", Exported: true, Links: 3, Problems: []modules.DiffProblem{
 				{Dst: "/a", State: "missing"},
 				{Dst: "/b", State: "wrong"},
@@ -124,17 +144,23 @@ func TestDiffReport_RendersEachEntryShape(t *testing.T) {
 	out := b.String()
 
 	for _, want := range []string{
-		"ok-mod           ok (4 links)",
-		"skip-mod         skipped",
-		"count-mod        2 missing",
-		"extra-mod        ok (not WSL)",
-		"  missing: /a",
-		"  wrong target: /b",
-		"  regular file (not symlinked): /c",
-		"3 issue(s) — FIXHINT",
+		core.G.Fail + " count-mod      2 missing",
+		core.G.Fail + " bad-mod\n",
+		"      missing: /a",
+		"      wrong target: /b",
+		"      regular file (not symlinked): /c",
+		core.G.Partial + " edit-mod\n",
+		"Modules: 2 in sync, 1 skipped, 1 not available here",
+		"3 issue(s): FIXHINT",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+	// Only modules with problems get a line of their own.
+	for _, quiet := range []string{"ok-mod", "skip-mod", "extra-mod", "mac-mod"} {
+		if strings.Contains(out, quiet) {
+			t.Errorf("output lists %q, which has nothing to fix:\n%s", quiet, out)
 		}
 	}
 }
@@ -160,8 +186,8 @@ func TestDiffReport_RendersSplitCloneDrift(t *testing.T) {
 
 	for _, want := range []string{
 		"Symlinks split across 2 dotfiles clone(s):",
-		"/home/u/projects/dotfiles (canonical) — 1 link(s)",
-		"/home/u/dotfiles — 2 link(s)",
+		"/home/u/projects/dotfiles (canonical): 1 link(s)",
+		"/home/u/dotfiles: 2 link(s)",
 	} {
 		if !strings.Contains(cli.String(), want) {
 			t.Errorf("CLI drift block missing %q:\n%s", want, cli.String())
@@ -239,6 +265,21 @@ func TestCollectDiff_AbsentAppIsNotDrift(t *testing.T) {
 		}
 		if len(e.Problems) > 0 || !e.Absent {
 			t.Errorf("%s with no %s on PATH: absent=%v, %d problem(s)", e.Name, e.Name, e.Absent, len(e.Problems))
+		}
+	}
+}
+
+// A module for another platform is not drift: diff must say it does not apply
+// here rather than count its links, or call it ok.
+func TestCollectDiff_OtherPlatformIsAbsent(t *testing.T) {
+	modules.RegisterAllModules()
+	name, want := "aerospace", "macOS only"
+	if core.IsMac() {
+		name, want = "konsole", "Linux only"
+	}
+	for _, e := range modules.CollectDiff().Entries {
+		if e.Name == name && (!e.Absent || e.Reason != want) {
+			t.Errorf("%s: absent=%v reason=%q, want absent with %q", e.Name, e.Absent, e.Reason, want)
 		}
 	}
 }
