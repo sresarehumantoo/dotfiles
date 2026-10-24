@@ -151,6 +151,23 @@ func TestOpencodeInstallRefusesOverridingFile(t *testing.T) {
 	}
 }
 
+// opencode writes this file itself on a first run with no config; it must not
+// block the install.
+func TestOpencodeInstallIgnoresSchemaOnlyJsonc(t *testing.T) {
+	_, cfg := opencodeSandbox(t)
+	jsonc := filepath.Join(cfg, "opencode", "opencode.jsonc")
+	os.MkdirAll(filepath.Dir(jsonc), 0o755)
+	os.WriteFile(jsonc, []byte("{\n  \"$schema\": \"https://opencode.ai/config.json\"\n}"), 0o644)
+
+	m := modules.OpencodeModule{}
+	if err := m.Install(context.Background()); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if d := m.ContentDrift(); d != nil {
+		t.Errorf("ContentDrift = %+v", d)
+	}
+}
+
 func TestOpencodeDryRunWritesNothing(t *testing.T) {
 	_, cfg := opencodeSandbox(t)
 	core.DryRun = true

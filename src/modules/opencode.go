@@ -54,6 +54,10 @@ func opencodeSettings() managedJSON {
 // opencode also loads. It reads config.json, opencode.json and opencode.jsonc
 // in that order, later files winning, so a stray opencode.jsonc silently undoes
 // every managed key.
+//
+// A file holding nothing but $schema is skipped: opencode writes exactly that
+// opencode.jsonc on a first run with no config, so anyone who tried opencode
+// before installing this module has one.
 func opencodeOverrides() []string {
 	var found []string
 	for _, name := range []string{"config.json", "opencode.jsonc"} {
@@ -61,9 +65,15 @@ func opencodeOverrides() []string {
 		if p == "" {
 			continue
 		}
-		if _, err := os.Stat(p); err == nil {
-			found = append(found, p)
+		if _, err := os.Stat(p); err != nil {
+			continue
 		}
+		if m, err := readJSONCObject(p); err == nil {
+			if _, ok := m["$schema"]; ok && len(m) == 1 {
+				continue
+			}
+		}
+		found = append(found, p)
 	}
 	return found
 }
