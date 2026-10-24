@@ -1,0 +1,63 @@
+[
+  {
+    "name": "maven-central",
+    "format": "maven2",
+    "type": "proxy",
+    "url": "http://nexus.example.com/repository/maven-central",
+    "online": true,
+    "size": 0,
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://repo1.maven.org/maven2/"
+      }
+    }
+  },
+  {
+    "name": "maven-public",
+    "format": "maven2",
+    "type": "group",
+    "url": "http://nexus.example.com/repository/maven-public",
+    "online": true,
+    "size": 0,
+    "attributes": {}
+  },
+  {
+    "name": "npm-proxy",
+    "format": "npm",
+    "type": "proxy",
+    "url": "http://nexus.example.com/repository/npm-proxy",
+    "online": true,
+    "size": 0,
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://registry.npmjs.org"
+      }
+    }
+  },
+  {
+    "name": "github",
+    "format": "raw",
+    "type": "proxy",
+    "url": "http://nexus.example.com/repository/github",
+    "online": true,
+    "size": 0,
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://github.com"
+      }
+    }
+  },
+  {
+    "name": "github-api",
+    "format": "raw",
+    "type": "proxy",
+    "url": "http://nexus.example.com/repository/github-api",
+    "online": true,
+    "size": 0,
+    "attributes": {
+      "proxy": {
+        "remoteUrl": "https://api.github.com"
+      }
+    }
+  }
+]

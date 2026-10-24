@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
 )
@@ -43,7 +45,7 @@ func downloadVerified(ctx context.Context, a ghAsset, dst string) error {
 	if !ok || want == "" {
 		return fmt.Errorf("%s has no published sha256 digest; refusing to install it", a.Name)
 	}
-	if err := runNetCmd(ctx, "curl", "-fsSL", "-o", dst, a.URL); err != nil {
+	if err := githubDownload(ctx, a.URL, dst); err != nil {
 		return fmt.Errorf("download %s: %w", a.Name, err)
 	}
 	got, err := core.FileHash(dst)
@@ -65,7 +67,7 @@ func latestAssets(ctx context.Context, repo string) ([]ghAsset, error) {
 // latestRelease returns the tag and assets of a repo's latest release.
 func latestRelease(ctx context.Context, repo string) (string, []ghAsset, error) {
 	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
-	out, err := runNetProbe(ctx, "curl", "-fsSL", apiURL)
+	out, err := githubProbe(ctx, apiURL)
 	if err != nil {
 		return "", nil, fmt.Errorf("fetch releases for %s: %w", repo, err)
 	}
@@ -78,6 +80,147 @@ func latestRelease(ctx context.Context, repo string) (string, []ghAsset, error) 
 		return "", nil, fmt.Errorf("parse releases JSON for %s: %w", repo, err)
 	}
 	return release.Tag, release.Assets, nil
+}
+
+// GitHub through a mirror.
+//
+// A corporate Nexus can proxy github.com and api.github.com as raw
+// repositories. Measured against Nexus CE 3.96: the release API answers with
+// GitHub's own JSON, and an asset download follows GitHub's redirect to its
+// object store and matches the published digest, so downloadVerified holds
+// either way. When npm points at a Nexus, that Nexus is asked which of its
+// proxies front GitHub, and every GitHub fetch tries the mirror first and
+// GitHub itself second, the same order opencode's npm source uses.
+
+type githubMirror struct {
+	api string // proxy of https://api.github.com/, ending in "/"
+	web string // proxy of https://github.com/, ending in "/"
+}
+
+var (
+	githubMirrorOnce sync.Once
+	githubMirrorSeen githubMirror
+)
+
+// currentGitHubMirror discovers the mirror once per process.
+func currentGitHubMirror(ctx context.Context) githubMirror {
+	githubMirrorOnce.Do(func() {
+		githubMirrorSeen = findGitHubMirror(ctx, npmRegistry(ctx))
+	})
+	return githubMirrorSeen
+}
+
+// nexusBase returns the root of the Nexus that registry is a repository of
+// ("https://host/nexus/" for "https://host/nexus/repository/npm/"), or "" when
+// it is not a Nexus repository URL. Credentials are dropped: a URL holding
+// them would end up in error messages.
+func nexusBase(registry string) string {
+	u, err := url.Parse(registry)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	i := strings.Index(u.Path, "/repository/")
+	if i < 0 {
+		return ""
+	}
+	u.User = nil
+	u.Path = u.Path[:i+1]
+	u.RawPath, u.RawQuery, u.Fragment = "", "", ""
+	return u.String()
+}
+
+// findGitHubMirror asks the Nexus behind a mirrored npm registry for raw
+// proxies of GitHub. It relies on anonymous read of the repository list, which
+// Nexus allows whenever anonymous access is on; anything else means no mirror.
+func findGitHubMirror(ctx context.Context, registry string) githubMirror {
+	if !npmMirrored(registry) {
+		return githubMirror{}
+	}
+	base := nexusBase(registry)
+	if base == "" {
+		return githubMirror{}
+	}
+	out, err := runNetProbe(ctx, "curl", "-fsSL", "--connect-timeout", "10", "--max-time", "30",
+		base+"service/rest/v1/repositories")
+	if err != nil {
+		core.Debug("no GitHub mirror from %s: %v", base, err)
+		return githubMirror{}
+	}
+	return parseNexusRepos(base, out)
+}
+
+// parseNexusRepos picks the GitHub proxies out of a Nexus repository listing.
+func parseNexusRepos(base string, listing []byte) githubMirror {
+	var repos []struct {
+		Name       string `json:"name"`
+		Format     string `json:"format"`
+		Type       string `json:"type"`
+		Attributes struct {
+			Proxy struct {
+				RemoteURL string `json:"remoteUrl"`
+			} `json:"proxy"`
+		} `json:"attributes"`
+	}
+	if err := json.Unmarshal(listing, &repos); err != nil {
+		return githubMirror{}
+	}
+	var m githubMirror
+	for _, r := range repos {
+		if r.Format != "raw" || r.Type != "proxy" || r.Name == "" {
+			continue
+		}
+		repoURL := base + "repository/" + url.PathEscape(r.Name) + "/"
+		switch strings.TrimSuffix(r.Attributes.Proxy.RemoteURL, "/") {
+		case "https://api.github.com":
+			m.api = repoURL
+		case "https://github.com":
+			m.web = repoURL
+		}
+	}
+	return m
+}
+
+// urlsVia returns where to fetch raw from, in order: the mirror's copy first
+// when the mirror proxies that host, then raw itself.
+func (m githubMirror) urlsVia(raw string) []string {
+	for _, p := range []struct{ prefix, mirror string }{
+		{"https://api.github.com/", m.api},
+		{"https://github.com/", m.web},
+	} {
+		if p.mirror != "" && strings.HasPrefix(raw, p.prefix) {
+			return []string{p.mirror + strings.TrimPrefix(raw, p.prefix), raw}
+		}
+	}
+	return []string{raw}
+}
+
+// githubProbe fetches a GitHub URL's body, through the mirror when there is one.
+func githubProbe(ctx context.Context, raw string) ([]byte, error) {
+	var err error
+	for i, u := range currentGitHubMirror(ctx).urlsVia(raw) {
+		var out []byte
+		if out, err = runNetProbe(ctx, "curl", curlArgs(u)...); err == nil {
+			return out, nil
+		}
+		if i == 0 && u != raw {
+			core.Warn("GitHub mirror failed, trying GitHub: %v", err)
+		}
+	}
+	return nil, err
+}
+
+// githubDownload saves a GitHub URL to dst, through the mirror when there is one.
+func githubDownload(ctx context.Context, raw, dst string) error {
+	var err error
+	for i, u := range currentGitHubMirror(ctx).urlsVia(raw) {
+		if err = runNetCmd(ctx, "curl", curlArgs(u, "-o", dst)...); err == nil {
+			return nil
+		}
+		if i == 0 && u != raw {
+			core.Warn("GitHub mirror failed, trying GitHub: %v", err)
+		}
+	}
+	return err
 }
 
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+`)
