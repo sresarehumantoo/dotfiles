@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/tailscale/hujson"
 )
 
 // managedJSON is a settings file that its program also rewrites, so it is
@@ -28,7 +29,7 @@ type managedJSON struct {
 // state returns the tracked base, the live settings (empty when the file does
 // not exist yet) and the managed keys whose live value differs.
 func (f managedJSON) state() (base, live map[string]any, stale []string, err error) {
-	base, err = readJSONObject(f.base)
+	base, err = readJSONCObject(f.base)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -154,6 +155,25 @@ func readJSONObject(path string) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	return decodeJSONObject(path, data)
+}
+
+// readJSONCObject is readJSONObject for a tracked base, which may carry
+// comments and trailing commas. Live files stay strict: rewriting one would
+// drop the comments a user put there.
+func readJSONCObject(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	std, err := hujson.Standardize(data)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return decodeJSONObject(path, std)
+}
+
+func decodeJSONObject(path string, data []byte) (map[string]any, error) {
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	var m map[string]any
