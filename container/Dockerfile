@@ -63,8 +63,9 @@ RUN cd "/home/${USERNAME}/dotfiles" && make install-bin
 # Sync Neovim plugins at build time so first launch in a fresh container is not a
 # multi-minute download. dfinstall's nvim module attempts this already but reports
 # failure under a TTY-less build; run it explicitly and tolerate a partial sync
-# rather than failing the image.
-RUN timeout 600 nvim --headless "+Lazy! sync" +qa 2>&1 | tail -5 || true
+# rather than failing the image. By path: the nvim module installs into
+# ~/.local/bin, which is not on PATH in a RUN step.
+RUN timeout 600 "/home/${USERNAME}/.local/bin/nvim" --headless "+Lazy! sync" +qa 2>&1 | tail -5 || true
 
 USER root
 
