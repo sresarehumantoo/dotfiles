@@ -74,7 +74,7 @@ func isOmzPluginAvailable(name string) bool {
 // Returns the selected plugin names.
 func RunExtendedPluginMenu() ([]string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		core.Warn("stdin is not a terminal — skipping extended plugin menu")
+		core.Warn("stdin is not a terminal, skipping extended plugin menu")
 		return core.Cfg.ExtendedPlugins, nil
 	}
 
@@ -146,7 +146,7 @@ func RunExtendedPluginMenu() ([]string, error) {
 		catForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewSelect[string]().
-					Title("Extended OMZ Plugins — Select a category").
+					Title("Extended OMZ Plugins: Select a category").
 					Description("Enter to browse, q to quit").
 					Options(catOptions...).
 					Value(&catChoice),
@@ -155,7 +155,7 @@ func RunExtendedPluginMenu() ([]string, error) {
 
 		if err := catForm.Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
-				core.PrintHint("Selection canceled — keeping existing config")
+				core.PrintHint("Selection canceled, keeping existing config")
 				return core.Cfg.ExtendedPlugins, nil
 			}
 			return nil, fmt.Errorf("category menu: %w", err)
@@ -195,7 +195,7 @@ func RunExtendedPluginMenu() ([]string, error) {
 		pluginForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewMultiSelect[string]().
-					Title(fmt.Sprintf("OMZ Plugins — %s", cat.name)).
+					Title(fmt.Sprintf("OMZ Plugins: %s", cat.name)).
 					Description("Space to toggle, Enter to confirm, Esc to go back").
 					Options(pluginOptions...).
 					Value(&catSelected),
@@ -228,7 +228,7 @@ func RunExtendedPluginMenu() ([]string, error) {
 	// Validate plugin names
 	for _, p := range result {
 		if !validPluginName.MatchString(p) {
-			return nil, fmt.Errorf("invalid plugin name %q — must be alphanumeric with hyphens/underscores", p)
+			return nil, fmt.Errorf("invalid plugin name %q: must be alphanumeric with hyphens/underscores", p)
 		}
 	}
 
@@ -285,7 +285,7 @@ func WriteExtendedPluginsFile(plugins []string) error {
 	// Validate plugin names before writing to a shell-sourced file
 	for _, p := range plugins {
 		if !validPluginName.MatchString(p) {
-			return fmt.Errorf("invalid plugin name %q — must be alphanumeric with hyphens/underscores", p)
+			return fmt.Errorf("invalid plugin name %q: must be alphanumeric with hyphens/underscores", p)
 		}
 	}
 

@@ -233,7 +233,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 		var b strings.Builder
 		b.WriteString(upgradeReport)
 		if sess.CanonicalNow != "" && sess.CanonicalPrev != "" {
-			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s) — repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
+			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s), repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
 		}
 
 		var failures []string
@@ -270,7 +270,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 	m, ok := core.GetModule(name)
 	if !ok {
 		return mcp.NewToolResultError(
-			fmt.Sprintf("unknown module %q — valid: %s", name, strings.Join(core.ModuleNames(), ", ")),
+			fmt.Sprintf("unknown module %q (valid: %s)", name, strings.Join(core.ModuleNames(), ", ")),
 		), nil
 	}
 
@@ -601,7 +601,7 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	m, ok := core.GetModule(name)
 	if !ok {
 		return mcp.NewToolResultError(
-			fmt.Sprintf("unknown module %q — valid: %s", name, strings.Join(core.ModuleNames(), ", ")),
+			fmt.Sprintf("unknown module %q (valid: %s)", name, strings.Join(core.ModuleNames(), ", ")),
 		), nil
 	}
 

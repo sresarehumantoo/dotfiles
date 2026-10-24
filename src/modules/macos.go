@@ -51,7 +51,7 @@ func macDoctorResults() []DoctorResult {
 	}
 	var results []DoctorResult
 
-	admin := "no — standard account; nothing here needs admin once Homebrew exists"
+	admin := "no (standard account; nothing here needs admin once Homebrew exists)"
 	if groups, ok := probe("id", "-Gn"); ok && slices.Contains(strings.Fields(groups), "admin") {
 		admin = "yes"
 	}
@@ -78,7 +78,7 @@ func macDoctorResults() []DoctorResult {
 
 	clt := "installed"
 	if _, ok := probe("xcode-select", "-p"); !ok {
-		clt = "missing — needed for git, make and cc; on a managed Mac IT or Self Service usually deploys it"
+		clt = "missing (needed for git, make and cc; on a managed Mac IT or Self Service usually deploys it)"
 	}
 	results = append(results, DoctorResult{Name: "command line tools", OK: clt == "installed", Detail: clt})
 

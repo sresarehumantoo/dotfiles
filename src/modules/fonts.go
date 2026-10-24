@@ -137,7 +137,7 @@ func (m FontsModule) Install(ctx context.Context) error {
 			present, tag := fontInstalled(f)
 			switch {
 			case present && tag == nerdFontsTag:
-				core.Info("%s (%s) already installed — would leave it alone", f.family, nerdFontsTag)
+				core.Info("%s (%s) already installed; would leave it alone", f.family, nerdFontsTag)
 			case present:
 				core.Info("would update %s from %s to %s", f.family, tagOrUnknown(tag), nerdFontsTag)
 			default:
@@ -177,12 +177,12 @@ func (m FontsModule) Install(ctx context.Context) error {
 			// owns — a hand-installed copy. Install a managed one anyway, or the
 			// pin is unenforceable and Uninstall can't work; say so, because the
 			// unmanaged copy stays behind and is the user's to remove.
-			core.Warn("%s is installed outside %s and unmanaged — installing a "+
+			core.Warn("%s is installed outside %s and unmanaged, installing a "+
 				"managed copy; remove the other to avoid duplicates",
 				f.family, fontsDir(f.dir))
 		}
 		if err := installDownloadedFont(ctx, f); err != nil {
-			core.Warn("could not install %s: %v — MesloLGS floor remains in place", f.family, err)
+			core.Warn("could not install %s: %v; MesloLGS floor remains in place", f.family, err)
 			continue
 		}
 		core.Changed("installed font: %s (%s)", f.family, nerdFontsTag)
@@ -191,7 +191,7 @@ func (m FontsModule) Install(ctx context.Context) error {
 
 	if changed {
 		refreshFontCache(ctx)
-		core.Status("Fonts changed — fully restart your terminal (a config reload is not enough) to load them.")
+		core.Status("Fonts changed; fully restart your terminal (a config reload is not enough) to load them.")
 	}
 
 	core.Ok("Fonts done")
@@ -389,7 +389,7 @@ func (m FontsModule) cleanLegacyArtifacts() bool {
 		}
 		bak := l.Dst + ".bak"
 		if _, err := os.Lstat(bak); err == nil && !core.FilesMatch(l.Src, bak) {
-			core.Warn("%s differs from the vendored font and was left in place — "+
+			core.Warn("%s differs from the vendored font and was left in place, and "+
 				"fontconfig still loads it as a duplicate; remove it yourself if unwanted", bak)
 		}
 	}
