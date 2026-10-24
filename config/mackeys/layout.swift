@@ -10,6 +10,7 @@
 // to an ordinary process. Built and configured by dfinstall's mackeys module,
 // which writes both layouts and the app list to the config file read here.
 import AppKit
+import IOKit.hid
 
 func logLine(_ message: String) {
     FileHandle.standardError.write(Data("mackeys-layout: \(message)\n".utf8))
@@ -101,7 +102,17 @@ else {
     exit(0)
 }
 
-logLine("started; command layout for \(config.apps.count) apps")
+// The keyboard filter drops a remap from a client without Input Monitoring
+// (or an Apple entitlement) and hidutil still exits 0, so the access this
+// process has decides whether any switch below takes effect. Checking does
+// not prompt.
+let access: String
+switch IOHIDCheckAccess(kIOHIDRequestTypeListenEvent) {
+case kIOHIDAccessTypeGranted: access = "granted"
+case kIOHIDAccessTypeDenied: access = "denied"
+default: access = "not decided"
+}
+logLine("started; command layout for \(config.apps.count) apps; Input Monitoring \(access)")
 NSApplication.shared.setActivationPolicy(.prohibited)
 let layout = Layout(config)
 let workspace = NSWorkspace.shared.notificationCenter
