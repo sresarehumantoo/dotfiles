@@ -1,0 +1,58 @@
+# A corporate network for testing dfinstall and the bootstraps. See run.sh.
+#
+# "corp" is internal: dev has no route out except through "proxy", which sits
+# inline like a next-generation firewall. It decrypts HTTPS with the lab's own
+# root CA (generated into .state/ca, never committed), filters hosts listed in
+# .state/policy/blocklist, and answers DNS. Nexus is on the corp network directly, as
+# an internal artifact server would be, and proxies the public registries.
+name: dfinstall-corplab
+
+services:
+  nexus:
+    image: sonatype/nexus3:3.96.4
+    networks: [corp, egress]
+    ports:
+      - "127.0.0.1:8081:8081"
+    environment:
+      INSTALL4J_ADD_VM_PARAMS: "-Xms1g -Xmx1g -XX:MaxDirectMemorySize=1g"
+    volumes:
+      - nexus-data:/nexus-data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8081/service/rest/v1/status/writable || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+      start_period: 60s
+
+  proxy:
+    build: ./proxy
+    networks: [corp, egress]
+    cap_add: [NET_ADMIN]
+    volumes:
+      - ./.state:/state:ro
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
+      interval: 2s
+      retries: 30
+
+  dev:
+    build: ./dev
+    networks: [corp]
+    cap_add: [NET_ADMIN]
+    depends_on:
+      nexus:
+        condition: service_healthy
+      proxy:
+        condition: service_healthy
+    volumes:
+      - ${REPO:?set REPO to the dotfiles checkout}:/src:ro
+      - ./.state:/lab:ro
+      - ./.state/policy:/lab/policy
+
+networks:
+  corp:
+    internal: true
+  egress: {}
+
+volumes:
+  nexus-data:
