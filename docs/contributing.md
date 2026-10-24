@@ -92,10 +92,12 @@ func (FooModule) Install(ctx context.Context) error {
 }
 ```
 
-If the module is **opt-in** (installed only on explicit request, like windev),
-it also has to be handled in `core.SkipInAll` — everything that loops over
-`core.AllModules()` for an `install all`, including the `diff` report, gates on
-that rather than `core.IsModuleSkipped`.
+If the module is **opt-in** (installed only on explicit request, like windev
+and opencode), give it a `Config` flag and a case in `optInFlag`
+(`core/config.go`). That is what `core.SkipInAll` and `SetOptIn`/`ClearOptIn`
+read, and everything that loops over `core.AllModules()` for an `install all`,
+including the `diff` report, gates on `SkipInAll` rather than
+`core.IsModuleSkipped`.
 
 ### 5. Update the test
 

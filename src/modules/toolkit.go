@@ -538,7 +538,7 @@ func installAppImage(ctx context.Context, name, repo string) error {
 	}
 
 	// Download
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", destPath, asset.URL); err != nil {
+	if err := githubDownload(ctx, asset.URL, destPath); err != nil {
 		os.Remove(destPath)
 		return fmt.Errorf("download %s: %w", name, err)
 	}
@@ -598,7 +598,7 @@ func installReleaseBinary(ctx context.Context, name, repo, pattern string) error
 	}
 	defer os.RemoveAll(tmpDir)
 	tmpPath := filepath.Join(tmpDir, assetName)
-	if err := runCmd(ctx, "curl", "-fsSL", "-o", tmpPath, asset.URL); err != nil {
+	if err := githubDownload(ctx, asset.URL, tmpPath); err != nil {
 		return fmt.Errorf("download %s: %w", name, err)
 	}
 

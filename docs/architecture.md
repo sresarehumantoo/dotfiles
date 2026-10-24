@@ -158,7 +158,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `uninstall <module\|all>` | Remove symlinks created by dfinstall |
 | `diff` | Show drift between config and filesystem |
 | `status` | Print table of link counts per module |
-| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) |
+| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) and an informational `package mirrors` row naming the npm, pip, Go and cargo mirrors in use |
 | `restore [timestamp]` | Restore files from a backup snapshot |
 | `root` | Install root-owned copies of configs into `/root/` via sudo |
 | `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
@@ -378,6 +378,26 @@ drop-in leaves nothing.
 
 `core/hash.go` provides SHA-256 file hashing used by the `fonts` and `wsl` modules to detect whether installed files match the source. This avoids unnecessary writes and enables status checks without reading full file contents.
 
+## Package Mirrors
+
+`modules/mirrors.go` reads how npm, pip, Go and cargo are pointed at a mirror
+(Nexus, Artifactory), each through its own configuration; `doctor` reports it
+in a `package mirrors` row. pipx, `go install` and `cargo install` already use
+those mirrors on their own.
+
+GitHub downloads go through `githubProbe`/`githubDownload` in
+`modules/github_release.go`, which `latestRelease`, `downloadVerified`, fonts and
+the toolkit installers use. When npm's registry is a Nexus repository URL, the
+Nexus is asked anonymously (`/service/rest/v1/repositories`) for raw proxies of
+`https://github.com` and `https://api.github.com`. Each GitHub fetch then tries
+the mirror first and GitHub second. Verified downloads stay verified: the
+mirror serves the same release JSON and bytes, so the GitHub digest still
+matches. Not covered: git clones (oh-my-zsh, tmux plugins), the toolkit
+registry on `raw.githubusercontent.com`, and a Nexus without anonymous read.
+
+`scripts/corplab` tests all of this against a real Nexus CE behind a
+TLS-inspecting firewall; see [Building](building.md#corporate-network-lab).
+
 ## Toolkit Registry
 
 `core/registry.go` manages the external toolkit registry — a JSON catalog of installable tools fetched at runtime so no tool names are compiled into the binary. The registry is fetched from `DefaultRegistryURL` (raw GitHub, `sresarehumantoo/dotfiles-toolkit`), overridable via the `toolkit_registry_url` config field or the `--registry` flag.
@@ -445,6 +465,7 @@ The `vmguest` module (`modules/vmguest.go`) uses this: on a hardware VM it insta
 | `skip_modules` | []string | *(empty)* | Modules to skip during `install all` (machine profiles) |
 | `toolkit_tools` | []string | *(empty)* | Toolkit tools selected via `--toolkit` |
 | `windev_enabled` | bool | `false` | Whether the opt-in windev module is enabled (drives `core.SkipInAll`) |
+| `opencode_enabled` | bool | `false` | Whether the opt-in opencode module is enabled (drives `core.SkipInAll`) |
 | `toolkit_registry_url` | string | *(empty)* | Custom toolkit registry URL override |
 
 ### Auto-Backup Logic
@@ -471,7 +492,7 @@ The key distinction is `CfgFileExists` — whether the config file was present a
 | `ConfigFilePath()` | Return full path to the config file |
 | `IsModuleSkipped(name)` | Is the module in `skip_modules`? |
 | `SkipInAll(name)` | Should `install all` skip it? `IsModuleSkipped` **plus** un-enabled opt-ins. Use this, not `IsModuleSkipped`, in any `AllModules()` loop |
-| `SetWindevOptIn()` / `ClearWindevOptIn()` | Record/drop the windev opt-in |
+| `SetOptIn(name)` / `ClearOptIn(name)` | Record/drop an opt-in module's flag (no-op for other modules); the flags live in `optInFlag` |
 
 ## Backup & Restore
 

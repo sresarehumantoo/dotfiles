@@ -45,3 +45,8 @@ skip_backup: true
 # `dfinstall install windev`; cleared by `dfinstall uninstall windev`. While
 # false, the module is skipped by `install all`.
 # windev_enabled: false
+
+# Opt-in for the opencode module (opencode for Anthropic API / Bedrock users).
+# Set by `dfinstall install opencode`; cleared by `dfinstall uninstall
+# opencode`. While false, the module is skipped by `install all`.
+# opencode_enabled: false

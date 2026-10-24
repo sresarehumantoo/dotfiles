@@ -78,6 +78,8 @@ On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up
 
 Behind a TLS-inspecting proxy, bootstrap detects the interception (hosts that fail against Apple's public roots but pass with the System keychain's certificates) and points the tools that ignore the keychain at a bundle of both: curl, git, Node, Python, cargo and Homebrew, through `~/.config/dfinstall/ca.sh`, which `~/.profile` sources. `SSL_CERT_FILE` is left alone, because it would turn off Go's keychain verification. Re-run the bootstrap with `--skip-ghostty --skip-dotfiles` after the proxy's root CA changes; `dfinstall doctor` flags a bundle that is missing a keychain certificate. The very first download can fail before any of that runs, since Apple's `curl` does not trust the keychain either; if it reports a certificate error, fetch with the keychain's certificates:
 
+When Ghostty's download site is blocked, so `brew install --cask ghostty` fails, bootstrap offers Ghostty's nightly build from GitHub instead (GitHub carries no stable release of it), checked against GitHub's sha256.
+
 ```bash
 security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain > /tmp/ca.pem
 curl --cacert /tmp/ca.pem -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
@@ -241,6 +243,7 @@ Config lives at `<dotfiles>/.config.yaml`, generated on first run. [`.config.yam
 | `preserved_files` | — | Shell files to keep sourcing after `~/.zshrc` is replaced |
 | `dismissed_files` | — | Shell files declined, so the prompt doesn't return |
 | `windev_enabled` | `false` | Opt-in for the `windev` module |
+| `opencode_enabled` | `false` | Opt-in for the `opencode` module |
 
 ## Modules
 
@@ -270,12 +273,13 @@ Modules run in this order — dependencies first:
 | 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Tested only on macOS 26.7.1 (25G241). Only `install alttab` sets it up |
 | 21 | **htop** | htop config |
 | 22 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
-| 23 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 24 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 25 | **defaultshell** | Sets zsh as the default login shell |
+| 23 | **opencode** | opencode for Anthropic API / Bedrock users, locked to those providers with Claude Code-style permissions — see [docs](docs/modules.md#opencode). Opt-in |
+| 24 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 25 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 26 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
-> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's just **windev**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
+> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's **windev** and **opencode**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
 
 ## MCP Server
 

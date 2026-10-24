@@ -14,7 +14,7 @@ LOCAL_BIN  := $(HOME)/.local/bin
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci check-decoupling e2e \
+.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci check-decoupling e2e corplab \
         install uninstall install-bin install-mcp uninstall-mcp clean
 
 help: ## Show this help
@@ -56,6 +56,9 @@ ci: fmt-check lint check-decoupling build-all test test-race ## Run every check 
 e2e: ## Run the end-to-end scenarios in Docker (slow; SCENARIO=sudo|bootstrap|rootless for one)
 	@for s in $(or $(SCENARIO),$(basename $(notdir $(wildcard scripts/e2e/scenarios/*.sh)))); do \
 	  echo "== e2e: $$s"; scripts/e2e/run.sh $$s || exit 1; done
+
+corplab: ## Run the corporate-network scenarios (TLS inspection, Nexus) in Docker; SCENARIO=<name> for one
+	scripts/corplab/run.sh $(SCENARIO)
 
 install: build ## Build, then apply all dotfile modules (dfinstall install all)
 	./$(BUILD_DIR)/$(BINARY) install all

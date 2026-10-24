@@ -150,9 +150,7 @@ func main() {
 		}
 
 		m, _ := core.GetModule(target)
-		if target == "windev" {
-			core.SetWindevOptIn()
-		}
+		core.SetOptIn(target)
 		return installOne(ctx, m)
 	}
 
@@ -340,9 +338,7 @@ func main() {
 			if !ok {
 				return fmt.Errorf("unknown module %q (%s)", target, modules.ValidModuleNames())
 			}
-			if target == "windev" {
-				core.ClearWindevOptIn()
-			}
+			core.ClearOptIn(target)
 			return uninstallOne(ctx, m)
 		},
 	}

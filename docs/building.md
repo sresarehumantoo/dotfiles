@@ -99,6 +99,7 @@ Run `make` (or `make help`) to list every target.
 | `fmt-check` | `gofmt -s -l src tests` | Check formatting without modifying (same check as CI) |
 | `ci` | `fmt-check` + `lint` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
 | `e2e` | `scripts/e2e/run.sh <scenario>` | End-to-end scenarios in Docker; `SCENARIO=sudo` runs one |
+| `corplab` | `scripts/corplab/run.sh [scenario]` | Corporate-network scenarios (TLS inspection, Nexus) in Docker Compose; `SCENARIO=nexus` runs one |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
 | `uninstall` | `make build && bin/dfinstall uninstall all` | Remove all managed symlinks |
 | `install-bin` | `install ... ~/.local/bin` | Install both binaries onto `PATH` (`~/.local/bin`) |
@@ -175,6 +176,9 @@ src/
     omz_extended.go    #   Extended plugin menu and file writer
     shell_preserve.go  #   Custom shell file scan and custom-sources.zsh writer
     packages.go        #   Shared package manager helpers (runCmd, installPkg)
+    github_release.go  #   GitHub release lookup and verified download, through a Nexus mirror when found
+    mirrors.go         #   npm/pip/Go/cargo mirror detection (doctor's package mirrors row)
+    json_settings.go   #   managedJSON: merge tracked keys into a settings file a program also writes
     ...                #   19 modules total
 tests/                 # Black-box tests (package tests)
                        # In-package tests also live in src/core/*_test.go
@@ -204,7 +208,8 @@ directory for the rest:
 | `unlink_test.go` | UnlinkFile: correct/wrong/missing/regular-file cases |
 | `dryrun_test.go` | DryRun mode: LinkFile, EnsureDir, UnlinkFile skip filesystem changes |
 | `config_skip_test.go` | IsModuleSkipped helper with skip_modules config |
-| `install_session_test.go` | SkipInAll (windev opt-in, skip_modules), BeginInstall backup policy |
+| `install_session_test.go` | SkipInAll (windev and opencode opt-ins, skip_modules), SetOptIn/ClearOptIn, BeginInstall backup policy |
+| `opencode_test.go` | opencode settings merge, env pin, overriding config files, dry run, uninstall, the shipped config's security keys |
 | `install_session_state_test.go` | Canonical pointer writes under/without dry-run, a failed first run not persisting `skip_backup`, idempotent Finish |
 | `canonical_test.go` | LinkRoot, canonical pointer read/write + self-heal, DotfilesDir precedence, adoption, drift split |
 | `homepath_propagation_test.go` | Unresolvable `$HOME`: SubPath propagation, CheckTarget refusals, empty path helpers |
@@ -234,6 +239,34 @@ for a person, answers dfinstall's own questions with their defaults, and
 reports each step's prompt count and exit code for the scenario to assert on.
 A new scenario is a script that writes a steps file and checks the results with
 `expect_step` and `check` from `scripts/e2e/lib.sh`.
+
+### Corporate network lab
+
+`make corplab` (`scripts/corplab/run.sh [scenario...]`) runs dfinstall and the
+bootstraps on a simulated corporate network, built with Docker Compose:
+
+- **dev**, the workstation, on an internal network with no route out except
+  through **proxy**.
+- **proxy**, an inline firewall. It decrypts HTTPS by re-signing every
+  connection with the lab's own root CA (generated into
+  `scripts/corplab/.state/ca` as PEM `.crt` and DER `.cer`, never committed),
+  filters hosts with a block page or a reset, and answers DNS. A scenario sets
+  the filter with `policy RULE...`; the rules are described in
+  `proxy/filter.py`.
+- **nexus**, Sonatype Nexus CE on the internal network, proxying npm, PyPI, Go,
+  `github.com` and `api.github.com`. `setup-nexus.sh` configures it; the UI is
+  on `http://127.0.0.1:8081`.
+
+The first start takes a few minutes while Nexus initializes; the lab is left
+running for the next run (`--down` stops it, `docker compose -f
+scripts/corplab/compose.yaml down -v` removes it with Nexus's cache).
+
+| Scenario | Checks |
+|----------|--------|
+| `network` | The lab itself: the stock trust store rejects intercepted connections, the lab CA verifies them, block pages, resets and exemptions |
+| `tls-inspection` | `wsl-setup.sh check-tls` before and after `install-cert` of the DER certificate; curl, git, node, npm, pip, `dfinstall install delta`/`opencode` and opencode's own API calls, first with the CA in the system store, then without root through the per-user variables `macos-setup.sh` writes |
+| `nexus` | The internet blocked outright: the `package mirrors` doctor row, opencode from npm through Nexus, delta from the GitHub release through Nexus's GitHub proxy, and a clear failure once that proxy is offline too |
+| `ghostty-macos` | The macOS bootstrap's Ghostty step: Homebrew while Ghostty's site answers, the verified GitHub nightly once it is blocked, and a clear failure when GitHub is blocked as well. `brew`, `ditto` and `shasum` are stand-ins; the bootstrap code is not |
 
 ## Continuous Integration
 

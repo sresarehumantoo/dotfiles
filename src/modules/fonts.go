@@ -419,7 +419,7 @@ func installDownloadedFont(ctx context.Context, f downloadedFont) error {
 	archivePath := filepath.Join(tmp, f.archive)
 	archiveURL := fmt.Sprintf(
 		"https://github.com/ryanoasis/nerd-fonts/releases/download/%s/%s", nerdFontsTag, f.archive)
-	if err := runNetCmd(ctx, "curl", curlArgs(archiveURL, "-o", archivePath)...); err != nil {
+	if err := githubDownload(ctx, archiveURL, archivePath); err != nil {
 		return fmt.Errorf("download %s: %w", f.archive, err)
 	}
 
@@ -497,7 +497,7 @@ func curlArgs(url string, extra ...string) []string {
 func fetchExpectedSHA(ctx context.Context, asset string) (string, error) {
 	url := fmt.Sprintf(
 		"https://github.com/ryanoasis/nerd-fonts/releases/download/%s/SHA-256.txt", nerdFontsTag)
-	out, err := runNetProbe(ctx, "curl", curlArgs(url)...)
+	out, err := githubProbe(ctx, url)
 	if err != nil {
 		return "", fmt.Errorf("fetch SHA-256.txt: %w", err)
 	}
