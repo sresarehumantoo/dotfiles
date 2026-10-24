@@ -17,7 +17,7 @@ import (
 // Returns the selected tool names.
 func RunToolkitMenu(ctx context.Context) ([]string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		core.Warn("stdin is not a terminal — skipping toolkit menu")
+		core.Warn("stdin is not a terminal, skipping toolkit menu")
 		return core.Cfg.ToolkitTools, nil
 	}
 
@@ -112,13 +112,13 @@ func RunToolkitMenu(ctx context.Context) ([]string, error) {
 			}
 		}
 
-		doneLabel := fmt.Sprintf("Done — Installed: %d · To install: %d · To remove: %d", totalInstalled, toInstall, toRemove)
+		doneLabel := fmt.Sprintf("Done: %d installed, %d to install, %d to remove", totalInstalled, toInstall, toRemove)
 		catOptions = append(catOptions, huh.NewOption(doneLabel, "_done"))
 
 		catForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewSelect[string]().
-					Title("Toolkit — Select a category").
+					Title("Toolkit: Select a category").
 					Description("Enter to browse, q to quit").
 					Options(catOptions...).
 					Value(&catChoice),
@@ -127,7 +127,7 @@ func RunToolkitMenu(ctx context.Context) ([]string, error) {
 
 		if err := catForm.Run(); err != nil {
 			if errors.Is(err, huh.ErrUserAborted) {
-				core.PrintHint("Selection canceled — keeping existing config")
+				core.PrintHint("Selection canceled, keeping existing config")
 				return core.Cfg.ToolkitTools, nil
 			}
 			return nil, fmt.Errorf("category menu: %w", err)
@@ -169,7 +169,7 @@ func RunToolkitMenu(ctx context.Context) ([]string, error) {
 		toolForm := huh.NewForm(
 			huh.NewGroup(
 				huh.NewMultiSelect[string]().
-					Title(fmt.Sprintf("Toolkit — %s", cat.name)).
+					Title(fmt.Sprintf("Toolkit: %s", cat.name)).
 					Description("Space to toggle, Enter to confirm, Esc to go back").
 					Options(toolOptions...).
 					Value(&catSelected),
@@ -203,7 +203,7 @@ func RunToolkitMenu(ctx context.Context) ([]string, error) {
 	// Validate tool names
 	for _, t := range result {
 		if !core.ValidToolName.MatchString(t) {
-			return nil, fmt.Errorf("invalid tool name %q — must be alphanumeric with hyphens/underscores", t)
+			return nil, fmt.Errorf("invalid tool name %q: must be alphanumeric with hyphens/underscores", t)
 		}
 	}
 

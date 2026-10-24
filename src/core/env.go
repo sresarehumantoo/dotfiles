@@ -514,7 +514,7 @@ var noHomeOnce sync.Once
 
 func warnNoHome(err error) {
 	noHomeOnce.Do(func() {
-		AlwaysWarn("%v — managed paths cannot be resolved; no files will be touched", err)
+		AlwaysWarn("%v: managed paths cannot be resolved, so no files will be touched", err)
 	})
 }
 
@@ -567,7 +567,7 @@ func EnsureSudo(ctx context.Context, command ...string) {
 	// stream, reading it would corrupt the session, so leave credentials
 	// unprimed and let the command fail loudly.
 	if !Interactive {
-		Debug("sudo: not primed (non-interactive) — steps requiring sudo will fail")
+		Debug("sudo: not primed (non-interactive); steps requiring sudo will fail")
 		return
 	}
 
@@ -580,7 +580,7 @@ func EnsureSudo(ctx context.Context, command ...string) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		Warn("sudo authentication failed — some steps may prompt again")
+		Warn("sudo authentication failed; some steps may prompt again")
 		return
 	}
 	sudoPrompted = true

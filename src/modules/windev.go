@@ -77,7 +77,7 @@ func (WindevModule) Install(ctx context.Context) error {
 		core.Warn("failed to write windev PATH snippet: %v", err)
 	}
 
-	core.Ok("Windows cross-dev environment ready — open a new shell to pick up PATH changes")
+	core.Ok("Windows cross-dev environment ready; open a new shell to pick up PATH changes")
 	return nil
 }
 
@@ -119,7 +119,7 @@ func installWindevRust(ctx context.Context) {
 	// couldn't be installed; skip the rest in that case.
 	if _, err := exec.LookPath("rustup"); err != nil {
 		if !installRustup(ctx) {
-			core.Warn("rustup unavailable — skipping Rust windows-gnu setup")
+			core.Warn("rustup unavailable, skipping Rust windows-gnu setup")
 			return
 		}
 	}
@@ -152,7 +152,7 @@ func installWindevDotnet(ctx context.Context) {
 	if dotnet == "" {
 		core.Info("Installing .NET SDK (dotnet-install.sh → ~/.dotnet)...")
 		if err := installDotnetSDK(ctx); err != nil {
-			core.Warn(".NET SDK install failed: %v — skipping C# setup", err)
+			core.Warn(".NET SDK install failed: %v, skipping C# setup", err)
 			return
 		}
 		dotnet = dotnetBin()
@@ -160,7 +160,7 @@ func installWindevDotnet(ctx context.Context) {
 		core.Ok(".NET SDK already installed")
 	}
 	if dotnet == "" {
-		core.Warn("dotnet not found after install — skipping C# tooling")
+		core.Warn("dotnet not found after install, skipping C# tooling")
 		return
 	}
 
@@ -204,7 +204,7 @@ func installDotnetSDK(ctx context.Context) error {
 func installOmnisharp(ctx context.Context) {
 	asset := pick(runtime.GOARCH, "omnisharp-linux-x64.tar.gz", "omnisharp-linux-arm64.tar.gz")
 	if asset == "" {
-		core.Warn("no OmniSharp release for arch %s — skipping C# LSP", runtime.GOARCH)
+		core.Warn("no OmniSharp release for arch %s, skipping C# LSP", runtime.GOARCH)
 		return
 	}
 	core.Info("Installing OmniSharp (C# LSP)...")
@@ -217,7 +217,7 @@ func installOmnisharp(ctx context.Context) {
 func installNetcoredbg(ctx context.Context) {
 	asset := pick(runtime.GOARCH, "netcoredbg-linux-amd64.tar.gz", "netcoredbg-linux-arm64.tar.gz")
 	if asset == "" {
-		core.Warn("no netcoredbg release for arch %s — skipping C# debugger", runtime.GOARCH)
+		core.Warn("no netcoredbg release for arch %s, skipping C# debugger", runtime.GOARCH)
 		return
 	}
 	core.Info("Installing netcoredbg (C# debugger)...")

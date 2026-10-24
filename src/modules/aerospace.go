@@ -49,7 +49,7 @@ func (m AerospaceModule) Install(ctx context.Context) error {
 	// the same split sway makes.
 	if !aerospaceInstalled() {
 		if core.InstallingAll {
-			core.Debug("AeroSpace not installed — skipping config")
+			core.Debug("AeroSpace not installed, skipping config")
 			return nil
 		}
 		if core.DryRun {

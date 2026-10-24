@@ -146,7 +146,7 @@ func RunDoctorChecks() []DoctorResult {
 			if root == d.Canonical {
 				marker = " (canonical)"
 			}
-			extra = append(extra, fmt.Sprintf("%s%s — %d link(s)", root, marker, len(d.Roots[root])))
+			extra = append(extra, fmt.Sprintf("%s%s: %d link(s)", root, marker, len(d.Roots[root])))
 		}
 		extra = append(extra, fmt.Sprintf("run 'dfinstall install all' from %s to consolidate", d.Canonical))
 		results = append(results, DoctorResult{Name: "dotfiles clones", OK: false, Detail: fmt.Sprintf("symlinks split across %d location(s)", len(d.Roots)), Extra: extra})
@@ -271,10 +271,10 @@ func cloneFreshness(dir string) *DoctorResult {
 
 	if len(notes) == 1 && strings.HasPrefix(notes[0], "level with") {
 		return &DoctorResult{Name: "clone freshness", OK: true,
-			Detail: fmt.Sprintf("%s — clean, %s", branch, notes[0])}
+			Detail: fmt.Sprintf("on %s, clean, %s", branch, notes[0])}
 	}
 	return &DoctorResult{Name: "clone freshness", OK: true,
-		Detail: fmt.Sprintf("%s — %s", branch, strings.Join(notes, ", "))}
+		Detail: fmt.Sprintf("on %s, %s", branch, strings.Join(notes, ", "))}
 }
 
 // parseAheadBehind reads `git rev-list --left-right --count @{u}...HEAD`,
@@ -317,7 +317,7 @@ func RunDoctor() {
 				core.Status("%s", r.Name)
 			}
 		} else {
-			core.AlwaysWarn("%s — %s", r.Name, r.Detail)
+			core.AlwaysWarn("%s: %s", r.Name, r.Detail)
 			for _, e := range r.Extra {
 				core.AlwaysWarn("    %s", e)
 			}

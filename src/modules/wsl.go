@@ -47,7 +47,7 @@ func (WslModule) Install(ctx context.Context) error {
 		installWslconfig(ctx)
 		linkWinHome()
 	} else {
-		core.Warn("Windows interop not available — skipping shims, .wslconfig and the home symlink.")
+		core.Warn("Windows interop not available, skipping shims, .wslconfig and the home symlink.")
 		core.Warn("From PowerShell run: wsl --shutdown")
 		core.Warn("Then relaunch and run: dfinstall install wsl")
 	}
@@ -55,7 +55,7 @@ func (WslModule) Install(ctx context.Context) error {
 	configureGhosttyShader(ctx)
 
 	if wslConfChanged {
-		core.Notice("/etc/wsl.conf changed — run `wsl --shutdown` from PowerShell for it to take effect.")
+		core.Notice("/etc/wsl.conf changed; run `wsl --shutdown` from PowerShell for it to take effect.")
 		core.Notice("That is what switches off the Windows PATH; the shims above already cover it.")
 	}
 
@@ -79,7 +79,7 @@ func installWslConf(ctx context.Context) bool {
 	if user := currentUsername(); user != "" {
 		core.Info("wsl.conf default user: %s", user)
 	} else {
-		core.Warn("Could not determine the installing user — /etc/wsl.conf will omit `default=`")
+		core.Warn("Could not determine the installing user; /etc/wsl.conf will omit `default=`")
 	}
 
 	dstPath := "/etc/wsl.conf"
@@ -91,7 +91,7 @@ func installWslConf(ctx context.Context) bool {
 		core.Notice("Updating /etc/wsl.conf (backing up to /etc/wsl.conf.bak)")
 		// Don't overwrite the original if we couldn't back it up first.
 		if err := sudoCopy(ctx, dstPath, dstPath+".bak"); err != nil {
-			core.Warn("could not back up %s: %v — leaving it unchanged", dstPath, err)
+			core.Warn("could not back up %s: %v, leaving it unchanged", dstPath, err)
 			return false
 		}
 	}
@@ -233,13 +233,13 @@ func installWslconfig(ctx context.Context) {
 		core.Info("Detected host: %d logical CPUs, %.1f GB RAM",
 			specs.logicalCPUs, float64(specs.memBytes)/float64(gib))
 	} else {
-		core.Warn("Could not detect host CPU/RAM — .wslconfig will omit sizing and WSL defaults apply")
+		core.Warn("Could not detect host CPU/RAM; .wslconfig will omit sizing and WSL defaults apply")
 	}
 	srcData := []byte(renderWslconfig(string(tmpl), specs))
 
 	wslWinHome := resolveWinHome()
 	if wslWinHome == "" {
-		core.Warn("Could not resolve Windows home — copy wsl/wslconfig to C:\\Users\\<you>\\.wslconfig manually")
+		core.Warn("Could not resolve Windows home; copy wsl/wslconfig to C:\\Users\\<you>\\.wslconfig manually")
 		return
 	}
 
@@ -267,7 +267,7 @@ func installWslconfig(ctx context.Context) {
 func linkWinHome() {
 	wslWinHome := resolveWinHome()
 	if wslWinHome == "" {
-		core.Warn("Could not resolve Windows home — skipping ~/username symlink")
+		core.Warn("Could not resolve Windows home, skipping ~/username symlink")
 		return
 	}
 

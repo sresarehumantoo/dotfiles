@@ -54,7 +54,7 @@ func (m SketchybarModule) Install(ctx context.Context) error {
 	// already there, asking for it by name installs it.
 	if !sketchybarInstalled() {
 		if core.InstallingAll {
-			core.Debug("SketchyBar not installed — skipping config")
+			core.Debug("SketchyBar not installed, skipping config")
 			return nil
 		}
 		if core.DryRun {

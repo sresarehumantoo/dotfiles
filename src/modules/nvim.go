@@ -237,7 +237,7 @@ func ensureNvim(ctx context.Context) error {
 		core.AlwaysWarn("Neovim %s at %s is older than required %d.%d (nvim-treesitter's main branch requires it)", shown, info.path, minNvimMajor, minNvimMinor)
 
 		if !confirmNvimUpgrade(shown, info.path, owner) {
-			core.AlwaysWarn("Skipping Neovim upgrade — treesitter highlighting needs %d.%d and will not load", minNvimMajor, minNvimMinor)
+			core.AlwaysWarn("Skipping Neovim upgrade; treesitter highlighting needs %d.%d and will not load", minNvimMajor, minNvimMinor)
 			return nil
 		}
 		if runtime.GOOS == "linux" {
@@ -299,7 +299,7 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 	}
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		core.AlwaysWarn("Can't prompt to upgrade Neovim — stdin isn't a terminal (running via MCP, piped input, or similar). Re-run 'dfinstall install nvim' interactively. Action would be: %s.",
+		core.AlwaysWarn("Can't prompt to upgrade Neovim; stdin isn't a terminal (running via MCP, piped input, or similar). Re-run 'dfinstall install nvim' interactively. Action would be: %s.",
 			srcDesc)
 		return false
 	}
@@ -325,7 +325,7 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 		if errors.Is(err, huh.ErrUserAborted) {
 			return false
 		}
-		core.Warn("Confirm prompt failed: %v — skipping upgrade", err)
+		core.Warn("Confirm prompt failed: %v, skipping upgrade", err)
 		return false
 	}
 	return confirm
@@ -337,7 +337,7 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 func installPrebuiltNvimLinux(ctx context.Context) error {
 	asset := nvimPrebuiltAsset()
 	if asset == "" {
-		core.Warn("no prebuilt Neovim for arch %s — install manually", runtime.GOARCH)
+		core.Warn("no prebuilt Neovim for arch %s; install manually", runtime.GOARCH)
 		return nil
 	}
 	dir := strings.TrimSuffix(asset, ".tar.gz") // e.g. nvim-linux-x86_64
@@ -469,7 +469,7 @@ func (NvimModule) Install(ctx context.Context) error {
 				core.Notice("Removing old nvim backup at %s", bakDir)
 				os.RemoveAll(bakDir)
 			}
-			core.Notice("Existing nvim git repo found — backing up to %s", bakDir)
+			core.Notice("Existing nvim git repo found, backing up to %s", bakDir)
 			if err := os.Rename(nvimDir, bakDir); err != nil {
 				core.Warn("Failed to back up nvim config: %v", err)
 			}
@@ -495,7 +495,7 @@ func (NvimModule) Install(ctx context.Context) error {
 	if core.DryRun {
 		core.Info("would ensure tree-sitter CLI >= %d.%d", minTreeSitterMajor, minTreeSitterMinor)
 	} else if err := ensureTreeSitterCLI(ctx); err != nil {
-		core.AlwaysWarn("tree-sitter CLI: %v — treesitter parsers will not build", err)
+		core.AlwaysWarn("tree-sitter CLI: %v; treesitter parsers will not build", err)
 	}
 
 	// Sync plugins headlessly, then build the parsers init.lua lists in
@@ -511,12 +511,12 @@ func (NvimModule) Install(ctx context.Context) error {
 			}
 			core.Info("Running Lazy %s...", lazyCmd)
 			if err := runCmd(ctx, nvim, "--headless", "+Lazy! "+lazyCmd, "+qa"); err != nil {
-				core.Warn("Plugin %s failed — run :Lazy %s manually in nvim", lazyCmd, lazyCmd)
+				core.Warn("Plugin %s failed; run :Lazy %s manually in nvim", lazyCmd, lazyCmd)
 			}
 			core.Info("Building treesitter parsers...")
 			if err := runCmd(ctx, nvim, "--headless",
 				"+lua require('nvim-treesitter').install(vim.g.ts_parsers):wait(300000)", "+qa"); err != nil {
-				core.Warn("Treesitter parser build failed — run :TSUpdate in nvim")
+				core.Warn("Treesitter parser build failed; run :TSUpdate in nvim")
 			}
 		}
 	}
