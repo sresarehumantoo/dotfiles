@@ -1,5 +1,5 @@
 # dfinstall configuration for the container-as-OS image.
-# Copied to <dotfiles>/.config.yaml during `docker build` so that
+# Installed as ~/.config/dfinstall/config.yaml during `docker build` so that
 # `dfinstall install all` reads it before deciding what to run.
 
 # Nothing to back up in a fresh image.

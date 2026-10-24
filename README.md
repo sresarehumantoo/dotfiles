@@ -206,7 +206,7 @@ It adds nothing to startup, runs at most every ten minutes, prints each finding 
 
 ## Backup & Restore
 
-On the **first** `install` run — when no `.config.yaml` exists yet — dfinstall automatically snapshots everything it's about to touch. After a successful run it writes `.config.yaml` with `skip_backup: true`, so later runs don't snapshot by default.
+On the **first** `install` run — when no `config.yaml` exists yet — dfinstall automatically snapshots everything it's about to touch. After a successful run it writes `config.yaml` with `skip_backup: true`, so later runs don't snapshot by default.
 
 > [!IMPORTANT]
 > A **failed** first run stays a first run. If any module errors, the config isn't written, so the automatic backup is still armed next time. `--dry-run` never consumes the first run either.
@@ -214,8 +214,8 @@ On the **first** `install` run — when no `.config.yaml` exists yet — dfinsta
 Override the default behavior with any of:
 
 - **`--backup`** — always snapshot, whatever the config says
-- **`skip_backup: false`** in `.config.yaml` — snapshot on every install
-- **`backup_dir`** in `.config.yaml` — custom location (default `~/.local/share/dfinstall/backups/`)
+- **`skip_backup: false`** in `config.yaml` — snapshot on every install
+- **`backup_dir`** in `config.yaml` — custom location (default `~/.local/share/dfinstall/backups/`)
 
 ```bash
 dfinstall install all --backup    # force a snapshot
@@ -230,7 +230,7 @@ Each entry records the original state — missing, symlink, or regular file — 
 
 ## Configuration
 
-Config lives at `<dotfiles>/.config.yaml`, generated on first run. [`.config.yaml.example`](.config.yaml.example) documents every key — it's a reference, not a template that gets copied.
+Config lives at `~/.config/dfinstall/config.yaml` (under `$XDG_CONFIG_HOME` when set), generated on first run. Releases before 2.0 kept it in the clone as `.config.yaml`; that file is read until the new one exists and is then left alone, so delete it once nothing older uses the clone. [`.config.yaml.example`](.config.yaml.example) documents every key — it's a reference, not a template that gets copied.
 
 | Key | Default | Purpose |
 |-----|---------|---------|
@@ -279,7 +279,7 @@ Modules run in this order — dependencies first:
 | 26 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
-> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's **windev** and **opencode**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
+> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's **windev** and **opencode**. Once enabled the choice persists in `config.yaml`, and future `install all` runs keep it current.
 
 ## MCP Server
 

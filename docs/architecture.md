@@ -11,7 +11,7 @@ dfinstall install all [--backup]
   signal.NotifyContext()   <- cmd/dfinstall/main.go (ctx bound to SIGINT/SIGTERM)
         |
         v
-  LoadConfig() error       <- core/config.go (.config.yaml; warns and continues
+  LoadConfig() error       <- core/config.go (config.yaml; warns and continues
         |                      on an unreadable file, never overwrites it)
         v
   RegisterAllModules()     <- modules/register.go (sets order)
@@ -451,7 +451,7 @@ The `vmguest` module (`modules/vmguest.go`) uses this: on a hardware VM it insta
 
 ## Configuration
 
-`core/config.go` manages a YAML config file at `<dotfiles>/.config.yaml`. Loaded in `PersistentPreRun` before any command runs.
+`core/config.go` manages a YAML config file at `~/.config/dfinstall/config.yaml` (`$XDG_CONFIG_HOME` when set). While that file does not exist, the pre-2.0 location `<dotfiles>/.config.yaml` is read instead; it is never written or removed, so an older binary on the same clone keeps its settings. Loaded in `PersistentPreRun` before any command runs.
 
 ### Config Fields
 
@@ -487,7 +487,7 @@ The key distinction is `CfgFileExists` — whether the config file was present a
 
 | Function | Purpose |
 |----------|---------|
-| `LoadConfig() error` | Read and parse `.config.yaml`. **Only `fs.ErrNotExist` counts as a first run** — any other failure (permissions, EISDIR, malformed YAML) marks the config unreadable and is returned to the caller, which warns and continues on defaults |
+| `LoadConfig() error` | Read and parse `config.yaml` (or the legacy clone copy while it is absent). **Only `fs.ErrNotExist` counts as a first run** — any other failure (permissions, EISDIR, malformed YAML) marks the config unreadable and is returned to the caller, which warns and continues on defaults |
 | `SaveConfig() error` | Write `Cfg` via temp file + `Sync` + rename. **Refuses** to write when `LoadConfig` couldn't read the existing file — otherwise a first-run save replaces the user's settings with defaults |
 | `ConfigFilePath()` | Return full path to the config file |
 | `IsModuleSkipped(name)` | Is the module in `skip_modules`? |

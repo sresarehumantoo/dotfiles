@@ -32,11 +32,6 @@ RUN apt-get update \
 # .dockerignore keeps bin/, .git/ and the host's own .config.yaml out.
 COPY . /src
 
-# Container-specific dfinstall config. install_dotfiles copies $source_dir to
-# ~/dotfiles wholesale, so placing it here is what gets it to <dotfiles>/.config.yaml
-# BEFORE `dfinstall install all` runs and reads skip_modules.
-COPY container/config.container.yaml /src/.config.yaml
-
 # System packages, user creation, sudo group, locale. wsl.conf is skipped
 # automatically — wsl-setup.sh's is_wsl() is false in a container.
 RUN /src/bootstrap/wsl-setup.sh setup-root "${USERNAME}"
@@ -54,6 +49,9 @@ RUN if [ "${BUILD_NEOVIM}" = "1" ]; then /src/bootstrap/wsl-setup.sh build-neovi
 RUN chown -R "${USERNAME}:${USERNAME}" /src
 
 USER ${USERNAME}
+# Container-specific dfinstall config, in place before `install all` reads
+# skip_modules.
+RUN install -D -m 0644 /src/container/config.container.yaml "/home/${USERNAME}/.config/dfinstall/config.yaml"
 # Copies /src -> ~/dotfiles, runs `make build`, then `dfinstall install all`.
 RUN /src/bootstrap/wsl-setup.sh install-dotfiles "${BRANCH}" /src
 

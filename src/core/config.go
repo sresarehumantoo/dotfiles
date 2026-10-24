@@ -126,8 +126,19 @@ var CfgFileExists bool
 
 // ConfigFilePath returns the path to the dfinstall config file.
 func ConfigFilePath() string {
+	return AppConfigPath("config.yaml")
+}
+
+// LegacyConfigFilePath is where releases before 2.0 kept the config: inside the
+// dotfiles clone. It is read only while ConfigFilePath does not exist, and never
+// written or removed, so an older dfinstall on the same clone still finds its
+// settings rather than taking itself for a first run.
+func LegacyConfigFilePath() string {
 	return filepath.Join(DotfilesDir(), ".config.yaml")
 }
+
+// cfgLoadedFrom is the file LoadConfig read, "" when there was none.
+var cfgLoadedFrom string
 
 // cfgUnreadable is set when the config file is present but could not be read or
 // parsed. SaveConfig refuses to write while it is set: overwriting a file we
@@ -147,6 +158,17 @@ func LoadConfig() error {
 	Cfg = Config{SkipBackup: false}
 	CfgFileExists = false
 	cfgUnreadable = false
+	cfgLoadedFrom = ""
+
+	if path == "" {
+		cfgUnreadable = true
+		return fmt.Errorf("config path cannot be resolved")
+	}
+	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+		if legacy := LegacyConfigFilePath(); fileExists(legacy) {
+			path = legacy
+		}
+	}
 
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -159,12 +181,18 @@ func LoadConfig() error {
 	}
 
 	CfgFileExists = true
+	cfgLoadedFrom = path
 	if err := yaml.Unmarshal(data, &Cfg); err != nil {
 		Cfg = Config{SkipBackup: false}
 		cfgUnreadable = true
 		return fmt.Errorf("parse config %s: %w", path, err)
 	}
 	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // SaveConfig writes the current Cfg to disk with a comment header.
@@ -174,6 +202,9 @@ func LoadConfig() error {
 // settings with an empty config.
 func SaveConfig() error {
 	path := ConfigFilePath()
+	if path == "" {
+		return fmt.Errorf("config path cannot be resolved")
+	}
 
 	if cfgUnreadable {
 		return fmt.Errorf("refusing to overwrite %s: it exists but could not be read; fix or remove it first", path)
@@ -194,7 +225,7 @@ func SaveConfig() error {
 	// Atomic write: unique temp file in the target dir + rename. A fixed
 	// "<path>.tmp" name meant two concurrent dfinstall runs wrote the same
 	// scratch file and one renamed the other's half-written content into place.
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".config.yaml.tmp*")
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp*")
 	if err != nil {
 		return fmt.Errorf("create temp config: %w", err)
 	}
@@ -226,5 +257,9 @@ func SaveConfig() error {
 	}
 
 	Debug("config: saved to %s", path)
+	if cfgLoadedFrom != "" && cfgLoadedFrom != path {
+		Notice("settings moved to %s; %s is no longer read and can be deleted once no older dfinstall uses this clone", path, cfgLoadedFrom)
+	}
+	cfgLoadedFrom = path
 	return nil
 }

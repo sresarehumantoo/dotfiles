@@ -271,9 +271,11 @@ make lint       # go vet
 make ci         # fmt-check + lint + build both binaries + test + test-race
 ```
 
-Tests use `t.TempDir()` and `t.Setenv` and don't touch real system files. Any
-test that writes config must point `$DOTFILES` at a temp dir — otherwise
-`SaveConfig` writes to the real repo's `.config.yaml`.
+Tests use `t.TempDir()` and `t.Setenv` and don't touch real system files. Each
+test package's `TestMain` points `$HOME` at a scratch directory and clears the
+`XDG_*` variables, so a test that sets `$HOME` gets config and data paths under
+it. A test that writes config should still set `XDG_CONFIG_HOME` (or `$HOME`)
+itself rather than rely on that.
 
 ### Verifying a change by hand
 

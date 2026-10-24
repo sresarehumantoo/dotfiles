@@ -71,7 +71,7 @@ Dependencies are managed via Go modules (`go.mod` / `go.sum`) and fetched automa
 | `github.com/charmbracelet/bubbles` | Terminal UI components used by the menus |
 | `github.com/mark3labs/mcp-go` | MCP protocol/stdio server (`bin/dfinstall-mcp`) |
 | `golang.org/x/term` | Terminal detection (TTY guard for menus) |
-| `gopkg.in/yaml.v3` | YAML config parsing (`.config.yaml`) |
+| `gopkg.in/yaml.v3` | YAML config parsing (`config.yaml`) |
 
 `go.mod` is the authority on versions; the seven above are the direct requirements.
 
