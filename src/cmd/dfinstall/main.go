@@ -433,8 +433,9 @@ func main() {
 	}
 }
 
-// upgradeClone is the first half of --upgrade: bring the clone up to date,
-// and re-exec when that rebuilt dfinstall, so the install runs the clone's code.
+// upgradeClone is the first half of --upgrade: bring the clone and dfinstall
+// up to date, and re-exec when dfinstall was replaced, so the install runs the
+// new code.
 func upgradeClone(ctx context.Context, all bool) {
 	if os.Getenv(upgradedEnv) != "" {
 		return
@@ -451,7 +452,7 @@ func upgradeClone(ctx context.Context, all bool) {
 	}
 	os.Setenv(upgradedEnv, "1")
 	err := syscall.Exec(exe, os.Args, os.Environ())
-	core.AlwaysWarn("could not restart the rebuilt dfinstall, continuing with this one: %v", err)
+	core.AlwaysWarn("could not restart the updated dfinstall, continuing with this one: %v", err)
 }
 
 func installAll(ctx context.Context) error {

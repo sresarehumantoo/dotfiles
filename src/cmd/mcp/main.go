@@ -310,7 +310,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 }
 
 // upgradeClone is the install tool's upgrade step: what modules.UpgradeClone
-// reported, since nothing printed here reaches the caller. A rebuilt server
+// reported, since nothing printed here reaches the caller. An updated server
 // cannot re-exec in place without dropping the session, so this run carries
 // on with the code it started with.
 func upgradeClone(ctx context.Context, all bool) string {
@@ -323,7 +323,7 @@ func upgradeClone(ctx context.Context, all bool) string {
 	exe := modules.UpgradeClone(ctx, dir)
 	stop()
 	if exe != "" {
-		fmt.Fprintf(&b, "rebuilt %s; reconnect the MCP server to use it (this install ran on the previous build)\n", exe)
+		fmt.Fprintf(&b, "updated %s; reconnect the MCP server to use it (this install ran on the previous build)\n", exe)
 	}
 	if b.Len() > 0 {
 		b.WriteString("\n")

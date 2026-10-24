@@ -705,15 +705,22 @@ func clip(s string, n int) string {
 	return strings.Join(lines[:n], "\n") + fmt.Sprintf("\n... %d more lines", len(lines)-n)
 }
 
-// UpgradeClone converges dir, then rebuilds dfinstall when its source there
-// differs from what this binary was built from, which also covers a clone
-// pulled by hand since. Returns the rebuilt binary, or "" when there is none
-// to switch to. Failures are reported and the install goes on with the clone
-// as it is.
+// UpgradeClone converges dir, then brings dfinstall itself up to date the way
+// it was installed (core.BuildChannel). A source build is rebuilt from dir
+// when its source there differs from what this binary was built from, which
+// also covers a clone pulled by hand since; any other build is never rebuilt
+// from the checkout, which holds configs for it, not its code. Returns the
+// binary to re-exec, or "" when there is none to switch to. Failures are
+// reported and the install goes on with what it has.
 func UpgradeClone(ctx context.Context, dir string) string {
 	changed, err := ConvergeClone(ctx, dir)
 	if err != nil {
 		core.AlwaysWarn("could not update %s: %v", dir, err)
+	}
+	if ch := core.BuildChannel(); ch != core.ChannelSource {
+		exe := updateBinary(ctx, ch)
+		core.FlushWarnings()
+		return exe
 	}
 	stale := changed || BinaryStale(ctx, dir, core.Version)
 	if stale && core.DryRun {

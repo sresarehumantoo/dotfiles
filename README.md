@@ -177,7 +177,15 @@ Output falls back to ASCII symbols and drops the spinner on terminals that canno
 
 `install` adds what is missing and leaves what is already there. `update`, or `install --upgrade`, also brings everything dfinstall owns up to date:
 
-1. **The clone.** It fetches, then fast-forwards to the upstream branch. If the pull changed dfinstall's own source, it rebuilds the binary and re-runs it.
+1. **The clone and dfinstall itself.** The clone is fetched and fast-forwarded to its upstream branch. What happens to the binary depends on how it was installed:
+
+   | Installed by | `update` |
+   |---|---|
+   | `make` in a clone | rebuilds it when the pull changed dfinstall's source, then re-runs it |
+   | a release archive | downloads the newer release for this platform, checks its sha256 against the release listing, swaps `dfinstall` (and `dfinstall-mcp` if it is installed beside it) in place, then re-runs it |
+   | Homebrew, a `.deb`, `go install` | leaves the binary alone and prints the command that updates it |
+
+   Release downloads go through a Nexus GitHub mirror when npm points at one, falling back to GitHub.
 2. **Release binaries in `~/.local`** (nvim, tree-sitter, delta, terraform) are replaced when a newer release exists.
 3. **Cloned plugins** (oh-my-zsh, powerlevel10k, zsh-autosuggestions, TPM and the tmux plugins) are fast-forwarded.
 4. Then the normal install runs, asking for sudo only if something is missing.
