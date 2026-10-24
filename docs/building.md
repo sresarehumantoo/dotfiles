@@ -204,7 +204,8 @@ directory for the rest:
 | `unlink_test.go` | UnlinkFile: correct/wrong/missing/regular-file cases |
 | `dryrun_test.go` | DryRun mode: LinkFile, EnsureDir, UnlinkFile skip filesystem changes |
 | `config_skip_test.go` | IsModuleSkipped helper with skip_modules config |
-| `install_session_test.go` | SkipInAll (windev opt-in, skip_modules), BeginInstall backup policy |
+| `install_session_test.go` | SkipInAll (windev and opencode opt-ins, skip_modules), SetOptIn/ClearOptIn, BeginInstall backup policy |
+| `opencode_test.go` | opencode settings merge, env pin, overriding config files, dry run, uninstall, the shipped config's security keys |
 | `install_session_state_test.go` | Canonical pointer writes under/without dry-run, a failed first run not persisting `skip_backup`, idempotent Finish |
 | `canonical_test.go` | LinkRoot, canonical pointer read/write + self-heal, DotfilesDir precedence, adoption, drift split |
 | `homepath_propagation_test.go` | Unresolvable `$HOME`: SubPath propagation, CheckTarget refusals, empty path helpers |

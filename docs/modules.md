@@ -704,6 +704,43 @@ Symlinks `config/claude/CLAUDE.md` to `~/.claude/CLAUDE.md`, the global Claude C
 
 ---
 
+## opencode
+
+**File:** `modules/opencode.go`
+
+**Opt-in.** Installs [opencode](https://opencode.ai) for **Anthropic API key and Amazon Bedrock** users. A Claude Pro/Max subscription does not work: Anthropic does not allow it outside Claude Code. Excluded from `install all` until `dfinstall install opencode` sets `opencode_enabled: true`; `dfinstall uninstall opencode` clears it.
+
+**Binary.** Installed to `~/.local/bin/opencode` from the GitHub release (sha256 digest checked) or from npm. The order follows the machine: when npm points at a mirror (Nexus, Artifactory; see `doctor`'s `package mirrors` row) npm goes first, since a corporate proxy may block GitHub; otherwise the GitHub release, then npm. Either falls back to the other. From npm it installs the platform package (`opencode-linux-x64` and so on) with `--ignore-scripts` into `~/.local/share/dfinstall/opencode`, rather than `opencode-ai`, whose postinstall script only copies the binary out of that same package. Both channels ship byte-identical binaries. An opencode already on `PATH` from elsewhere is used as is and never upgraded or removed. `dfinstall update opencode` upgrades the one dfinstall installed; opencode's own updater is off.
+
+**Settings.** `config/opencode/opencode.jsonc` (comments allowed) is merged by top-level key into `~/.config/opencode/opencode.json`, like Claude's settings, since opencode edits that file itself. What it sets:
+
+- `enabled_providers: ["anthropic", "amazon-bedrock"]`: no other provider loads, even with its key in the environment. The file shows how to add others (`xai`, `openai`, `google`, `openrouter`); a provider added there applies to every machine, while one added to the live file on a single machine is reported as drift and reverted by the next install.
+- `disabled_providers: ["opencode"]`: Zen. With no config at all opencode offers 10 free models without any key, some of which say prompts may be used for training.
+- `share: "disabled"`, `autoupdate: false`, `plugin: []`.
+- `instructions: ["~/.claude/CLAUDE.local.md"]`, because opencode ignores the `@` import at the end of the shared `CLAUDE.md`.
+- `permission`, modeled on Claude Code's default mode. opencode's defaults allow nearly everything, including any shell command. Here edits and shell commands ask (read-only `git`, `ls`, `rg`, `wc` excepted), `/tmp` is writable without asking, web fetch and search ask, reads are allowed except SSH, AWS, GPG, Vault token and opencode credential paths, and editing opencode's, dfinstall's or Claude's own config is denied. Comments in the file show the one-line change back to opencode's defaults. `cat` and friends are not auto-allowed because a shell command ignores the read denies.
+
+Machine-specific settings stay out of the tracked file: `model`, `small_model`, Bedrock `region`/`profile`. Bedrock reads `AWS_REGION`/`AWS_PROFILE` from the environment, and a config value would override them on every machine. Bedrock lists about 160 models, 68 of them Anthropic; a commented `whitelist` example shows how to trim it.
+
+`~/.config/opencode/AGENTS.md` links to `config/claude/CLAUDE.md`, so opencode follows the same instructions without depending on the claude module.
+
+**Untrusted repositories.** A project's `opencode.json` and `.opencode/` merge over user config. Measured: a cloned repo can switch providers, turn sharing back on, loosen permissions, and its `.opencode/plugins/*.js` **runs on any opencode command**, `opencode models` included. `~/.config/dfinstall/opencode.zsh`, sourced from `zshrc`, closes most of that without root:
+
+- `OPENCODE_CONFIG_CONTENT` re-applies the managed provider, sharing, plugin, autoupdate and permission keys. opencode loads it after project config.
+- `OPENCODE_PURE=1` loads no external plugins, project ones included.
+- `OPENCODE_DISABLE_FREE_MODELS`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_LSP_DOWNLOAD`.
+- `opencode-untrusted` runs opencode with `OPENCODE_DISABLE_PROJECT_CONFIG=1`, ignoring the checkout's config and `AGENTS.md` entirely.
+
+What remains: a project can still **add** a permission pattern (say `"bash": {"curl *": "allow"}`), because permission rules merge one by one and only the ones the pin names are restored. Use `opencode-untrusted` for a checkout you have not read. The env file only reaches shells that source `zshrc`.
+
+opencode loads `config.json`, `opencode.json` and `opencode.jsonc` in that order, later winning. Install refuses while a `config.json` or `opencode.jsonc` with real settings sits beside `opencode.json`; the `$schema`-only `opencode.jsonc` opencode writes on a first run is ignored.
+
+**Uninstall:** Removes the link, `opencode.zsh`, the binary and the npm prefix, and clears `opencode_enabled`. The merged settings stay (removing them would turn free models and sharing back on), as do credentials (`~/.local/share/opencode/auth.json`) and sessions.
+
+**Status:** Checks 1 symlink; notes a missing binary, an overriding config file, and stale managed keys.
+
+---
+
 ## wsl
 
 **File:** `modules/wsl.go`, `modules/wsl_interop.go`, `modules/wsl_shader.go`

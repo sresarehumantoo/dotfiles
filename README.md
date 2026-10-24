@@ -241,6 +241,7 @@ Config lives at `<dotfiles>/.config.yaml`, generated on first run. [`.config.yam
 | `preserved_files` | — | Shell files to keep sourcing after `~/.zshrc` is replaced |
 | `dismissed_files` | — | Shell files declined, so the prompt doesn't return |
 | `windev_enabled` | `false` | Opt-in for the `windev` module |
+| `opencode_enabled` | `false` | Opt-in for the `opencode` module |
 
 ## Modules
 
@@ -270,12 +271,13 @@ Modules run in this order — dependencies first:
 | 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Tested only on macOS 26.7.1 (25G241). Only `install alttab` sets it up |
 | 21 | **htop** | htop config |
 | 22 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
-| 23 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 24 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 25 | **defaultshell** | Sets zsh as the default login shell |
+| 23 | **opencode** | opencode for Anthropic API / Bedrock users, locked to those providers with Claude Code-style permissions — see [docs](docs/modules.md#opencode). Opt-in |
+| 24 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 25 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 26 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
-> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's just **windev**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
+> **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's **windev** and **opencode**. Once enabled the choice persists in `.config.yaml`, and future `install all` runs keep it current.
 
 ## MCP Server
 

@@ -158,7 +158,7 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 | `uninstall <module\|all>` | Remove symlinks created by dfinstall |
 | `diff` | Show drift between config and filesystem |
 | `status` | Print table of link counts per module |
-| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) |
+| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) and an informational `package mirrors` row naming the npm, pip, Go and cargo mirrors in use |
 | `restore [timestamp]` | Restore files from a backup snapshot |
 | `root` | Install root-owned copies of configs into `/root/` via sudo |
 | `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
@@ -445,6 +445,7 @@ The `vmguest` module (`modules/vmguest.go`) uses this: on a hardware VM it insta
 | `skip_modules` | []string | *(empty)* | Modules to skip during `install all` (machine profiles) |
 | `toolkit_tools` | []string | *(empty)* | Toolkit tools selected via `--toolkit` |
 | `windev_enabled` | bool | `false` | Whether the opt-in windev module is enabled (drives `core.SkipInAll`) |
+| `opencode_enabled` | bool | `false` | Whether the opt-in opencode module is enabled (drives `core.SkipInAll`) |
 | `toolkit_registry_url` | string | *(empty)* | Custom toolkit registry URL override |
 
 ### Auto-Backup Logic
@@ -471,7 +472,7 @@ The key distinction is `CfgFileExists` — whether the config file was present a
 | `ConfigFilePath()` | Return full path to the config file |
 | `IsModuleSkipped(name)` | Is the module in `skip_modules`? |
 | `SkipInAll(name)` | Should `install all` skip it? `IsModuleSkipped` **plus** un-enabled opt-ins. Use this, not `IsModuleSkipped`, in any `AllModules()` loop |
-| `SetWindevOptIn()` / `ClearWindevOptIn()` | Record/drop the windev opt-in |
+| `SetOptIn(name)` / `ClearOptIn(name)` | Record/drop an opt-in module's flag (no-op for other modules); the flags live in `optInFlag` |
 
 ## Backup & Restore
 
