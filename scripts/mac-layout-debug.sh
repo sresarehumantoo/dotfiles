@@ -6,6 +6,9 @@
 #   scripts/mac-layout-debug.sh --manual          swap Ctrl and Cmd with UserKeyMapping,
 #                                                 on top of the System Settings layout
 #   scripts/mac-layout-debug.sh --restore         undo --manual
+#   scripts/mac-layout-debug.sh --watch [DELAY]   do the agent's job from this shell:
+#                                                 swap in listed apps, DELAY seconds
+#                                                 after they come to the front
 #
 # The report is also saved to $TMPDIR/mackeys-debug.txt.
 set -uo pipefail
@@ -26,7 +29,7 @@ SWAP="{\"UserKeyMapping\":[{\"HIDKeyboardModifierMappingSrc\":$CTRL,\"HIDKeyboar
 OUT="${TMPDIR:-/tmp}/mackeys-debug.txt"
 
 usage() {
-	sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+	sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'
 }
 
 section() { printf '\n== %s\n' "$1"; }
@@ -59,6 +62,13 @@ live_maps() {
 		grep -A12 -E 'HIDKeyboardModifierMappingPairs|UserKeyMapping|UnifiedKeyMapping'
 }
 
+stop_watch() {
+	hidutil property --matching "$MATCH" --set '{"UserKeyMapping":[]}' >/dev/null
+	launchctl bootstrap "$DOMAIN" "$PLIST" 2>/dev/null
+	printf '\ncleared, agent restarted\n'
+	exit 0
+}
+
 case ${1:-} in
 -h | --help)
 	usage
@@ -76,6 +86,29 @@ case ${1:-} in
 	echo "2. In Jira: Ctrl key + Z with the console trace open; look for meta true."
 	echo "Then run: $0 --restore"
 	exit 0
+	;;
+--watch)
+	delay=${2:-0}
+	launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null
+	trap stop_watch INT
+	echo "Agent stopped. Watching the frontmost app, switching ${delay}s after it changes."
+	echo "Switch apps with the mouse. Ctrl+C here (in Ghostty) stops and restores."
+	last=
+	while :; do
+		id=$(lsappinfo info -only bundleid "$(lsappinfo front)" 2>/dev/null | sed -n 's/.*="\(.*\)"/\1/p')
+		if [ -n "$id" ] && [ "$id" != "$last" ]; then
+			last=$id
+			sleep "$delay"
+			if grep -q "\"$id\"" "$CONF"; then
+				hidutil property --matching "$MATCH" --set "$SWAP" >/dev/null
+				echo "$(date '+%T') swap ON  for $id (exit $?)"
+			else
+				hidutil property --matching "$MATCH" --set '{"UserKeyMapping":[]}' >/dev/null
+				echo "$(date '+%T') swap OFF for $id (exit $?)"
+			fi
+		fi
+		sleep 0.1
+	done
 	;;
 --restore)
 	hidutil property --matching "$MATCH" --set '{"UserKeyMapping":[]}' >/dev/null
