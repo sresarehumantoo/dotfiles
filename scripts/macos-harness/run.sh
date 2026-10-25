@@ -12,8 +12,10 @@
 #            session (defaults writes, launchctl, hidutil, chsh, sudo,
 #            activateSettings, ...), which record what they were asked to do.
 #   upgrade  This checkout's dfinstall against your real setup, read-only:
-#            status, doctor, diff, `install all --dry-run`, plus the bootstrap's
-#            own preflight and TLS-inspection probe. The same shims are on PATH,
+#            status, doctor, diff, `install all --dry-run`, the bootstrap's own
+#            preflight and TLS-inspection probe, and whether curl, git, Python,
+#            Node, npm, pip, Homebrew and Go reach the network as this account
+#            is set up (caches in the sandbox). The same shims are on PATH,
 #            and they never read a sandboxed app's preferences (that needs Full
 #            Disk Access, and can raise a privacy prompt).
 #   all      Both (the default).
@@ -27,11 +29,12 @@
 # Before and after, the real state dfinstall manages is snapshotted (dotfile
 # links, ~/.config/dfinstall, the dotfiles clone, the defaults domains it
 # writes, key remapping, launch agents, login shell, Homebrew's package list).
-# Any difference is reported and the run exits 1. The report lands in
-# /tmp/dfinstall-macos-harness-<time>/; review it before sharing it.
+# Any difference is reported and the run exits 1. It ends with a summary of
+# about ten lines, public hosts and generic labels only, meant to be read off
+# the screen; the full report lands in /tmp/dfinstall-macos-harness-<time>/.
 set -euo pipefail
 
-usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
 
 scenario=all interactive=false keep=false strict=false
 while [[ $# -gt 0 ]]; do
@@ -319,6 +322,7 @@ run_fresh() {
     detached "${sandbox_env[@]}" /bin/bash "$sb/home/dotfiles/bootstrap/macos-setup.sh" \
         --yes --from-source --dir "$sb/home/dotfiles" --brew-prefix "$fakebrew" \
         >"$out/fresh-bootstrap.log" 2>&1 || rc=$?
+    fresh_rc=$rc
 
     local df="$sb/home/.local/bin/dfinstall"
     [[ -x "$df" ]] || df="$sb/home/dotfiles/bin/dfinstall"
@@ -344,6 +348,73 @@ run_fresh() {
     fi
     printf '\n### Files the install created (sandbox HOME, depth 3)\n\n' >>"$report"
     (cd "$sb/home" && find . -maxdepth 3 \( -name .git -o -name dotfiles -o -name .cache -o -name go \) -prune -o -print | sort) | fence
+}
+
+# tool_probe NAME TOOL CMD...: whether TOOL reaches the network as this account
+# is set up now. Prints "NAME ok", "NAME FAIL(cert)" for a certificate error,
+# "NAME FAIL", or "NAME -" when TOOL is not installed.
+tool_probe() {
+    local name="$1" tool="$2" out
+    shift 2
+    if ! command -v "$tool" >/dev/null 2>&1; then
+        printf '%s -' "$name"
+    elif out="$(perl -e 'alarm 90; exec @ARGV' "$@" 2>&1)"; then
+        printf '%s ok' "$name"
+    elif printf '%s' "$out" | grep -qiE 'certif|ssl|tls|self.signed|local issuer'; then
+        printf '%s FAIL(cert)' "$name"
+    else
+        printf '%s FAIL' "$name"
+    fi
+}
+
+# What each client does over the network as configured on this Mac (its own
+# registry, pip index, GOPROXY and any proxy or CA variables in this shell),
+# with every cache and download kept in the sandbox.
+probe_tools() {
+    local node_env=() line=""
+    if [[ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]]; then node_env=(NODE_USE_ENV_PROXY=1); fi
+    line+="$(tool_probe curl /usr/bin/curl /usr/bin/curl -sS -o /dev/null --max-time 30 https://github.com)  "
+    line+="$(tool_probe git /usr/bin/git /usr/bin/git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main)  "
+    line+="$(tool_probe python /usr/bin/python3 /usr/bin/python3 -c 'import urllib.request as u; u.urlopen("https://pypi.org/simple/six/", timeout=30)')  "
+    line+="$(tool_probe node node env "${node_env[@]+"${node_env[@]}"}" node -e 'fetch("https://registry.npmjs.org/").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))')  "
+    line+="$(tool_probe npm npm env npm_config_cache="$sb/npm-cache" npm view six version)  "
+    line+="$(tool_probe pip python3 env PIP_NO_CACHE_DIR=1 python3 -m pip download --quiet --no-deps --dest "$sb/pip" six)  "
+    line+="$(tool_probe brew brew env HOMEBREW_CACHE="$sb/brew-fetch" HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --quiet --force --formula hello)  "
+    line+="$(tool_probe go go env GOMODCACHE="$sb/go-probe" GOFLAGS=-mod=mod go mod download -json golang.org/x/text@v0.20.0)"
+    printf '%s\n' "$line" >"$out/tools.txt"
+}
+
+# Whether the hosts releases, the formula, self-update and the installs fetch
+# from answer at all. 000 means no answer; a proxy's block page is often a 403.
+probe_network() {
+    local pair label host code line=""
+    for pair in github=github.com api=api.github.com raw=raw.githubusercontent.com \
+        objects=objects.githubusercontent.com ghcr=ghcr.io brewapi=formulae.brew.sh \
+        goproxy=proxy.golang.org npm=registry.npmjs.org pypi=pypi.org; do
+        label="${pair%%=*}" host="${pair#*=}"
+        code="$(/usr/bin/curl -sS -o /dev/null --max-time 20 -w '%{http_code}' "https://$host/" 2>/dev/null || true)"
+        line+="$label:${code:-000} "
+    done
+    printf '%s\n' "$line" >"$out/net.txt"
+}
+
+# public or mirror, never the mirror's hostname.
+registry_kind() {
+    case "$1" in
+        "" | -) echo - ;;
+        *registry.npmjs.org* | *pypi.org* | *proxy.golang.org*) echo public ;;
+        *) echo mirror ;;
+    esac
+}
+
+probe_mirrors() {
+    local npm pip goproxy brew=public
+    npm="$(command -v npm >/dev/null && npm config get registry 2>/dev/null || echo -)"
+    pip="${PIP_INDEX_URL:-$(python3 -m pip config get global.index-url 2>/dev/null || echo https://pypi.org/simple)}"
+    goproxy="$(go env GOPROXY 2>/dev/null || echo -)"
+    if [[ -n "${HOMEBREW_ARTIFACT_DOMAIN:-}${HOMEBREW_API_DOMAIN:-}${HOMEBREW_BOTTLE_DOMAIN:-}" ]]; then brew=mirror; fi
+    printf 'npm %s  pip %s  go %s  brew %s\n' "$(registry_kind "$npm")" "$(registry_kind "$pip")" \
+        "$(registry_kind "$goproxy")" "$brew" >"$out/mirrors.txt"
 }
 
 run_upgrade() {
@@ -393,6 +464,15 @@ SHIM
         ' _ "$repo/bootstrap/macos-setup.sh" 2>&1 || true
     } >"$out/upgrade-preflight.log"
 
+    echo "macos-harness: probing what your tools and network allow"
+    (
+        export PATH="$shims:$REAL_PATH"
+        probe_tools
+        probe_network
+        probe_mirrors
+    )
+    upgrade_ran=true
+
     section "This checkout against your real setup (read-only)"
     printf "Full output: \`upgrade-dfinstall.log\`, \`upgrade-preflight.log\`.\n\n" >>"$report"
     sed 's/\x1b\[[0-9;]*m//g' "$out/upgrade-preflight.log" | fence
@@ -400,6 +480,7 @@ SHIM
     sed 's/\x1b\[[0-9;]*m//g' "$out/upgrade-dfinstall.log" | awk '/^\$ dfinstall doctor/{p=1} /^\$ dfinstall diff/{p=0} p' | fence
 }
 
+fresh_rc="" upgrade_ran=false
 case "$scenario" in
     fresh) run_fresh ;;
     upgrade) run_upgrade ;;
@@ -426,11 +507,11 @@ if [[ -n "$empty" ]]; then
 fi
 if diff -u "$out/real-before.txt" "$out/real-after.txt" >"$out/real-changes.diff"; then
     printf "Unchanged: every item in \`real-before.txt\` reads the same afterwards.\n" >>"$report"
-    verdict=0
+    verdict=0 verdict_real=0
 else
     printf 'CHANGED during the run (by the harness, or by you or the system meanwhile):\n\n' >>"$report"
     fence <"$out/real-changes.diff"
-    verdict=1
+    verdict=1 verdict_real=1
 fi
 
 if [[ "$strict" == true && "$scenario" != upgrade ]]; then
@@ -445,6 +526,37 @@ if [[ "$strict" == true && "$scenario" != upgrade ]]; then
     fi
 fi
 
+# A screenful to photograph or retype: public hosts and generic labels only.
+summarize() {
+    local up="$out/upgrade-dfinstall.log" doctor would found missing
+    printf 'dfinstall harness %s | macOS %s %s\n' "$(git -C "$repo" describe --tags --always --dirty 2>/dev/null)" \
+        "$(sw_vers -productVersion)" "$(uname -m)"
+    if [[ "$verdict_real" -eq 0 ]]; then echo "REAL SETUP  unchanged"; else echo "REAL SETUP  CHANGED (see report)"; fi
+    if [[ -n "$fresh_rc" ]]; then
+        found="$(grep -c 'would install' "$out/brew-requests.log" 2>/dev/null || true)"
+        missing="$(grep -c 'NO SUCH' "$out/brew-requests.log" 2>/dev/null || true)"
+        printf 'FRESH       bootstrap exit %s | brew: %s found, %s missing%s\n' "$fresh_rc" "${found:-0}" "${missing:-0}" \
+            "$([[ "$(cat "$out/brew-verify")" == yes ]] || echo ' (UNVERIFIED)')"
+    fi
+    if [[ "$upgrade_ran" == true ]]; then
+        would="$(awk '/^\$ dfinstall install all --dry-run/{p=1} p' "$up" | grep -c 'would ' || true)"
+        printf 'UPGRADE     install all --dry-run: %s change(s)\n' "${would:-0}"
+        printf 'TLS         %s\n' "$(sed -n 's/^TLS-intercepted hosts: *//p' "$out/upgrade-preflight.log" | sed 's/^$/none seen/')"
+        printf 'TOOLS       %s\n' "$(cat "$out/tools.txt")"
+        printf 'NET         %s\n' "$(cat "$out/net.txt")"
+        printf 'HOMEBREW    %s\n' "$(sed -n 's/^brew prefix: //p' "$out/upgrade-preflight.log" | sed "s|$REAL_HOME|~|g")"
+        printf 'MIRRORS     %s\n' "$(cat "$out/mirrors.txt")"
+        doctor="$(sed 's/\x1b\[[0-9;]*m//g' "$up" | awk '/^\$ dfinstall doctor/{p=1} /^\$ dfinstall diff/{p=0} p' |
+            sed -n 's/^ *! \([a-zA-Z][^:]*\):.*/\1/p' | paste -sd, - | sed 's/,/, /g' || true)"
+        printf 'DOCTOR      %s\n' "${doctor:-no failing rows}"
+    fi
+}
+summarize >"$out/summary.txt"
+section "Summary"
+fence <"$out/summary.txt"
+
+echo
+cat "$out/summary.txt"
 echo
 echo "macos-harness: report in $report"
 [[ "$verdict" -eq 0 ]] || echo "macos-harness: your real setup CHANGED during the run; see the end of the report" >&2
