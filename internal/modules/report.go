@@ -118,6 +118,10 @@ func statusRow(m core.Module) StatusRow {
 		r.State, r.Reason = StateSkipped, "skip_modules"
 	case core.SkipInAll(m.Name()):
 		r.State, r.Reason = StateSkipped, "opt-in: dfinstall install "+m.Name()
+	// No tools chosen is a choice, not a missing install: install all has
+	// nothing to do for it, and only the menu can change that.
+	case m.Name() == "toolkit" && len(core.Cfg.ToolkitTools) == 0:
+		r.State, r.Reason = StateSkipped, "nothing selected: dfinstall install toolkit --toolkit"
 	case r.Missing == 0 && r.Linked > 0:
 		r.State = StateInstalled
 	case r.Missing > 0 && r.Linked > 0:
