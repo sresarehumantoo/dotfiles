@@ -1,10 +1,14 @@
 package modules
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 func realWslconfigTemplate(t *testing.T) string {
@@ -182,8 +186,99 @@ func TestRenderWslconfigResult(t *testing.T) {
 		t.Errorf("want the restart step, got %+v", drift.Extra)
 	}
 
+	foreign := renderWslconfigResult(wslconfigReport{
+		State: "foreign",
+		Drift: []string{"wsl2.networkingmode=nat (want mirrored)"},
+	})
+	if !foreign.OK {
+		t.Error("foreign state must pass: the file is someone else's, and doctor's footer would say to run install all")
+	}
+	if !strings.Contains(foreign.Detail, "1 key(s) differ") || !strings.Contains(strings.Join(foreign.Extra, "\n"), "move it aside") {
+		t.Errorf("foreign state must report the difference and how to hand the file over, got %+v", foreign)
+	}
+
 	unknown := renderWslconfigResult(wslconfigReport{State: "unknown", Why: "could not resolve the Windows home"})
 	if unknown.OK || unknown.Detail != "could not resolve the Windows home" {
 		t.Errorf("unknown state must surface its reason, got %+v", unknown)
+	}
+}
+
+// Every render must carry the marker, or dfinstall would disown its own file.
+func TestWslconfigRenderIsOwned(t *testing.T) {
+	if !ownedWslconfig([]byte(renderWslconfig(realWslconfigTemplate(t), hostSpecs{}))) {
+		t.Fatalf("a rendered .wslconfig does not contain %q", wslconfigMarker)
+	}
+}
+
+// withWinHome points installWslconfig at a scratch Windows home and the real
+// template.
+func withWinHome(t *testing.T) string {
+	t.Helper()
+	repo, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DOTFILES", repo)
+	core.ResetDotfilesDir()
+	home := t.TempDir()
+	winHomeOnce = sync.Once{}
+	winHomeOnce.Do(func() { winHomeCached = home })
+	t.Cleanup(func() {
+		winHomeOnce = sync.Once{}
+		winHomeCached = ""
+		core.ResetDotfilesDir()
+	})
+	return home
+}
+
+// A .wslconfig some other tool provisioned (VM sizing, a swap file location)
+// used to be moved to .bak and replaced.
+func TestInstallWslconfig_LeavesForeignFileAlone(t *testing.T) {
+	home := withWinHome(t)
+	dst := filepath.Join(home, ".wslconfig")
+	const foreign = "[wsl2]\nmemory=24GB\nswap=32GB\n"
+	if err := os.WriteFile(dst, []byte(foreign), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installWslconfig(context.Background())
+
+	if got, _ := os.ReadFile(dst); string(got) != foreign {
+		t.Errorf(".wslconfig was changed:\n%s", got)
+	}
+	if _, err := os.Stat(dst + ".bak"); err == nil {
+		t.Error("a .bak was made of a file that was left alone")
+	}
+	if rep := wslconfigState(); rep.State != "foreign" {
+		t.Errorf("state = %q, want foreign", rep.State)
+	}
+}
+
+func TestInstallWslconfig_UpdatesItsOwnFile(t *testing.T) {
+	home := withWinHome(t)
+	dst := filepath.Join(home, ".wslconfig")
+	old := strings.Replace(renderWslconfig(realWslconfigTemplate(t), hostSpecs{}), "sparseVhd=true", "sparseVhd=false", 1)
+	if err := os.WriteFile(dst, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	installWslconfig(context.Background())
+
+	if got, _ := os.ReadFile(dst); strings.Contains(string(got), "sparseVhd=false") {
+		t.Error("dfinstall's own outdated .wslconfig was not updated")
+	}
+	if bak, err := os.ReadFile(dst + ".bak"); err != nil || string(bak) != old {
+		t.Errorf("the previous file was not kept as .bak (err=%v)", err)
+	}
+}
+
+func TestInstallWslconfig_WritesMissingFile(t *testing.T) {
+	home := withWinHome(t)
+
+	installWslconfig(context.Background())
+
+	got, err := os.ReadFile(filepath.Join(home, ".wslconfig"))
+	if err != nil || !ownedWslconfig(got) {
+		t.Errorf("no .wslconfig written, or it lacks the marker (err=%v)", err)
 	}
 }

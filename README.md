@@ -49,18 +49,21 @@ Bootstraps a WSL Debian distro from nothing — creates a user, installs package
 
 ```powershell
 git clone https://github.com/sresarehumantoo/dotfiles
-.\dotfiles\bootstrap\wsl-bootstrap.ps1
+cd dotfiles
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1
 ```
+
+Windows refuses to run scripts by default (execution policy `Restricted`), so a plain `.\bootstrap\wsl-bootstrap.ps1` fails before doing anything. `-ExecutionPolicy Bypass` applies to that one PowerShell process and changes no setting on the machine.
 
 The wizard prompts for distro and username. To skip the prompts or trim the scope:
 
 ```powershell
-.\bootstrap\wsl-bootstrap.ps1 -Distro Debian -Username owen   # skip prompts
-.\bootstrap\wsl-bootstrap.ps1 -SkipNeovim                     # skip neovim build
-.\bootstrap\wsl-bootstrap.ps1 -SkipGhostty                    # skip ghostty install
-.\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles                   # core tools only
-.\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
-.\bootstrap\wsl-bootstrap.ps1 -Branch develop                     # another branch: builds dfinstall from source
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -Distro Debian -Username owen   # skip prompts
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipNeovim                     # skip neovim build
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipGhostty                    # skip ghostty install
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles                   # core tools only
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty  # bare minimum
+powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1 -Branch develop                 # another branch: builds dfinstall from source
 ```
 
 The released dfinstall is only used on `main`, which releases are cut from: another branch's configs may need code no release has yet, so `-Branch` anything else (or `-FromSource`) builds it from the clone with Go, as does an apt repository that cannot be reached. `DFINSTALL_APT_URL` in the distro points the install at a mirror of the repository instead.
@@ -79,7 +82,7 @@ Which Homebrew to use is discovered, not assumed. Bootstrap uses the first one t
 
 On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up front and says what it found: whether the account is an admin, which Homebrew is usable, and Santa in Lockdown, which blocks an unsigned `dfinstall`. Apps go to `~/Applications` when `/Applications` is not writable, casks installed by hand included (`HOMEBREW_CASK_OPTS`), `install all` creates no login items (only `install sketchybar`, `install alttab`, `install mackeys` and AeroSpace's own setting do), Rust comes from Homebrew's rustup rather than `curl | sh`, and an SSH agent that is already running is kept. Bootstrap ends by saving `dfinstall doctor` to `~/Library/Logs/`, which reports admin, Homebrew ownership, the app folder, MDM enrollment, Santa, TLS trust and Gatekeeper; run `dfinstall doctor` again any time to see the same.
 
-Behind a TLS-inspecting proxy, bootstrap detects the interception (hosts that fail against Apple's public roots but pass with the System keychain's certificates) and points the tools that ignore the keychain at a bundle of both: curl, git, Node, Python, cargo and Homebrew, through `~/.config/dfinstall/ca.sh`, which `~/.profile` sources. `SSL_CERT_FILE` is left alone, because it would turn off Go's keychain verification. Re-run the bootstrap with `--skip-ghostty --skip-dotfiles` after the proxy's root CA changes; `dfinstall doctor` flags a bundle that is missing a keychain certificate. The very first download can fail before any of that runs, since Apple's `curl` does not trust the keychain either; if it reports a certificate error, fetch with the keychain's certificates:
+Behind a TLS-inspecting proxy, bootstrap detects the interception by who issued the certificates a few hosts present (none of Apple's public roots, so something re-signed them) and points every tool at a bundle of Apple's public roots plus the System keychain's certificates, through `~/.config/dfinstall/ca.sh`, which `~/.profile` sources. On current macOS most tools already trust the keychain, where MDM installs the proxy's root: measured on macOS 26, Apple's curl, git and Python, Homebrew, pip and Go all do, and Node and npm, which carry their own CA list, are what the bundle fixes. `SSL_CERT_FILE` is left alone, because it would turn off Go's keychain verification. Re-run the bootstrap with `--skip-ghostty --skip-dotfiles` after the proxy's root CA changes; `dfinstall doctor` flags a bundle that is missing a keychain certificate. On an older macOS whose `curl` does not trust the keychain, the very first download can fail with a certificate error; fetch with the keychain's certificates instead:
 
 When Ghostty's download site is blocked, so `brew install --cask ghostty` fails, bootstrap offers Ghostty's nightly build from GitHub instead (GitHub carries no stable release of it), checked against GitHub's sha256.
 

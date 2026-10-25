@@ -1,0 +1,138 @@
+name: macOS
+
+# GitHub's macOS runners are throwaway Macs with passwordless sudo, so these
+# jobs install, change settings and uninstall for real: what the harness in
+# scripts/macos-harness can only record on a Mac in daily use.
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  harness:
+    name: Install harness (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      # The bootstrap and `dfinstall install all` from nothing in a /tmp
+      # sandbox. Fails if the runner's real setup changed, which is what makes
+      # the harness safe on a Mac in daily use, and (--strict) if dfinstall asks
+      # Homebrew for a formula or cask that does not exist.
+      - name: Run the harness
+        run: scripts/macos-harness/run.sh all --strict
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-${{ matrix.os }}
+          path: /tmp/dfinstall-macos-harness-*/
+          if-no-files-found: ignore
+
+  formula:
+    name: Homebrew formula (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, macos-15-intel]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --snapshot --clean
+
+      - name: Install the snapshot with the real Homebrew
+        run: scripts/macos-ci/formula.sh dist
+
+  fresh-user:
+    name: Fresh install as a standard account
+    runs-on: macos-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Bootstrap and install as a new non-admin user
+        run: scripts/macos-ci/fresh-user.sh "$RUNNER_TEMP/fresh-user"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fresh-user
+          path: ${{ runner.temp }}/fresh-user/
+          if-no-files-found: ignore
+
+  mac-modules:
+    name: macOS-only modules, installed and removed
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Install and uninstall mackeys, alttab, sketchybar, aerospace
+        run: scripts/macos-ci/mac-modules.sh "$RUNNER_TEMP/mac-modules"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-modules
+          path: ${{ runner.temp }}/mac-modules/
+          if-no-files-found: ignore
+
+  tls-inspection:
+    name: TLS inspection
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: The bootstrap's TLS handling behind mitmproxy
+        run: scripts/macos-ci/tls-inspection.sh "$RUNNER_TEMP/tls"
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tls-inspection
+          path: ${{ runner.temp }}/tls/
+          if-no-files-found: ignore

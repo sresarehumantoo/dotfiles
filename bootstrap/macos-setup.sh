@@ -190,12 +190,15 @@ preflight() {
 }
 
 # A TLS-inspecting proxy re-signs every connection with a root CA that MDM
-# installs into the System keychain. Go and rustup read the keychain; Apple's
-# curl, git, Node, Python and cargo do not, so each is pointed at a bundle of
-# Apple's public roots plus the System keychain's certificates. Homebrew wipes
-# its environment, so it gets the bundle through HOMEBREW_CURLRC and git's
-# http.sslCAInfo instead. SSL_CERT_FILE is deliberately not set: since Go 1.27
-# it replaces Go's keychain verification, which already works.
+# installs into the System keychain. Measured on macOS 26 (scripts/macos-ci):
+# Apple's curl, git, Python and openssl, Homebrew, pip and Go all trust the
+# keychain already; Node and npm, which carry their own CA list, do not. Every
+# tool is pointed at a bundle of Apple's public roots plus the System keychain's
+# certificates anyway, which costs nothing where the keychain already works and
+# covers whatever else ships its own list. Homebrew wipes its environment, so it
+# gets the bundle through HOMEBREW_CURLRC, and git through http.sslCAInfo.
+# SSL_CERT_FILE is deliberately not set: since Go 1.27 it replaces Go's keychain
+# verification, which already works.
 CA_BUNDLE="$HOME/.local/share/dfinstall/ca-bundle.pem"
 CA_ENV="$HOME/.config/dfinstall/ca.sh"
 CA_CURLRC="$HOME/.config/dfinstall/curlrc"
@@ -205,27 +208,58 @@ LOCAL_CERTS=/Library/Keychains/System.keychain
 # others, so one host is not enough to tell.
 CA_PROBE_HOSTS="github.com formulae.brew.sh registry.npmjs.org pypi.org static.rust-lang.org"
 
-# Prints the hosts that fail against public roots alone but pass once the
-# System keychain's certificates are trusted too: those are being intercepted.
+# The common names of the authorities that issued the chain host presents, one
+# per line. Verification cannot tell an inspecting proxy apart on current
+# macOS: curl, git, Python, Homebrew, Go and even /usr/bin/openssl consult the
+# System keychain whatever CA file they are given, so through the proxy they
+# all succeed. Who issued the chain is still visible. s_client goes through
+# https_proxy when one is set, and perl's alarm bounds it, since macOS has no
+# timeout(1); it exits 1 after every handshake with stdin closed, so only its
+# output counts.
+chain_issuers() {
+    local host="$1" proxy="${https_proxy:-${HTTPS_PROXY:-}}" out
+    set -- -connect "$host:443" -servername "$host" -showcerts
+    if [[ -n "$proxy" ]]; then
+        proxy="${proxy#*://}"
+        proxy="${proxy##*@}"
+        set -- "$@" -proxy "${proxy%%/*}"
+    fi
+    out="$(perl -e 'alarm 20; exec @ARGV' /usr/bin/openssl s_client "$@" </dev/null 2>&1 || true)"
+    # LibreSSL prints "   i:/C=US/O=x/CN=y", OpenSSL 3 "   i:C = US, O = x, CN = y".
+    printf '%s\n' "$out" | sed -n 's/^ *i: *//p' | sed -n 's/.*CN *= *\([^/,]*\).*/\1/p'
+}
+
+# Prints the hosts none of whose chain is issued by one of Apple's public
+# roots: something re-signed them. Returns 1 when no host could be reached, so
+# the caller can say it could not tell rather than that there is no inspection.
 intercepted_hosts() {
-    local public="$1" combined="$2" host
+    local host cn issuers public checked=false
     for host in $CA_PROBE_HOSTS; do
-        if ! curl -sS -o /dev/null --max-time 15 --cacert "$public" "https://$host" 2>/dev/null \
-            && curl -sS -o /dev/null --max-time 15 --cacert "$combined" "https://$host" 2>/dev/null; then
-            printf '%s ' "$host"
-        fi
+        issuers="$(chain_issuers "$host")"
+        [[ -n "$issuers" ]] || continue
+        checked=true
+        public=false
+        while IFS= read -r cn; do
+            if [[ -n "$cn" ]] && security find-certificate -c "$cn" "$PUBLIC_ROOTS" >/dev/null 2>&1; then
+                public=true
+                break
+            fi
+        done <<<"$issuers"
+        [[ "$public" == true ]] || printf '%s ' "$host"
     done
+    [[ "$checked" == true ]]
 }
 
 wire_tls_trust() {
     header "TLS trust"
-    local public hosts
-    public="$(mktemp)"
+    local hosts
     mkdir -p "$(dirname "$CA_BUNDLE")" "$(dirname "$CA_ENV")"
-    security find-certificate -a -p "$PUBLIC_ROOTS" >"$public"
     security find-certificate -a -p "$PUBLIC_ROOTS" "$LOCAL_CERTS" >"$CA_BUNDLE.new"
-    hosts="$(intercepted_hosts "$public" "$CA_BUNDLE.new")"
-    rm -f "$public"
+    if ! hosts="$(intercepted_hosts)"; then
+        rm -f "$CA_BUNDLE.new"
+        warn "Could not check for TLS inspection: none of ${CA_PROBE_HOSTS// /, } answered. If downloads fail with certificate errors, re-run this step once the network is reachable."
+        return
+    fi
 
     # Rewire on every run once wired, so a rotated proxy root is picked up.
     if [[ -z "$hosts" && ! -f "$CA_ENV" ]]; then
@@ -234,7 +268,7 @@ wire_tls_trust() {
         return
     fi
     if [[ -n "$hosts" ]]; then
-        info "TLS inspection on: ${hosts% }. Those fail verification in curl, git, Node, Python, cargo and Homebrew until they trust the System keychain's certificates."
+        info "TLS inspection on: ${hosts% }. Node and npm, and anything else that carries its own CA list, fail verification there until they trust the System keychain's certificates."
     fi
     info "This writes ${CA_BUNDLE}, ${CA_ENV} (sourced by ~/.profile) and http.sslCAInfo in ~/.gitconfig.local."
     if ! confirm "Point those tools at the System keychain's certificates?"; then

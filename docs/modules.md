@@ -857,6 +857,17 @@ checked, not just asserted in a comment.
 `wsl --shutdown` from PowerShell. Forgetting the second step reads as "the fix
 did not work".
 
+### A .wslconfig dfinstall did not write
+
+Every render carries the header line ``…by `dfinstall install wsl`.``, and
+that line is how dfinstall tells its own file from one something else wrote. A
+`.wslconfig` without it (one a provisioning tool manages for the VM's memory
+and swap, say) is **left as it is**: `install wsl` prints a notice instead of
+replacing it, `status` counts it neither way, and the `doctor` row passes while
+listing any keys that differ from this repo. To hand the file over, move it
+aside and run `dfinstall install wsl`. A file written by v1.0.0, the last
+release before the header, is treated the same way.
+
 ### .wslconfig sizing
 
 `config/wsl/wslconfig` is a **template**. The `@HOST_SIZING@` line is replaced at

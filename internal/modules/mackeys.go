@@ -315,7 +315,17 @@ func installLayoutAgent(ctx context.Context, unwritable []string) error {
 	return loadLaunchAgent(ctx, layoutLabel, agentChanged, rebuilt || configChanged)
 }
 
-const activateSettings = "/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings"
+const activateSettingsPath = "/System/Library/PrivateFrameworks/SystemAdministration.framework/Resources/activateSettings"
+
+// activateSettings is the tool that applies changed keyboard settings to the
+// running session. One on PATH wins over the system's, which is never on PATH,
+// so scripts/macos-harness can stand in for it like any other command.
+func activateSettings() string {
+	if p, err := exec.LookPath("activateSettings"); err == nil {
+		return p
+	}
+	return activateSettingsPath
+}
 
 func (m MackeysModule) Install(ctx context.Context) error {
 	if !core.IsMac() {
@@ -404,7 +414,7 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 			return err
 		}
 	}
-	_ = runCmd(ctx, activateSettings, "-u")
+	_ = runCmd(ctx, activateSettings(), "-u")
 	core.Ok("mackeys uninstalled")
 	return nil
 }
@@ -736,7 +746,7 @@ func applyHotkeys(ctx context.Context) (bool, error) {
 	}
 	if changed && !core.DryRun {
 		// Applies the hotkey change without a logout. Private, so best-effort.
-		if err := runCmd(ctx, activateSettings, "-u"); err != nil {
+		if err := runCmd(ctx, activateSettings(), "-u"); err != nil {
 			core.Debug("activateSettings: %v", err)
 		}
 	}

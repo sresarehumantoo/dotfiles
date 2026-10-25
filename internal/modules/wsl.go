@@ -250,6 +250,10 @@ func installWslconfig(ctx context.Context) {
 			core.Ok(".wslconfig already up to date")
 			return
 		}
+		if !ownedWslconfig(dstData) {
+			core.Notice("%s was not written by dfinstall, so it is left as it is; move it aside and re-run 'dfinstall install wsl' to have dfinstall manage it", dst)
+			return
+		}
 		core.Notice("Updating %s (backing up to .wslconfig.bak)", dst)
 		// Regular copy since this is in user's Windows home
 		os.Rename(dst, dst+".bak")
@@ -321,6 +325,8 @@ func (WslModule) Status() core.ModuleStatus {
 	// actually be made: with no Windows home resolvable there is nothing to
 	// compare against, and reporting that as drift would be a permanent
 	// unfixable row on a host where interop is simply off.
+	// A file dfinstall did not write is not counted either: it is not this
+	// module's to install, so it is neither linked nor missing.
 	switch wslconfigState().State {
 	case "ok":
 		s.Linked++

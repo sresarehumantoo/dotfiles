@@ -804,12 +804,14 @@ func installRustupBrew(ctx context.Context) bool {
 		return false
 	}
 	bin := filepath.Join(prefix, "opt", "rustup", "bin")
+	changed := false
 	if _, err := os.Stat(filepath.Join(bin, "rustup")); err != nil {
 		core.Info("Installing rustup via Homebrew...")
 		if err := installPkg(ctx, "rustup"); err != nil {
 			core.AlwaysWarn("brew install rustup failed: %v", err)
 			return false
 		}
+		changed = true
 	}
 	if curr := os.Getenv("PATH"); !strings.Contains(curr, bin) {
 		os.Setenv("PATH", bin+string(os.PathListSeparator)+curr)
@@ -820,6 +822,11 @@ func installRustupBrew(ctx context.Context) bool {
 			core.AlwaysWarn("rustup default stable failed: %v", err)
 			return false
 		}
+		changed = true
+	}
+	if !changed {
+		core.Ok("rustup already installed")
+		return true
 	}
 	core.Changed("rustup installed (cargo: %s)", cargoVersion(ctx))
 	return true

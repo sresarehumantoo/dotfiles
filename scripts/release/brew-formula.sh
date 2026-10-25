@@ -8,7 +8,6 @@
 # URL defaults to the GitHub release; Homebrew's own HOMEBREW_ARTIFACT_DOMAIN
 # redirects it through a mirror.
 set -euo pipefail
-shopt -s inherit_errexit
 
 usage() { sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; }
 case "${1:-}" in -h | --help) usage; exit 0 ;; esac
@@ -34,13 +33,13 @@ sha() {
 
 block() {
     local sum
-    sum="$(sha "$1" "$2")"
+    sum="$(sha "$1" "$2")" || return 1
     printf '      url "%s/dfinstall_%s_%s_%s.tar.gz"\n' "$base" "$version" "$1" "$2"
     printf '      sha256 "%s"' "$sum"
 }
 
 # Computed up front: a failure inside the heredoc's substitutions would not
-# stop the script.
+# stop the script. Bash 3.2 has no inherit_errexit, hence the explicit returns.
 darwin_arm64="$(block darwin arm64)"
 darwin_amd64="$(block darwin amd64)"
 linux_arm64="$(block linux arm64)"

@@ -1,4 +1,5 @@
 ﻿#Requires -Version 5.1
+
 <#
 .SYNOPSIS
     Bootstrap a fresh WSL Debian distro for dotfiles installation.
@@ -56,12 +57,15 @@
     re-run with -CorpCert, rather than letting every download fail downstream.
 
 .EXAMPLE
-    .\wsl-bootstrap.ps1
-    .\wsl-bootstrap.ps1 -Distro Debian -Username owen
-    .\wsl-bootstrap.ps1 -SkipGhostty
-    .\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty
-    .\wsl-bootstrap.ps1 -PreHook .\setup-proxy.sh
-    .\wsl-bootstrap.ps1 -CorpCert .\corp-root-ca.crt
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -Distro Debian -Username owen
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -SkipGhostty
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -PreHook .\setup-proxy.sh
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -CorpCert .\corp-root-ca.crt
+
+    Windows' default execution policy (Restricted) refuses to run a plain
+    .\wsl-bootstrap.ps1. -ExecutionPolicy Bypass applies to that one process only.
 #>
 
 [CmdletBinding()]
@@ -510,7 +514,7 @@ function Main {
                     } else {
                         Write-Info "apt works but direct HTTPS does not - the signature of a"
                         Write-Info "TLS-inspecting corporate proxy. Re-run with the corporate root CA:"
-                        Write-Info "  .\wsl-bootstrap.ps1 -CorpCert <path-to-corp-root-ca.crt>"
+                        Write-Info "  powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -CorpCert <path-to-corp-root-ca.crt>"
                     }
                     exit 1
                 }
