@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // fileModule links one file and writes one generated file, the two primitives

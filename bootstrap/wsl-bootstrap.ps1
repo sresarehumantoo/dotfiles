@@ -1,4 +1,5 @@
 ﻿#Requires -Version 5.1
+
 <#
 .SYNOPSIS
     Bootstrap a fresh WSL Debian distro for dotfiles installation.
@@ -20,7 +21,12 @@
     Linux username to create. If omitted, prompts interactively.
 
 .PARAMETER Branch
-    Dotfiles branch to checkout. Defaults to 'develop'.
+    Dotfiles branch to checkout. Defaults to 'main', which installs the released
+    dfinstall from its apt repository. Any other branch builds dfinstall from
+    the clone, since its configs may need code no release has yet.
+
+.PARAMETER FromSource
+    Build dfinstall from the clone even on main.
 
 .PARAMETER SkipNeovim
     Skip building Neovim from source.
@@ -51,19 +57,23 @@
     re-run with -CorpCert, rather than letting every download fail downstream.
 
 .EXAMPLE
-    .\wsl-bootstrap.ps1
-    .\wsl-bootstrap.ps1 -Distro Debian -Username owen
-    .\wsl-bootstrap.ps1 -SkipGhostty
-    .\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty
-    .\wsl-bootstrap.ps1 -PreHook .\setup-proxy.sh
-    .\wsl-bootstrap.ps1 -CorpCert .\corp-root-ca.crt
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -Distro Debian -Username owen
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -SkipGhostty
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -SkipDotfiles -SkipNeovim -SkipGhostty
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -PreHook .\setup-proxy.sh
+    powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -CorpCert .\corp-root-ca.crt
+
+    Windows' default execution policy (Restricted) refuses to run a plain
+    .\wsl-bootstrap.ps1. -ExecutionPolicy Bypass applies to that one process only.
 #>
 
 [CmdletBinding()]
 param(
     [string]$Distro,
     [string]$Username,
-    [string]$Branch = "develop",
+    [string]$Branch = "main",
+    [switch]$FromSource,
     [switch]$SkipNeovim,
     [switch]$SkipGhostty,
     [switch]$SkipDotfiles,
@@ -447,6 +457,9 @@ function Main {
     Write-Info "Neovim:   $(if ($SkipNeovim) { 'skip' } else { 'build from source' })"
     Write-Info "Ghostty:  $(if ($SkipGhostty) { 'skip' } else { 'latest .deb' })"
     Write-Info "Dotfiles: $(if ($SkipDotfiles) { 'skip' } else { 'clone + install' })"
+    if (-not $SkipDotfiles) {
+        Write-Info "dfinstall: $(if ($FromSource -or $Branch -ne 'main') { 'build from source' } else { 'release from apt, else build from source' })"
+    }
     if ($CorpCert) { Write-Info "Corp CA:  $CorpCert" }
     if ($PreHook)  { Write-Info "Pre-hook: $PreHook" }
     if ($PostHook) { Write-Info "Post-hook: $PostHook" }
@@ -501,7 +514,7 @@ function Main {
                     } else {
                         Write-Info "apt works but direct HTTPS does not - the signature of a"
                         Write-Info "TLS-inspecting corporate proxy. Re-run with the corporate root CA:"
-                        Write-Info "  .\wsl-bootstrap.ps1 -CorpCert <path-to-corp-root-ca.crt>"
+                        Write-Info "  powershell -ExecutionPolicy Bypass -File .\wsl-bootstrap.ps1 -CorpCert <path-to-corp-root-ca.crt>"
                     }
                     exit 1
                 }
@@ -541,19 +554,20 @@ function Main {
         # Step 6: Copy repo into distro and install dotfiles
         if (-not $SkipDotfiles) {
             Write-Header "Dotfiles"
+            $sourceFlag = if ($FromSource) { " --from-source" } else { "" }
             $repoPath = Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser
             if ($repoPath) {
                 Invoke-Phase `
                     -Name "Install dotfiles" `
                     -DistroName $selectedDistro `
                     -User "user" `
-                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'"
+                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch '$repoPath'$sourceFlag"
             } else {
                 Invoke-Phase `
                     -Name "Install dotfiles" `
                     -DistroName $selectedDistro `
                     -User "user" `
-                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch"
+                    -Command "/tmp/wsl-setup.sh install-dotfiles $Branch ''$sourceFlag"
             }
         }
 

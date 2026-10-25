@@ -8,7 +8,7 @@ formatter / debugger configs.
 It is **opt-in** and **not part of `install all`** — `install all` would
 otherwise drag in MinGW-w64, the .NET SDK, OmniSharp, netcoredbg, and the Rust
 windows-gnu target for every machine. Once enabled, it persists in
-`.config.yaml` (`windev_enabled: true`) and is re-applied by future `install
+`config.yaml` (`windev_enabled: true`) and is re-applied by future `install
 all` / `update all` runs so the toolchains stay current.
 
 ## Quick start
@@ -247,7 +247,7 @@ dfinstall uninstall windev
 ```
 
 Removes the nvim plugin file, the `winbuild` symlink, the `windev.zsh` PATH
-snippet, and clears `windev_enabled` in `.config.yaml`. Future `install all`
+snippet, and clears `windev_enabled` in `config.yaml`. Future `install all`
 runs skip windev again.
 
 **Deliberately not removed** (other workflows may rely on them): MinGW-w64,

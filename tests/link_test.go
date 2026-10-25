@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 func TestLinkFile_CreateNew(t *testing.T) {
@@ -166,5 +166,18 @@ func TestEnsureDir(t *testing.T) {
 	// Idempotent
 	if err := core.EnsureDir(dir); err != nil {
 		t.Fatalf("EnsureDir idempotent failed: %v", err)
+	}
+}
+
+// A source the checkout does not have (dfinstall newer than its clone) is
+// skipped, not linked dangling.
+func TestLinkFile_SkipsMissingSource(t *testing.T) {
+	dir := t.TempDir()
+	dst := filepath.Join(dir, "target")
+	if err := core.LinkFile(filepath.Join(dir, "not-in-checkout"), dst); err != nil {
+		t.Fatalf("LinkFile: %v", err)
+	}
+	if _, err := os.Lstat(dst); !os.IsNotExist(err) {
+		t.Errorf("a link was made to a missing source (err=%v)", err)
 	}
 }

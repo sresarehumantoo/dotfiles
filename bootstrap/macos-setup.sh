@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# macOS bootstrap: Xcode Command Line Tools, Homebrew, Go and Ghostty, then
-# `make install` (dfinstall install all). Must stay bash 3.2 compatible: on a
+# macOS bootstrap: Xcode Command Line Tools, Homebrew and Ghostty, then
+# dfinstall from the Homebrew tap and `dfinstall install all` (or Go and
+# `make install` for a source build). Must stay bash 3.2 compatible: on a
 # fresh Mac /bin/bash 3.2 is the only bash there is.
 set -euo pipefail
 
@@ -22,12 +23,15 @@ on_exit() {
     local rc=$?
     if [[ $rc -ne 0 ]]; then
         printf "\n${_RED}${_BOLD}  [x]${_RESET} Bootstrap stopped during: %s (exit %s)\n" "$STEP" "$rc" >&2
-        printf "      Once dfinstall is built, 'dfinstall doctor' reports admin, Homebrew, MDM, Santa, TLS trust and Gatekeeper state.\n" >&2
+        printf "      Once dfinstall is installed, 'dfinstall doctor' reports admin, Homebrew, MDM, Santa, TLS trust and Gatekeeper state.\n" >&2
     fi
 }
 trap on_exit EXIT
 
 REPO_URL="https://github.com/sresarehumantoo/dotfiles.git"
+# The tap is cloned from GitHub unless DFINSTALL_TAP_URL names a mirror of it.
+TAP="sresarehumantoo/tap"
+TAP_URL="${DFINSTALL_TAP_URL:-}"
 BREW_INSTALL_URL="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
 
 ASSUME_YES=false
@@ -37,13 +41,20 @@ show_help() {
     cat <<'HELP'
 Usage: macos-setup.sh [options]
 
-Installs the Xcode Command Line Tools, Homebrew, Go and Ghostty, then clones
-(or reuses) the dotfiles and runs `make install`. Asks before each step that
-changes the machine; declining one stops there and changes nothing further.
+Installs the Xcode Command Line Tools, Homebrew and Ghostty, then dfinstall
+from the Homebrew tap, clones (or reuses) the dotfiles and runs
+`dfinstall install all`. Asks before each step that changes the machine;
+declining one stops there and changes nothing further.
+
+On a branch other than main, with --from-source, or when the tap cannot be
+reached, it installs Go and builds dfinstall from the clone instead
+(`make install`): a release is cut from main, so another branch's configs may
+need code no release has yet.
 
 Options:
   --branch <branch>     Branch to clone (default: main). An existing clone is
                         used as it is, on whatever branch it has checked out.
+  --from-source         Build dfinstall from the clone rather than install it
   --dir <path>          Where the clone lives (default: the clone this script
                         is in, else ~/dotfiles)
   --brew-prefix <path>  Use, or install, a Homebrew at this path, for when the
@@ -55,6 +66,11 @@ Options:
   --skip-dotfiles       Stop after the prerequisites
   -y, --yes             Answer yes to every confirmation
   -h, --help            Show this help
+
+Environment:
+  DFINSTALL_TAP_URL     Clone the Homebrew tap from this URL (a mirror of
+                        github.com/sresarehumantoo/homebrew-tap). Homebrew's
+                        own HOMEBREW_ARTIFACT_DOMAIN mirrors the downloads.
 
 Examples:
   ./bootstrap/macos-setup.sh
@@ -162,7 +178,7 @@ preflight() {
         info "MDM enrolled"
     fi
     if command -v santactl &>/dev/null && santactl status 2>/dev/null | grep -Eq 'Mode +\| +Lockdown'; then
-        warn "Santa is in Lockdown: the dfinstall binary 'make install' builds, and other locally built tools, stay blocked until IT allowlists them"
+        warn "Santa is in Lockdown: dfinstall (it is not signed by a developer ID, whether installed from the tap or built here) and locally built tools stay blocked until IT allowlists them"
     fi
     if find_brew; then
         ok "Homebrew at ${BREW_PREFIX} is writable"
@@ -174,12 +190,15 @@ preflight() {
 }
 
 # A TLS-inspecting proxy re-signs every connection with a root CA that MDM
-# installs into the System keychain. Go and rustup read the keychain; Apple's
-# curl, git, Node, Python and cargo do not, so each is pointed at a bundle of
-# Apple's public roots plus the System keychain's certificates. Homebrew wipes
-# its environment, so it gets the bundle through HOMEBREW_CURLRC and git's
-# http.sslCAInfo instead. SSL_CERT_FILE is deliberately not set: since Go 1.27
-# it replaces Go's keychain verification, which already works.
+# installs into the System keychain. Measured on macOS 26 (scripts/macos-ci):
+# Apple's curl, git, Python and openssl, Homebrew, pip and Go all trust the
+# keychain already; Node and npm, which carry their own CA list, do not. Every
+# tool is pointed at a bundle of Apple's public roots plus the System keychain's
+# certificates anyway, which costs nothing where the keychain already works and
+# covers whatever else ships its own list. Homebrew wipes its environment, so it
+# gets the bundle through HOMEBREW_CURLRC, and git through http.sslCAInfo.
+# SSL_CERT_FILE is deliberately not set: since Go 1.27 it replaces Go's keychain
+# verification, which already works.
 CA_BUNDLE="$HOME/.local/share/dfinstall/ca-bundle.pem"
 CA_ENV="$HOME/.config/dfinstall/ca.sh"
 CA_CURLRC="$HOME/.config/dfinstall/curlrc"
@@ -189,27 +208,58 @@ LOCAL_CERTS=/Library/Keychains/System.keychain
 # others, so one host is not enough to tell.
 CA_PROBE_HOSTS="github.com formulae.brew.sh registry.npmjs.org pypi.org static.rust-lang.org"
 
-# Prints the hosts that fail against public roots alone but pass once the
-# System keychain's certificates are trusted too: those are being intercepted.
+# The common names of the authorities that issued the chain host presents, one
+# per line. Verification cannot tell an inspecting proxy apart on current
+# macOS: curl, git, Python, Homebrew, Go and even /usr/bin/openssl consult the
+# System keychain whatever CA file they are given, so through the proxy they
+# all succeed. Who issued the chain is still visible. s_client goes through
+# https_proxy when one is set, and perl's alarm bounds it, since macOS has no
+# timeout(1); it exits 1 after every handshake with stdin closed, so only its
+# output counts.
+chain_issuers() {
+    local host="$1" proxy="${https_proxy:-${HTTPS_PROXY:-}}" out
+    set -- -connect "$host:443" -servername "$host" -showcerts
+    if [[ -n "$proxy" ]]; then
+        proxy="${proxy#*://}"
+        proxy="${proxy##*@}"
+        set -- "$@" -proxy "${proxy%%/*}"
+    fi
+    out="$(perl -e 'alarm 20; exec @ARGV' /usr/bin/openssl s_client "$@" </dev/null 2>&1 || true)"
+    # LibreSSL prints "   i:/C=US/O=x/CN=y", OpenSSL 3 "   i:C = US, O = x, CN = y".
+    printf '%s\n' "$out" | sed -n 's/^ *i: *//p' | sed -n 's/.*CN *= *\([^/,]*\).*/\1/p'
+}
+
+# Prints the hosts none of whose chain is issued by one of Apple's public
+# roots: something re-signed them. Returns 1 when no host could be reached, so
+# the caller can say it could not tell rather than that there is no inspection.
 intercepted_hosts() {
-    local public="$1" combined="$2" host
+    local host cn issuers public checked=false
     for host in $CA_PROBE_HOSTS; do
-        if ! curl -sS -o /dev/null --max-time 15 --cacert "$public" "https://$host" 2>/dev/null \
-            && curl -sS -o /dev/null --max-time 15 --cacert "$combined" "https://$host" 2>/dev/null; then
-            printf '%s ' "$host"
-        fi
+        issuers="$(chain_issuers "$host")"
+        [[ -n "$issuers" ]] || continue
+        checked=true
+        public=false
+        while IFS= read -r cn; do
+            if [[ -n "$cn" ]] && security find-certificate -c "$cn" "$PUBLIC_ROOTS" >/dev/null 2>&1; then
+                public=true
+                break
+            fi
+        done <<<"$issuers"
+        [[ "$public" == true ]] || printf '%s ' "$host"
     done
+    [[ "$checked" == true ]]
 }
 
 wire_tls_trust() {
     header "TLS trust"
-    local public hosts
-    public="$(mktemp)"
+    local hosts
     mkdir -p "$(dirname "$CA_BUNDLE")" "$(dirname "$CA_ENV")"
-    security find-certificate -a -p "$PUBLIC_ROOTS" >"$public"
     security find-certificate -a -p "$PUBLIC_ROOTS" "$LOCAL_CERTS" >"$CA_BUNDLE.new"
-    hosts="$(intercepted_hosts "$public" "$CA_BUNDLE.new")"
-    rm -f "$public"
+    if ! hosts="$(intercepted_hosts)"; then
+        rm -f "$CA_BUNDLE.new"
+        warn "Could not check for TLS inspection: none of ${CA_PROBE_HOSTS// /, } answered. If downloads fail with certificate errors, re-run this step once the network is reachable."
+        return
+    fi
 
     # Rewire on every run once wired, so a rotated proxy root is picked up.
     if [[ -z "$hosts" && ! -f "$CA_ENV" ]]; then
@@ -218,7 +268,7 @@ wire_tls_trust() {
         return
     fi
     if [[ -n "$hosts" ]]; then
-        info "TLS inspection on: ${hosts% }. Those fail verification in curl, git, Node, Python, cargo and Homebrew until they trust the System keychain's certificates."
+        info "TLS inspection on: ${hosts% }. Node and npm, and anything else that carries its own CA list, fail verification there until they trust the System keychain's certificates."
     fi
     info "This writes ${CA_BUNDLE}, ${CA_ENV} (sourced by ~/.profile) and http.sslCAInfo in ~/.gitconfig.local."
     if ! confirm "Point those tools at the System keychain's certificates?"; then
@@ -441,8 +491,33 @@ for a in json.load(sys.stdin)["assets"]:
     ok "Installed Ghostty's nightly build in ${appdir}. 'brew install --cask ghostty' moves to the stable release once the download site is reachable."
 }
 
+# install_release installs dfinstall from the Homebrew tap. Fails, without
+# stopping the run, when the tap or its formula cannot be had, so the caller
+# can build from source instead.
+install_release() {
+    header "dfinstall"
+    if brew list --formula dfinstall &>/dev/null; then
+        ok "Already installed: $("$BREW_PREFIX/bin/dfinstall" --version)"
+        return 0
+    fi
+    confirm "brew install ${TAP}/dfinstall?" || stop_here
+    if ! brew tap "$TAP" ${TAP_URL:+"$TAP_URL"} || ! brew install "${TAP}/dfinstall"; then
+        warn "Could not install dfinstall from ${TAP}; building it from source instead"
+        return 1
+    fi
+    ok "$("$BREW_PREFIX/bin/dfinstall" --version)"
+}
+
 install_dotfiles() {
-    local branch="$1" dir="$2"
+    local branch="$1" dir="$2" from_source="$3" dfinstall
+    if [[ "$from_source" != true && "$branch" == main ]] && install_release; then
+        dfinstall="$BREW_PREFIX/bin/dfinstall"
+    else
+        from_source=true
+        dfinstall="$dir/bin/dfinstall"
+        install_go
+    fi
+
     header "Dotfiles"
     if [[ -d "$dir/.git" ]]; then
         info "Using the existing clone at ${dir} ($(git -C "$dir" branch --show-current))"
@@ -452,15 +527,22 @@ install_dotfiles() {
         confirm "Clone the dotfiles (${branch}) into ${dir}?" || stop_here
         git clone --branch "$branch" "$REPO_URL" "$dir"
     fi
-    info "make install builds dfinstall and runs 'dfinstall install all': Homebrew packages, then symlinks for the shell, git, nvim, tmux and Ghostty configs into your home folder. 'dfinstall install all --dry-run' shows the full list first."
-    confirm "Run make install?" || stop_here
-    make -C "$dir" install <&3
+    if [[ "$from_source" == true ]]; then
+        info "make install builds dfinstall and runs 'dfinstall install all': Homebrew packages, then symlinks for the shell, git, nvim, tmux and Ghostty configs into your home folder. 'dfinstall install all --dry-run' shows the full list first."
+        confirm "Run make install?" || stop_here
+        make -C "$dir" install <&3
+    else
+        "$dfinstall" init --dir "$dir"
+        info "'dfinstall install all' installs Homebrew packages, then symlinks for the shell, git, nvim, tmux and Ghostty configs into your home folder. 'dfinstall install all --dry-run' shows the full list first."
+        confirm "Run dfinstall install all?" || stop_here
+        "$dfinstall" install all <&3
+    fi
 
     # A record of the environment to share if anything on this Mac misbehaves.
     local report
     report="$HOME/Library/Logs/dotfiles-doctor-$(date +%Y%m%d-%H%M%S).log"
     mkdir -p "$HOME/Library/Logs"
-    if "$dir/bin/dfinstall" doctor >"$report" 2>&1; then
+    if "$dfinstall" doctor >"$report" 2>&1; then
         ok "Environment report: ${report}"
     else
         warn "dfinstall doctor found problems; see ${report}"
@@ -468,7 +550,7 @@ install_dotfiles() {
 }
 
 main() {
-    local branch="main" dir="" do_ghostty=true do_dotfiles=true
+    local branch="main" dir="" do_ghostty=true do_dotfiles=true from_source=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --branch)        branch="${2:?--branch needs a value}"; shift 2 ;;
@@ -476,6 +558,7 @@ main() {
             --brew-prefix)   BREW_PREFIX_REQ="${2:?--brew-prefix needs a value}"; BREW_PREFIX_REQ="${BREW_PREFIX_REQ%/}"; shift 2 ;;
             --skip-ghostty)  do_ghostty=false; shift ;;
             --skip-dotfiles) do_dotfiles=false; shift ;;
+            --from-source)   from_source=true; shift ;;
             -y|--yes)        ASSUME_YES=true; shift ;;
             -h|--help)       show_help; exit 0 ;;
             *)               show_help >&2; die "Unknown option: $1" ;;
@@ -502,9 +585,15 @@ main() {
     info "1. Xcode Command Line Tools, if missing"
     info "2. Check for TLS inspection, and trust the System keychain's certificates if found"
     info "3. Homebrew: ${BREW_PREFIX:-${BREW_PREFIX_REQ:-install with the official installer}}"
-    info "4. Go$([[ "$do_ghostty" == true ]] && printf ' and Ghostty')"
+    if [[ "$do_ghostty" == true ]]; then
+        info "4. Ghostty"
+    fi
     if [[ "$do_dotfiles" == true ]]; then
-        info "5. Dotfiles in ${dir}, then make install"
+        if [[ "$from_source" != true && "$branch" == main ]]; then
+            info "5. dfinstall from the Homebrew tap, dotfiles in ${dir}, then dfinstall install all"
+        else
+            info "5. Go, dotfiles in ${dir}, then make install"
+        fi
     fi
     info "Each step that changes something asks first."
     confirm "Continue?" || stop_here
@@ -512,12 +601,11 @@ main() {
     install_clt
     wire_tls_trust
     install_brew
-    install_go
     if [[ "$do_ghostty" == true ]]; then
         install_ghostty
     fi
     if [[ "$do_dotfiles" == true ]]; then
-        install_dotfiles "$branch" "$dir"
+        install_dotfiles "$branch" "$dir" "$from_source"
     fi
 
     header "Done"

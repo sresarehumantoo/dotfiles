@@ -142,7 +142,7 @@ home and work volumes).
   makes truecolor survive SSH. Verified: p10k renders `38;2;R;G;B` sequences.
 
 - **A `curl: (22) 404` during the image build** turned out to be a real bug in
-  `src/modules/delta.go`, not a container quirk: it built
+  `internal/modules/delta.go`, not a container quirk: it built
   `/releases/latest/download/git-delta_<arch>.deb`, but delta embeds the version
   in the filename, so that URL had never resolved on any machine and every
   install silently fell back to the distro package. Fixed to resolve the asset

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 func TestLinkFile_DryRun(t *testing.T) {

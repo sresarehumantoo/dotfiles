@@ -57,7 +57,7 @@ fi
 : > "$state/policy/blocklist"
 
 echo "Building dfinstall..."
-(cd "$repo" && CGO_ENABLED=0 go build -o "$state/bin/dfinstall" ./src/cmd/dfinstall)
+(cd "$repo" && CGO_ENABLED=0 go build -o "$state/bin/dfinstall" ./cmd/dfinstall)
 
 export REPO="$repo"
 compose=(docker compose -f "$here/compose.yaml")

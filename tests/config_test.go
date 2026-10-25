@@ -6,12 +6,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 func TestLoadConfig_MissingFile(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("DOTFILES", tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DOTFILES", t.TempDir())
 
 	// Reset cached dotfiles dir so DotfilesDir() picks up the new env
 	core.ResetDotfilesDir()
@@ -31,14 +31,15 @@ func TestLoadConfig_MissingFile(t *testing.T) {
 }
 
 func TestLoadConfig_ExistingFile(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("DOTFILES", tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DOTFILES", t.TempDir())
 
 	core.ResetDotfilesDir()
 	defer core.ResetDotfilesDir()
 
 	content := "skip_backup: true\nbackup_dir: /tmp/mybackups\n"
-	os.WriteFile(filepath.Join(tmp, ".config.yaml"), []byte(content), 0644)
+	os.MkdirAll(filepath.Dir(core.ConfigFilePath()), 0755)
+	os.WriteFile(core.ConfigFilePath(), []byte(content), 0644)
 
 	core.LoadConfig()
 
@@ -54,8 +55,8 @@ func TestLoadConfig_ExistingFile(t *testing.T) {
 }
 
 func TestSaveConfig_RoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("DOTFILES", tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DOTFILES", t.TempDir())
 
 	core.ResetDotfilesDir()
 	defer core.ResetDotfilesDir()
@@ -66,7 +67,7 @@ func TestSaveConfig_RoundTrip(t *testing.T) {
 	}
 
 	// Verify file exists
-	data, err := os.ReadFile(filepath.Join(tmp, ".config.yaml"))
+	data, err := os.ReadFile(core.ConfigFilePath())
 	if err != nil {
 		t.Fatalf("config file not written: %v", err)
 	}
@@ -91,8 +92,8 @@ func TestSaveConfig_RoundTrip(t *testing.T) {
 }
 
 func TestSaveConfig_WindevEnabledRoundTrip(t *testing.T) {
-	tmp := t.TempDir()
-	t.Setenv("DOTFILES", tmp)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("DOTFILES", t.TempDir())
 
 	core.ResetDotfilesDir()
 	defer core.ResetDotfilesDir()
@@ -102,7 +103,7 @@ func TestSaveConfig_WindevEnabledRoundTrip(t *testing.T) {
 		t.Fatalf("SaveConfig: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(tmp, ".config.yaml"))
+	data, err := os.ReadFile(core.ConfigFilePath())
 	if err != nil {
 		t.Fatalf("config file not written: %v", err)
 	}

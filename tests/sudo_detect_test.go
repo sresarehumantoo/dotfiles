@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/src/modules"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/modules"
 )
 
 func TestContainsSudoInvocation(t *testing.T) {

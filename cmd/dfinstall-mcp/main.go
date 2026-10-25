@@ -1,0 +1,654 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"strings"
+	"sync"
+	"syscall"
+
+	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/mark3labs/mcp-go/server"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v2/internal/modules"
+)
+
+func main() {
+	// Save real stdout for MCP JSON-RPC transport.
+	// All fmt.Printf (used by core output functions) will go to stderr.
+	realStdout := os.Stdout
+	os.Stdout = os.Stderr
+
+	core.Level = core.LogQuiet
+
+	// os.Stdin carries the JSON-RPC request stream here, so nothing may read it
+	// looking for user input — a prompt would consume protocol bytes and wedge
+	// the session. Interactive paths check this and take a safe default.
+	core.Interactive = false
+
+	core.DetectEnvironment()
+	if err := core.LoadConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "dfinstall: %v\n", err)
+	}
+	modules.RegisterAllModules()
+
+	s := server.NewMCPServer("dfinstall", core.Version)
+	registerTools(s)
+
+	stdioServer := server.NewStdioServer(s)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := stdioServer.Listen(ctx, os.Stdin, realStdout); err != nil {
+		fmt.Fprintf(os.Stderr, "mcp server error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func registerTools(s *server.MCPServer) {
+	s.AddTool(
+		mcp.NewTool("dfinstall_status",
+			mcp.WithDescription("Show install status of all dotfile modules (linked/missing symlinks)"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+		),
+		handleStatus,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_install",
+			mcp.WithDescription("Install a dotfile module or all modules. Creates symlinks and installs packages."),
+			mcp.WithString("module",
+				mcp.Required(),
+				mcp.Description("Module name to install, or 'all' for everything"),
+			),
+			mcp.WithBoolean("dry_run",
+				mcp.Description("Report what would change without touching anything. "+
+					"The safe way to inspect an install from here"),
+			),
+			mcp.WithBoolean("upgrade",
+				mcp.Description("First pull the dotfiles clone (edits that merge cleanly are carried over; "+
+					"a conflict, local commits or no upstream skips the pull) and rebuild dfinstall if its source changed, "+
+					"then update the release binaries and plugin clones dfinstall installed. "+
+					"Moving local edits into override files needs a terminal, so here they are only reported"),
+			),
+			mcp.WithIdempotentHintAnnotation(true),
+		),
+		handleInstall,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_doctor",
+			mcp.WithDescription("Run health checks on the dotfiles environment (tools, configs, symlinks)"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+		),
+		handleDoctor,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_list_modules",
+			mcp.WithDescription("List all available dotfile modules in install order"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+		),
+		handleListModules,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_list_backups",
+			mcp.WithDescription("List available backup snapshots that can be restored"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+		),
+		handleListBackups,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_restore",
+			mcp.WithDescription("List backup snapshots, or restore one by timestamp. "+
+				"Defaults to listing; restoring requires action='restore' AND an "+
+				"explicit timestamp."),
+			mcp.WithString("action",
+				mcp.Description("'list' (default) to show available backups, "+
+					"'restore' to actually restore one"),
+			),
+			mcp.WithString("timestamp",
+				mcp.Description("Backup timestamp to restore. Required when "+
+					"action='restore'; there is deliberately no 'latest' default"),
+			),
+			mcp.WithDestructiveHintAnnotation(true),
+		),
+		handleRestore,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_uninstall",
+			mcp.WithDescription("Remove symlinks for a dotfile module or all modules"),
+			mcp.WithString("module",
+				mcp.Required(),
+				mcp.Description("Module name to uninstall, or 'all' for everything"),
+			),
+			mcp.WithDestructiveHintAnnotation(true),
+		),
+		handleUninstall,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_diff",
+			mcp.WithDescription("Show drift between config and filesystem"),
+			mcp.WithReadOnlyHintAnnotation(true),
+			mcp.WithDestructiveHintAnnotation(false),
+		),
+		handleDiff,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_config",
+			mcp.WithDescription("Read or write dfinstall configuration"),
+			mcp.WithString("action",
+				mcp.Required(),
+				mcp.Description("'get' to read config, 'set' to write a value"),
+			),
+			mcp.WithString("key",
+				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled"),
+			),
+			mcp.WithString("value",
+				mcp.Description("Value to set (required for 'set' action)"),
+			),
+		),
+		handleConfig,
+	)
+
+	s.AddTool(
+		mcp.NewTool("dfinstall_registry_validate",
+			mcp.WithDescription("Validate a toolkit registry file and report the tool count. Accepts an HTTP(S) URL, file:// URL, or local path."),
+			mcp.WithString("source",
+				mcp.Required(),
+				mcp.Description("Path or URL to the toolkit registry to validate"),
+			),
+		),
+		handleRegistryValidate,
+	)
+}
+
+// --- Tool handlers ---
+
+func handleStatus(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	var b strings.Builder
+	modules.WriteStatus(&b, modules.StatusHints{
+		Install:    "dfinstall_install with module '%s'",
+		InstallAll: "dfinstall_install with module 'all'",
+		Diff:       "dfinstall_diff",
+	})
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+// installMu serializes installs so the process-wide core.DryRun flag cannot be
+// observed by a concurrent call.
+//
+// ⚠ core.BeginInstall ALREADY TAKES A PROCESS-WIDE LOCK, AND THAT IS NOT
+// ENOUGH ON ITS OWN. DryRun has to be set BEFORE BeginInstall, because the
+// session itself decides whether to take a backup and whether to write the
+// canonical pointer, and "nothing mutates persisted state under DryRun" is the
+// invariant that makes a dry run safe. Setting a global before acquiring the
+// session lock leaves a window where a second install, dispatched from this
+// server's worker pool, would run under someone else's flag: a real install
+// silently doing nothing, or worse, a dry run that writes.
+var installMu sync.Mutex
+
+func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name := request.GetString("module", "")
+	if name == "" {
+		return mcp.NewToolResultError("module parameter is required"), nil
+	}
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	installMu.Lock()
+	defer installMu.Unlock()
+	if request.GetBool("dry_run", false) {
+		prev := core.DryRun
+		core.DryRun = true
+		defer func() { core.DryRun = prev }()
+	}
+
+	var upgradeReport string
+	if request.GetBool("upgrade", false) {
+		core.UpgradeMode = true
+		defer func() { core.UpgradeMode = false }()
+		upgradeReport = upgradeClone(ctx, name == "all")
+	}
+
+	if name == "all" {
+		// Share the CLI's session: adopts the canonical clone (repointing
+		// stray symlinks), takes a restorable backup, and persists config.
+		sess, err := core.BeginInstall(core.InstallOptions{All: true})
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		defer sess.Finish()
+
+		defer core.ReleaseSudo()
+
+		var b strings.Builder
+		b.WriteString(upgradeReport)
+		if sess.CanonicalNow != "" && sess.CanonicalPrev != "" {
+			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s), repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
+		}
+
+		var failures []string
+		for _, m := range core.AllModules() {
+			// core.SkipInAll, not IsModuleSkipped: the latter ignores the
+			// opt-in flags and installed windev on machines that never enabled it.
+			if core.SkipInAll(m.Name()) {
+				sess.Skip(m.Name())
+				continue
+			}
+			if err := sess.Run(ctx, m); err != nil {
+				failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
+			}
+		}
+
+		sess.Report().Write(&b, true)
+		for _, m := range core.AllModules() {
+			if st := m.Status(); st.Missing > 0 && !core.SkipInAll(m.Name()) {
+				fmt.Fprintf(&b, "%s: %d link(s) still missing\n", st.Name, st.Missing)
+			}
+		}
+
+		if len(failures) > 0 {
+			sess.MarkFailed()
+			fmt.Fprintf(&b, "\nFailures:\n")
+			for _, f := range failures {
+				fmt.Fprintf(&b, "  - %s\n", f)
+			}
+		}
+
+		return mcp.NewToolResultText(b.String()), nil
+	}
+
+	m, ok := core.GetModule(name)
+	if !ok {
+		return mcp.NewToolResultError(
+			fmt.Sprintf("unknown module %q (valid: %s)", name, strings.Join(core.ModuleNames(), ", ")),
+		), nil
+	}
+
+	core.SetOptIn(name)
+
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	defer sess.Finish()
+
+	defer core.ReleaseSudo()
+
+	err = sess.Run(ctx, m)
+
+	var b strings.Builder
+	b.WriteString(upgradeReport)
+	if err != nil {
+		sess.MarkFailed()
+		fmt.Fprintf(&b, "install %s error: %v\n", name, err)
+	}
+	sess.Report().Write(&b, true)
+	if st := m.Status(); st.Missing > 0 {
+		fmt.Fprintf(&b, "%d link(s) still missing\n", st.Missing)
+	}
+
+	if err != nil {
+		return mcp.NewToolResultError(b.String()), nil
+	}
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+// upgradeClone is the install tool's upgrade step: what modules.UpgradeClone
+// reported, since nothing printed here reaches the caller. An updated server
+// cannot re-exec in place without dropping the session, so this run carries
+// on with the code it started with.
+func upgradeClone(ctx context.Context, all bool) string {
+	dir := core.DotfilesDir()
+	if invoking := core.InvokingCloneDir(); all && invoking != "" {
+		dir = invoking
+	}
+	var b strings.Builder
+	stop := core.CaptureOutput(&b)
+	exe := modules.UpgradeClone(ctx, dir)
+	stop()
+	if exe != "" {
+		fmt.Fprintf(&b, "updated %s; reconnect the MCP server to use it (this install ran on the previous build)\n", exe)
+	}
+	if b.Len() > 0 {
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func handleDoctor(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	// Render the shared check set (modules.RunDoctorChecks) so the MCP doctor
+	// stays in lockstep with the CLI `doctor` command.
+	var b strings.Builder
+	allOk := true
+	for _, r := range modules.RunDoctorChecks() {
+		if r.OK {
+			// ⚠ The detail is printed on PASSING rows too, exactly as the CLI
+			// does. Not cosmetic: "clone freshness" never fails by design, so
+			// its detail IS its entire output — dropping it here made the
+			// check invisible through this surface while the CLI showed it.
+			if r.Detail != "" {
+				fmt.Fprintf(&b, "  ok  %s: %s\n", r.Name, r.Detail)
+			} else {
+				fmt.Fprintf(&b, "  ok  %s\n", r.Name)
+			}
+		} else {
+			fmt.Fprintf(&b, "  FAIL  %s - %s\n", r.Name, r.Detail)
+			for _, e := range r.Extra {
+				fmt.Fprintf(&b, "        %s\n", e)
+			}
+			allOk = false
+		}
+	}
+
+	fmt.Fprintln(&b)
+	if allOk {
+		fmt.Fprintln(&b, "All checks passed!")
+	} else {
+		fmt.Fprintln(&b, "Some checks failed. Use dfinstall_install to fix.")
+	}
+
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+func handleListModules(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	names := core.ModuleNames()
+	var b strings.Builder
+	for i, name := range names {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, name)
+	}
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+func handleListBackups(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	backups, err := core.ListBackups()
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("list backups: %v", err)), nil
+	}
+	if len(backups) == 0 {
+		return mcp.NewToolResultText("No backups found."), nil
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%-20s %s\n", "TIMESTAMP", "ENTRIES")
+	for _, bk := range backups {
+		fmt.Fprintf(&b, "%-20s %d\n", bk.Timestamp, bk.Count)
+	}
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+// ⚠ THIS TOOL DEFAULTS TO LISTING, AND RESTORING REQUIRES AN EXPLICIT
+// TIMESTAMP. It used to take a single optional `timestamp` that meant "restore
+// the latest" when omitted, so the zero-argument call -- the one anything
+// exploring the tool makes first, by analogy with the CLI's `restore --list`
+// -- was the destructive one.
+//
+// That is not hypothetical: on 2026-09-12 a no-argument call here restored a
+// June snapshot over a live machine, repointing every managed symlink in $HOME
+// at a spare clone that had since been deleted. `shell` went from 12 linked to
+// 1, nvim from 21 to 3, and ~/.zshrc and ~/.gitconfig were left dangling.
+//
+// The CLI has always had this right: `restore --list` to look, `restore <ts>`
+// to act. The MCP tool collapsed both into one call whose default was to act.
+// A destructive operation must not be the default branch of a tool an agent
+// will call speculatively, and "latest" is not a safe implicit target when the
+// caller has not seen the list.
+func handleRestore(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	action := request.GetString("action", "list")
+	ts := request.GetString("timestamp", "")
+
+	switch action {
+	case "list":
+		backups, err := core.ListBackups()
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("list backups: %v", err)), nil
+		}
+		var b strings.Builder
+		core.WriteBackupList(&b, backups)
+		if len(backups) > 0 {
+			fmt.Fprintf(&b, "\nTo restore: action='restore' with an explicit timestamp.\n")
+		}
+		return mcp.NewToolResultText(b.String()), nil
+
+	case "restore":
+		if ts == "" {
+			return mcp.NewToolResultError("timestamp is required to restore. " +
+				"Call with action='list' first and pass one of the timestamps it " +
+				"reports; there is no 'latest' default, deliberately."), nil
+		}
+		res, err := core.RestoreBackup(ts)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("restore %s: %v", ts, err)), nil
+		}
+		// ⚠ res.Summary, NOT a bare "successfully". A faithful restore can
+		// still leave every managed file dangling, and saying only that it
+		// succeeded is what hid exactly that on 2026-09-12.
+		var b strings.Builder
+		fmt.Fprintln(&b, res.Summary(ts))
+		for _, d := range res.Dangling {
+			fmt.Fprintf(&b, "  dangling: %s\n", d)
+		}
+		return mcp.NewToolResultText(b.String()), nil
+
+	default:
+		return mcp.NewToolResultError(fmt.Sprintf(
+			"unknown action %q: expected 'list' or 'restore'", action)), nil
+	}
+}
+
+func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	action := request.GetString("action", "")
+	key := request.GetString("key", "")
+	value := request.GetString("value", "")
+
+	switch action {
+	case "get":
+		if key == "" {
+			var b strings.Builder
+			fmt.Fprintf(&b, "skip_backup: %v\n", core.Cfg.SkipBackup)
+			fmt.Fprintf(&b, "backup_dir: %s\n", core.Cfg.BackupDirP)
+			fmt.Fprintf(&b, "extended_plugins: %v\n", core.Cfg.ExtendedPlugins)
+			fmt.Fprintf(&b, "preserved_files: %v\n", core.Cfg.PreservedFiles)
+			fmt.Fprintf(&b, "dismissed_files: %v\n", core.Cfg.DismissedFiles)
+			fmt.Fprintf(&b, "skip_modules: %v\n", core.Cfg.SkipModules)
+			fmt.Fprintf(&b, "toolkit_tools: %v\n", core.Cfg.ToolkitTools)
+			fmt.Fprintf(&b, "toolkit_registry_url: %s\n", core.Cfg.ToolkitRegistryURL)
+			fmt.Fprintf(&b, "windev_enabled: %v\n", core.Cfg.WindevEnabled)
+			fmt.Fprintf(&b, "opencode_enabled: %v\n", core.Cfg.OpencodeEnabled)
+			fmt.Fprintf(&b, "\nconfig file: %s\n", core.ConfigFilePath())
+			return mcp.NewToolResultText(b.String()), nil
+		}
+		switch key {
+		case "skip_backup":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.SkipBackup)), nil
+		case "backup_dir":
+			dir := core.Cfg.BackupDirP
+			if dir == "" {
+				dir = core.BackupDir()
+			}
+			return mcp.NewToolResultText(dir), nil
+		case "extended_plugins":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.ExtendedPlugins)), nil
+		case "preserved_files":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.PreservedFiles)), nil
+		case "dismissed_files":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.DismissedFiles)), nil
+		case "skip_modules":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.SkipModules)), nil
+		case "toolkit_tools":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.ToolkitTools)), nil
+		case "toolkit_registry_url":
+			url := core.Cfg.ToolkitRegistryURL
+			if url == "" {
+				url = core.DefaultRegistryURL
+			}
+			return mcp.NewToolResultText(url), nil
+		case "windev_enabled":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.WindevEnabled)), nil
+		case "opencode_enabled":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.OpencodeEnabled)), nil
+		default:
+			return mcp.NewToolResultError(
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled)", key),
+			), nil
+		}
+
+	case "set":
+		if key == "" {
+			return mcp.NewToolResultError("key is required for 'set' action"), nil
+		}
+		switch key {
+		case "skip_backup":
+			core.Cfg.SkipBackup = value == "true"
+		case "backup_dir":
+			core.Cfg.BackupDirP = value
+		case "extended_plugins":
+			if value == "" {
+				core.Cfg.ExtendedPlugins = nil
+			} else {
+				core.Cfg.ExtendedPlugins = strings.Split(value, ",")
+			}
+		case "preserved_files":
+			if value == "" {
+				core.Cfg.PreservedFiles = nil
+			} else {
+				core.Cfg.PreservedFiles = strings.Split(value, ",")
+			}
+		case "dismissed_files":
+			if value == "" {
+				core.Cfg.DismissedFiles = nil
+			} else {
+				core.Cfg.DismissedFiles = strings.Split(value, ",")
+			}
+		case "skip_modules":
+			if value == "" {
+				core.Cfg.SkipModules = nil
+			} else {
+				core.Cfg.SkipModules = strings.Split(value, ",")
+			}
+		case "toolkit_tools":
+			if value == "" {
+				core.Cfg.ToolkitTools = nil
+			} else {
+				core.Cfg.ToolkitTools = strings.Split(value, ",")
+			}
+		case "toolkit_registry_url":
+			core.Cfg.ToolkitRegistryURL = value
+		case "windev_enabled":
+			core.Cfg.WindevEnabled = value == "true"
+		case "opencode_enabled":
+			core.Cfg.OpencodeEnabled = value == "true"
+		default:
+			return mcp.NewToolResultError(
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled)", key),
+			), nil
+		}
+		if err := core.SaveConfig(); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("save config: %v", err)), nil
+		}
+		return mcp.NewToolResultText(fmt.Sprintf("Set %s = %s", key, value)), nil
+
+	default:
+		return mcp.NewToolResultError("action must be 'get' or 'set'"), nil
+	}
+}
+
+func handleRegistryValidate(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	source := request.GetString("source", "")
+	if source == "" {
+		return mcp.NewToolResultError("source parameter is required"), nil
+	}
+	reg, err := core.InspectRegistry(ctx, source)
+	if err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("invalid registry: %v", err)), nil
+	}
+	return mcp.NewToolResultText(fmt.Sprintf("registry valid (%d tools)", len(reg.Tools))), nil
+}
+
+func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	name := request.GetString("module", "")
+	if name == "" {
+		return mcp.NewToolResultError("module parameter is required"), nil
+	}
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+
+	if name == "all" {
+		defer core.ReleaseSudo()
+
+		var b strings.Builder
+		for _, m := range core.AllModules() {
+			u, ok := m.(core.Uninstaller)
+			if !ok {
+				fmt.Fprintf(&b, "%s: no uninstall support\n", m.Name())
+				continue
+			}
+			before := m.Status()
+			if err := u.Uninstall(ctx); err != nil {
+				fmt.Fprintf(&b, "%s: error: %v\n", m.Name(), err)
+				continue
+			}
+			after := m.Status()
+			removed := before.Linked - after.Linked
+			fmt.Fprintf(&b, "%s: removed %d links\n", m.Name(), removed)
+		}
+		return mcp.NewToolResultText(b.String()), nil
+	}
+
+	m, ok := core.GetModule(name)
+	if !ok {
+		return mcp.NewToolResultError(
+			fmt.Sprintf("unknown module %q (valid: %s)", name, strings.Join(core.ModuleNames(), ", ")),
+		), nil
+	}
+
+	u, uOk := m.(core.Uninstaller)
+	if !uOk {
+		return mcp.NewToolResultError(fmt.Sprintf("%s does not support uninstall", name)), nil
+	}
+
+	defer core.ReleaseSudo()
+
+	// Read the before-state first: an opt-in module's Status() short-circuits
+	// to "disabled" once the opt-in is cleared, so clearing first reported
+	// every windev uninstall as 0 links removed no matter how many it deleted.
+	before := m.Status()
+
+	core.ClearOptIn(name)
+
+	if err := u.Uninstall(ctx); err != nil {
+		return mcp.NewToolResultError(fmt.Sprintf("uninstall %s: %v", name, err)), nil
+	}
+	after := m.Status()
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "before: %d linked, %d missing\n", before.Linked, before.Missing)
+	fmt.Fprintf(&b, "after:  %d linked, %d missing\n", after.Linked, after.Missing)
+	return mcp.NewToolResultText(b.String()), nil
+}
+
+func handleDiff(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if err := core.RequireDotfiles(); err != nil {
+		return mcp.NewToolResultError(err.Error()), nil
+	}
+	var b strings.Builder
+	modules.CollectDiff().Write(&b,
+		"run dfinstall_install with module 'all' to fix",
+		"dfinstall_install with module 'all'")
+	return mcp.NewToolResultText(b.String()), nil
+}

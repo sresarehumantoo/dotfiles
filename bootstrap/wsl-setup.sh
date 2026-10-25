@@ -296,9 +296,61 @@ install_ghostty() {
 }
 
 # ── Phase: Install Dotfiles ──────────────────────────────────────
+# The apt repository the release pipeline publishes. DFINSTALL_APT_URL points
+# at a mirror of it instead (a Nexus apt proxy, say).
+apt_url="${DFINSTALL_APT_URL:-https://sresarehumantoo.github.io/dotfiles/apt}"
+apt_keyring=/etc/apt/keyrings/dfinstall.gpg
+apt_list=/etc/apt/sources.list.d/dfinstall.list
+
+# install_release installs dfinstall from the apt repository. On any failure it
+# removes the source again, so an unreachable repository cannot break later
+# apt runs, and returns non-zero for the caller to build from source.
+install_release() {
+    header "Installing dfinstall from ${apt_url}"
+    if dpkg-query -W -f='${Status}' dfinstall 2>/dev/null | grep -q 'install ok installed'; then
+        ok "Already installed: $(dfinstall --version)"
+        return 0
+    fi
+    local key
+    key="$(mktemp)"
+    if curl -fsSL --max-time 60 -o "$key" "${apt_url}/dfinstall-archive-keyring.gpg" &&
+        sudo install -D -m 0644 "$key" "$apt_keyring" &&
+        echo "deb [signed-by=${apt_keyring}] ${apt_url} stable main" | sudo tee "$apt_list" >/dev/null &&
+        sudo apt-get update -o Dir::Etc::sourcelist="$apt_list" -o Dir::Etc::sourceparts=- -o APT::Get::List-Cleanup=0 >/dev/null 2>&1 &&
+        sudo apt-get install -y dfinstall >/dev/null 2>&1; then
+        rm -f "$key"
+        ok "$(dfinstall --version)"
+        return 0
+    fi
+    rm -f "$key"
+    sudo rm -f "$apt_list" "$apt_keyring"
+    warn "Could not install dfinstall from ${apt_url}; building it from source instead"
+    return 1
+}
+
+# install-dotfiles [branch] [source_dir] [--from-source]
+#
+# Installs the released dfinstall when the branch is main, since a release is
+# cut from main; another branch's configs may need code no release has yet, so
+# it is built from the checkout instead, as it is with --from-source or when
+# the release cannot be installed.
 install_dotfiles() {
-    local branch="${1:-develop}"
-    local source_dir="${2:-}"
+    local from_source=false args=() a
+    for a in "$@"; do
+        case "$a" in
+            --from-source) from_source=true ;;
+            *) args+=("$a") ;;
+        esac
+    done
+    local branch="${args[0]:-main}"
+    local source_dir="${args[1]:-}"
+    local dfinstall=./bin/dfinstall
+
+    if [[ "$from_source" != true && "$branch" == main ]] && install_release; then
+        dfinstall=dfinstall
+    else
+        from_source=true
+    fi
 
     header "Setting up dotfiles"
 
@@ -327,13 +379,16 @@ install_dotfiles() {
         git checkout "$branch"
     fi
 
-    step "Building dfinstall..."
-    make build
-
-    ok "Dotfiles built at ${target}"
+    if [[ "$from_source" == true ]]; then
+        step "Building dfinstall..."
+        make build
+        ok "Dotfiles built at ${target}"
+    else
+        "$dfinstall" init --dir "$target"
+    fi
 
     header "Running dfinstall install all"
-    ./bin/dfinstall install all
+    "$dfinstall" install all
 }
 
 # ── Phase: Install corporate CA certificate ──────────────────────
@@ -413,7 +468,7 @@ check_tls() {
 
 # ── Full standalone setup ────────────────────────────────────────
 setup() {
-    local username="" branch="develop"
+    local username="" branch="main" from_source=""
     local do_neovim=true do_ghostty=true do_dotfiles=true
     local pre_hook="" post_hook="" corp_cert=""
 
@@ -424,6 +479,7 @@ setup() {
             --skip-neovim)   do_neovim=false; shift ;;
             --skip-ghostty)  do_ghostty=false; shift ;;
             --skip-dotfiles) do_dotfiles=false; shift ;;
+            --from-source)   from_source=--from-source; shift ;;
             --pre-hook)      pre_hook="$2"; shift 2 ;;
             --post-hook)     post_hook="$2"; shift 2 ;;
             --corp-cert)     corp_cert="$2"; shift 2 ;;
@@ -483,9 +539,9 @@ setup() {
     if [[ "$do_dotfiles" == true ]]; then
         if [[ "$(id -u)" -eq 0 ]]; then
             info "Switching to ${username} for dotfiles install..."
-            su - "$username" -c "$(readlink -f "$0") install-dotfiles '$branch'"
+            su - "$username" -c "$(readlink -f "$0") install-dotfiles '$branch' '' $from_source"
         else
-            install_dotfiles "$branch"
+            install_dotfiles "$branch" "" ${from_source:+"$from_source"}
         fi
     fi
 
@@ -508,19 +564,26 @@ Commands:
   check-tls           Probe HTTPS; exit 2 if a corp CA is needed, 1 on other failure
   build-neovim        Build and install Neovim from source
   install-ghostty     Install latest Ghostty .deb for this distro
-  install-dotfiles    Clone, build, and run dfinstall install all
+  install-dotfiles [branch] [source_dir] [--from-source]
+                      Install dfinstall (the release on main, else built from
+                      the clone), clone the dotfiles, run dfinstall install all
   finish-bootstrap <user>
                       Revoke bootstrap sudo; set a password if the user has none
 
 Setup options:
   --username <name>   Linux username (prompted if omitted)
-  --branch <branch>   Dotfiles branch (default: develop)
+  --branch <branch>   Dotfiles branch (default: main; any other branch builds
+                      dfinstall from source)
+  --from-source       Build dfinstall from the clone even on main
   --skip-neovim       Skip building Neovim
   --skip-ghostty      Skip installing Ghostty
   --skip-dotfiles     Skip dotfiles clone and install
   --pre-hook <path>   Script to run after root setup (e.g. proxy/repo config)
   --post-hook <path>  Script to run after dotfiles install (e.g. extra tools)
   --corp-cert <path>  Corporate root CA (PEM or DER); trusted before network phases
+
+Environment:
+  DFINSTALL_APT_URL   Install dfinstall from this mirror of the apt repository
 
 Examples:
   sudo ./wsl-setup.sh setup --username owen

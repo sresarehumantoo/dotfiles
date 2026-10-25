@@ -75,6 +75,20 @@ jobs:
           /bin/bash -n bootstrap/macos-setup.sh
           /bin/bash bootstrap/macos-setup.sh --help
 
+  goreleaser:
+    name: Release config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Catches a broken .goreleaser.yaml before a tag is pushed, when it would
+      # otherwise fail the release itself.
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: check
+
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
