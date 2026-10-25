@@ -19,7 +19,15 @@ export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ANALYTICS=1
 brew install --quiet mitmproxy >/dev/null
 mitmdump --listen-host 127.0.0.1 --listen-port 8080 >"$logs/mitmdump.log" 2>&1 &
 proxy_pid=$!
-trap 'kill "$proxy_pid" 2>/dev/null || true' EXIT
+# Keep the script's own exit status: a trap ending in `|| true` would turn a
+# failed run into a pass.
+# shellcheck disable=SC2329  # run by the EXIT trap
+stop_proxy() {
+    local rc=$?
+    kill "$proxy_pid" 2>/dev/null
+    exit "$rc"
+}
+trap stop_proxy EXIT
 ca="$HOME/.mitmproxy/mitmproxy-ca-cert.pem"
 for _ in $(seq 60); do [ -s "$ca" ] && break; sleep 1; done
 [ -s "$ca" ] || { echo "mitmproxy never wrote its CA" >&2; exit 1; }
@@ -51,12 +59,19 @@ probe "Apple curl, CURL_SSL_BACKEND=securetransport" \
     env CURL_SSL_BACKEND=securetransport /usr/bin/curl -sS -o /dev/null --max-time 20 https://github.com
 probe "/usr/bin/python3 urllib, cafile=<public roots>" /usr/bin/python3 -c "$pyget" "$public"
 probe "/usr/bin/python3 urllib, default context" /usr/bin/python3 -c "$pyget"
-probe "/usr/bin/openssl s_client -CAfile <public roots> (proxy-less)" \
-    sh -c "echo | env -u https_proxy /usr/bin/openssl s_client -connect github.com:443 -servername github.com -CAfile '$public' -verify_return_error"
+combined="$(mktemp)"
+security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain >"$combined"
+probe "/usr/bin/openssl s_client -proxy, -CAfile <public roots>" \
+    sh -c "/usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com -CAfile '$public' -verify_return_error </dev/null"
+probe "/usr/bin/openssl s_client -proxy, -CAfile <public + System keychain>" \
+    sh -c "/usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com -CAfile '$combined' -verify_return_error </dev/null"
 probe "Apple git (/usr/bin/git)" /usr/bin/git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 probe "Homebrew's git" "$(brew --prefix)/bin/git" ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 if command -v node >/dev/null; then
-    probe "node fetch" node -e 'fetch("https://registry.npmjs.org/").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+    # fetch ignores HTTPS_PROXY unless NODE_USE_ENV_PROXY is set (Node 24+).
+    probe "node $(node --version) fetch, NODE_USE_ENV_PROXY=1" env NODE_USE_ENV_PROXY=1 \
+        node -e 'fetch("https://registry.npmjs.org/").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+    probe "npm view" npm view --registry https://registry.npmjs.org/ six version
 fi
 if python3 -m pip --version >/dev/null 2>&1; then
     probe "pip ($(command -v python3))" python3 -m pip download --quiet --no-deps --dest "$(mktemp -d)" six
@@ -82,13 +97,18 @@ check "it writes ca.sh" test -f "$env_file"
 check "the bundle carries the proxy's root" grep -qF "$(sed -n 2p "$ca")" "$bundle"
 check_output "git is pointed at the bundle" "$bundle" git config --file "$sandbox/.gitconfig.local" http.sslCAInfo
 
+# Any probe above that never reached the proxy says nothing; this is the record.
+grep -E 'client connect|server connect' "$logs/mitmdump.log" | sed -E 's/^\[[^]]*\]//' | awk '{print $NF, $(NF-1)}' | sort | uniq -c >"$logs/proxied.txt" || true
+
 echo "== through the proxy, with ca.sh"
 # shellcheck source=/dev/null
 . "$env_file"
 check "curl" /usr/bin/curl -sS -o /dev/null --max-time 20 https://github.com
 check "git" git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 if command -v node >/dev/null; then
-    check "node fetch" node -e 'fetch("https://registry.npmjs.org/").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+    check "node fetch (NODE_EXTRA_CA_CERTS)" env NODE_USE_ENV_PROXY=1 \
+        node -e 'fetch("https://registry.npmjs.org/").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+    check "npm view" npm view --registry https://registry.npmjs.org/ six version
 fi
 if python3 -m pip --version >/dev/null 2>&1; then
     check "pip" python3 -m pip download --quiet --no-deps --dest "$sandbox/pip" six

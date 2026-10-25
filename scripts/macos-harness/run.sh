@@ -74,7 +74,8 @@ cleanup() {
         rm -rf "$sb"
     fi
 }
-trap cleanup EXIT
+# Keep the run's exit status; cleanup's own would otherwise replace it.
+trap 'rc=$?; cleanup; exit "$rc"' EXIT
 
 section() { printf '\n## %s\n\n' "$1" >>"$report"; }
 fence() { { printf '```\n'; cat; printf '```\n'; } >>"$report"; }
