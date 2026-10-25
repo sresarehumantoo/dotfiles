@@ -205,16 +205,36 @@ LOCAL_CERTS=/Library/Keychains/System.keychain
 # others, so one host is not enough to tell.
 CA_PROBE_HOSTS="github.com formulae.brew.sh registry.npmjs.org pypi.org static.rust-lang.org"
 
+# Whether host's certificate chain verifies against cafile and nothing else.
+# openssl rather than curl: on current macOS, curl, git, Python, Homebrew and Go
+# all consult the System keychain whatever CA file they are given, so through an
+# inspecting proxy they succeed either way and the difference cannot be seen.
+# LibreSSL's s_client trusts only -CAfile. It goes through https_proxy when one
+# is set, and perl's alarm bounds it, since macOS has no timeout(1).
+tls_verifies() {
+    local host="$1" cafile="$2" proxy="${https_proxy:-${HTTPS_PROXY:-}}"
+    set -- -connect "$host:443" -servername "$host" -CAfile "$cafile" -verify_return_error
+    if [[ -n "$proxy" ]]; then
+        proxy="${proxy#*://}"
+        proxy="${proxy##*@}"
+        set -- "$@" -proxy "${proxy%%/*}"
+    fi
+    perl -e 'alarm 20; exec @ARGV' /usr/bin/openssl s_client "$@" </dev/null >/dev/null 2>&1
+}
+
 # Prints the hosts that fail against public roots alone but pass once the
 # System keychain's certificates are trusted too: those are being intercepted.
+# Returns 1 when no host verified even with the keychain's certificates, so the
+# caller can say it could not tell rather than that there is no inspection.
 intercepted_hosts() {
-    local public="$1" combined="$2" host
+    local public="$1" combined="$2" host checked=false
     for host in $CA_PROBE_HOSTS; do
-        if ! curl -sS -o /dev/null --max-time 15 --cacert "$public" "https://$host" 2>/dev/null \
-            && curl -sS -o /dev/null --max-time 15 --cacert "$combined" "https://$host" 2>/dev/null; then
-            printf '%s ' "$host"
+        if tls_verifies "$host" "$combined"; then
+            checked=true
+            tls_verifies "$host" "$public" || printf '%s ' "$host"
         fi
     done
+    [[ "$checked" == true ]]
 }
 
 wire_tls_trust() {
@@ -224,7 +244,11 @@ wire_tls_trust() {
     mkdir -p "$(dirname "$CA_BUNDLE")" "$(dirname "$CA_ENV")"
     security find-certificate -a -p "$PUBLIC_ROOTS" >"$public"
     security find-certificate -a -p "$PUBLIC_ROOTS" "$LOCAL_CERTS" >"$CA_BUNDLE.new"
-    hosts="$(intercepted_hosts "$public" "$CA_BUNDLE.new")"
+    if ! hosts="$(intercepted_hosts "$public" "$CA_BUNDLE.new")"; then
+        rm -f "$public" "$CA_BUNDLE.new"
+        warn "Could not check for TLS inspection: openssl verified no host, even trusting the System keychain. If downloads fail with certificate errors, re-run this step once the network is reachable."
+        return
+    fi
     rm -f "$public"
 
     # Rewire on every run once wired, so a rotated proxy root is picked up.
