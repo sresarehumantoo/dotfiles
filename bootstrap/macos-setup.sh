@@ -210,16 +210,19 @@ CA_PROBE_HOSTS="github.com formulae.brew.sh registry.npmjs.org pypi.org static.r
 # all consult the System keychain whatever CA file they are given, so through an
 # inspecting proxy they succeed either way and the difference cannot be seen.
 # LibreSSL's s_client trusts only -CAfile. It goes through https_proxy when one
-# is set, and perl's alarm bounds it, since macOS has no timeout(1).
+# is set, and perl's alarm bounds it, since macOS has no timeout(1). Its exit
+# status means nothing here: with stdin closed it exits 1 ("poll error") after
+# every handshake, so the verify result is read from what it prints.
 tls_verifies() {
-    local host="$1" cafile="$2" proxy="${https_proxy:-${HTTPS_PROXY:-}}"
-    set -- -connect "$host:443" -servername "$host" -CAfile "$cafile" -verify_return_error
+    local host="$1" cafile="$2" proxy="${https_proxy:-${HTTPS_PROXY:-}}" out
+    set -- -connect "$host:443" -servername "$host" -CAfile "$cafile"
     if [[ -n "$proxy" ]]; then
         proxy="${proxy#*://}"
         proxy="${proxy##*@}"
         set -- "$@" -proxy "${proxy%%/*}"
     fi
-    perl -e 'alarm 20; exec @ARGV' /usr/bin/openssl s_client "$@" </dev/null >/dev/null 2>&1
+    out="$(perl -e 'alarm 20; exec @ARGV' /usr/bin/openssl s_client "$@" </dev/null 2>&1 || true)"
+    [[ "$out" == *"Verify return code: 0 (ok)"* ]]
 }
 
 # Prints the hosts that fail against public roots alone but pass once the

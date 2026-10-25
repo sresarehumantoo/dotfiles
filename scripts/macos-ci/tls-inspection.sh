@@ -61,15 +61,21 @@ probe "/usr/bin/python3 urllib, cafile=<public roots>" /usr/bin/python3 -c "$pyg
 probe "/usr/bin/python3 urllib, default context" /usr/bin/python3 -c "$pyget"
 combined="$(mktemp)"
 security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain >"$combined"
-probe "/usr/bin/openssl s_client -proxy, -CAfile <public roots>" \
-    sh -c "/usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com -CAfile '$public' -verify_return_error </dev/null"
-probe "/usr/bin/openssl s_client -proxy, -CAfile <public + System keychain>" \
-    sh -c "/usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com -CAfile '$combined' -verify_return_error </dev/null"
+# s_client exits 1 after any handshake with stdin closed; the verify line is
+# the result.
+sclient() {
+    local out
+    out="$(/usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com \
+        -CAfile "$1" </dev/null 2>&1 || true)"
+    [[ "$out" == *"Verify return code: 0 (ok)"* ]]
+}
+probe "/usr/bin/openssl s_client -proxy, -CAfile <public roots>" sclient "$public"
+probe "/usr/bin/openssl s_client -proxy, -CAfile <public + System keychain>" sclient "$combined"
 {
     /usr/bin/openssl version
     echo "-- s_client, CAfile=public + System keychain:"
-    /usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com \
-        -CAfile "$combined" -showcerts </dev/null 2>&1 | grep -E 'verify|Verify|depth=|subject=|issuer=|error' | head -20
+    { /usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com \
+        -CAfile "$combined" -showcerts </dev/null 2>&1 || true; } | grep -E 'Verify return|depth=|issuer=' | head -20 || true
     echo "-- the proxy root, as the keychain holds it:"
     /usr/bin/openssl x509 -in "$ca" -noout -subject -issuer -dates -ext basicConstraints,keyUsage 2>&1
     echo "-- certificates in the combined bundle: $(grep -c 'BEGIN CERTIFICATE' "$combined")"
