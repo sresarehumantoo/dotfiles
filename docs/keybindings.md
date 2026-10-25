@@ -215,6 +215,8 @@ For a hands-on walkthrough of these, opened in nvim and practiced as you read, s
 | `leader bw` | Close buffer |
 | `leader \|` | Vertical split |
 | `leader -` | Horizontal split |
+| `leader T\|` | Terminal in a vertical split: the right 40% of the editor |
+| `leader T-` | Terminal in a horizontal split: the bottom 30% of the editor |
 
 ### Telescope (Search)
 
@@ -314,7 +316,7 @@ For a hands-on walkthrough of these, opened in nvim and practiced as you read, s
 | `Esc Esc` | Exit terminal mode |
 | `C-h` / `C-j` / `C-k` / `C-l` | Leave terminal mode and move focus to the left/lower/upper/right window |
 
-`C-h/j/k/l` mirror the Normal-mode window-nav maps, dropping to Normal via `<C-\><C-n>` first so no `Esc Esc` is needed. Caveat: this shadows the shell's `C-l` clear-screen inside terminal buffers — use `clear` or `reset` instead.
+A new terminal opens in insert mode with no line numbers or sign column. `C-h/j/k/l` mirror the Normal-mode window-nav maps, dropping to Normal via `<C-\><C-n>` first so no `Esc Esc` is needed. Caveat: this shadows the shell's `C-l` clear-screen inside terminal buffers — use `clear` or `reset` instead.
 
 ### Completion (blink.cmp)
 
