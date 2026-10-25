@@ -65,6 +65,15 @@ probe "/usr/bin/openssl s_client -proxy, -CAfile <public roots>" \
     sh -c "/usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com -CAfile '$public' -verify_return_error </dev/null"
 probe "/usr/bin/openssl s_client -proxy, -CAfile <public + System keychain>" \
     sh -c "/usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com -CAfile '$combined' -verify_return_error </dev/null"
+{
+    /usr/bin/openssl version
+    echo "-- s_client, CAfile=public + System keychain:"
+    /usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com \
+        -CAfile "$combined" -showcerts </dev/null 2>&1 | grep -E 'verify|Verify|depth=|subject=|issuer=|error' | head -20
+    echo "-- the proxy root, as the keychain holds it:"
+    /usr/bin/openssl x509 -in "$ca" -noout -subject -issuer -dates -ext basicConstraints,keyUsage 2>&1
+    echo "-- certificates in the combined bundle: $(grep -c 'BEGIN CERTIFICATE' "$combined")"
+} 2>&1 | tee "$logs/openssl.txt" | sed 's/^/      /'
 probe "Apple git (/usr/bin/git)" /usr/bin/git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 probe "Homebrew's git" "$(brew --prefix)/bin/git" ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 if command -v node >/dev/null; then
@@ -101,8 +110,12 @@ check_output "git is pointed at the bundle" "$bundle" git config --file "$sandbo
 grep -E 'client connect|server connect' "$logs/mitmdump.log" | sed -E 's/^\[[^]]*\]//' | awk '{print $NF, $(NF-1)}' | sort | uniq -c >"$logs/proxied.txt" || true
 
 echo "== through the proxy, with ca.sh"
-# shellcheck source=/dev/null
-. "$env_file"
+# Guarded: on macOS's bash 3.2 a failed `.` ends the script, and its status was
+# lost, so the remaining checks would neither run nor fail the job.
+if [ -f "$env_file" ]; then
+    # shellcheck source=/dev/null
+    . "$env_file"
+fi
 check "curl" /usr/bin/curl -sS -o /dev/null --max-time 20 https://github.com
 check "git" git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 if command -v node >/dev/null; then
