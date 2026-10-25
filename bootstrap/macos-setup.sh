@@ -190,12 +190,15 @@ preflight() {
 }
 
 # A TLS-inspecting proxy re-signs every connection with a root CA that MDM
-# installs into the System keychain. Go and rustup read the keychain; Apple's
-# curl, git, Node, Python and cargo do not, so each is pointed at a bundle of
-# Apple's public roots plus the System keychain's certificates. Homebrew wipes
-# its environment, so it gets the bundle through HOMEBREW_CURLRC and git's
-# http.sslCAInfo instead. SSL_CERT_FILE is deliberately not set: since Go 1.27
-# it replaces Go's keychain verification, which already works.
+# installs into the System keychain. Measured on macOS 26 (scripts/macos-ci):
+# Apple's curl, git, Python and openssl, Homebrew, pip and Go all trust the
+# keychain already; Node and npm, which carry their own CA list, do not. Every
+# tool is pointed at a bundle of Apple's public roots plus the System keychain's
+# certificates anyway, which costs nothing where the keychain already works and
+# covers whatever else ships its own list. Homebrew wipes its environment, so it
+# gets the bundle through HOMEBREW_CURLRC, and git through http.sslCAInfo.
+# SSL_CERT_FILE is deliberately not set: since Go 1.27 it replaces Go's keychain
+# verification, which already works.
 CA_BUNDLE="$HOME/.local/share/dfinstall/ca-bundle.pem"
 CA_ENV="$HOME/.config/dfinstall/ca.sh"
 CA_CURLRC="$HOME/.config/dfinstall/curlrc"
@@ -265,7 +268,7 @@ wire_tls_trust() {
         return
     fi
     if [[ -n "$hosts" ]]; then
-        info "TLS inspection on: ${hosts% }. Those fail verification in curl, git, Node, Python, cargo and Homebrew until they trust the System keychain's certificates."
+        info "TLS inspection on: ${hosts% }. Node and npm, and anything else that carries its own CA list, fail verification there until they trust the System keychain's certificates."
     fi
     info "This writes ${CA_BUNDLE}, ${CA_ENV} (sourced by ~/.profile) and http.sslCAInfo in ~/.gitconfig.local."
     if ! confirm "Point those tools at the System keychain's certificates?"; then
