@@ -56,8 +56,10 @@ map('n', '<A-k>', '<cmd>m .-2<CR>==', { desc = 'Move line up' })
 map('v', '<A-j>', ":m '>+1<CR>gv=gv", { desc = 'Move selection down' })
 map('v', '<A-k>', ":m '<-2<CR>gv=gv", { desc = 'Move selection up' })
 
--- Quick save
-map('n', '<C-s>', '<cmd>w<CR>', { desc = 'Save file' })
+-- Quick save, staying in whatever mode you are in. In insert mode with the
+-- completion menu open, C-s accepts the item instead (blink.cmp in init.lua);
+-- it saves once the menu is closed.
+map({ 'n', 'i', 'x' }, '<C-s>', '<cmd>w<CR>', { desc = 'Save file' })
 
 -- Terminal-mode window nav (mirror the Normal-mode <C-hjkl> maps in init.lua).
 -- Terminal mode forwards keys to the shell, so these drop to Normal first via
