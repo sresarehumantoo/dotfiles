@@ -29,9 +29,10 @@ func (f fakeModule) Status() core.ModuleStatus {
 }
 
 func TestStatusRowState(t *testing.T) {
-	orig := core.Cfg.SkipModules
-	defer func() { core.Cfg.SkipModules = orig }()
+	orig, origTools := core.Cfg.SkipModules, core.Cfg.ToolkitTools
+	defer func() { core.Cfg.SkipModules, core.Cfg.ToolkitTools = orig, origTools }()
 	core.Cfg.SkipModules = []string{"skipme"}
+	core.Cfg.ToolkitTools = nil
 
 	tests := []struct {
 		name string
@@ -43,6 +44,7 @@ func TestStatusRowState(t *testing.T) {
 		{"all missing", fakeModule{name: "c", status: core.ModuleStatus{Missing: 4}}, StateNotInstalled},
 		{"nothing reported", fakeModule{name: "d"}, StateNotInstalled},
 		{"skip_modules", fakeModule{name: "skipme", status: core.ModuleStatus{Linked: 1}}, StateSkipped},
+		{"toolkit, nothing selected", fakeModule{name: "toolkit"}, StateSkipped},
 		{"other platform", fakeModule{name: "e", unsupported: "macOS only"}, StateUnavailable},
 		{"other platform wins over skip", fakeModule{name: "skipme", unsupported: "WSL only"}, StateUnavailable},
 	}
@@ -57,6 +59,16 @@ func TestStatusRowState(t *testing.T) {
 
 // A module for another platform may probe tools that platform alone has, so
 // Status must not run for it at all.
+// With tools selected but none in place, toolkit is a missing install again.
+func TestStatusRowToolkitWithSelection(t *testing.T) {
+	orig := core.Cfg.ToolkitTools
+	defer func() { core.Cfg.ToolkitTools = orig }()
+	core.Cfg.ToolkitTools = []string{"ripgrep"}
+	if got := statusRow(fakeModule{name: "toolkit", status: core.ModuleStatus{Missing: 1}}).State; got != StateNotInstalled {
+		t.Errorf("state = %d, want StateNotInstalled", got)
+	}
+}
+
 func TestStatusRowSkipsStatusWhenUnsupported(t *testing.T) {
 	ran := false
 	r := statusRow(fakeModule{name: "mac", unsupported: "macOS only", statusRan: &ran})
