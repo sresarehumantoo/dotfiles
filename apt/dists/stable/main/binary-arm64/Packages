@@ -32,3 +32,20 @@ SHA512: 0ee5662f88759874f525652dab7c7ac527e4d93f8c340a3f8ad255e28d96f85b5bdf82da
 Homepage: https://github.com/sresarehumantoo/dotfiles
 Description: Dotfiles installer and manager
 
+Package: dfinstall
+Architecture: arm64
+Version: 2.0.2
+Priority: optional
+Section: utils
+Maintainer: SREsAreHumanToo <88474954+sresarehumantoo@users.noreply.github.com>
+Installed-Size: 18880
+Depends: git, curl
+Filename: pool/main/d/dfinstall/dfinstall_2.0.2_arm64.deb
+Size: 7602904
+MD5sum: b93772ceb01e6681c90e146db0b198bf
+SHA1: 697b6e4ec80b5da852d6ebd37e51fc9caab281d1
+SHA256: 460c0f1d92753fd552ac44d6c04da2380fe30aab1c9ff4db2a47312835703237
+SHA512: ef2d0be15fb21550482bb689474dccb72f77982de7229b17adcdb463f96d3b3212954b55760b41a4fea83ff6a2c18059574ff64f768e57cda2770b5b0d8f0d38
+Homepage: https://github.com/sresarehumantoo/dotfiles
+Description: Dotfiles installer and manager
+
