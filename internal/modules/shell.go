@@ -113,10 +113,14 @@ func installCompletions(ctx context.Context) {
 		return
 	}
 
-	// Prefer the built binary if running via go run
-	builtExe := filepath.Join(core.DotfilesDir(), "bin", "dfinstall")
-	if _, err := os.Stat(builtExe); err == nil {
-		exe = builtExe
+	// Under `go run` the binary is a temporary build, so take completions
+	// from the clone's. Only then: an installed dfinstall must not describe
+	// itself with whatever older build is still in the clone.
+	if strings.Contains(exe, "go-build") {
+		builtExe := filepath.Join(core.DotfilesDir(), "bin", "dfinstall")
+		if _, err := os.Stat(builtExe); err == nil {
+			exe = builtExe
+		}
 	}
 
 	raw, err := runProbe(ctx, exe, "completion", "zsh")
