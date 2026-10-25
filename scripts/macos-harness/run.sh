@@ -389,11 +389,7 @@ SHIM
             trap - EXIT
             preflight
             echo "brew prefix: ${BREW_PREFIX:-none}, read-only brew: ${READONLY_BREW:-none}"
-            pub="$(mktemp)"; all="$(mktemp)"
-            security find-certificate -a -p "$PUBLIC_ROOTS" >"$pub"
-            security find-certificate -a -p "$PUBLIC_ROOTS" "$LOCAL_CERTS" >"$all"
-            echo "TLS-intercepted hosts: $(intercepted_hosts "$pub" "$all")"
-            rm -f "$pub" "$all"
+            echo "TLS-intercepted hosts: $(intercepted_hosts || echo "(could not check: no probe host answered)")"
         ' _ "$repo/bootstrap/macos-setup.sh" 2>&1 || true
     } >"$out/upgrade-preflight.log"
 

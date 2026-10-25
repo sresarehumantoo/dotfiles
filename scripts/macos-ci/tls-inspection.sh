@@ -71,15 +71,7 @@ sclient() {
 }
 probe "/usr/bin/openssl s_client -proxy, -CAfile <public roots>" sclient "$public"
 probe "/usr/bin/openssl s_client -proxy, -CAfile <public + System keychain>" sclient "$combined"
-{
-    /usr/bin/openssl version
-    echo "-- s_client, CAfile=public + System keychain:"
-    { /usr/bin/openssl s_client -proxy 127.0.0.1:8080 -connect github.com:443 -servername github.com \
-        -CAfile "$combined" -showcerts </dev/null 2>&1 || true; } | grep -E 'Verify return|depth=|issuer=' | head -20 || true
-    echo "-- the proxy root, as the keychain holds it:"
-    /usr/bin/openssl x509 -in "$ca" -noout -subject -issuer -dates -ext basicConstraints,keyUsage 2>&1
-    echo "-- certificates in the combined bundle: $(grep -c 'BEGIN CERTIFICATE' "$combined")"
-} 2>&1 | tee "$logs/openssl.txt" | sed 's/^/      /'
+/usr/bin/openssl version | tee -a "$logs/facts.txt"
 probe "Apple git (/usr/bin/git)" /usr/bin/git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 probe "Homebrew's git" "$(brew --prefix)/bin/git" ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
 if command -v node >/dev/null; then

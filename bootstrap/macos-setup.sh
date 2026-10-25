@@ -205,54 +205,58 @@ LOCAL_CERTS=/Library/Keychains/System.keychain
 # others, so one host is not enough to tell.
 CA_PROBE_HOSTS="github.com formulae.brew.sh registry.npmjs.org pypi.org static.rust-lang.org"
 
-# Whether host's certificate chain verifies against cafile and nothing else.
-# openssl rather than curl: on current macOS, curl, git, Python, Homebrew and Go
-# all consult the System keychain whatever CA file they are given, so through an
-# inspecting proxy they succeed either way and the difference cannot be seen.
-# LibreSSL's s_client trusts only -CAfile. It goes through https_proxy when one
-# is set, and perl's alarm bounds it, since macOS has no timeout(1). Its exit
-# status means nothing here: with stdin closed it exits 1 ("poll error") after
-# every handshake, so the verify result is read from what it prints.
-tls_verifies() {
-    local host="$1" cafile="$2" proxy="${https_proxy:-${HTTPS_PROXY:-}}" out
-    set -- -connect "$host:443" -servername "$host" -CAfile "$cafile"
+# The common names of the authorities that issued the chain host presents, one
+# per line. Verification cannot tell an inspecting proxy apart on current
+# macOS: curl, git, Python, Homebrew, Go and even /usr/bin/openssl consult the
+# System keychain whatever CA file they are given, so through the proxy they
+# all succeed. Who issued the chain is still visible. s_client goes through
+# https_proxy when one is set, and perl's alarm bounds it, since macOS has no
+# timeout(1); it exits 1 after every handshake with stdin closed, so only its
+# output counts.
+chain_issuers() {
+    local host="$1" proxy="${https_proxy:-${HTTPS_PROXY:-}}" out
+    set -- -connect "$host:443" -servername "$host" -showcerts
     if [[ -n "$proxy" ]]; then
         proxy="${proxy#*://}"
         proxy="${proxy##*@}"
         set -- "$@" -proxy "${proxy%%/*}"
     fi
     out="$(perl -e 'alarm 20; exec @ARGV' /usr/bin/openssl s_client "$@" </dev/null 2>&1 || true)"
-    [[ "$out" == *"Verify return code: 0 (ok)"* ]]
+    # LibreSSL prints "   i:/C=US/O=x/CN=y", OpenSSL 3 "   i:C = US, O = x, CN = y".
+    printf '%s\n' "$out" | sed -n 's/^ *i: *//p' | sed -n 's/.*CN *= *\([^/,]*\).*/\1/p'
 }
 
-# Prints the hosts that fail against public roots alone but pass once the
-# System keychain's certificates are trusted too: those are being intercepted.
-# Returns 1 when no host verified even with the keychain's certificates, so the
-# caller can say it could not tell rather than that there is no inspection.
+# Prints the hosts none of whose chain is issued by one of Apple's public
+# roots: something re-signed them. Returns 1 when no host could be reached, so
+# the caller can say it could not tell rather than that there is no inspection.
 intercepted_hosts() {
-    local public="$1" combined="$2" host checked=false
+    local host cn issuers public checked=false
     for host in $CA_PROBE_HOSTS; do
-        if tls_verifies "$host" "$combined"; then
-            checked=true
-            tls_verifies "$host" "$public" || printf '%s ' "$host"
-        fi
+        issuers="$(chain_issuers "$host")"
+        [[ -n "$issuers" ]] || continue
+        checked=true
+        public=false
+        while IFS= read -r cn; do
+            if [[ -n "$cn" ]] && security find-certificate -c "$cn" "$PUBLIC_ROOTS" >/dev/null 2>&1; then
+                public=true
+                break
+            fi
+        done <<<"$issuers"
+        [[ "$public" == true ]] || printf '%s ' "$host"
     done
     [[ "$checked" == true ]]
 }
 
 wire_tls_trust() {
     header "TLS trust"
-    local public hosts
-    public="$(mktemp)"
+    local hosts
     mkdir -p "$(dirname "$CA_BUNDLE")" "$(dirname "$CA_ENV")"
-    security find-certificate -a -p "$PUBLIC_ROOTS" >"$public"
     security find-certificate -a -p "$PUBLIC_ROOTS" "$LOCAL_CERTS" >"$CA_BUNDLE.new"
-    if ! hosts="$(intercepted_hosts "$public" "$CA_BUNDLE.new")"; then
-        rm -f "$public" "$CA_BUNDLE.new"
-        warn "Could not check for TLS inspection: openssl verified no host, even trusting the System keychain. If downloads fail with certificate errors, re-run this step once the network is reachable."
+    if ! hosts="$(intercepted_hosts)"; then
+        rm -f "$CA_BUNDLE.new"
+        warn "Could not check for TLS inspection: none of ${CA_PROBE_HOSTS// /, } answered. If downloads fail with certificate errors, re-run this step once the network is reachable."
         return
     fi
-    rm -f "$public"
 
     # Rewire on every run once wired, so a rotated proxy root is picked up.
     if [[ -z "$hosts" && ! -f "$CA_ENV" ]]; then
