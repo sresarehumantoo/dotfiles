@@ -28,10 +28,42 @@ sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keyc
 export http_proxy=http://127.0.0.1:8080 https_proxy=http://127.0.0.1:8080
 export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy"
 
-echo "== before wiring"
-rc=0
-/usr/bin/curl -sS -o /dev/null --max-time 20 https://github.com 2>/dev/null || rc=$?
-check "Apple's curl rejects the inspected chain (exit $rc, want 60)" test "$rc" -eq 60
+# Which clients honor the System keychain, before anything is wired. Recorded,
+# not judged: this is what the bootstrap's detection has to work with.
+public="$(mktemp)"
+security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain >"$public"
+probe() {
+    local name="$1" result=trusts
+    shift
+    "$@" >/dev/null 2>&1 || result=REJECTS
+    printf '  %-60s %s\n' "$name" "$result" | tee -a "$logs/facts.txt"
+}
+pyget='import ssl, sys, urllib.request as u
+ctx = ssl.create_default_context(cafile=sys.argv[1]) if len(sys.argv) > 1 else ssl.create_default_context()
+u.urlopen("https://github.com", context=ctx, timeout=20)'
+echo "== who accepts the proxy's certificate, unwired"
+/usr/bin/curl -V | head -1 | tee "$logs/facts.txt"
+probe "Apple curl" /usr/bin/curl -sS -o /dev/null --max-time 20 https://github.com
+probe "Apple curl --cacert <Apple's public roots>" /usr/bin/curl -sS -o /dev/null --max-time 20 --cacert "$public" https://github.com
+probe "Apple curl, CURL_SSL_BACKEND=openssl, --cacert <public roots>" \
+    env CURL_SSL_BACKEND=openssl /usr/bin/curl -sS -o /dev/null --max-time 20 --cacert "$public" https://github.com
+probe "Apple curl, CURL_SSL_BACKEND=securetransport" \
+    env CURL_SSL_BACKEND=securetransport /usr/bin/curl -sS -o /dev/null --max-time 20 https://github.com
+probe "/usr/bin/python3 urllib, cafile=<public roots>" /usr/bin/python3 -c "$pyget" "$public"
+probe "/usr/bin/python3 urllib, default context" /usr/bin/python3 -c "$pyget"
+probe "/usr/bin/openssl s_client -CAfile <public roots> (proxy-less)" \
+    sh -c "echo | env -u https_proxy /usr/bin/openssl s_client -connect github.com:443 -servername github.com -CAfile '$public' -verify_return_error"
+probe "Apple git (/usr/bin/git)" /usr/bin/git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
+probe "Homebrew's git" "$(brew --prefix)/bin/git" ls-remote --heads https://github.com/sresarehumantoo/dotfiles main
+if command -v node >/dev/null; then
+    probe "node fetch" node -e 'fetch("https://registry.npmjs.org/").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))'
+fi
+if python3 -m pip --version >/dev/null 2>&1; then
+    probe "pip ($(command -v python3))" python3 -m pip download --quiet --no-deps --dest "$(mktemp -d)" six
+fi
+probe "brew fetch" brew fetch --quiet --force --formula hello
+probe "Go" env -u SSL_CERT_FILE GOMODCACHE="$(mktemp -d)" GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org \
+    go mod download -json golang.org/x/text@v0.20.0
 
 echo "== the bootstrap's TLS step"
 sandbox="$(mktemp -d)"

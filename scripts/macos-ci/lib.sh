@@ -20,7 +20,7 @@ check() {
 check_output() {
     local desc="$1" pattern="$2" out
     shift 2
-    out="$("$@" 2>&1 || true)"
+    out="$("$@" 2>&1 | sed 's/\x1b\[[0-9;]*m//g' || true)"
     if printf '%s\n' "$out" | grep -Eq -- "$pattern"; then
         pass "$desc"
     else
