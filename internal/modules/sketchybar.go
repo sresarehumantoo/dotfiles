@@ -61,7 +61,10 @@ func (m SketchybarModule) Install(ctx context.Context) error {
 			core.Status("Would install SketchyBar (brew %s)", sketchybarFormula)
 		} else {
 			core.Info("Installing SketchyBar...")
-			if err := runCmd(ctx, "brew", "install", sketchybarFormula); err != nil {
+			// One make job: when Homebrew has no bottle and builds it,
+			// SketchyBar's Makefile races `mkdir bin` against the compiles
+			// that write into it, and a parallel build fails at random.
+			if err := runCmd(ctx, "env", "HOMEBREW_MAKE_JOBS=1", "brew", "install", sketchybarFormula); err != nil {
 				return fmt.Errorf("installing SketchyBar: %w", err)
 			}
 		}
