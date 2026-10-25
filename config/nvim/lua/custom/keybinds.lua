@@ -20,6 +20,32 @@ map('n', '<leader>bw', '<cmd>bdelete<CR>', { desc = '[B]uffer Close' })
 map('n', '<leader>|', '<cmd>vsplit<CR>', { desc = 'Vertical split' })
 map('n', '<leader>-', '<cmd>split<CR>', { desc = 'Horizontal split' })
 
+-- Terminals in a split, mirroring the split keys under <leader>T: a panel the
+-- width or height of the whole editor rather than half of one window.
+local function split_terminal(vertical)
+  if vertical then
+    vim.cmd 'botright vsplit'
+    vim.cmd('vertical resize ' .. math.floor(vim.o.columns * 0.4))
+  else
+    vim.cmd 'botright split'
+    vim.cmd('resize ' .. math.floor(vim.o.lines * 0.3))
+  end
+  vim.cmd.terminal()
+end
+map('n', '<leader>T|', function() split_terminal(true) end, { desc = '[T]erminal in a vertical split' })
+map('n', '<leader>T-', function() split_terminal(false) end, { desc = '[T]erminal in a horizontal split' })
+
+-- A terminal buffer is for typing into: no gutter, and straight to insert.
+vim.api.nvim_create_autocmd('TermOpen', {
+  group = vim.api.nvim_create_augroup('custom-term-open', { clear = true }),
+  callback = function()
+    vim.opt_local.number = false
+    vim.opt_local.relativenumber = false
+    vim.opt_local.signcolumn = 'no'
+    vim.cmd.startinsert()
+  end,
+})
+
 -- Visual reindent (stay in visual mode)
 map('v', '>', '>gv', { desc = 'Indent and reselect' })
 map('v', '<', '<gv', { desc = 'Dedent and reselect' })
@@ -30,8 +56,10 @@ map('n', '<A-k>', '<cmd>m .-2<CR>==', { desc = 'Move line up' })
 map('v', '<A-j>', ":m '>+1<CR>gv=gv", { desc = 'Move selection down' })
 map('v', '<A-k>', ":m '<-2<CR>gv=gv", { desc = 'Move selection up' })
 
--- Quick save
-map('n', '<C-s>', '<cmd>w<CR>', { desc = 'Save file' })
+-- Quick save, staying in whatever mode you are in. In insert mode with the
+-- completion menu open, C-s accepts the item instead (blink.cmp in init.lua);
+-- it saves once the menu is closed.
+map({ 'n', 'i', 'x' }, '<C-s>', '<cmd>w<CR>', { desc = 'Save file' })
 
 -- Terminal-mode window nav (mirror the Normal-mode <C-hjkl> maps in init.lua).
 -- Terminal mode forwards keys to the shell, so these drop to Normal first via
