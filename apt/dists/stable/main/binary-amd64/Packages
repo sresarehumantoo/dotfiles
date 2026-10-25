@@ -1,0 +1,17 @@
+Package: dfinstall
+Architecture: amd64
+Version: 2.0.0
+Priority: optional
+Section: utils
+Maintainer: SREsAreHumanToo <88474954+sresarehumantoo@users.noreply.github.com>
+Installed-Size: 20368
+Depends: git, curl
+Filename: pool/main/d/dfinstall/dfinstall_2.0.0_amd64.deb
+Size: 8404692
+MD5sum: 2fae66ffee092fcb7af9b26ea795c0a1
+SHA1: 9a36ef036556424da371e1e888defc145d8518f5
+SHA256: 9aef0c49f9bdc88f244f891ebfdf6a753ee34a81f1fe74c81fcc8633bef421e1
+SHA512: f4a0df509f3ad4bcbfb78dc4fbe37bae1281cd6ade273dbd9990fd288952795398606206c21de39aa63b6c33d11d0d5460570b8ef6d0b979d185392d95468e5b
+Homepage: https://github.com/sresarehumantoo/dotfiles
+Description: Dotfiles installer and manager
+
