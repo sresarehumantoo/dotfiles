@@ -20,6 +20,13 @@ func LinkFile(src, dst string) error {
 	if err := checkTarget(dst); err != nil {
 		return err
 	}
+	// A source the checkout does not have would leave a dangling link. It
+	// happens when this dfinstall is newer than the checkout, as after a
+	// package upgrade before the clone was pulled; doctor counts them.
+	if _, err := os.Stat(src); err != nil {
+		Warn("not linked %s: %s is not in the dotfiles checkout, which is probably older than this dfinstall; pull it and run install again", dst, src)
+		return nil
+	}
 	if DryRun {
 		switch CheckLink(src, dst) {
 		case "ok":
