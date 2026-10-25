@@ -83,8 +83,6 @@ trap 'rc=$?; cleanup; exit "$rc"' EXIT
 section() { printf '\n## %s\n\n' "$1" >>"$report"; }
 fence() { { printf '```\n'; cat; printf '```\n'; } >>"$report"; }
 
-# --- shims ---------------------------------------------------------------
-
 # Writes a shim that records every call. Reads given by the case patterns in
 # $2 are passed to the real binary; anything else gets exit status $3.
 shim() {
@@ -192,8 +190,6 @@ else
     echo no >"$out/brew-verify"
 fi
 
-# --- real-state snapshot -------------------------------------------------
-
 # The defaults domains dfinstall writes, read from its own source: those named
 # in a write or delete, and the system ones its settings tables list.
 defaults_domains() {
@@ -259,8 +255,6 @@ snapshot_state() {
     fi
 }
 
-# --- build ---------------------------------------------------------------
-
 {
     printf '# dfinstall macOS harness\n\n'
     printf -- '- run: %s\n- checkout: %s (%s)\n' "$(date)" "$repo" "$(git -C "$repo" describe --tags --always --dirty 2>/dev/null)"
@@ -276,8 +270,6 @@ echo "macos-harness: building dfinstall from $repo"
 
 echo "macos-harness: snapshotting your real setup"
 snapshot "$out/real-before.txt"
-
-# --- scenarios -----------------------------------------------------------
 
 # Runs a command with no controlling terminal unless --interactive, so a
 # prompt reads end-of-input instead of waiting on the terminal.
@@ -489,8 +481,6 @@ case "$scenario" in
     upgrade) run_upgrade ;;
     all) run_fresh; run_upgrade ;;
 esac
-
-# --- verdict -------------------------------------------------------------
 
 section "What the shims stopped"
 printf "Every call to a machine- or session-wide command, most frequent first. Full list: \`shim-calls.log\`.\n\n" >>"$report"
