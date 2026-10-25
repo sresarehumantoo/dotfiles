@@ -360,7 +360,7 @@ tool_probe() {
         printf '%s -' "$name"
     elif out="$(perl -e 'alarm 90; exec @ARGV' "$@" 2>&1)"; then
         printf '%s ok' "$name"
-    elif printf '%s' "$out" | grep -qiE 'certif|ssl|tls|self.signed|local issuer'; then
+    elif printf '%s' "$out" | grep -qiE 'certif|ssl|tls|self.signed|local issuer|CERT_'; then
         printf '%s FAIL(cert)' "$name"
     else
         printf '%s FAIL' "$name"
@@ -376,7 +376,10 @@ probe_tools() {
     line+="$(tool_probe curl /usr/bin/curl /usr/bin/curl -sS -o /dev/null --max-time 30 https://github.com)  "
     line+="$(tool_probe git /usr/bin/git /usr/bin/git ls-remote --heads https://github.com/sresarehumantoo/dotfiles main)  "
     line+="$(tool_probe python /usr/bin/python3 /usr/bin/python3 -c 'import urllib.request as u; u.urlopen("https://pypi.org/simple/six/", timeout=30)')  "
-    line+="$(tool_probe node node env "${node_env[@]+"${node_env[@]}"}" node -e 'fetch("https://registry.npmjs.org/").then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))')  "
+    # github.com rather than the npm registry: a network that only allows npm
+    # through its own mirror answers 503 for the registry, which says nothing
+    # about TLS. The error's cause carries the certificate code, if any.
+    line+="$(tool_probe node node env "${node_env[@]+"${node_env[@]}"}" node -e 'fetch("https://github.com/").then(r => process.exit(r.ok ? 0 : 1), e => { console.error(e.cause?.code || e.message); process.exit(1) })')  "
     line+="$(tool_probe npm npm env npm_config_cache="$sb/npm-cache" npm view six version)  "
     line+="$(tool_probe pip python3 env PIP_NO_CACHE_DIR=1 python3 -m pip download --quiet --no-deps --dest "$sb/pip" six)  "
     line+="$(tool_probe brew brew env HOMEBREW_CACHE="$sb/brew-fetch" HOMEBREW_NO_AUTO_UPDATE=1 brew fetch --quiet --force --formula hello)  "
