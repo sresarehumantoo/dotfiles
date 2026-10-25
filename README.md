@@ -226,6 +226,15 @@ dfinstall update all
 dfinstall update all --dry-run   # what would change, without fetching
 ```
 
+### From 1.x to 2.0
+
+No re-clone: 2.0 finds the existing clone through the pointer 1.x already recorded (`~/.config/dfinstall/dotfiles-dir`), keeps linking from it, and reads the clone's old `.config.yaml` until it first saves a setting to `~/.config/dfinstall/config.yaml`. Two things need doing by hand, in this order:
+
+1. **Bring the clone up to date first**: `git -C <clone> pull`. A 2.0 binary run against a 1.x clone skips the files the clone does not have yet (`not linked …: … is not in the dotfiles checkout`) rather than leaving dangling links, but they stay unlinked until it is pulled.
+2. **Install 2.0, and retire the 1.x binary.** Staying on a source build, `make -C <clone> install-bin` replaces it. Moving to a package (`brew install sresarehumantoo/tap/dfinstall`, or apt), delete `~/.local/bin/dfinstall` and `~/.local/bin/dfinstall-mcp` as well, since `~/.local/bin` comes first on `PATH` and the old build would keep running. If Claude Code's MCP server was registered by path (`claude mcp list`), point it at the new `dfinstall-mcp`.
+
+Then `dfinstall install all` and `dfinstall doctor`. Doctor's `dfinstall on PATH`, `checkout files` and `settings` rows report an older binary that still runs first, a clone missing files this dfinstall links, and a pre-2.0 `.config.yaml` that can be deleted once nothing older uses the clone.
+
 ### Local edits survive the pull
 
 Managed configs are symlinks into the clone, so editing `~/.config/ghostty/config` on one machine edits the clone. Before pulling, `--upgrade` sorts those edits out:
