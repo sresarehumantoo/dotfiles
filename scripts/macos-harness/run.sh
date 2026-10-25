@@ -34,7 +34,7 @@
 # the screen; the full report lands in /tmp/dfinstall-macos-harness-<time>/.
 set -euo pipefail
 
-usage() { sed -n '2,36p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; }
 
 scenario=all interactive=false keep=false strict=false
 while [[ $# -gt 0 ]]; do
