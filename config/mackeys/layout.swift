@@ -1,4 +1,4 @@
-// mackeys-layout: switches the built-in keyboard between two modifier layouts
+// mackeys-layout: switches every keyboard between two modifier layouts
 // as the frontmost app changes, by setting or clearing a Control/Command swap
 // (a UserKeyMapping) on top of the standard mackeys layout. Web pages and Mac Office bind their shortcuts
 // to Command, so in browsers, Electron apps and Office the Ctrl key sends
@@ -124,5 +124,33 @@ workspace.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, que
     layout.update(force: true)
 }
 Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { _ in layout.update(force: true) }
+
+// hidutil maps only the services present when it runs, so a keyboard plugged
+// in with a browser in front would keep the standard layout until the next
+// refresh. Watching the registry for new HID services needs no permission,
+// unlike opening the device. The second's delay lets the new service's
+// keyboard filter come up before the mapping is set on it.
+func drain(_ iterator: io_iterator_t) {
+    var service = IOIteratorNext(iterator)
+    while service != 0 {
+        IOObjectRelease(service)
+        service = IOIteratorNext(iterator)
+    }
+}
+let hidPort = IONotificationPortCreate(kIOMainPortDefault)
+CFRunLoopAddSource(CFRunLoopGetMain(), IONotificationPortGetRunLoopSource(hidPort).takeUnretainedValue(), .defaultMode)
+var hidArrivals: io_iterator_t = 0
+let watched = IOServiceAddMatchingNotification(
+    hidPort, kIOFirstMatchNotification, IOServiceMatching("IOHIDEventService"),
+    { _, iterator in
+        drain(iterator)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { layout.update(force: true) }
+    }, nil, &hidArrivals)
+if watched == KERN_SUCCESS {
+    // The notification is armed only once the services already present are read.
+    drain(hidArrivals)
+} else {
+    logLine("cannot watch for new keyboards (\(watched)); one plugged in waits for the next refresh")
+}
 layout.update()
 NSApplication.shared.run()

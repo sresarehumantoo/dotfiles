@@ -64,6 +64,11 @@ var commandLayoutSwaps = [][2]int64{{hidLeftCtrl, hidLeftCmd}, {hidLeftCmd, hidL
 
 const builtinKeyboardMatch = `{"PrimaryUsagePage":1,"PrimaryUsage":6,"Built-In":true}`
 
+// keyboardMatch takes in external keyboards too. The command layout goes on
+// every keyboard: a browser's menus are back on Command, so a keyboard left
+// without the swap sends a Ctrl+R nothing is bound to.
+const keyboardMatch = `{"PrimaryUsagePage":1,"PrimaryUsage":6}`
+
 type macDefault struct {
 	domain, key string
 	want        any // bool or int64
@@ -271,7 +276,7 @@ func layoutConfig(apps []string) []byte {
 		Standard string   `json:"standard"`
 		Command  string   `json:"command"`
 		Apps     []string `json:"apps"`
-	}{builtinKeyboardMatch, standardLayoutJSON, commandLayoutJSON(), apps}, "", "  ")
+	}{keyboardMatch, standardLayoutJSON, commandLayoutJSON(), apps}, "", "  ")
 	return append(b, '\n')
 }
 
@@ -378,7 +383,7 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 	}
 	// The agent may have stopped with a browser in front.
 	if !core.DryRun {
-		if err := runCmd(ctx, "hidutil", "property", "--matching", builtinKeyboardMatch, "--set", standardLayoutJSON); err != nil {
+		if err := runCmd(ctx, "hidutil", "property", "--matching", keyboardMatch, "--set", standardLayoutJSON); err != nil {
 			core.Warn("Could not clear the command layout: %v", err)
 		}
 	}
