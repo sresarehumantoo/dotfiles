@@ -248,7 +248,7 @@ Diagnoses and attempts to fix SPICE clipboard sharing in a QEMU/KVM guest. Walks
 - Starts the per-session `spice-vdagent`, with extra warnings for Wayland sessions (limited clipboard support) and headless/SSH sessions
 - Reminds you to reconnect the SPICE viewer (the clipboard handshake only happens at viewer-connect time)
 - Prints a compact, camera-friendly summary block at the end
-- Always writes a full report to `~/clipboard-vm-report.txt` (the whole point — clipboard is broken, so you can `cat` it, scp it off, or photograph it later)
+- Always writes a full report to `~/clipboard-vm-report.txt` (the whole point: clipboard is broken, so you can `cat` it, scp it off, or photograph it later)
 
 | Flag | Description |
 |------|-------------|
@@ -271,7 +271,7 @@ $ clipboard-vm
 
 ### tlog-clean
 
-Strips ANSI escape codes, powerline/nerd-font glyphs, and terminal noise from tmux-logging captures, producing clean, grep-friendly text. Unlike the other devtools, it does not source `_lib.sh` — it is a self-contained filter.
+Strips ANSI escape codes, powerline/nerd-font glyphs, and terminal noise from tmux-logging captures, producing clean, grep-friendly text. Unlike the other devtools, it does not source `_lib.sh`; it is a self-contained filter.
 
 - Simulates a virtual terminal line buffer in Perl to correctly resolve cursor movements (CSI moves, backspace, carriage return) and in-line edits
 - Detects powerlevel10k-style prompts and rewrites them as a simple `directory $ command` line
@@ -334,7 +334,7 @@ On first run with no config, writes a template to `~/.config/dfinstall/winbuild.
 |------|-------------|
 | `--host HOST` | Override `HOST` (SSH alias from `~/.ssh/config`, or `user@host`) |
 | `--remote-base PATH` | Override `REMOTE_BASE` (e.g. `C:/builds`) |
-| `--artifact-dir DIR` | Override `ARTIFACT_DIR` — the subdir on remote whose contents come back to `./<dir>/` |
+| `--artifact-dir DIR` | Override `ARTIFACT_DIR`: the subdir on remote whose contents come back to `./<dir>/` |
 | `--cmd "CMD"` | Override `BUILD_CMD` |
 | `--dry-run` | Show the steps, run nothing |
 
@@ -373,7 +373,7 @@ $ winbuild --dry-run
 
 Records the screen to mp4 and re-encodes it small. Unlike `asciinema` (the
 `record` alias), it captures **real pixels**, so it picks up anything that never
-enters the escape stream — Ghostty `custom-shader` cursor trails above all.
+enters the escape stream: Ghostty `custom-shader` cursor trails above all.
 Use `record` when the content is text; use `demorec` when the point is how it looks.
 
 ```bash
@@ -399,7 +399,7 @@ GNOME's Screencast has no display selector at all, so `--output` there looks the
 monitor's rect up from Mutter (in logical pixels, the same space
 `ScreencastArea` uses) and captures that region. On WSL the index is a DXGI
 output index; Windows usually enumerates screens in the same order, but that is
-**not guaranteed** — if the wrong screen is captured, try the other index rather
+**not guaranteed**. If the wrong screen is captured, try the other index rather
 than trusting the listing's order.
 
 ### Which terminal you use does not matter
@@ -407,16 +407,16 @@ than trusting the listing's order.
 Capture is desktop-level, not application-level: `ddagrab` grabs the composited
 Windows desktop, `wf-recorder` and Screencast grab compositor output. So Windows
 Terminal, Ghostty under WSLg, or anything else are all just windows that appear
-in the frame — nothing in demorec is Ghostty-specific.
+in the frame; nothing in demorec is Ghostty-specific.
 
 What *does* differ is whether there is a cursor trail to capture in the first
 place. The trail is a Ghostty `custom-shader` (GLSL, fed cursor state by
 Ghostty). Windows Terminal has its own unrelated shader hook,
 `experimental.pixelShaderPath`, which is HLSL and is **not** given cursor
-position — so a cursor trail is not expressible in it. Recording Windows
+position, so a cursor trail is not expressible in it. Recording Windows
 Terminal works fine; there is simply no trail in the result.
 
-The raw capture is large — GNOME's encoder is pinned at fixed QP 26 with
+The raw capture is large: GNOME's encoder is pinned at fixed QP 26 with
 `complexity=low` and `deblocking=off`, which on a 1920x1200 screen is about
 11.6 Mbit/s (~1.4 MB/s). Measured on a real 9.7s clip:
 
@@ -425,7 +425,7 @@ The raw capture is large — GNOME's encoder is pinned at fixed QP 26 with
 | raw capture | 13.5 MiB |
 | after `render` (crf 22) | 139 KiB |
 
-That is a 99% reduction at 0.9997 SSIM — terminal content is trivially
+That is a 99% reduction at 0.9997 SSIM: terminal content is trivially
 compressible, and even crf 30 measures 0.9988, so the crf dial barely matters.
 Because the raw is disposable once encoded, `stop --render` does both steps and
 deletes it; `--keep-raw` retains it, and plain `stop` skips encoding entirely
@@ -443,21 +443,21 @@ size pass, not the fidelity pass). A failed render never deletes the raw.
 The wlroots path is the simplest of the three and produces the smallest raw
 capture: wf-recorder's default damage tracking asks the compositor for a frame
 only when the screen actually changes, so the file is already variable-rate
-before `render` touches it. Two flags matter and are easy to get backwards —
+before `render` touches it. Two flags matter and are easy to get backwards:
 `-r` forces a *constant* framerate by duplicating frames, which throws that
 saving away, so demorec passes `-B` (the framerate hint that preserves VFR)
 instead. wf-recorder also has **no cursor option at all**, so `--no-cursor` is
-warned about rather than honoured there, and it finalizes on **SIGINT** while
-ignoring SIGTERM — hence the per-backend stop signal recorded in the session
+warned about rather than honored there, and it finalizes on **SIGINT** while
+ignoring SIGTERM, hence the per-backend stop signal recorded in the session
 file.
 
 Detection order is WSL, then wlroots, then GNOME. wlroots is checked before
 GNOME so a sway session cannot fall through to the D-Bus path, which would fail
 confusingly. Mutter is not wlroots and does not implement `wlr-screencopy`, so
-wf-recorder cannot work under GNOME — it exits immediately with `compositor
+wf-recorder cannot work under GNOME: it exits immediately with `compositor
 doesn't support wlr-screencopy-unstable-v1`.
 
-ffmpeg cannot capture on Wayland itself — its `pipewiregrab` is an unmerged RFC,
+ffmpeg cannot capture on Wayland itself: its `pipewiregrab` is an unmerged RFC,
 absent from every stable release. And nothing *inside* WSL can capture at all:
 WSLg is Weston with a RAIL shell, so there is no `wlr-screencopy`, no portal, and
 no desktop output to grab. The window is composited by DWM on the Windows side,
@@ -476,12 +476,12 @@ Two behaviors that are easy to get wrong and are deliberate here:
   interface all cost real time, and a freshly downloaded `ffmpeg.exe` may also
   be scanned by Defender on first run. `start` therefore waits until ffmpeg has
   genuinely written to the output before reporting `Recording`, and prints how
-  long that took — so the message means capture is live rather than merely
+  long that took, so the message means capture is live rather than merely
   requested. If it is consistently slow, a Defender exclusion for the binary is
   the usual culprit; setting `DEMOREC_DIR` also skips the Windows profile
   lookup, which is otherwise cached after the first run.
 - **The clip ends where the demo did, not where the recorder exited.** Stopping
-  is not instant — on WSL it takes seconds — and all of it was being recorded,
+  is not instant (on WSL it takes seconds), and all of it was being recorded,
   along with the stop command being typed. `stop` therefore notes where in the
   clip it was invoked *before* killing anything, and `render` cuts there.
   `--tail N` drops N seconds more, for the typing itself. The cut is clamped so
@@ -489,12 +489,12 @@ Two behaviors that are easy to get wrong and are deliberate here:
 - **`stop` avoids PowerShell.** Locating the Windows process by command line
   needs a CIM query, and PowerShell startup dominated the time `stop` took. The
   PID is now identified at start instead, by diffing the running `ffmpeg.exe`
-  list either side of the launch — `tasklist` costs a fraction of a PowerShell
+  list either side of the launch; `tasklist` costs a fraction of a PowerShell
   start. If that diff is ambiguous (another ffmpeg started at the same moment)
   the PID is left unset and `stop` falls back to the CIM query.
 - **Signals do not cross the WSL interop boundary.** Killing the Linux-side
   process leaves `ffmpeg.exe` running as an orphaned Windows process, and
-  `kill -0` on the now-dead shim looks exactly like a clean exit — so `stop`
+  `kill -0` on the now-dead shim looks exactly like a clean exit, so `stop`
   would report success while the recording continued and the file stayed locked.
   On WSL, `stop` therefore asks Windows directly: it finds the `ffmpeg.exe`
   whose command line contains the output filename (so an unrelated ffmpeg is
@@ -512,7 +512,7 @@ Two behaviors that are easy to get wrong and are deliberate here:
 
 `render` drops duplicate frames (`mpdecimate`) at variable frame rate, keeping
 the retained frames at their real timestamps while collapsing the long static
-stretches a terminal spends most of its time in. It never rescales — resampling
+stretches a terminal spends most of its time in. It never rescales: resampling
 text is what makes screencasts look mushy.
 
 Trailing duplicates are dropped too, so a clip **ends at the last on-screen
@@ -525,9 +525,9 @@ input to that point. Measured on an 11.4s capture whose last change was at 4.7s:
 
 | | Duration |
 |---|---|
-| default | 4.5s — ends at the last change |
-| `--hold 2` | 6.7s — content, then a 2s hold |
-| `--no-decimate --hold 2` | 13.4s — nothing was truncated, so nothing is compensated |
+| default | 4.5s: ends at the last change |
+| `--hold 2` | 6.7s: content, then a 2s hold |
+| `--no-decimate --hold 2` | 13.4s: nothing was truncated, so nothing is compensated |
 
 **A blinking cursor is the single biggest cost.** It changes pixels twice a
 second forever, so almost nothing dedupes. Measured on a 10s idle 1200x800 clip:
@@ -556,7 +556,7 @@ transcode, so it falls back to the Windows binary (translating both paths with
 present because it takes Linux paths directly and skips the interop hop.
 
 Nothing needs installing on Windows: a standalone build works, and
-`DEMOREC_FFMPEG` points at it wherever you keep it — no Windows PATH change
+`DEMOREC_FFMPEG` points at it wherever you keep it, with no Windows PATH change
 required. If the location is already on the Windows PATH, interop resolves plain
 `ffmpeg.exe` and the variable is unnecessary. The static BtbN builds are a single
 self-contained `ffmpeg.exe`, and `ddagrab` is compiled in (verified against
@@ -573,7 +573,7 @@ It resolves the Windows profile itself (`$env:USERPROFILE` through PowerShell,
 then `wslpath`), so the account name never has to be typed, and it works in
 Linux-style `/mnt/...` paths throughout. It picks the latest **static** BtbN
 build, extracts just `ffmpeg.exe`, and then checks the binary runs and that
-`ddagrab` is compiled in — a build without it cannot capture, and finding that
+`ddagrab` is compiled in: a build without it cannot capture, and finding that
 out now beats finding out mid-recording. It warns if the target is on the Linux
 filesystem, is a no-op if already installed (`--force` to replace), and prints
 the `DEMOREC_FFMPEG` line unless the location is already on the Windows PATH.
@@ -587,7 +587,7 @@ unzip -j ffmpeg.zip '*/bin/ffmpeg.exe'    # -j flattens; the zip has a version p
 export DEMOREC_FFMPEG=/mnt/c/Users/<you>/bin/ffmpeg.exe   # wherever you put it
 ```
 
-Keep it on the Windows filesystem rather than the Linux one — a Windows binary
+Keep it on the Windows filesystem rather than the Linux one: a Windows binary
 run from `\\wsl.localhost\...` goes over the 9p bridge. The same applies more
 sharply to the capture output, which is why `demorec` defaults `DEMOREC_DIR` on
 WSL to `Videos/demos` under the **Windows** user profile (resolved via
@@ -595,7 +595,7 @@ WSL to `Videos/demos` under the **Windows** user profile (resolved via
 written across that bridge is slow enough to drop frames or fail outright. If
 the profile cannot be resolved, it warns and falls back to `$HOME`.
 
-> The WSL backend is **untested** — written from the `ddagrab` docs and interop
+> The WSL backend is **untested**: written from the `ddagrab` docs and interop
 > behavior, but never exercised on a real WSL box. Verify before relying on it.
 >
 > The wlroots backend has **not been run in a real wlroots session** either, but
@@ -652,13 +652,13 @@ Two traps in those numbers:
 
 Renderer detection prefers `glxinfo`/`eglinfo` and says so when it has them.
 Without mesa-utils it falls back to the presence of `/dev/dri/renderD128`, whose
-absence is the documented signature of WSLg failing to bring up d3d12 — that is
+absence is the documented signature of WSLg failing to bring up d3d12. That is
 strong evidence of software rendering, but its presence is not proof of the
 reverse, and the output labels the guess as a guess.
 
 `status` and every mutating action re-read `ghostty +show-config`, so what is
 reported is what Ghostty actually resolved rather than what was written. A full
-Ghostty restart is required — a config reload rebuilds the font grid but does
+Ghostty restart is required: a config reload rebuilds the font grid but does
 not recompute cell size or icon constraints, and does not restore a default.
 
 ---

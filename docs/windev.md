@@ -1,11 +1,11 @@
 # Windows Cross-Development
 
 The `windev` module installs everything needed to build Windows software
-(C/C++, C#/.NET, Go, Rust) from WSL/Linux — local cross-compilation
+(C/C++, C#/.NET, Go, Rust) from WSL/Linux: local cross-compilation
 toolchains, a remote Windows build-server helper, and matching Neovim LSP /
 formatter / debugger configs.
 
-It is **opt-in** and **not part of `install all`** — `install all` would
+It is **opt-in** and **not part of `install all`**, since `install all` would
 otherwise drag in MinGW-w64, the .NET SDK, OmniSharp, netcoredbg, and the Rust
 windows-gnu target for every machine. Once enabled, it persists in
 `config.yaml` (`windev_enabled: true`) and is re-applied by future `install
@@ -61,7 +61,7 @@ A single auto-loaded plugin file:
 config/nvim/windev/windev.lua  →  ~/.config/nvim/lua/custom/plugins/windev.lua
 ```
 
-Kickstart's `{ import = 'custom.plugins' }` picks it up automatically — no
+Kickstart's `{ import = 'custom.plugins' }` picks it up automatically, with no
 edits to `init.lua`. `clangd`, `gopls`, and `rust_analyzer` are already in
 init.lua's `servers` table and attach as soon as the binaries are on PATH.
 The windev file adds:
@@ -81,7 +81,7 @@ filetype is opened.
 
 ### Helper script
 
-`~/.local/bin/winbuild` — see [Remote build server](#remote-windows-build-server) below.
+`~/.local/bin/winbuild`. See [Remote build server](#remote-windows-build-server) below.
 
 ### Shell PATH
 
@@ -113,7 +113,7 @@ cmake --build build-win
 
 ### Go
 
-Go is a native cross-compiler — no separate toolchain needed:
+Go is a native cross-compiler, so no separate toolchain is needed:
 
 ```bash
 GOOS=windows GOARCH=amd64 go build -o app.exe ./cmd/app
@@ -157,8 +157,8 @@ no manual `:Lazy sync` needed.
 
 ## Remote Windows build server
 
-When local cross-compile isn't enough — e.g. you need genuine MSVC, signed
-binaries, or per-PR builds on shared infrastructure — `winbuild` dispatches
+When local cross-compile isn't enough (e.g. you need genuine MSVC, signed
+binaries, or per-PR builds on shared infrastructure), `winbuild` dispatches
 the build to a Windows host over SSH:
 
 1. `rsync` the project tree up to the host
@@ -205,7 +205,7 @@ winbuild --host winbuild2 --artifact-dir bin/Release    # override host + artifa
 winbuild --dry-run                                      # show the steps, run nothing
 ```
 
-The remote project directory is computed as `REMOTE_BASE/$(basename $PWD)` —
+The remote project directory is computed as `REMOTE_BASE/$(basename $PWD)`,
 e.g. `C:/builds/myapp/`. On upload, rsync excludes `.git`, `node_modules`,
 `target`, `bin`, `obj`, and the artifact dir.
 
@@ -264,7 +264,7 @@ rustup target remove x86_64-pc-windows-gnu
 ## Troubleshooting
 
 - **`x86_64-w64-mingw32-g++: command not found` after install.** Open a new
-  shell (or `exec zsh`) — apt adds it to PATH, but the running shell hasn't
+  shell (or `exec zsh`): apt adds it to PATH, but the running shell hasn't
   picked it up. If it's still missing, `dpkg -l mingw-w64` to confirm the
   package landed and `dfinstall install windev -v` to see the apt log.
 
@@ -279,7 +279,7 @@ rustup target remove x86_64-pc-windows-gnu
 
 - **OmniSharp doesn't attach in nvim.** Check `:LspInfo`. The binary lives at
   `~/.local/share/windev/omnisharp/OmniSharp`; if that file is missing the
-  release download failed (network) — re-run `dfinstall install windev`.
+  release download failed (network); re-run `dfinstall install windev`.
 
 - **`winbuild` exits 1 with "No config at ...".** First run writes a template
   and exits. Edit it (set `HOST` at minimum) and re-run.
@@ -302,6 +302,6 @@ rustup target remove x86_64-pc-windows-gnu
 - **First install needs network.** `dotnet-install.sh`, OmniSharp, and
   netcoredbg are downloaded from upstream; failures warn rather than abort.
 - **All four languages always install.** The module is a bundle, not a
-  menu — if you only want one language, you can pass `--dry-run -v` to see
+  menu. If you only want one language, you can pass `--dry-run -v` to see
   the full plan, then install just the bits you need manually and leave
   windev disabled.
