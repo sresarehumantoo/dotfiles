@@ -305,32 +305,33 @@ Modules run in this order, dependencies first. Each is documented in the [module
 |---|--------|--------------|
 | 1 | **locale** | Reports the UTF-8 locale shells get (`en_US.UTF-8`, else built-in `C.UTF-8`); no root |
 | 2 | **packages** | Core system packages via apt/dnf/pacman/brew (only what's missing) |
-| 3 | **extras** | CLI utilities (fzf, ripgrep, bat, jq, fd), Python tooling, Docker, Terraform |
-| 4 | **toolkit** | External registry of security/CTF/dev tools (`--toolkit`) |
-| 5 | **delta** | [delta](https://github.com/dandavison/delta) git diff viewer |
-| 6 | **fonts** | IosevkaTerm Nerd Font (downloaded, pinned) + MesloLGS NF offline floor (bundled) |
-| 7 | **omz** | Oh My Zsh + zsh-autosuggestions + powerlevel10k (`--extended` for more) |
-| 8 | **shell** | zshrc, bashrc, aliases, p10k config, modular `zsh.d` files |
-| 9 | **devtools** | Utility scripts into `~/.local/bin/` (sysinfo, docker-cleanup, …) |
-| 10 | **git** | gitconfig: delta pager, histogram diff, aliases |
-| 11 | **nvim** | Neovim config with Lazy.nvim + headless sync |
-| 12 | **windev** | _Opt-in._ Windows cross-dev toolchains + `winbuild` ([guide](docs/windev.md)) |
-| 13 | **tmux** | Tmux config (Alt+A prefix, vi mode, custom theme) |
-| 14 | **konsole** | Konsole profile and color scheme |
-| 15 | **ghostty** | Ghostty terminal config |
-| 16 | **sway** | Sway + waybar + swaync desktop ([guide](docs/sway.md)). No-ops without `sway` |
-| 17 | **aerospace** | macOS tiling window manager (AeroSpace). No-ops off macOS |
-| 18 | **sketchybar** | macOS status bar (SketchyBar). No-ops off macOS |
-| 19 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, no Accessibility needed. No-ops off macOS |
-| 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Only `install alttab` sets it up |
-| 21 | **htop** | htop config |
-| 22 | **newsboat** | Feed reader with a curated security feed set; images inline via chafa, links in w3m |
-| 23 | **docs** | Offline usage docs from DevDocs and GitLab (`doc_sets`), read with the `docs` script, which also reads these docs live |
-| 24 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
-| 25 | **opencode** | _Opt-in._ opencode for Anthropic API / Bedrock users, locked to those providers with Claude Code-style permissions ([reference](docs/modules.md#opencode)) |
-| 26 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 27 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 28 | **defaultshell** | Sets zsh as the default login shell |
+| 3 | **tealdeer** | tldr config: system TLS roots, so `tldr --update` works behind a TLS-inspecting proxy |
+| 4 | **extras** | CLI utilities (fzf, ripgrep, bat, jq, fd), Python tooling, Docker, Terraform |
+| 5 | **toolkit** | External registry of security/CTF/dev tools (`--toolkit`) |
+| 6 | **delta** | [delta](https://github.com/dandavison/delta) git diff viewer |
+| 7 | **fonts** | IosevkaTerm Nerd Font (downloaded, pinned) + MesloLGS NF offline floor (bundled) |
+| 8 | **omz** | Oh My Zsh + zsh-autosuggestions + powerlevel10k (`--extended` for more) |
+| 9 | **shell** | zshrc, bashrc, aliases, p10k config, modular `zsh.d` files |
+| 10 | **devtools** | Utility scripts into `~/.local/bin/` (sysinfo, docker-cleanup, …) |
+| 11 | **git** | gitconfig: delta pager, histogram diff, aliases |
+| 12 | **nvim** | Neovim config with Lazy.nvim + headless sync |
+| 13 | **windev** | _Opt-in._ Windows cross-dev toolchains + `winbuild` ([guide](docs/windev.md)) |
+| 14 | **tmux** | Tmux config (Alt+A prefix, vi mode, custom theme) |
+| 15 | **konsole** | Konsole profile and color scheme |
+| 16 | **ghostty** | Ghostty terminal config |
+| 17 | **sway** | Sway + waybar + swaync desktop ([guide](docs/sway.md)). No-ops without `sway` |
+| 18 | **aerospace** | macOS tiling window manager (AeroSpace). No-ops off macOS |
+| 19 | **sketchybar** | macOS status bar (SketchyBar). No-ops off macOS |
+| 20 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, no Accessibility needed. No-ops off macOS |
+| 21 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Only `install alttab` sets it up |
+| 22 | **htop** | htop config |
+| 23 | **newsboat** | Feed reader with a curated security feed set; images inline via chafa, links in w3m |
+| 24 | **docs** | Offline usage docs from DevDocs and GitLab (`doc_sets`), read with the `docs` script, which also reads these docs live |
+| 25 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
+| 26 | **opencode** | _Opt-in._ opencode for Anthropic API / Bedrock users, locked to those providers with Claude Code-style permissions ([reference](docs/modules.md#opencode)) |
+| 27 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 28 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 29 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
 > **Opt-in modules** (**windev** and **opencode**) are skipped by `install all` until you enable them with `dfinstall install <name>`. The choice then persists in `config.yaml`, and later `install all` runs keep them current.
