@@ -153,9 +153,9 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 
 | Command | Description |
 |---------|-------------|
-| `install <module\|all>` | Install one or all modules |
-| `update <module\|all>` | Alias for install — re-apply modules |
-| `uninstall <module\|all>` | Remove symlinks created by dfinstall |
+| `install <module...\|all>` | Install the named modules, or all of them |
+| `update <module...\|all>` | `install --upgrade`: pull the clone, update tools, then re-apply |
+| `uninstall <module...\|all>` | Remove what the named modules, or all of them, installed |
 | `diff` | Show drift between config and filesystem |
 | `status` | Print table of link counts per module |
 | `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) and an informational `package mirrors` row naming the npm, pip, Go and cargo mirrors in use |

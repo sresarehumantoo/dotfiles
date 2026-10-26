@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -88,25 +90,24 @@ func main() {
 		}
 
 		// Infer module from standalone flags when no positional arg given
-		var target string
 		switch {
 		case len(args) > 0:
-			target = args[0]
 		case flagToolkit:
-			target = "toolkit"
+			args = []string{"toolkit"}
 		case flagExtended:
-			target = "omz"
+			args = []string{"omz"}
 		default:
 			return fmt.Errorf("module argument required (%s)", modules.ValidModuleNames())
 		}
 
-		if _, ok := core.GetModule(target); !ok && target != "all" {
-			return fmt.Errorf("unknown module %q (%s)", target, modules.ValidModuleNames())
+		all, mods, err := resolveTargets(args)
+		if err != nil {
+			return err
 		}
 
 		if flagUpgrade {
 			core.UpgradeMode = true
-			upgradeClone(ctx, target == "all")
+			upgradeClone(ctx, all)
 		}
 
 		if core.IsSteamOS() && !core.DryRun {
@@ -148,21 +149,21 @@ func main() {
 
 		defer core.ReleaseSudo()
 
-		if target == "all" {
+		if all {
 			return installAll(ctx)
 		}
 
-		m, _ := core.GetModule(target)
-		core.SetOptIn(target)
-		return installOne(ctx, m)
+		for _, m := range mods {
+			core.SetOptIn(m.Name())
+		}
+		return installSome(ctx, mods)
 	}
 
 	installCmd := &cobra.Command{
-		Use:   "install [module|all]",
+		Use:   "install [module...|all]",
 		Short: "Install dotfile modules",
-		Long: fmt.Sprintf("Install one or all dotfile modules.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
+		Long: fmt.Sprintf("Install the named dotfile modules, or all of them.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
 			modules.ValidModuleNames()),
-		Args: cobra.MaximumNArgs(1),
 		RunE: runInstall,
 	}
 
@@ -174,11 +175,10 @@ func main() {
 
 	var flagNoUpgrade bool
 	updateCmd := &cobra.Command{
-		Use:   "update [module|all]",
+		Use:   "update [module...|all]",
 		Short: "Update dotfile modules (install --upgrade)",
-		Long: fmt.Sprintf("Pull the dotfiles clone, update tools and plugins dfinstall installed, then re-apply one or all modules.\nThis is install --upgrade; --no-upgrade makes it a plain install.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
+		Long: fmt.Sprintf("Pull the dotfiles clone, update tools and plugins dfinstall installed, then re-apply the named modules, or all of them.\nThis is install --upgrade; --no-upgrade makes it a plain install.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
 			modules.ValidModuleNames()),
-		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			up, _ := cmd.Flags().GetBool("upgrade")
 			flagUpgrade = up && !flagNoUpgrade
@@ -314,13 +314,15 @@ func main() {
 
 	// Add completions for install and update commands
 	completeModules := func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-		if len(args) != 0 {
+		names := core.ModuleNames()
+		if len(args) == 0 {
+			names = append([]string{"all"}, names...)
+		} else if slices.Contains(args, "all") {
 			return nil, cobra.ShellCompDirectiveNoFileComp
 		}
-		names := append([]string{"all"}, core.ModuleNames()...)
 		var matches []string
 		for _, n := range names {
-			if strings.HasPrefix(n, toComplete) {
+			if strings.HasPrefix(n, toComplete) && !slices.Contains(args, n) {
 				matches = append(matches, n)
 			}
 		}
@@ -330,28 +332,29 @@ func main() {
 	updateCmd.ValidArgsFunction = completeModules
 
 	uninstallCmd := &cobra.Command{
-		Use:   "uninstall <module|all>",
+		Use:   "uninstall <module...|all>",
 		Short: "Remove symlinks created by dfinstall",
-		Long: fmt.Sprintf("Uninstall one or all link-based modules.\n\n%s",
+		Long: fmt.Sprintf("Uninstall the named link-based modules, or all of them.\n\n%s",
 			modules.ValidModuleNames()),
-		Args: cobra.ExactArgs(1),
+		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			core.DetectEnvironment()
 			if err := core.RequireDotfiles(); err != nil {
 				return err
 			}
+			all, mods, err := resolveTargets(args)
+			if err != nil {
+				return err
+			}
 			defer core.ReleaseSudo()
-			target := args[0]
-			if target == "all" {
+			if all {
 				return uninstallAll(ctx)
 			}
-			m, ok := core.GetModule(target)
-			if !ok {
-				return fmt.Errorf("unknown module %q (%s)", target, modules.ValidModuleNames())
+			for _, m := range mods {
+				core.ClearOptIn(m.Name())
 			}
-			core.ClearOptIn(target)
-			return uninstallOne(ctx, m)
+			return uninstallSome(ctx, mods)
 		},
 	}
 	uninstallCmd.ValidArgsFunction = completeModules
@@ -546,7 +549,43 @@ func installFailure(failures []string) error {
 	return fmt.Errorf("%d module(s) failed", len(failures))
 }
 
-func installOne(ctx context.Context, m core.Module) error {
+// resolveTargets turns command arguments into modules, deduplicated and in
+// registration order so dependencies still run first. "all" stands alone.
+func resolveTargets(args []string) (all bool, mods []core.Module, err error) {
+	if slices.Contains(args, "all") {
+		if len(args) > 1 {
+			return false, nil, fmt.Errorf("'all' cannot be combined with module names")
+		}
+		return true, nil, nil
+	}
+	for _, name := range args {
+		if _, ok := core.GetModule(name); !ok {
+			return false, nil, fmt.Errorf("unknown module %q (%s)", name, modules.ValidModuleNames())
+		}
+	}
+	for _, m := range core.AllModules() {
+		if slices.Contains(args, m.Name()) {
+			mods = append(mods, m)
+		}
+	}
+	return false, mods, nil
+}
+
+// moduleFailure is the exit error for a partial run: a single module's own
+// error, or a count when several were named, whose details are already on
+// screen.
+func moduleFailure(mods []core.Module, errs []error, verb string) error {
+	switch {
+	case len(errs) == 0:
+		return nil
+	case len(mods) == 1:
+		return errors.Unwrap(errs[0])
+	default:
+		return fmt.Errorf("%d module(s) failed to %s", len(errs), verb)
+	}
+}
+
+func installSome(ctx context.Context, mods []core.Module) error {
 	// Under canonical-always semantics a partial install links into the
 	// canonical clone, not necessarily the one you're sitting in. Say so, so it
 	// isn't surprising — and point at how to switch.
@@ -563,40 +602,64 @@ func installOne(ctx context.Context, m core.Module) error {
 	}
 	defer sess.Finish()
 
+	var errs []error
+	run := func(m core.Module) {
+		if err := sess.Run(ctx, m); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", m.Name(), err))
+		}
+	}
+
 	// Verbose/debug: full detailed output
 	if core.Level >= core.LogVerbose {
-		err := sess.Run(ctx, m)
+		for _, m := range mods {
+			if len(mods) > 1 {
+				core.Info("--- %s ---", m.Name())
+			}
+			run(m)
+		}
+		if len(errs) > 0 {
+			sess.MarkFailed()
+		}
 		fmt.Println()
 		sess.Report().Write(os.Stdout, true)
-		if err != nil {
-			sess.MarkFailed()
-			return err
+		if len(mods) > 1 {
+			for _, e := range errs {
+				core.Err("%v", e)
+			}
 		}
-		return nil
+		return moduleFailure(mods, errs, "install")
 	}
 
 	// Default: spinner mode
 	sp := core.NewSpinner()
-	sp.Update("Installing %s", m.Name())
 	sp.Start()
-
-	installErr := sess.Run(ctx, m)
+	for i, m := range mods {
+		if len(mods) > 1 {
+			sp.Update("Installing %s (%d/%d)", m.Name(), i+1, len(mods))
+		} else {
+			sp.Update("Installing %s", m.Name())
+		}
+		run(m)
+	}
 	sp.Stop()
 
+	if len(errs) > 0 {
+		sess.MarkFailed()
+	}
 	core.FlushWarnings()
 	sess.Report().Write(os.Stdout, false)
-
-	if installErr != nil {
-		sess.MarkFailed()
-		core.Err("%s: %v", m.Name(), installErr)
-		return installErr
+	for _, e := range errs {
+		core.Err("%v", e)
+	}
+	if len(errs) > 0 && len(mods) == 1 {
+		return moduleFailure(mods, errs, "install")
 	}
 
 	if sess.DidBackup() {
 		core.PrintHint("Backup saved; restore with: dfinstall restore")
 	}
-	core.PrintResult(1, 0)
-	return nil
+	core.PrintResult(len(mods), len(errs))
+	return moduleFailure(mods, errs, "install")
 }
 
 func uninstallAll(ctx context.Context) error {
@@ -653,33 +716,55 @@ func uninstallFailure(failures []string) error {
 	return fmt.Errorf("%d module(s) failed to uninstall", len(failures))
 }
 
-func uninstallOne(ctx context.Context, m core.Module) error {
-	u, ok := m.(core.Uninstaller)
-	if !ok {
-		core.Warn("%s does not support uninstall", m.Name())
-		return nil
+func uninstallSome(ctx context.Context, mods []core.Module) error {
+	var errs []error
+	run := func(m core.Module) {
+		u, ok := m.(core.Uninstaller)
+		if !ok {
+			core.Warn("%s does not support uninstall", m.Name())
+			return
+		}
+		if err := u.Uninstall(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", m.Name(), err))
+		}
 	}
 
 	if core.Level >= core.LogVerbose {
-		return u.Uninstall(ctx)
+		for _, m := range mods {
+			if len(mods) > 1 {
+				core.Info("--- %s ---", m.Name())
+			}
+			run(m)
+		}
+		if len(mods) > 1 {
+			for _, e := range errs {
+				core.Err("%v", e)
+			}
+		}
+		return moduleFailure(mods, errs, "uninstall")
 	}
 
 	sp := core.NewSpinner()
-	sp.Update("Uninstalling %s", m.Name())
 	sp.Start()
-
-	err := u.Uninstall(ctx)
+	for i, m := range mods {
+		if len(mods) > 1 {
+			sp.Update("Uninstalling %s (%d/%d)", m.Name(), i+1, len(mods))
+		} else {
+			sp.Update("Uninstalling %s", m.Name())
+		}
+		run(m)
+	}
 	sp.Stop()
 
 	core.FlushWarnings()
-
-	if err != nil {
-		core.Err("%s: %v", m.Name(), err)
-		return err
+	for _, e := range errs {
+		core.Err("%v", e)
 	}
-
-	core.PrintResult(1, 0)
-	return nil
+	if len(errs) > 0 && len(mods) == 1 {
+		return moduleFailure(mods, errs, "uninstall")
+	}
+	core.PrintResult(len(mods), len(errs))
+	return moduleFailure(mods, errs, "uninstall")
 }
 
 func runDiff() error {
