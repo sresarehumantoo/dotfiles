@@ -184,6 +184,20 @@ Note: the baked-in dotfiles path should match the target machine. If the path va
 ## Project Structure
 
 ```
+.config.yaml.example     # Documented example of every config key
+.github/                 # CI workflow + Dependabot config
+.goreleaser.yaml         # Release archives, .debs, checksums
+.mcp.json                # In-repo MCP server registration
+assets/                  # Logo SVG (+ generator) and the demo GIF
+bootstrap/               # WSL bootstrap wizard (PowerShell + bash), macOS bootstrap
+config/                  # Config files symlinked into ~, one directory per tool
+docs/                    # In-depth documentation
+scripts/                 # e2e scenarios, corporate-network lab, release helpers
+```
+
+The Go code:
+
+```
 cmd/
   dfinstall/         # CLI entry point (main.go)
   dfinstall-mcp/     # MCP server entry point (main.go) → bin/dfinstall-mcp
@@ -342,3 +356,5 @@ CI runs on every push and pull request to `main` and `develop`, and on manual di
 | `shellcheck` | Lints `config/devtools/`, `bootstrap/` and `scripts/`, one step each, via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. Any finding fails the job, a `note` included, and each step scans its whole directory rather than the diff. `make ci` does not run it. |
 
 The `main` branch is protected: `go`, `go-macos` and `shellcheck` must pass before a pull request can merge.
+
+[Dependabot](../.github/dependabot.yml) opens weekly PRs against `develop` for Go modules and Actions. Minor and patch bumps are grouped into one PR per ecosystem; majors come one at a time, since they tend to need attention. The same checks gate them.
