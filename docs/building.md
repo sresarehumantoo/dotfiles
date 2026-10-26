@@ -301,6 +301,7 @@ scripts/corplab/compose.yaml down -v` removes it with Nexus's cache).
 | `tls-inspection` | `wsl-setup.sh check-tls` before and after `install-cert` of the DER certificate; curl, git, node, npm, pip, `dfinstall install delta`/`opencode` and opencode's own API calls, first with the CA in the system store, then without root through the per-user variables `macos-setup.sh` writes |
 | `nexus` | The internet blocked outright: the `package mirrors` doctor row, opencode from npm through Nexus, delta from the GitHub release through Nexus's GitHub proxy, and a clear failure once that proxy is offline too |
 | `ghostty-macos` | The macOS bootstrap's Ghostty step: Homebrew while Ghostty's site answers, the verified GitHub nightly once it is blocked, and a clear failure when GitHub is blocked as well. `brew`, `ditto` and `shasum` are stand-ins; the bootstrap code is not |
+| `self-update` | A release binary on the blocked network: the published v2.0.1 archive fetched through Nexus, `dfinstall update` finding the latest release and replacing both binaries through Nexus's GitHub proxies, then nothing newer on a second run, and with both proxies offline a warning, the old binary kept and a clean exit |
 
 ### macOS harness
 
