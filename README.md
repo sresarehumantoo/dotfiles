@@ -120,10 +120,10 @@ make install
 |---------|--------------|
 | `dfinstall init` | Clone the dotfiles checkout, for a binary installed without the repo |
 | `dfinstall install all` | Install every module (except opt-in ones) |
-| `dfinstall install shell` | Install a single module |
+| `dfinstall install shell git` | Install the named modules, run in dependency order whatever order you name them |
 | `dfinstall update all` | Pull the clone, then install and update what dfinstall installed earlier (`install all --upgrade`) |
 | `dfinstall update all --no-upgrade` | Re-apply all modules without pulling or updating (same as `install all`) |
-| `dfinstall uninstall shell` | Remove one module's symlinks |
+| `dfinstall uninstall shell git` | Remove what the named modules installed |
 | `dfinstall uninstall all` | Remove all managed symlinks |
 
 **Inspecting**
@@ -164,6 +164,8 @@ make install
 | `--registry <path\|url>` | `install`, `update` | Override the toolkit registry for this run |
 | `--upgrade` | `install` | Pull the clone and update tools and plugins first ([details](#upgrading)); always on for `update` |
 | `--no-upgrade` | `update` | Skip the pull and tool updates, making `update` a plain `install` |
+
+`install`, `update` and `uninstall` take one or more module names, or `all` on its own.
 
 ```bash
 dfinstall install omz --extended     # pick extended OMZ plugins
@@ -323,7 +325,7 @@ Modules run in this order, dependencies first. Each is documented in the [module
 | 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Only `install alttab` sets it up |
 | 21 | **htop** | htop config |
 | 22 | **newsboat** | Feed reader with a curated security feed set; images inline via chafa, links in w3m |
-| 23 | **docs** | Offline usage docs from DevDocs and GitLab (`doc_sets`), read with the `docs` script |
+| 23 | **docs** | Offline usage docs from DevDocs and GitLab (`doc_sets`), read with the `docs` script, which also reads these docs live |
 | 24 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
 | 25 | **opencode** | _Opt-in._ opencode for Anthropic API / Bedrock users, locked to those providers with Claude Code-style permissions ([reference](docs/modules.md#opencode)) |
 | 26 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
@@ -388,6 +390,8 @@ The [build guide](docs/building.md) covers building without Make, version stampi
 | [Sway Desktop](docs/sway.md) | The `sway` module: waybar, swaync, outputs, and the Alt reservation |
 | [Windows Cross-Development](docs/windev.md) | The opt-in `windev` module: toolchains, nvim, `winbuild` |
 | [Contributing](docs/contributing.md) | Adding modules, conventions, testing |
+
+With the devtools installed, `docs dfinstall <heading>` opens any heading of this README or `docs/` in the terminal (`docs dfinstall Configuration`, say), read live from the checkout.
 
 ## License
 
