@@ -291,7 +291,7 @@ func TestLayoutConfig(t *testing.T) {
 	if err := json.Unmarshal(layoutConfig(commandLayoutApps), &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.Match != builtinKeyboardMatch || c.Standard != standardLayoutJSON || c.Command != commandLayoutJSON() || len(c.Apps) != len(commandLayoutApps) {
+	if c.Match != keyboardMatch || c.Standard != standardLayoutJSON || c.Command != commandLayoutJSON() || len(c.Apps) != len(commandLayoutApps) {
 		t.Errorf("layout config = %+v", c)
 	}
 }
