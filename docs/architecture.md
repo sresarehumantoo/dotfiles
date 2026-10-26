@@ -70,7 +70,7 @@ type ModuleStatus struct {
 }
 ```
 
-`Install` takes a context so a long install can be canceled — the CLI binds it
+`Install` takes a context so a long install can be canceled: the CLI binds it
 to SIGINT, the MCP server to the per-request context. **Modules must pass it
 down to every subprocess they spawn.** `Status` deliberately takes none: it is a
 fast synchronous read for display, and anything slow enough to need canceling
@@ -105,7 +105,7 @@ func (ls LinkSet) Status(name string) ModuleStatus   // count what's in place
 Implementing `LinkExporter` is what makes a module's links visible to `diff` and
 to drift detection, so **every module with links should**.
 
-Non-link modules (locale, packages, extras, delta, fonts, omz, wsl, vmguest, defaultshell) don't implement either interface because their side effects can't be cleanly reversed via symlink removal. (The toolkit module is an exception — it has no links but implements `Uninstaller` to remove the tools it installed.)
+Non-link modules (locale, packages, extras, delta, fonts, omz, wsl, vmguest, defaultshell) don't implement either interface because their side effects can't be cleanly reversed via symlink removal. (The toolkit module is an exception: it has no links but implements `Uninstaller` to remove the tools it installed.)
 
 ### Registry
 
@@ -139,7 +139,7 @@ func (m KonsoleModule) Status() core.ModuleStatus           { return m.Links().S
 ```
 
 These four used to each spell out the same paths independently. Changing a path
-in three of them left the fourth silently disagreeing — `Status` reporting on
+in three of them left the fourth silently disagreeing: `Status` reporting on
 links `Install` no longer creates, or `Uninstall` missing one. `konsole` was the
 worst case: its first entry targets a different root, so all four methods had to
 remember to slice `konsoleLinks[1:]`.
@@ -153,12 +153,12 @@ Built with [Cobra](https://github.com/spf13/cobra). Nine commands:
 
 | Command | Description |
 |---------|-------------|
-| `install <module\|all>` | Install one or all modules |
-| `update <module\|all>` | Alias for install — re-apply modules |
-| `uninstall <module\|all>` | Remove symlinks created by dfinstall |
+| `install <module...\|all>` | Install the named modules, or all of them |
+| `update <module...\|all>` | `install --upgrade`: pull the clone, update tools, then re-apply |
+| `uninstall <module...\|all>` | Remove what the named modules, or all of them, installed |
 | `diff` | Show drift between config and filesystem |
 | `status` | Print table of link counts per module |
-| `doctor` | Run health checks — 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) and an informational `package mirrors` row naming the npm, pip, Go and cargo mirrors in use |
+| `doctor` | Run health checks: 22 on a normal machine, plus conditional ones (extended plugins, SteamOS, WSL incl. `.wslconfig`, alias collisions, clone freshness) and an informational `package mirrors` row naming the npm, pip, Go and cargo mirrors in use |
 | `restore [timestamp]` | Restore files from a backup snapshot |
 | `root` | Install root-owned copies of configs into `/root/` via sudo |
 | `registry validate <path\|url>` | Validate a toolkit registry file (for CI) |
@@ -209,7 +209,7 @@ Defined in `core/output.go`. Nine functions, each with a colored prefix:
 | `Debug()` | magenta | suppressed | suppressed (debug only) |
 | `FlushWarnings()` | — | prints buffered notices then warnings | — |
 
-`Status()` is for direct user-facing feedback after interactive prompts (e.g. the extended plugin menu). It prints with a green checkmark regardless of log level. `Notice()` is for expected operational messages (e.g. backups) that aren't warnings — always visible, but buffered in quiet mode. `AlwaysWarn()` surfaces a warning immediately (clearing the spinner line) when buffered output would arrive too late to act on.
+`Status()` is for direct user-facing feedback after interactive prompts (e.g. the extended plugin menu). It prints with a green checkmark regardless of log level. `Notice()` is for expected operational messages (e.g. backups) that aren't warnings: always visible, but buffered in quiet mode. `AlwaysWarn()` surfaces a warning immediately (clearing the spinner line) when buffered output would arrive too late to act on.
 
 In quiet mode, both notices and warnings are buffered and flushed after the spinner stops via `FlushWarnings()` (notices first, then warnings). Errors and `AlwaysWarn()` always print and will clear the spinner line first (all state lives on the `Spinner` behind one mutex; `Pause`/`Resume` nest via a depth counter and nothing draws when stdout is not a TTY).
 
@@ -223,8 +223,8 @@ In quiet mode, both notices and warnings are buffered and flushed after the spin
 
 - 10-frame animation at 80ms intervals
 - Thread-safe text updates via mutex
-- `Pause()` / `Resume()` — temporarily suspend the spinner for interactive prompts (e.g. sudo password)
-- `PauseSpinner()` / `ResumeSpinner()` — package-level helpers that safely pause/resume the active spinner (no-op if none running)
+- `Pause()` / `Resume()`: temporarily suspend the spinner for interactive prompts (e.g. sudo password)
+- `PauseSpinner()` / `ResumeSpinner()`: package-level helpers that safely pause/resume the active spinner (no-op if none running)
 - `PrintResult(total, failed)` renders the final line (`✓ Done` or `⚠ Done with errors`)
 - `PrintHint(msg)` renders a dimmed follow-up message
 
@@ -247,7 +247,7 @@ Every operation is idempotent. Running `dfinstall install all` twice produces th
 
 ### Path Helpers
 
-All are variadic — `HomeTarget(".local", "bin", name)`.
+All are variadic: `HomeTarget(".local", "bin", name)`.
 
 | Helper | Resolves to |
 |--------|-------------|
@@ -260,7 +260,7 @@ All are variadic — `HomeTarget(".local", "bin", name)`.
 | `RemoveManagedDir(path)` | `os.RemoveAll` guarded by `checkTarget` |
 
 **Never call `os.UserHomeDir()` outside `core`.** With `$HOME` unset it returns
-`("", err)`, and `filepath.Join("", ".tmux")` is the *relative* `.tmux` — so a
+`("", err)`, and `filepath.Join("", ".tmux")` is the *relative* `.tmux`, so a
 discarded error silently retargets every managed path at the current working
 directory. That is not hypothetical: `uninstall tmux` with `$HOME` unset used to
 delete `.tmux/plugins` from whatever directory you were standing in.
@@ -270,7 +270,7 @@ and `LinkFile`, `UnlinkFile`, `EnsureDir` and `RemoveManagedDir` all run
 `checkTarget`, which rejects empty and non-absolute paths.
 
 **That empty return only helps if you propagate it.** `filepath.Join("",
-"custom")` is `"custom"` — the relative path all over again — and it never
+"custom")` is `"custom"` (the relative path all over again), and it never
 reaches `checkTarget`, because `git clone`, `os.WriteFile` and `os.MkdirAll`
 don't go through `LinkFile`. So:
 
@@ -278,7 +278,7 @@ don't go through `LinkFile`. So:
   never `filepath.Join`. It returns `""` for an empty base.
 - Prefer `XDGTarget("dfinstall", "plugins.zsh")` over
   `filepath.Join(XDGConfigHome(), ...)` for the same reason.
-- Before acting on a path directly — a clone destination, a file you write —
+- Before acting on a path directly (a clone destination, a file you write),
   call **`core.CheckTarget(path)`** and make the same refusal.
 
 With `$HOME` and `$XDG_CONFIG_HOME` unset, `install all` used to create
@@ -301,9 +301,9 @@ Git Bash is **rejected** (via `AssertEnvironment()`) with an error pointing the 
 
 `DotfilesDir()` answers "which clone should symlinks point into?" and is cached (reset via `ResetDotfilesDir()`). Resolution order:
 
-1. `$DOTFILES` environment variable — explicit override, always wins
+1. `$DOTFILES` environment variable: explicit override, always wins
 2. The machine-global **canonical pointer**, if it still points at a valid checkout
-3. The clone this binary is physically running from — `InvokingCloneDir()`
+3. The clone this binary is physically running from: `InvokingCloneDir()`
 
 `InvokingCloneDir()` (in `core/env.go`) answers the different question "where am I running from?" and has its own order: `$DOTFILES` → build-time baked path (`-ldflags` from the Makefile) → walk up from the executable looking for `go.mod` → current working directory.
 
@@ -314,11 +314,11 @@ Git Bash is **rejected** (via `AssertEnvironment()`) with an error pointing the 
 | Function | Purpose |
 |----------|---------|
 | `CanonicalPointerPath()` | `$XDG_CONFIG_HOME/dfinstall/dotfiles-dir` (lives outside any clone) |
-| `ReadCanonicalDir()` | Return the recorded canonical dir, or `""` if unset/unreadable — **self-healing**: a stale path (clone deleted/renamed, no `config/` dir) is ignored, so `DotfilesDir()` falls through and the next `install all` rewrites it |
+| `ReadCanonicalDir()` | Return the recorded canonical dir, or `""` if unset/unreadable. **Self-healing**: a stale path (clone deleted/renamed, no `config/` dir) is ignored, so `DotfilesDir()` falls through and the next `install all` rewrites it |
 | `WriteCanonicalDir(dir)` | Record `dir` atomically (temp file + rename) |
 | `AdoptCanonical(dir)` | Record `dir` as canonical if it isn't already and reset the cached `DotfilesDir()`; returns `(prev string, changed bool)` |
 
-For an `install all`, `core.BeginInstall` (`core/install_session.go`) calls `AdoptCanonical()` before the module loop — and only when not under `--dry-run`, since the pointer is machine-global and a preview must change nothing (it records `CanonicalPrev`/`CanonicalNow` on the session instead). It records the invoking clone as canonical, then the module loop repoints any stray symlinks — so `install all` both switches the canonical clone and consolidates a machine onto it. A partial `install <module>` links into the canonical clone (not necessarily the one you're sitting in) and `AlwaysWarn()`s if those differ.
+For an `install all`, `core.BeginInstall` (`core/install_session.go`) calls `AdoptCanonical()` before the module loop, and only when not under `--dry-run`, since the pointer is machine-global and a preview must change nothing (it records `CanonicalPrev`/`CanonicalNow` on the session instead). It records the invoking clone as canonical, then the module loop repoints any stray symlinks, so `install all` both switches the canonical clone and consolidates a machine onto it. A partial `install <module>` links into the canonical clone (not necessarily the one you're sitting in) and `AlwaysWarn()`s if those differ.
 
 ### Link Drift Detection
 
@@ -340,9 +340,9 @@ Worth stating plainly, because the answer differs by tier and only one tier is a
 
 | tier | what | can it drift? | who notices |
 |---|---|---|---|
-| **symlinks** (nearly everything) | `~/.zshrc` → `<clone>/config/shell/zshrc` | **no** — same inode | `diff`/`doctor`, link shape + clone drift |
+| **symlinks** (nearly everything) | `~/.zshrc` → `<clone>/config/shell/zshrc` | **no**: same inode | `diff`/`doctor`, link shape + clone drift |
 | **rendered copies** (wsl only) | `/etc/wsl.conf`, `/etc/sysctl.d/99-wsl.conf`, `%USERPROFILE%\.wslconfig` | **yes, both directions** | `Status()` + `doctor`, per file |
-| **machine state** | per-distro sparse mode, pending `wsl --shutdown` | **yes** | nobody — outside this tool's reach |
+| **machine state** | per-distro sparse mode, pending `wsl --shutdown` | **yes** | nobody; outside this tool's reach |
 
 The first row is why there is no "sync" command: there is nothing to sync. The
 live config **is** the git worktree, so editing `~/.zshrc` dirties the clone, and
@@ -354,14 +354,14 @@ are both deliberate:
 
 - **It never fails a run.** A dirty or ahead clone is the normal state of a
   machine someone is working on, and `doctor`'s footer tells the user to run
-  `dfinstall install all` — which cannot fix either one and would be actively
+  `dfinstall install all`, which cannot fix either one and would be actively
   wrong advice. So it reports, it does not judge.
 - **It never fetches.** The ahead/behind counts come from the last fetch, which
   makes the check free, offline-safe, and unable to hang waiting on an ssh-agent.
   The cost is that "behind" is as stale as the remote-tracking ref, which the
   detail line says out loud rather than hiding.
 
-It returns `nil` — no row at all — when the dotfiles root is not a git checkout,
+It returns `nil` (no row at all) when the dotfiles root is not a git checkout,
 so a tarball install is not nagged about a question that does not apply to it.
 
 ⚠ Its detail line is its **entire** output, since it never fails. The MCP doctor
@@ -402,7 +402,7 @@ TLS-inspecting firewall; see [Building](building.md#corporate-network-lab).
 
 ## Toolkit Registry
 
-`core/registry.go` manages the external toolkit registry — a JSON catalog of installable tools fetched at runtime so no tool names are compiled into the binary. The registry is fetched from `DefaultRegistryURL` (raw GitHub, `sresarehumantoo/dotfiles-toolkit`), overridable via the `toolkit_registry_url` config field or the `--registry` flag.
+`core/registry.go` manages the external toolkit registry: a JSON catalog of installable tools fetched at runtime so no tool names are compiled into the binary. The registry is fetched from `DefaultRegistryURL` (raw GitHub, `sresarehumantoo/dotfiles-toolkit`), overridable via the `toolkit_registry_url` config field or the `--registry` flag.
 
 ### Structures
 
@@ -426,7 +426,7 @@ type RegistryTool struct {
 | Function | Purpose |
 |----------|---------|
 | `FetchRegistry(ctx, url)` | Fetch over HTTP(S) with `net/http` under a `NetworkTimeout` deadline, `file://` path, or plain file path; validates and writes the cache |
-| `InspectRegistry(ctx, url)` | Same fetch and validation, **without** writing the cache — this is what `registry validate` uses |
+| `InspectRegistry(ctx, url)` | Same fetch and validation, **without** writing the cache; this is what `registry validate` uses |
 | `LoadCachedRegistry()` | Read the registry from the local cache file |
 | `LoadOrFetchRegistry(ctx, forceRefresh)` | Load from cache, or fetch remotely if missing / `forceRefresh` |
 | `ValidateRegistry(r)` | Check version, unique valid names, required category/binary, method-specific fields, distro filters |
@@ -434,7 +434,7 @@ type RegistryTool struct {
 | `CleanRegistryCache()` | Remove the cached registry file |
 | `ToolMatchesDistro(t)` | Whether a tool applies to the current distro (no filter = all) |
 
-Tool names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. The cache is auto-cleaned after install (EDR-safe — no tool list lingers on disk).
+Tool names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. The cache is auto-cleaned after install (EDR-safe: no tool list lingers on disk).
 
 ## Virtualization Detection
 
@@ -442,7 +442,7 @@ Tool names are validated against `^[a-zA-Z0-9][a-zA-Z0-9_-]*$`. The cache is aut
 
 | Function | Purpose |
 |----------|---------|
-| `DetectVirt(ctx)` | Returns a `VirtType` — prefers `systemd-detect-virt` (under a `ProbeTimeout` derived from `ctx`), falls back to DMI inspection (`/sys/class/dmi/id/`) for minimal images |
+| `DetectVirt(ctx)` | Returns a `VirtType`; prefers `systemd-detect-virt` (under a `ProbeTimeout` derived from `ctx`), falls back to DMI inspection (`/sys/class/dmi/id/`) for minimal images |
 | `IsVM(ctx)` | True only for hardware-virtualized guests (excludes containers and WSL) |
 | `IsHardwareVirt(v)` | Shared predicate for "is this a true VM that benefits from guest tools" |
 | `ParseSystemdVirt(s)` / `ParseDMIVendor(v, p)` | Exported parsers for testing |
@@ -477,20 +477,20 @@ and runs as part of `BeginInstall`. Four states drive it:
 
 | Condition | Backup? | Then |
 |-----------|---------|------|
-| `--dry-run` | No | and no config write either — a preview changes nothing |
+| `--dry-run` | No | and no config write either; a preview changes nothing |
 | `--backup` flag | Yes | nothing extra |
 | No config file (first run) | Yes | save config with `skip_backup: true` |
 | Config exists, `skip_backup: false` | Yes | respect user preference |
 | Config exists, `skip_backup: true` | No | -- |
 
-The key distinction is `CfgFileExists` — whether the config file was present at load time. This separates "first run, no config" from "user explicitly set `skip_backup: false`". On first run, after the auto-backup, the config is saved with `skip_backup: true` so subsequent runs skip by default. An existing config's `skip_backup` value is never overwritten.
+The key distinction is `CfgFileExists`: whether the config file was present at load time. This separates "first run, no config" from "user explicitly set `skip_backup: false`". On first run, after the auto-backup, the config is saved with `skip_backup: true` so subsequent runs skip by default. An existing config's `skip_backup` value is never overwritten.
 
 ### Functions
 
 | Function | Purpose |
 |----------|---------|
-| `LoadConfig() error` | Read and parse `config.yaml` (or the legacy clone copy while it is absent). **Only `fs.ErrNotExist` counts as a first run** — any other failure (permissions, EISDIR, malformed YAML) marks the config unreadable and is returned to the caller, which warns and continues on defaults |
-| `SaveConfig() error` | Write `Cfg` via temp file + `Sync` + rename. **Refuses** to write when `LoadConfig` couldn't read the existing file — otherwise a first-run save replaces the user's settings with defaults |
+| `LoadConfig() error` | Read and parse `config.yaml` (or the legacy clone copy while it is absent). **Only `fs.ErrNotExist` counts as a first run**; any other failure (permissions, EISDIR, malformed YAML) marks the config unreadable and is returned to the caller, which warns and continues on defaults |
+| `SaveConfig() error` | Write `Cfg` via temp file + `Sync` + rename. **Refuses** to write when `LoadConfig` couldn't read the existing file; otherwise a first-run save replaces the user's settings with defaults |
 | `ConfigFilePath()` | Return full path to the config file |
 | `IsModuleSkipped(name)` | Is the module in `skip_modules`? |
 | `SkipInAll(name)` | Should `install all` skip it? `IsModuleSkipped` **plus** un-enabled opt-ins. Use this, not `IsModuleSkipped`, in any `AllModules()` loop |
@@ -554,11 +554,11 @@ are how a command *additionally* gets a deadline.
 
 | Wrapper | Deadline | For |
 |---------|----------|-----|
-| `runProbe(ctx, ...)` | `ProbeTimeout` — 30s | quick queries: `dpkg -s`, `cargo --version`, `pipx list` |
-| `runNetProbe(ctx, ...)` | `NetworkTimeout` — 10m | network reads, e.g. the GitHub releases API |
-| `runCmd(ctx, ...)` | `InstallTimeout` — 45m | everything that installs or builds |
+| `runProbe(ctx, ...)` | `ProbeTimeout` (30s) | quick queries: `dpkg -s`, `cargo --version`, `pipx list` |
+| `runNetProbe(ctx, ...)` | `NetworkTimeout` (10m) | network reads, e.g. the GitHub releases API |
+| `runCmd(ctx, ...)` | `InstallTimeout` (45m) | everything that installs or builds |
 
-These are hang detectors, not performance budgets — each sits well past the
+These are hang detectors, not performance budgets: each sits well past the
 slowest healthy run of its class. Before them, a `curl` to a blackholed host or
 an `apt` blocked on a dpkg lock hung the whole run behind a spinner with no way
 out but Ctrl-C, and under the MCP server there is no terminal to Ctrl-C from.
@@ -605,7 +605,7 @@ defer sess.Finish()
 
 `BeginInstall` adopts the canonical clone (when `All`), decides whether to back
 up, and starts the backup. `Finish` writes the manifest and persists config.
-Rendering stays with the caller — the session reports `CanonicalPrev`,
+Rendering stays with the caller: the session reports `CanonicalPrev`,
 `CanonicalNow` and `DidBackup()` rather than printing.
 
 Modules are run with `sess.Run(ctx, m)` (and left out with `sess.Skip(name)`),
@@ -630,14 +630,14 @@ Three rules the session enforces, each of which was once a data-loss bug:
 - **`BeginInstall` takes a process-wide lock that `Finish` releases.** The
   backup session, the canonical pointer and `Cfg` are all global. Two overlapping
   installs meant the second `StartBackup` replaced the first's manager, and the
-  first `FinishBackup` then wrote its manifest into the second's directory —
+  first `FinishBackup` then wrote its manifest into the second's directory,
   leaving the first's copied files with no manifest, invisible to `restore`. The
   CLI only ever runs one install; the MCP server dispatches tool calls from a
   worker pool, so its handlers really can overlap. They queue instead.
 - **Call `sess.MarkFailed()` when the install fails.** Otherwise the deferred
   `Finish` still persists the first-run config, and `skip_backup: true` disarms
   the automatic backup before the run that actually replaces the user's dotfiles.
-- **Nothing here mutates persisted state under `--dry-run`** — not the config,
+- **Nothing here mutates persisted state under `--dry-run`**: not the config,
   and not the canonical pointer. A preview that adopts the clone you previewed
   from is exactly the multi-clone drift the pointer exists to prevent. The
   session still *reports* the adoption it would have made.
@@ -655,7 +655,7 @@ Three rules the session enforces, each of which was once a data-loss bug:
 
 The writer is why one implementation serves both surfaces: the CLI passes
 `os.Stdout`, the MCP server a `strings.Builder`. The two hint strings are the
-only thing that differs between them — each names its own command.
+only thing that differs between them: each names its own command.
 
 ## Error Handling
 

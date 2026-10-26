@@ -49,8 +49,8 @@ func (m FooModule) Uninstall(ctx context.Context) error {
 func (m FooModule) Status() core.ModuleStatus { return m.Links().Status("foo") }
 ```
 
-That is the whole module. No `EnsureDir` — `LinkFile` creates parent directories.
-No separate `Status` loop — `LinkSet.Status` counts what `Links()` exports.
+That is the whole module. No `EnsureDir`: `LinkFile` creates parent directories.
+No separate `Status` loop: `LinkSet.Status` counts what `Links()` exports.
 
 `htop.go` is the minimal real example, `konsole.go` shows two destination roots,
 and `devtools.go` shows an `Install` that needs extra work (chmod, best-effort
@@ -58,7 +58,7 @@ per-file errors) while still driving off `Links()`.
 
 > **Why one `Links()`.** `Install`, `Uninstall`, `Status` and `Links` used to
 > each spell out the same paths. Change a path in three of them and the fourth
-> silently disagrees — `Status` reports on links `Install` no longer creates, or
+> silently disagrees: `Status` reports on links `Install` no longer creates, or
 > `Uninstall` misses one. `tests/linkset_test.go` asserts every module's
 > `Status` counts exactly what its `Links()` exports.
 
@@ -158,7 +158,7 @@ var devtoolsScripts = []string{
 }
 ```
 
-Just the filename — `Links()` derives `config/devtools/<name>` →
+Just the filename: `Links()` derives `config/devtools/<name>` →
 `~/.local/bin/<name>` from it.
 
 ### 3. Test
@@ -177,10 +177,10 @@ bash -n config/devtools/my-script  # syntax check
 - **Logging:** `core.Info`, `core.Ok`, `core.Warn`, `core.Err`, `core.Debug`
 - **Error handling:** Return errors, don't call `os.Exit()`. Warn and continue for non-fatal issues.
 - **One `Links()`:** declare `Links() core.LinkSet` once and call `.Apply()` / `.Remove()` / `.Status(name)` from the other three methods. Never list a path in more than one place.
-- **Never call `os.UserHomeDir()`** outside `core` — use `core.HomeDir()` / `core.HomeTarget()`. With `$HOME` unset it returns `("", err)`, and joining that gives a *relative* path, which once caused `uninstall tmux` to delete `.tmux/plugins` from the current working directory. For recursive deletes use `core.RemoveManagedDir`, not `os.RemoveAll`.
-- **Extend a home-derived path with `core.SubPath`, not `filepath.Join`.** `HomeTarget`/`XDGTarget` return `""` when home is unresolvable, but `filepath.Join("", "custom")` turns that straight back into a relative path — and `git clone`, `os.WriteFile` and `os.MkdirAll` never reach `checkTarget`. Before acting on such a path directly, call `core.CheckTarget(path)`.
+- **Never call `os.UserHomeDir()`** outside `core`; use `core.HomeDir()` / `core.HomeTarget()`. With `$HOME` unset it returns `("", err)`, and joining that gives a *relative* path, which once caused `uninstall tmux` to delete `.tmux/plugins` from the current working directory. For recursive deletes use `core.RemoveManagedDir`, not `os.RemoveAll`.
+- **Extend a home-derived path with `core.SubPath`, not `filepath.Join`.** `HomeTarget`/`XDGTarget` return `""` when home is unresolvable, but `filepath.Join("", "custom")` turns that straight back into a relative path, and `git clone`, `os.WriteFile` and `os.MkdirAll` never reach `checkTarget`. Before acting on such a path directly, call `core.CheckTarget(path)`.
 - **`core.SkipInAll(name)`, not `IsModuleSkipped`,** in any loop over `AllModules()` for an install-all or a fixable-drift report. The MCP server once used the latter and installed an opt-out module.
-- **Call `sess.MarkFailed()` on every install path's error path** — including the `install all` loops, which must call it when *any* module failed. Without it, `Finish` still persists `skip_backup: true`, so a failed first run disarms the automatic backup and the *next* run, the one that actually replaces the user's dotfiles, takes no snapshot. The asymmetry is deliberate: a needless extra backup costs disk, a missing one costs the user's dotfiles. `install all` was missed when this was introduced.
+- **Call `sess.MarkFailed()` on every install path's error path**, including the `install all` loops, which must call it when *any* module failed. Without it, `Finish` still persists `skip_backup: true`, so a failed first run disarms the automatic backup and the *next* run, the one that actually replaces the user's dotfiles, takes no snapshot. The asymmetry is deliberate: a needless extra backup costs disk, a missing one costs the user's dotfiles. `install all` was missed when this was introduced.
 
 ### Shell Scripts
 
@@ -209,16 +209,16 @@ In default (quiet) mode, the CLI shows a spinner. `Info`/`Ok` calls are suppress
 
 ### External Commands
 
-**Never `exec.Command`** — every subprocess must be cancelable, so it takes a
+**Never `exec.Command`**: every subprocess must be cancelable, so it takes a
 `context.Context`. `go vet` won't catch a new one, so this is on you.
 
-Beyond cancellation, prefer the wrappers in `internal/modules/packages.go` —
+Beyond cancellation, prefer the wrappers in `internal/modules/packages.go`:
 `runCmd(ctx, ...)`, `runProbe(ctx, ...)`, `runNetProbe(ctx, ...)`. They add a
 deadline from `internal/core/exec.go`, output capture with a tail replayed on
 failure, and spinner/sudo handling. A bare `exec.CommandContext` gets none of
 that; a handful remain (`fonts.go`, `extras.go`, `wsl.go`, `tmux.go`) and are
 debt, not a pattern to copy. `defaultshell.go`'s `chsh` is the one deliberate
-exception — it is interactive and needs the user's real TTY.
+exception: it is interactive and needs the user's real TTY.
 
 ```go
 if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
@@ -240,10 +240,10 @@ if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
 - **Quick queries use `runProbe(ctx, ...)`**, network fetches `runNetProbe`.
   They carry `ProbeTimeout` (30s) and `NetworkTimeout` (10m) from
   `internal/core/exec.go`; `runCmd` carries `InstallTimeout` (45m). Every command
-  must have a deadline — a hung `curl` or an apt blocked on a dpkg lock used to
+  must have a deadline: a hung `curl` or an apt blocked on a dpkg lock used to
   hang the whole run with no way out.
 - **`PauseSpinner`/`ResumeSpinner` are for interactive prompts only** (huh
-  forms, `bufio` reads, `chsh`) — not for command output.
+  forms, `bufio` reads, `chsh`), not for command output.
 - **Validate before writing to shell files:** any value written to a file that
   is later `source`d must be validated (alphanumeric + hyphens/underscores).
 
@@ -251,9 +251,9 @@ if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
 
 Tests live in two places, deliberately:
 
-- **`tests/`** (`package tests`) — black-box. Anything reachable
+- **`tests/`** (`package tests`): black-box. Anything reachable
   through the exported API goes here.
-- **In-package** (`internal/core/*_test.go`, `internal/modules/*_test.go`) — for
+- **In-package** (`internal/core/*_test.go`, `internal/modules/*_test.go`): for
   invariants about unexported state: the spinner's state machine, `checkTarget`,
   `pickAsset`, `artifactFor`. Asserting these from `tests/` would mean exporting
   internals purely for the test.
@@ -283,12 +283,12 @@ itself rather than rely on that.
 out under sudo across a real `$HOME`, and most install paths have no test.
 
 - Drive the real binary in a sandbox: `HOME=<tmp> DOTFILES=<tmp-clone> ./bin/dfinstall <cmd>`.
-  Both variables matter — set only `HOME` and it still reads the real repo's
+  Both variables matter: set only `HOME` and it still reads the real repo's
   config; set only `DOTFILES` and it writes into your actual home.
 - Before believing a before/after comparison is "identical", confirm **both**
   sides produced output. A failed build or an unconfigured fixture yields two
   empty files and a false pass.
-- Prefer `git worktree` over `git stash` for building a "before" binary — stash
+- Prefer `git worktree` over `git stash` for building a "before" binary; stash
   drops untracked files and can fail to reapply a deletion.
 - For a bug fix, run the new test against the old code and watch it fail.
 - `--dry-run` is the safe way to exercise destructive paths, and is worth
@@ -298,9 +298,9 @@ out under sudo across a real `$HOME`, and most install paths have no test.
 
 Every push and pull request runs:
 
-- **`go`** — `gofmt -s` formatting, `go vet`, build of the `dfinstall` and MCP
+- **`go`**: `gofmt -s` formatting, `go vet`, build of the `dfinstall` and MCP
   binaries, the test suite, and the suite again under the race detector.
-- **`shellcheck`** — the standalone bash scripts in `config/devtools/` and
+- **`shellcheck`**: the standalone bash scripts in `config/devtools/` and
   `bootstrap/` (the two `scandir`s in `ci.yml`). A repo-wide scan is
-  deliberately not run: it would pull in `config/shell/` — zsh files and
+  deliberately not run: it would pull in `config/shell/`: zsh files and
   shebang-less rc files ShellCheck can't parse.

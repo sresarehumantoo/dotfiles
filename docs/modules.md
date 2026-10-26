@@ -26,7 +26,7 @@ Installs core system packages using the detected package manager (apt-get, dnf, 
 
 On macOS it also installs the GNU userland from Homebrew (`macGNUFormulae`): coreutils, findutils, gnu-sed, grep, gawk, gnu-tar, make, diffutils, bash and rsync, checked by formula since Apple ships its own `sed`, `bash` and `rsync`. `~/.profile` and `~/.zsh.d/path.zsh` put each keg's `libexec/gnubin` ahead of `/usr/bin`, so the unprefixed names are the GNU ones, as on Linux. The gnubin list is named rather than globbed: libtool has a gnubin too, and GNU libtool in front of Apple's breaks native builds. `path.zsh` also re-prepends Homebrew itself, because `/etc/zprofile`'s `path_helper` moves `/usr/bin` back to the front in every login shell, which includes each tmux pane.
 
-Neovim is deliberately **not** installed here — apt's neovim is too old (Debian stable ships 0.7–0.10, telescope.nvim needs >= 0.11), so the nvim module installs the official prebuilt tarball instead.
+Neovim is deliberately **not** installed here: apt's neovim is too old (Debian stable ships 0.7–0.10, telescope.nvim needs >= 0.11), so the nvim module installs the official prebuilt tarball instead.
 
 Skips packages that are already installed. External command output is suppressed in default mode (shown with `-v`). Spinner pauses automatically for sudo password prompts.
 
@@ -66,9 +66,9 @@ Reads `/etc/os-release` for `VERSION_CODENAME` to construct the Docker apt repo 
 
 **Signing key refresh:** the Docker repo is re-checked on every converge, not just when first added. Upstreams rotate signing keys on their own schedule, and a stale key makes `apt update` reject the index (exit 100) while the repo file, the key file, and the installed binary all still look fine. Each converge fetches the repo's `InRelease` and verifies it against the keyring on disk; if that fails, the upstream key is downloaded and **appended** to the keyring, keeping the outgoing certificate for the duration of the rotation window. A key that fails to verify even after refresh is left alone and reported as a warning rather than overwritten. Offline or unreachable upstreams skip the check entirely, so no network blip can trigger a keyring rewrite.
 
-After installing tealdeer, updates the tldr page cache (best-effort — skipped silently on network failure).
+After installing tealdeer, updates the tldr page cache (best-effort; skipped silently on network failure).
 
-**Status:** Checks 19 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + rootless mode or an existing `docker` group membership, terraform, and the Docker apt keyring). The keyring check is offline: it catches an absent, unparseable, or expired key, but not a rotation — that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
+**Status:** Checks 19 binaries/packages (11 CLI utilities, 3 Python binaries, the `python3-venv` package, docker binary + rootless mode or an existing `docker` group membership, terraform, and the Docker apt keyring). The keyring check is offline: it catches an absent, unparseable, or expired key, but not a rotation; that is what the converge-time probe is for. Arch hosts install these tools from binaries and are not checked.
 
 ---
 
@@ -115,7 +115,7 @@ GitHub release downloads try a Nexus proxy of GitHub first when one is found thr
 - **rustup:** Installs the rustup toolchain to `~/.cargo/bin/rustup`
 
 The three GitHub-release methods (deb, AppImage, release_binary) share one
-engine in `modules/github_release.go` — it fetches the latest release's assets
+engine in `modules/github_release.go`: it fetches the latest release's assets
 and picks the one matching this machine's architecture, skipping checksums,
 signatures and other platforms' builds.
 
@@ -123,14 +123,14 @@ Selections are saved to `config.yaml` under `toolkit_tools`. Subsequent installs
 
 **Status:** Shows `N/M tools` when tools are configured. Shows "run --toolkit to configure" when no tools are selected. Shows "registry not fetched" when no cache exists.
 
-**Uninstall:** Removes what dfinstall placed — AppImage and release-binary files
+**Uninstall:** Removes what dfinstall placed: AppImage and release-binary files
 from `~/.local/bin/`, git clones from `~/.local/share/toolkit/` (via
 `core.RemoveManagedDir`), `.deb` packages via `sudo dpkg -r`, and rustup via
 `rustup self uninstall`. apt/go/cargo/pipx tools must be removed manually, since
 their package manager owns the location.
 
-Where each method's artifact lives is decided in one place —
-`modules/toolkit_artifact.go` — which the installers, `Status`, `Uninstall` and
+Where each method's artifact lives is decided in one place,
+`modules/toolkit_artifact.go`, which the installers, `Status`, `Uninstall` and
 the selection menu all consult. A second copy of that mapping would mean
 uninstall deleting the wrong path.
 
@@ -153,7 +153,7 @@ Linux: the release binary into `~/.local/bin`, no root and no dpkg. The static m
 **File:** `modules/fonts.go`
 
 Installs the terminal fonts into `$XDG_DATA_HOME/fonts` (not a hardcoded
-`~/.local/share/fonts` — fontconfig's default config resolves its font directory
+`~/.local/share/fonts`: fontconfig's default config resolves its font directory
 against `XDG_DATA_HOME`, so a machine that sets it elsewhere would otherwise get
 fonts in a directory nothing scans).
 
@@ -164,20 +164,20 @@ fonts in a directory nothing scans).
 
 IosevkaTerm is downloaded rather than vendored (~28 MB per version is too much
 to carry in `.git`), sha256-verified against the release's `SHA-256.txt` before
-a byte is extracted, and only the four canonical faces are written — never the
+a byte is extracted, and only the four canonical faces are written, never the
 Mono build (clamps icons to one cell) or Propo (not monospace). MesloLGS is the
 vendored offline floor, so a box that never reaches the network still renders a
 working prompt. Runs `fc-cache -f` when the font set changed.
 
 **Pinned version:** `nerdFontsTag` in `modules/fonts.go`. The installed tag is
 recorded in a `.nerd-fonts-tag` stamp beside the faces, so bumping the constant
-actually causes a re-download — detection is a filesystem check of the directory
+actually causes a re-download. Detection is a filesystem check of the directory
 the module owns, deliberately *not* an `fc-list` family query, which is
 version-blind and also true of a copy hand-installed anywhere else.
 
 **Migration:** removes the faces the pre-IosevkaTerm module installed
 (`HackNerdFont*.ttf`), and the `MesloLGS NF Regular.ttf.bak` that linking
-displaces — a `.bak` in a font directory is still a live font, since fontconfig
+displaces: a `.bak` in a font directory is still a live font, since fontconfig
 identifies files by content rather than extension.
 
 **Unmanaged copies:** a copy of a managed family living outside
@@ -188,13 +188,13 @@ so both `status` and `doctor` see it.
 install-time warning sits in a branch reached only while the managed copy is
 absent, so once it installs one, nothing looks again. Measured on a real machine:
 `status` and `doctor` both showed a clean fonts row while fontconfig was
-resolving **eight** copies of the family — four managed, four hand-installed,
+resolving **eight** copies of the family: four managed, four hand-installed,
 byte-identical. A report that goes green while the condition persists is the same
 failure the fonts doctor check was rewritten to fix.
 
 ⚠ **It cannot be `fc-list -q <family>`**, which is what install uses. That asks
 "does this family exist anywhere", and once a managed copy exists the answer is
-always yes — it can never see a duplicate. The question is about *paths*, so the
+always yes: it can never see a duplicate. The question is about *paths*, so the
 check lists them (`fc-list <family> file`) and filters out the managed directory.
 Missing `fc-list` returns nothing rather than a guess.
 
@@ -202,8 +202,8 @@ Missing `fc-list` returns nothing rather than a guess.
 `IosevkaTerm Nerd Font` does not pull in `IosevkaTerm Nerd Font Mono` (a box
 keeping the Mono build beside this one is not nagged about a duplicate that is
 not one); and the managed-prefix test includes the separator, or a sibling
-directory whose name merely starts with the managed one — `IosevkaTermPropo`
-beside `IosevkaTerm` — reads as managed and its faces are never reported.
+directory whose name merely starts with the managed one (`IosevkaTermPropo`
+beside `IosevkaTerm`) reads as managed and its faces are never reported.
 
 **Status:** counts the vendored links; reports a missing or stale download, any
 unmanaged copies, and any legacy artifacts still to clean, in the INFO column.
@@ -279,7 +279,7 @@ When nvim and its diffview.nvim plugin are installed, `git.zsh` wraps `git` so t
 
 ### zsh does not read `~/.profile`, so `~/.zprofile` bridges it
 
-`~/.zprofile` is read for login shells, after `~/.zshenv` and before `~/.zshrc`, and its only job is to source `~/.profile` under `emulate sh`. Before it existed the shell module linked `.zshrc`, `.aliases`, `.p10k.zsh`, `.bashrc`, `.profile` and the `~/.zsh.d/*` files, and no `.zprofile`, `.zlogin` or `.zshenv` at all — and **zsh never reads `~/.profile` under any circumstances**, unlike bash.
+`~/.zprofile` is read for login shells, after `~/.zshenv` and before `~/.zshrc`, and its only job is to source `~/.profile` under `emulate sh`. Before it existed the shell module linked `.zshrc`, `.aliases`, `.p10k.zsh`, `.bashrc`, `.profile` and the `~/.zsh.d/*` files, and no `.zprofile`, `.zlogin` or `.zshenv` at all, and **zsh never reads `~/.profile` under any circumstances**, unlike bash.
 
 On a desktop this is usually invisible, because the display manager sources `~/.profile` into the session and terminals inherit it. That is a convention, not a guarantee, and it does not hold here. Measured on this box 2026-09-12, the session `PATH` was:
 
@@ -287,7 +287,7 @@ On a desktop this is usually invisible, because the display manager sources `~/.
 /home/owen/.cargo/bin:/opt/swayfx/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ```
 
-with no `~/.local/bin`, which `~/.profile` prepends — so GDM never sourced it. Same root cause as the "GDM starts sway without a login shell" note in `config/waybar/config`, seen from the other side.
+with no `~/.local/bin`, which `~/.profile` prepends, so GDM never sourced it. Same root cause as the "GDM starts sway without a login shell" note in `config/waybar/config`, seen from the other side.
 
 Under WSL it is never invisible: `wsl.exe` launches the login shell directly, so there is no session to inherit from. Everything in `~/.profile` silently failed to apply: `XDG_*`, `$HOME/bin` and `$HOME/go/bin` on `PATH`, the WSLg `XCURSOR_SIZE`/`GDK_SCALE` fixes (which are themselves WSL-only, so that block was dead exactly where it was needed), and the `~/.profile.local` hook where machine-local settings such as CA bundles live.
 
@@ -318,7 +318,7 @@ Set `DF_TMUX_SSH=1` to opt back in, per host or per login. `DF_NO_TMUX` wins ove
 Nothing consulted `SSH_CONNECTION` before 2026-09-10, and it had two consequences:
 
 - **Every ssh login joined that host's shared `main`.** Two terminals into one box mirrored each other's screen and fought over `window-size latest` (the tmux default; nothing in the 343-line `tmux.conf` sets it). The console session was in the same fight.
-- **ssh *out of* a pane stacked two servers in one terminal.** `$TMUX` is not forwarded, so the remote shell sees an empty one and starts its own. Both then use `M-a` as prefix and both carry the root-table (`-n`) binds from `tmux.conf` — `M-n`, `M-1..9`, `M-Enter`, `M--`, `M-q`, `M-m`, `M-s`, `M-c`, `C-q`. The **outer** tmux eats every one of them, so the inner session cannot be driven by its own keys at all.
+- **ssh *out of* a pane stacked two servers in one terminal.** `$TMUX` is not forwarded, so the remote shell sees an empty one and starts its own. Both then use `M-a` as prefix and both carry the root-table (`-n`) binds from `tmux.conf`: `M-n`, `M-1..9`, `M-Enter`, `M--`, `M-q`, `M-m`, `M-s`, `M-c`, `C-q`. The **outer** tmux eats every one of them, so the inner session cannot be driven by its own keys at all.
 
 The second has no good fix from inside tmux: a shared prefix is a property of *both* configs, and the remote host is not always yours to configure. Not starting the inner server is what makes the keys work. `SSH_TTY` is checked beside `SSH_CONNECTION` because a login shell can carry one without the other depending on sshd's settings.
 
@@ -341,7 +341,7 @@ DF_TMUX_SESSION=review ghostty
 **`tm` moves a session to this terminal without nesting** (defined in `aliases`). From a shell outside tmux (`DF_NO_TMUX`, or the plain shell left after tmux failed to start) it attaches; inside tmux it switches this client instead of starting a tmux in the pane. `tm work` names another session. `tm -d` also detaches the session's other clients, which **closes those terminals**, for the reason in the caution below. It is not `ta` because oh-my-zsh's tmux plugin defines that as an alias, and zsh refuses a function whose name is an alias.
 
 > [!CAUTION]
-> **Do not "fix" the mirroring with `-D`.** It is the obvious answer — a new client detaches the old one — and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
+> **Do not "fix" the mirroring with `-D`.** It is the obvious answer (a new client detaches the old one), and it is actively wrong now. A displaced client exits **0** (measured, tmux 3.5a), and the shell `exit`s on 0, so every new terminal you opened would **close the previous one**. `-D` was only ever safe while this block was an `exec` into a shell nobody could return to.
 
 > [!CAUTION]
 > **A resume and a fresh start are otherwise indistinguishable.** `new-session -A` attaches if the session exists and silently creates it if not, so when the server has gone (a WSL VM restart, a reboot, `tmux kill-server`) you get an empty session with nothing to say the old one is not coming back. `has-session` is now checked first, and a newly created session announces itself on the status line for 4s: either that the last save is being restored (continuum's auto-restore, on by default) or that nothing was.
@@ -353,7 +353,7 @@ DF_TMUX_SESSION=review ghostty
 > **The server is started in `tmux-server.scope`** (`systemd-run --user --scope`) rather than inheriting the terminal's cgroup, which was one Ghostty window's scope. Without a user manager it falls back to starting in place.
 
 > [!CAUTION]
-> **The tmux SERVER gets the environment too, not just the panes.** The server is forked from the shell that starts it, which has not reached the `~/.zsh.d/*.zsh` sourcing yet, so `path.zsh`, `exports.zsh`, `locale.zsh` and `ssh.zsh` are now sourced explicitly just before `tmux new-session`. Panes always recovered on their own; anything spawned from the *server's* environment did not, and that is `run-shell`, `display-popup`, `tmux new-window <cmd>` and TPM. Measured before the fix: the server's `PATH` had no `~/.local/bin` at all (no `dfinstall`, no `sway-*` helper, nothing user-installed), and its `SSH_AUTH_SOCK` was `/run/user/1000/gcr/ssh` — gnome-keyring — while every pane used `~/.ssh/agent.sock`, so anything git-ish run from the server authenticated against a different agent holding different keys. It is a list rather than a glob of `~/.zsh.d` because `options.zsh` and `keybinds.zsh` configure this shell's own line editing and would be wasted work in a shell about to hand over; sourcing the four twice is harmless by construction, since `path.zsh` ends in `typeset -U path PATH` and the others only assign.
+> **The tmux SERVER gets the environment too, not just the panes.** The server is forked from the shell that starts it, which has not reached the `~/.zsh.d/*.zsh` sourcing yet, so `path.zsh`, `exports.zsh`, `locale.zsh` and `ssh.zsh` are now sourced explicitly just before `tmux new-session`. Panes always recovered on their own; anything spawned from the *server's* environment did not, and that is `run-shell`, `display-popup`, `tmux new-window <cmd>` and TPM. Measured before the fix: the server's `PATH` had no `~/.local/bin` at all (no `dfinstall`, no `sway-*` helper, nothing user-installed), and its `SSH_AUTH_SOCK` was `/run/user/1000/gcr/ssh` (gnome-keyring) while every pane used `~/.ssh/agent.sock`, so anything git-ish run from the server authenticated against a different agent holding different keys. It is a list rather than a glob of `~/.zsh.d` because `options.zsh` and `keybinds.zsh` configure this shell's own line editing and would be wasted work in a shell about to hand over; sourcing the four twice is harmless by construction, since `path.zsh` ends in `typeset -U path PATH` and the others only assign.
 
 > [!CAUTION]
 > **Two of the three IDE guards used to guard nothing.** `VSCODE_PID` is set for the extension-host process, not for the integrated terminal, and has been removed; `TERM_PROGRAM` is the check that works. `INTELLIJ_ENVIRONMENT_READER` is set only during JetBrains' one-shot env-probe shell and never in the terminal you type into, so **JetBrains terminals were being exec'd into tmux** until `TERMINAL_EMULATOR` was added beside it.
@@ -398,6 +398,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 | `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
+| `docs` | read dfinstall's own docs and the offline doc sets the `docs` module fetched: `docs SET TOPIC` opens a page in nvim (less without it), `docs -s SET PATTERN` lists the pages that match |
 | `newsboat-view` | newsboat's browser and image pager: images inline via chafa, links in w3m (`open`/`gui`/`yank`/`images`) |
 
 `tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
@@ -448,7 +449,7 @@ Plugin output is suppressed in default mode and shown in verbose/debug mode.
 notes turns the directory in `$NOTES_DIR` (default `~/notes`) into an Obsidian-compatible vault, alongside the tutorial's sample vault at `docs/nvim-tutorial/vault` (found through the symlinked `init.lua`); vaults that don't exist are skipped. Markdown inside a vault gets relaxed linting and no format-on-save.
 
 smear-cursor draws a cursor trail inside nvim. It disables itself when running under
-Ghostty, whose `custom-shader` already draws one across the whole terminal — otherwise the
+Ghostty, whose `custom-shader` already draws one across the whole terminal; otherwise the
 two stack into a double trail. Set `DF_SMEAR_CURSOR=1` to force it on anyway, or `0` to
 force it off on a terminal without its own trail.
 
@@ -477,9 +478,9 @@ Each language is best-effort: a failure warns but doesn't abort the rest, so a s
 
 ### Neovim language support
 
-Symlinks `config/nvim/windev/windev.lua` to `~/.config/nvim/lua/custom/plugins/windev.lua` — kickstart's `{ import = 'custom.plugins' }` picks it up automatically. The file:
+Symlinks `config/nvim/windev/windev.lua` to `~/.config/nvim/lua/custom/plugins/windev.lua`; kickstart's `{ import = 'custom.plugins' }` picks it up automatically. The file:
 
-- Sets up the **OmniSharp** LSP for C# (init.lua's `servers` table already covers `clangd`, `gopls`, and `rust_analyzer` — they attach as soon as the binaries are on PATH).
+- Sets up the **OmniSharp** LSP for C# (init.lua's `servers` table already covers `clangd`, `gopls`, and `rust_analyzer`; they attach as soon as the binaries are on PATH).
 - Adds **conform formatters**: `clang-format` (c/cpp), `csharpier` (cs), `rustfmt` (rust). Go formatting (`goimports`+`gofumpt`) and linting are in the base config.
 - Adds **nvim-lint linters**: `cpplint` (c/cpp), `clippy` (rust).
 - Wires **DAP** adapters: `codelldb` for C/C++/Rust (if on PATH) and `netcoredbg` for C# (from `~/.local/share/windev/`).
@@ -488,7 +489,7 @@ The file uses dependencies + live runtime-table mutation so it extends conform/n
 
 ### Remote Windows build server
 
-Links `config/devtools/winbuild` → `~/.local/bin/winbuild` — a small helper that dispatches builds to a Windows machine over SSH (rsync source up, run remote build, pull artifacts back). See [Devtools Scripts → winbuild](devtools.md#winbuild) for usage.
+Links `config/devtools/winbuild` → `~/.local/bin/winbuild`, a small helper that dispatches builds to a Windows machine over SSH (rsync source up, run remote build, pull artifacts back). See [Devtools Scripts → winbuild](devtools.md#winbuild) for usage.
 
 ### Shell PATH
 
@@ -501,7 +502,7 @@ Writes `~/.config/dfinstall/windev.zsh` (regenerated on each install) prepending
 
 **Status:** Reports `disabled` when not enabled. When enabled, shows linked file counts and a `mingw+dotnet+rust+go` summary of detected toolchains.
 
-**Uninstall:** Removes the nvim plugin file, `winbuild`, and `windev.zsh`, and clears `windev_enabled`. Language toolchains/SDKs are deliberately left installed — they may be shared with other workflows.
+**Uninstall:** Removes the nvim plugin file, `winbuild`, and `windev.zsh`, and clears `windev_enabled`. Language toolchains/SDKs are deliberately left installed; they may be shared with other workflows.
 
 ---
 
@@ -532,7 +533,7 @@ Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 | tmux-yank | Clipboard copy from copy mode |
 | tmux-logging | Pane logging, screen capture, history save (`~/.local/share/tmux/logs/`) |
 
-**Status bar:** 2-line layout — line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar. Two rounded pills — the left holds a badge and the window list, the right holds every readout — on a transparent strip, with one accent color used only where something is active. The left badge is a literal glyph in `tmux.conf` (U+F120, a terminal prompt); it was previously a distro icon read from `~/.config/dfinstall/distro-icon`, and `writeDistroIcon()` still writes that file but nothing reads it.
+**Status bar:** 2-line layout: line 0 is a transparent spacer (`bg=terminal,fill=terminal`) creating a gap between the pane content and the status bar; line 1 is the real status bar. Two rounded pills (the left holds a badge and the window list, the right holds every readout) on a transparent strip, with one accent color used only where something is active. The left badge is a literal glyph in `tmux.conf` (U+F120, a terminal prompt); it was previously a distro icon read from `~/.config/dfinstall/distro-icon`, and `writeDistroIcon()` still writes that file but nothing reads it.
 
 Key config: Alt+A prefix, vi mode, mouse enabled, 50k history, vim-style pane navigation, custom 8-color powerline theme.
 
@@ -575,7 +576,7 @@ cursor-trail shaders in `config/ghostty/shaders/*.glsl` (vendored from
 [sahaj-b/ghostty-cursor-shaders](https://github.com/sahaj-b/ghostty-cursor-shaders), MIT).
 The config selects one via `custom-shader`; `cursor_warp.glsl` is the active default.
 
-The whole module no-ops when `ghostty` isn't on `PATH` — including `Status()`, which
+The whole module no-ops when `ghostty` isn't on `PATH`, including `Status()`, which
 reports nothing rather than "missing".
 
 Because Ghostty resolves a relative `custom-shader` against the config file's *resolved*
@@ -694,6 +695,20 @@ Installs `newsboat`, `chafa` and `w3m`, links `config/newsboat/config` and `conf
 
 ---
 
+## docs
+
+**File:** `modules/docs.go`
+
+Fetches offline usage documentation, the pages a project publishes on its site rather than API dumps such as pydoc, into `~/.local/share/dfinstall/docs/<set>/`, and installs `w3m` to render them. Read them with the `docs` devtool: `docs python argparse`, `docs python argparse.Action` (opens at that entry), `docs gitlab ci/yaml`, `docs -s python add_mutually_exclusive_group`.
+
+- **`dfinstall`** is always available and needs no fetching: the viewer reads this checkout's `README.md` and `docs/` live, with every heading as a topic (`docs dfinstall docs` opens this section, `docs dfinstall Configuration` the config table), so it follows `git pull` and works with the module skipped.
+- **Sets** come from `doc_sets` in the config. Unset, that is python, bash, git, go, docker, kubernetes and node: about 50 MB on disk from an 8 MB download, six seconds on a fast link. Sets dropped from the list are deleted on the next install.
+- **DevDocs** (`devdocs.io`) supplies every set except `gitlab`: one catalog and one format for hundreds of projects. A bare name takes the newest version the catalog lists (`python` is currently 3.15); `python~3.13` pins one. Pages are stored as DevDocs' HTML and rendered by w3m when opened.
+- **`gitlab`** is not on DevDocs. It is the markdown under `doc/` in GitLab's own repo (a 42 MB tarball, 3,000 pages), opened in nvim as markdown. Section pages are Hugo `_index.md` files, indexed under the section name (`ci/yaml`).
+- **Updates:** `install` leaves a set that is present alone. `update docs` refetches a DevDocs set only when its catalog entry changed, but refetches `gitlab` every time, since its archive carries nothing to compare.
+- Neither source publishes checksums, so downloads are not verified beyond TLS. Every page path is checked to stay inside the set's directory.
+- `uninstall docs` removes the fetched sets and keeps w3m.
+
 ## claude
 
 **File:** `modules/claude.go`
@@ -765,7 +780,7 @@ against binaries this host actually has, so a missing `pwsh.exe` is not drift).
 Reports "not WSL" on non-WSL systems.
 
 **Uninstall:** removes the shims and the shader override. It deliberately leaves
-`/etc/wsl.conf` and the sysctl drop-in alone — removing those needs sudo and would
+`/etc/wsl.conf` and the sysctl drop-in alone: removing those needs sudo and would
 change how the distro boots, which is not what uninstalling a dotfiles module implies.
 The `.bak` files written on install are the way back.
 
@@ -780,14 +795,14 @@ directly on typing latency.
 Three consequences to know before touching any of this:
 
 - **Nothing is added back to `$PATH`.** Instead, `install wsl` writes `exec`
-  wrappers into `~/.local/bin`, which is already on PATH and on ext4 — so command
+  wrappers into `~/.local/bin`, which is already on PATH and on ext4, so command
   lookup never touches 9p at all. That is faster than re-adding even two or three
   System32 directories.
 - **`hasInterop()` must not use `exec.LookPath("cmd.exe")`.** With the Windows
   PATH gone that lookup fails on a healthy machine, and the old code read the
   failure as "interop is off", silently skipping `.wslconfig` and the home symlink
   forever. It now checks the `binfmt_misc` handler (both `WSLInterop` and
-  `WSLInterop-late` — newer builds use the latter) plus `cmd.exe` on disk.
+  `WSLInterop-late`; newer builds use the latter) plus `cmd.exe` on disk.
 - **Everything Windows-facing resolves through `wslpath`**, which is a native
   Linux ELF inside the distro and needs no interop of its own. That is what breaks
   the chicken-and-egg where the module turning the PATH off needed the PATH to run.
@@ -802,14 +817,14 @@ stays readable in the file. They carry a managed-header marker; anything in
 
 `config/wsl/wsl.conf` carries a `@DEFAULT_USER@` placeholder rather than a literal
 `[user] default=owen`. That key decides which account WSL logs into, so shipping
-one machine's username to another host names a user that may not exist there —
+one machine's username to another host names a user that may not exist there,
 the same bug class as the sizing below, with worse consequences. It is filled from
 the account running the installer, and **omitted entirely** if that cannot be
 determined (WSL then falls back to the distro's initial user, which is correct).
 
 ⚠ **`renderedWslConf()` is the single source of truth**, and `Status`, `doctor`
 and `install` all go through it. Comparing the raw template against the installed
-file — which `core.FilesMatch`/`checkFileMatch` do — can never match once the
+file (which `core.FilesMatch`/`checkFileMatch` do) can never match once the
 template holds a placeholder, so each would report permanent, unfixable drift on
 a healthy machine. `checkFileMatch` is only valid for sources installed verbatim.
 
@@ -824,7 +839,7 @@ file and rejects any key before a section header.
 
 ⚠ **This file used to be checked by nothing.** `installWslconfig` wrote it and
 forgot it: `Status()` and `doctor` both covered `/etc/wsl.conf`, the sysctl
-drop-in, the Windows-home link and the shims, but never this — so a Windows-side
+drop-in, the Windows-home link and the shims, but never this, so a Windows-side
 tool resetting a key was silent and permanent until the next `install wsl`. It is
 also the file most exposed to being rewritten from outside, since it lives in the
 Windows home rather than the distro.
@@ -833,7 +848,7 @@ Windows home rather than the distro.
 implementations out: the template holds `@HOST_SIZING@`, so comparing against it
 raw reports permanent unfixable drift (the `checkFileMatch` trap above), and
 comparing against a *fresh render* would have to run the PowerShell/`cmd.exe`
-host probe — which `Status()` must not do, being a fast synchronous read with no
+host probe, which `Status()` must not do, being a fast synchronous read with no
 context to cancel.
 
 So `wslconfigDrift(template, installed)` reports on exactly the keys the template
@@ -849,7 +864,7 @@ declares, matching section and key case-insensitively:
 
 `TestWslconfigDrift_OurOwnRenderIsClean` is the guard that matters: a file this
 repo rendered itself must report no drift, and the test also asserts that a byte
-comparison *would* have differed — so the reason the code is shaped this way is
+comparison *would* have differed, so the reason the code is shaped this way is
 checked, not just asserted in a comment.
 
 `doctor` names each drifted key and follows with the two-step remediation:
@@ -871,7 +886,7 @@ release before the header, is treated the same way.
 ### .wslconfig sizing
 
 `config/wsl/wslconfig` is a **template**. The `@HOST_SIZING@` line is replaced at
-install time with `memory`/`swap`/`processors` derived from the Windows host —
+install time with `memory`/`swap`/`processors` derived from the Windows host:
 CPU count from `cmd.exe /C echo %NUMBER_OF_PROCESSORS%` (an env var, so it is
 cheap) and RAM from a PowerShell `Get-CimInstance` call. Reading `nproc` or
 `/proc/meminfo` inside WSL would be circular: those already reflect the
@@ -880,7 +895,7 @@ cheap) and RAM from a PowerShell `Get-CimInstance` call. Reading `nproc` or
 Policy is half the host's RAM clamped to [2, 24] GB, swap at a quarter of that,
 and all logical CPUs. **A failed probe omits the key rather than guessing**, so
 the worst case is "WSL's own defaults apply". The file previously hardcoded
-`memory=10GB` / `processors=8` — one developer's desktop, copied verbatim onto
+`memory=10GB` / `processors=8`, one developer's desktop, copied verbatim onto
 whatever machine ran the installer. `wsl_interop_test.go` guards against that
 returning.
 
@@ -899,7 +914,7 @@ Installs hypervisor guest tools when running inside a hardware VM. Skips entirel
 | VirtualBox | virtualbox-guest-utils |
 | Hyper-V | hyperv-daemons |
 
-After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available — static units are started rather than enabled. A unit that is already running and enabled (or static) is left alone, and guest packages already installed are skipped, so a re-run needs no sudo. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
+After installing, enables/starts the relevant systemd units (`qemu-guest-agent`, `spice-vdagentd`, `open-vm-tools`) when `systemctl` is available; static units are started rather than enabled. A unit that is already running and enabled (or static) is left alone, and guest packages already installed are skipped, so a re-run needs no sudo. Prints hypervisor-specific hints for clipboard/drag-drop support (e.g. running `clipboard-vm` on KVM/QEMU, or installing `open-vm-tools-desktop` / `virtualbox-guest-x11`).
 
 **Status:** Reports the detected virtualization type and checks the guest packages for that hypervisor. Returns empty on WSL and non-VM systems.
 
