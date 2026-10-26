@@ -8,7 +8,7 @@ How to compile `dfinstall` from source and set up a development environment.
 |-------------|---------|-------|
 | **Go** | 1.26 | The version declared in `go.mod`. [Install Go](https://go.dev/doc/install) |
 | **Git** | any | For cloning and module downloads |
-| **Make** | any | Optional — convenience targets only |
+| **Make** | any | Optional; convenience targets only |
 
 No other system dependencies are needed to build. Runtime dependencies (zsh, curl, git, etc.) are installed by dfinstall itself.
 
@@ -32,9 +32,9 @@ go build \
 
 The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This is only one input to how `dfinstall` locates its `config/` directory. At runtime `DotfilesDir()` resolves in order:
 
-1. `$DOTFILES` environment variable — explicit override, always wins.
-2. The machine-global canonical pointer file (`~/.config/dfinstall/dotfiles-dir`) — records which clone is authoritative on this host, so every clone links from one source. `install all` writes it (and self-heals a stale pointer).
-3. The clone the binary is physically running from — via `$DOTFILES`, then the baked-in path, then walking up from the executable to the nearest `go.mod`, then the current directory.
+1. `$DOTFILES` environment variable: explicit override, always wins.
+2. The machine-global canonical pointer file (`~/.config/dfinstall/dotfiles-dir`): records which clone is authoritative on this host, so every clone links from one source. `install all` writes it (and self-heals a stale pointer).
+3. The clone the binary is physically running from: via `$DOTFILES`, then the baked-in path, then walking up from the executable to the nearest `go.mod`, then the current directory.
 
 So the baked path is a fallback used only when neither `$DOTFILES` nor the canonical pointer applies. Recording the canonical clone on `install all` is what prevents symlink drift across multiple clones; verify with `dfinstall doctor` or `dfinstall diff`.
 
@@ -46,7 +46,7 @@ The Makefile passes a second `-X` for `core.Version`, derived from the tag:
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ```
 
-Both binaries read it — `dfinstall --version`, and the `serverInfo.version` the
+Both binaries read it: `dfinstall --version`, and the `serverInfo.version` the
 MCP server reports in its `initialize` response. A plain `go build` without the
 Makefile leaves it at `dev` rather than claiming a release.
 
@@ -242,8 +242,8 @@ Tests use temporary directories and don't touch real system files. Run the full 
 make test
 ```
 
-A selection of the black-box suite in `tests/` — not the full list, see the
-directory for the rest:
+A selection of the black-box suite in `tests/` (not the full list; see the
+directory for the rest):
 
 | Test file | Coverage |
 |-----------|----------|
