@@ -6,7 +6,7 @@ How to compile `dfinstall` from source and set up a development environment.
 
 | Requirement | Minimum | Notes |
 |-------------|---------|-------|
-| **Go** | 1.25.5 | The version declared in `go.mod`. [Install Go](https://go.dev/doc/install) |
+| **Go** | 1.26 | The version declared in `go.mod`. [Install Go](https://go.dev/doc/install) |
 | **Git** | any | For cloning and module downloads |
 | **Make** | any | Optional — convenience targets only |
 
@@ -130,7 +130,8 @@ Run `make` (or `make help`) to list every target.
 | `lint` | `go vet ./cmd/... ./internal/... ./tests/...` | Static analysis |
 | `fmt` | `gofmt -s -w cmd/ internal/ tests/` | Format source code in place |
 | `fmt-check` | `gofmt -s -l cmd internal tests` | Check formatting without modifying (same check as CI) |
-| `ci` | `fmt-check` + `lint` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
+| `check-decoupling` | `scripts/check-decoupling.sh` | Fail if site-specific content leaked into tracked files |
+| `ci` | `fmt-check` + `lint` + `check-decoupling` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
 | `e2e` | `scripts/e2e/run.sh <scenario>` | End-to-end scenarios in Docker; `SCENARIO=sudo` runs one |
 | `corplab` | `scripts/corplab/run.sh [scenario]` | Corporate-network scenarios (TLS inspection, Nexus) in Docker Compose; `SCENARIO=nexus` runs one |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
@@ -143,7 +144,7 @@ Run `make` (or `make help`) to list every target.
 ## Development Workflow
 
 ```bash
-# Run every check CI runs (fmt-check + vet + build both + test + race)
+# Run every check CI's Go job runs (fmt-check + vet + decoupling + build both + test + race)
 make ci
 
 # Test a single module
@@ -204,7 +205,7 @@ internal/
     registry.go      #   Toolkit registry fetch/cache/validate
     spinner.go       #   Animated progress with pause/resume
     version.go       #   core.Version, stamped at build time
-    virt.go          #   Virtualisation detection
+    virt.go          #   Virtualization detection
   modules/           # One file per module
     register.go        #   Module registration (order matters)
     omz_extended.go    #   Extended plugin menu and file writer
@@ -213,7 +214,7 @@ internal/
     github_release.go  #   GitHub release lookup and verified download, through a Nexus mirror when found
     mirrors.go         #   npm/pip/Go/cargo mirror detection (doctor's package mirrors row)
     json_settings.go   #   managedJSON: merge tracked keys into a settings file a program also writes
-    ...                #   19 modules total
+    ...                #   one file per module, 28 in all
 tests/                 # Black-box tests (package tests)
                        # In-package tests also live in internal/core/*_test.go
                        # and internal/modules/*_test.go for unexported internals
@@ -330,11 +331,13 @@ None of them can stand in for MDM, Santa, a corporate Nexus, or a particular Mac
 
 ## Continuous Integration
 
-CI runs on every push and pull request to `main` and `develop` via GitHub Actions (`.github/workflows/ci.yml`). Two jobs must pass:
+CI runs on every push and pull request to `main` and `develop`, and on manual dispatch, via GitHub Actions (`.github/workflows/ci.yml`):
 
 | Job | Checks |
 |-----|--------|
-| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
-| `shellcheck` | Lints the standalone bash scripts in `config/devtools/` and `bootstrap/` via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. |
+| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), the decoupling guard (`make check-decoupling`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
+| `go-macos` | Builds both binaries and runs `make test` on `macos-latest`, then checks that `bootstrap/macos-setup.sh` parses and runs `--help` under the stock `/bin/bash` 3.2. |
+| `goreleaser` | `goreleaser check`, so a broken `.goreleaser.yaml` fails here rather than on the next tag. |
+| `shellcheck` | Lints `config/devtools/`, `bootstrap/` and `scripts/`, one step each, via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. Any finding fails the job, a `note` included, and each step scans its whole directory rather than the diff. `make ci` does not run it. |
 
-The `main` branch is protected: both checks must pass before a pull request can merge.
+The `main` branch is protected: `go`, `go-macos` and `shellcheck` must pass before a pull request can merge.
