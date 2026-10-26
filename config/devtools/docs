@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# docs — read offline usage docs fetched by `dfinstall install docs`
+# docs — read offline usage docs: dfinstall's own, and the sets fetched by
+# `dfinstall install docs`
 set -euo pipefail
 
 source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
@@ -8,34 +9,75 @@ root="$HOME/.local/share/dfinstall/docs"
 
 usage() {
     cat <<'EOF'
-Usage: docs                    list the fetched doc sets
+Usage: docs                    list the doc sets
        docs SET                pick a topic (fzf), or list every topic
        docs SET TOPIC          open a topic: argparse, argparse.Action, ci/yaml
+                               (dfinstall: any heading in its docs, e.g. docs)
        docs -s SET PATTERN     list the pages whose text matches PATTERN
 
 TOPIC matches an index name exactly, then case-insensitively, then as a
 prefix. Several prefix matches go to fzf when it is available.
 
-Sets come from the doc_sets list in ~/.config/dfinstall/config.yaml (DevDocs
+The dfinstall set is read live from the dotfiles checkout's README.md and
+docs/, so it needs no fetching and follows the checkout. Other sets come from
+the doc_sets list in ~/.config/dfinstall/config.yaml (DevDocs
 slugs such as python~3.13, or gitlab); `dfinstall install docs` fetches them
 and `dfinstall update docs` refreshes them.
 EOF
 }
 
+tmp="" dfindex=""
+cleanup() {
+    [[ -z "$tmp" ]] || rm -f "$tmp"
+    [[ -z "$dfindex" ]] || rm -f "$dfindex"
+}
+trap cleanup EXIT
+
+checkout() {
+    local d=${DOTFILES:-}
+    [[ -n "$d" ]] || d=$(cat "${XDG_CONFIG_HOME:-$HOME/.config}/dfinstall/dotfiles-dir" 2>/dev/null) || true
+    [[ -n "$d" && -f "$d/README.md" && -d "$d/docs" ]] || return 1
+    printf '%s' "$d"
+}
+
+# One entry per markdown file and per heading in it, pointing at its line.
+# Headings inside code fences are shell comments, not sections.
+dfinstall_index() {
+    (cd "$1" && find README.md docs -path docs/nvim-tutorial/vault -prune -o -name '*.md' \
+        -exec awk '
+            FNR == 1 { fence = 0; n = FILENAME; sub(/^docs\//, "", n); sub(/\.md$/, "", n)
+                       print n "\t" FILENAME "\t" FILENAME }
+            /^(```|~~~)/ { fence = !fence; next }
+            !fence && /^#+ / { h = $0; sub(/^#+ +/, "", h); gsub(/[`*]/, "", h)
+                               print h "\t" FILENAME "#L" FNR "\t" FILENAME }' {} +)
+}
+
 list_sets() {
-    local d
-    [[ -d "$root" ]] || die "no docs fetched yet: run \`dfinstall install docs\`"
+    local d co
+    if co=$(checkout); then
+        printf '%-14s %s\n' dfinstall "$co"
+    elif [[ ! -d "$root" ]]; then
+        die "no docs fetched yet: run \`dfinstall install docs\`"
+    fi
     for d in "$root"/*/; do
+        [[ -d "$d" ]] || continue
         [[ -f "$d.source" ]] || continue
         printf '%-14s %s\n' "$(basename "$d")" "$(cut -d' ' -f2- "$d.source")"
     done
 }
 
-set_dir() {
-    local dir="$root/$1"
-    [[ "$1" != */* && -f "$dir/index.tsv" ]] \
-        || die "no doc set '$1' (fetched: $(list_sets | cut -d' ' -f1 | paste -sd' ' -))"
-    printf '%s' "$dir"
+# Sets the globals dir (where the pages are) and index for SET.
+use_set() {
+    if [[ "$1" == dfinstall ]]; then
+        dir=$(checkout) || die "no dotfiles checkout recorded: run \`dfinstall init\`"
+        dfindex=$(mktemp "${TMPDIR:-/tmp}/docs-index.XXXXXX")
+        dfinstall_index "$dir" >"$dfindex"
+        index=$dfindex
+        return
+    fi
+    dir="$root/$1" index="$root/$1/index.tsv"
+    [[ "$1" != */* && -f "$index" ]] \
+        || die "no doc set '$1' (have: $(list_sets | cut -d' ' -f1 | paste -sd' ' -))"
 }
 
 pick() {
@@ -49,7 +91,7 @@ pick() {
 
 # Prints the index path ("page[#anchor]") for TOPIC.
 lookup() {
-    local index="$1/index.tsv" topic="$2" lower hit
+    local topic="$1" lower="" hit
     hit=$(awk -F'\t' -v t="$topic" '$1 == t || $2 == t { print $2; exit }' "$index")
     if [[ -z "$hit" ]]; then
         lower=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]')
@@ -58,7 +100,7 @@ lookup() {
     if [[ -z "$hit" ]]; then
         local matches
         matches=$(awk -F'\t' -v t="$lower" 'index(tolower($1), t) == 1' "$index")
-        [[ -n "$matches" ]] || die "no topic '$topic' in $(basename "$1")"
+        [[ -n "$matches" ]] || die "no topic '$topic' in $set"
         if [[ $(printf '%s\n' "$matches" | wc -l) -eq 1 ]]; then
             hit=$(printf '%s\n' "$matches" | cut -f2)
         else
@@ -106,21 +148,24 @@ open_html() {
 }
 
 open_topic() {
-    local dir="$1" hit="$2" page anchor=""
+    local hit="$1" page anchor="" line=1
     page=${hit%%#*}
     [[ "$hit" == *#* ]] && anchor=${hit#*#}
     if [[ "$page" == *.md ]]; then
-        show "$dir/$page" 1 markdown
+        [[ "$anchor" =~ ^L[0-9]+$ ]] && line=${anchor#L}
+        show "$dir/$page" "$line" markdown
         return
     fi
     tmp=$(mktemp "${TMPDIR:-/tmp}/docs.XXXXXX")
-    trap 'rm -f "$tmp"' EXIT
     open_html "$dir/$page.html" "$anchor" "$tmp"
 }
 
 search() {
-    local dir
-    dir=$(set_dir "$1")
+    use_set "$1"
+    if [[ "$1" == dfinstall ]]; then
+        (cd "$dir" && grep -rliI --include='*.md' --exclude-dir=vault -e "$2" README.md docs | sort)
+        return
+    fi
     (cd "$dir" && grep -rliI --exclude=index.tsv --exclude=.source -e "$2" . \
         | sed -e 's|^\./||' -e 's|\.html$||' | sort)
 }
@@ -134,17 +179,18 @@ case "${1:-}" in
         ;;
     -*) usage >&2; exit 2 ;;
     *)
-        dir=$(set_dir "$1")
+        set=$1
+        use_set "$set"
         if [[ $# -eq 1 ]]; then
             if ! command -v fzf &>/dev/null || [[ ! -t 0 || ! -t 1 ]]; then
-                cut -f1 "$dir/index.tsv"
+                cut -f1 "$index"
                 exit 0
             fi
-            hit=$(pick <"$dir/index.tsv")
+            hit=$(pick <"$index")
             [[ -n "$hit" ]] || exit 0
         else
-            hit=$(lookup "$dir" "$2")
+            hit=$(lookup "$2")
         fi
-        open_topic "$dir" "$hit"
+        open_topic "$hit"
         ;;
 esac
