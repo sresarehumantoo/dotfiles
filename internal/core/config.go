@@ -22,6 +22,7 @@ type Config struct {
 	ToolkitRegistryURL string   `yaml:"toolkit_registry_url,omitempty"`
 	WindevEnabled      bool     `yaml:"windev_enabled,omitempty"`
 	OpencodeEnabled    bool     `yaml:"opencode_enabled,omitempty"`
+	DocSets            []string `yaml:"doc_sets,omitempty"`
 }
 
 // IsModuleSkipped returns true if the named module is in the SkipModules list.

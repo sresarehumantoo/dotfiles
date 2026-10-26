@@ -50,3 +50,11 @@ skip_backup: true
 # Set by `dfinstall install opencode`; cleared by `dfinstall uninstall
 # opencode`. While false, the module is skipped by `install all`.
 # opencode_enabled: false
+
+# Offline doc sets fetched by the docs module and read with `docs SET TOPIC`.
+# Each is a DevDocs slug (https://devdocs.io/docs.json): a bare name such as
+# "python" takes the newest version, "python~3.13" pins one. "gitlab" is the
+# markdown from GitLab's own repo, about 45 MB, so it is not a default. Sets
+# dropped from the list are deleted on the next install. Unset means the
+# defaults below; skip the module entirely with skip_modules: [docs].
+# doc_sets: [python, bash, git, go, docker, kubernetes, node]

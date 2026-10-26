@@ -31,6 +31,7 @@ func RegisterAllModules() {
 	core.RegisterModule(&AlttabModule{})
 	core.RegisterModule(&HtopModule{})
 	core.RegisterModule(&NewsboatModule{})
+	core.RegisterModule(&DocsModule{})
 	core.RegisterModule(&ClaudeModule{})
 	core.RegisterModule(&OpencodeModule{})
 	core.RegisterModule(&WslModule{})

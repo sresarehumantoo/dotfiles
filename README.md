@@ -304,6 +304,7 @@ Config lives at `~/.config/dfinstall/config.yaml` (under `$XDG_CONFIG_HOME` when
 | `dismissed_files` | — | Shell files declined, so the prompt doesn't return |
 | `windev_enabled` | `false` | Opt-in for the `windev` module |
 | `opencode_enabled` | `false` | Opt-in for the `opencode` module |
+| `doc_sets` | python, bash, git, go, docker, kubernetes, node | Offline doc sets the `docs` module fetches: DevDocs slugs, or `gitlab` |
 
 ## Modules
 

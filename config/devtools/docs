@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+# docs — read offline usage docs fetched by `dfinstall install docs`
+set -euo pipefail
+
+source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
+
+root="$HOME/.local/share/dfinstall/docs"
+
+usage() {
+    cat <<'EOF'
+Usage: docs                    list the fetched doc sets
+       docs SET                pick a topic (fzf), or list every topic
+       docs SET TOPIC          open a topic: argparse, argparse.Action, ci/yaml
+       docs -s SET PATTERN     list the pages whose text matches PATTERN
+
+TOPIC matches an index name exactly, then case-insensitively, then as a
+prefix. Several prefix matches go to fzf when it is available.
+
+Sets come from the doc_sets list in ~/.config/dfinstall/config.yaml (DevDocs
+slugs such as python~3.13, or gitlab); `dfinstall install docs` fetches them
+and `dfinstall update docs` refreshes them.
+EOF
+}
+
+list_sets() {
+    local d
+    [[ -d "$root" ]] || die "no docs fetched yet: run \`dfinstall install docs\`"
+    for d in "$root"/*/; do
+        [[ -f "$d.source" ]] || continue
+        printf '%-14s %s\n' "$(basename "$d")" "$(cut -d' ' -f2- "$d.source")"
+    done
+}
+
+set_dir() {
+    local dir="$root/$1"
+    [[ "$1" != */* && -f "$dir/index.tsv" ]] \
+        || die "no doc set '$1' (fetched: $(list_sets | cut -d' ' -f1 | paste -sd' ' -))"
+    printf '%s' "$dir"
+}
+
+pick() {
+    if command -v fzf &>/dev/null && [[ -t 2 ]]; then
+        fzf --delimiter '\t' --with-nth 1,3 --select-1 --exit-0 | cut -f2
+    else
+        cut -f1 >&2
+        return 1
+    fi
+}
+
+# Prints the index path ("page[#anchor]") for TOPIC.
+lookup() {
+    local index="$1/index.tsv" topic="$2" lower hit
+    hit=$(awk -F'\t' -v t="$topic" '$1 == t || $2 == t { print $2; exit }' "$index")
+    if [[ -z "$hit" ]]; then
+        lower=$(printf '%s' "$topic" | tr '[:upper:]' '[:lower:]')
+        hit=$(awk -F'\t' -v t="$lower" 'tolower($1) == t { print $2; exit }' "$index")
+    fi
+    if [[ -z "$hit" ]]; then
+        local matches
+        matches=$(awk -F'\t' -v t="$lower" 'index(tolower($1), t) == 1' "$index")
+        [[ -n "$matches" ]] || die "no topic '$topic' in $(basename "$1")"
+        if [[ $(printf '%s\n' "$matches" | wc -l) -eq 1 ]]; then
+            hit=$(printf '%s\n' "$matches" | cut -f2)
+        else
+            hit=$(printf '%s\n' "$matches" | pick) || die "'$topic' is ambiguous, matches above"
+        fi
+    fi
+    printf '%s' "$hit"
+}
+
+# A fixed width would overflow panes narrower than it, so cap at the pane width.
+width() {
+    local w=${COLUMNS:-$(tput cols 2>/dev/null || echo 80)}
+    echo $(( w < 80 ? w : 80 ))
+}
+
+# show TEXT_FILE LINE FILETYPE
+show() {
+    if command -v nvim &>/dev/null; then
+        nvim -R +"$2" \
+            -c "setlocal nomodifiable nomodified noswapfile filetype=$3" \
+            -c 'nnoremap <buffer> q <cmd>quit<CR>' "$1"
+    else
+        less -R +"$2"g "$1"
+    fi
+}
+
+# DevDocs pages are HTML, rendered here with w3m. The anchor is lost in the
+# rendering, so a marker is planted after the anchored tag and found again in
+# the text to pick the line to open at.
+open_html() {
+    local file="$1" anchor="$2" out="$3" mark="@@DOCS-ANCHOR@@" line=1 n
+    command -v w3m &>/dev/null || die "w3m is needed to render DevDocs pages"
+    awk -v id="id=\"$anchor\"" -v m="$mark" '
+        !done && id != "id=\"\"" && (i = index($0, id)) {
+            j = index(substr($0, i), ">")
+            if (j) { $0 = substr($0, 1, i + j - 1) m substr($0, i + j); done = 1 }
+        }
+        { print }' "$file" \
+        | w3m -dump -T text/html -O UTF-8 -cols "$(width)" >"$out"
+    if n=$(grep -n -m1 -F "$mark" "$out"); then
+        line=${n%%:*}
+        sed -i.bak "s/$mark//" "$out" && rm -f "$out.bak"
+    fi
+    show "$out" "$line" text
+}
+
+open_topic() {
+    local dir="$1" hit="$2" page anchor=""
+    page=${hit%%#*}
+    [[ "$hit" == *#* ]] && anchor=${hit#*#}
+    if [[ "$page" == *.md ]]; then
+        show "$dir/$page" 1 markdown
+        return
+    fi
+    tmp=$(mktemp "${TMPDIR:-/tmp}/docs.XXXXXX")
+    trap 'rm -f "$tmp"' EXIT
+    open_html "$dir/$page.html" "$anchor" "$tmp"
+}
+
+search() {
+    local dir
+    dir=$(set_dir "$1")
+    (cd "$dir" && grep -rliI --exclude=index.tsv --exclude=.source -e "$2" . \
+        | sed -e 's|^\./||' -e 's|\.html$||' | sort)
+}
+
+case "${1:-}" in
+    -h|--help) usage ;;
+    "") list_sets ;;
+    -s)
+        [[ $# -eq 3 ]] || { usage >&2; exit 2; }
+        search "$2" "$3"
+        ;;
+    -*) usage >&2; exit 2 ;;
+    *)
+        dir=$(set_dir "$1")
+        if [[ $# -eq 1 ]]; then
+            if ! command -v fzf &>/dev/null || [[ ! -t 0 || ! -t 1 ]]; then
+                cut -f1 "$dir/index.tsv"
+                exit 0
+            fi
+            hit=$(pick <"$dir/index.tsv")
+            [[ -n "$hit" ]] || exit 0
+        else
+            hit=$(lookup "$dir" "$2")
+        fi
+        open_topic "$dir" "$hit"
+        ;;
+esac

@@ -152,7 +152,7 @@ func registerTools(s *server.MCPServer) {
 				mcp.Description("'get' to read config, 'set' to write a value"),
 			),
 			mcp.WithString("key",
-				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled"),
+				mcp.Description("Config key: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled, doc_sets"),
 			),
 			mcp.WithString("value",
 				mcp.Description("Value to set (required for 'set' action)"),
@@ -469,6 +469,7 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			fmt.Fprintf(&b, "toolkit_registry_url: %s\n", core.Cfg.ToolkitRegistryURL)
 			fmt.Fprintf(&b, "windev_enabled: %v\n", core.Cfg.WindevEnabled)
 			fmt.Fprintf(&b, "opencode_enabled: %v\n", core.Cfg.OpencodeEnabled)
+			fmt.Fprintf(&b, "doc_sets: %v\n", core.Cfg.DocSets)
 			fmt.Fprintf(&b, "\nconfig file: %s\n", core.ConfigFilePath())
 			return mcp.NewToolResultText(b.String()), nil
 		}
@@ -501,9 +502,11 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.WindevEnabled)), nil
 		case "opencode_enabled":
 			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.OpencodeEnabled)), nil
+		case "doc_sets":
+			return mcp.NewToolResultText(fmt.Sprintf("%v", core.Cfg.DocSets)), nil
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled, doc_sets)", key),
 			), nil
 		}
 
@@ -552,9 +555,15 @@ func handleConfig(_ context.Context, request mcp.CallToolRequest) (*mcp.CallTool
 			core.Cfg.WindevEnabled = value == "true"
 		case "opencode_enabled":
 			core.Cfg.OpencodeEnabled = value == "true"
+		case "doc_sets":
+			if value == "" {
+				core.Cfg.DocSets = nil
+			} else {
+				core.Cfg.DocSets = strings.Split(value, ",")
+			}
 		default:
 			return mcp.NewToolResultError(
-				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled)", key),
+				fmt.Sprintf("unknown config key: %s (valid: skip_backup, backup_dir, extended_plugins, preserved_files, dismissed_files, skip_modules, toolkit_tools, toolkit_registry_url, windev_enabled, opencode_enabled, doc_sets)", key),
 			), nil
 		}
 		if err := core.SaveConfig(); err != nil {

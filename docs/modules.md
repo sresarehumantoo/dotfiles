@@ -398,6 +398,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 | `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
+| `docs` | read the offline doc sets the `docs` module fetched: `docs SET TOPIC` opens a page in nvim (less without it), `docs -s SET PATTERN` lists the pages that match |
 | `newsboat-view` | newsboat's browser and image pager: images inline via chafa, links in w3m (`open`/`gui`/`yank`/`images`) |
 
 `tlog-clean` uses a virtual terminal line buffer to correctly resolve cursor movements and zsh line-editor edits. Detects powerlevel10k-style prompts and replaces them with a clean `directory $ command` format, dropping git info and decorations. Supports file arguments and stdin piping.
@@ -693,6 +694,19 @@ Installs `newsboat`, `chafa` and `w3m`, links `config/newsboat/config` and `conf
 **Status:** Checks 2 symlinks.
 
 ---
+
+## docs
+
+**File:** `modules/docs.go`
+
+Fetches offline usage documentation, the pages a project publishes on its site rather than API dumps such as pydoc, into `~/.local/share/dfinstall/docs/<set>/`, and installs `w3m` to render them. Read them with the `docs` devtool: `docs python argparse`, `docs python argparse.Action` (opens at that entry), `docs gitlab ci/yaml`, `docs -s python add_mutually_exclusive_group`.
+
+- **Sets** come from `doc_sets` in the config. Unset, that is python, bash, git, go, docker, kubernetes and node: about 50 MB on disk from an 8 MB download, six seconds on a fast link. Sets dropped from the list are deleted on the next install.
+- **DevDocs** (`devdocs.io`) supplies every set except `gitlab`: one catalog and one format for hundreds of projects. A bare name takes the newest version the catalog lists (`python` is currently 3.15); `python~3.13` pins one. Pages are stored as DevDocs' HTML and rendered by w3m when opened.
+- **`gitlab`** is not on DevDocs. It is the markdown under `doc/` in GitLab's own repo (a 42 MB tarball, 3,000 pages), opened in nvim as markdown. Section pages are Hugo `_index.md` files, indexed under the section name (`ci/yaml`).
+- **Updates:** `install` leaves a set that is present alone. `update docs` refetches a DevDocs set only when its catalog entry changed, but refetches `gitlab` every time, since its archive carries nothing to compare.
+- Neither source publishes checksums, so downloads are not verified beyond TLS. Every page path is checked to stay inside the set's directory.
+- `uninstall docs` removes the fetched sets and keeps w3m.
 
 ## claude
 
