@@ -2331,9 +2331,9 @@ pill even though it can no longer leak blur.
 > numbers, offset included.
 >
 > ⚠ **What actually produced the bogus y≈26 reading is almost certainly
-> `mouse_warping output`**, which warps the pointer to the centre of an output
+> `mouse_warping output`**, which warps the pointer to the center of an output
 > on every `focus output`. It re-bit this audit: a probe that focused an output
-> before each measurement kept finding the cursor at that output's centre and
+> before each measurement kept finding the cursor at that output's center and
 > reported it as the result of the `cursor set`. Do not change focus inside a
 > pointer measurement, and re-locate the cursor across **every** output rather
 > than the one you expect it on.

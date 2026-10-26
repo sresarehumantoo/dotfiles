@@ -84,12 +84,12 @@ On a company-managed Mac nothing past bootstrap needs admin. Bootstrap checks up
 
 Behind a TLS-inspecting proxy, bootstrap detects the interception by who issued the certificates a few hosts present (none of Apple's public roots, so something re-signed them) and points every tool at a bundle of Apple's public roots plus the System keychain's certificates, through `~/.config/dfinstall/ca.sh`, which `~/.profile` sources. On current macOS most tools already trust the keychain, where MDM installs the proxy's root: measured on macOS 26, Apple's curl, git and Python, Homebrew, pip and Go all do, and Node and npm, which carry their own CA list, are what the bundle fixes. `SSL_CERT_FILE` is left alone, because it would turn off Go's keychain verification. Re-run the bootstrap with `--skip-ghostty --skip-dotfiles` after the proxy's root CA changes; `dfinstall doctor` flags a bundle that is missing a keychain certificate. On an older macOS whose `curl` does not trust the keychain, the very first download can fail with a certificate error; fetch with the keychain's certificates instead:
 
-When Ghostty's download site is blocked, so `brew install --cask ghostty` fails, bootstrap offers Ghostty's nightly build from GitHub instead (GitHub carries no stable release of it), checked against GitHub's sha256.
-
 ```bash
 security find-certificate -a -p /System/Library/Keychains/SystemRootCertificates.keychain /Library/Keychains/System.keychain > /tmp/ca.pem
 curl --cacert /tmp/ca.pem -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 ```
+
+When Ghostty's download site is blocked, so `brew install --cask ghostty` fails, bootstrap offers Ghostty's nightly build from GitHub instead (GitHub carries no stable release of it), checked against GitHub's sha256.
 
 ### Existing Linux system
 
@@ -99,7 +99,7 @@ cd ~/dotfiles
 make install
 ```
 
-`make install` compiles the CLI and runs `dfinstall install all`, walking every module in dependency order: system packages → shell → editor → dev tools → WSL tuning.
+`make install` compiles the CLI and runs `dfinstall install all`, walking every module in dependency order: system packages, then shell, dev tools, git, the editor, the desktop, and platform tuning last.
 
 > [!TIP]
 > Not sure what it'll do to your machine? Run `./bin/dfinstall install all --dry-run` first. It prints every change and writes nothing.
@@ -215,7 +215,7 @@ Output falls back to ASCII symbols and drops the spinner on terminals that canno
    | Homebrew, a `.deb`, `go install` | leaves the binary alone and prints the command that updates it |
 
    Release downloads go through a Nexus GitHub mirror when npm points at one, falling back to GitHub.
-2. **Release binaries in `~/.local`** (nvim, tree-sitter, delta, terraform) are replaced when a newer release exists.
+2. **Release binaries in `~/.local`** (nvim, tree-sitter, delta, terraform, opencode) are replaced when a newer release exists, and offline doc sets are refetched when their source changed.
 3. **Cloned plugins** (oh-my-zsh, powerlevel10k, zsh-autosuggestions, TPM and the tmux plugins) are fast-forwarded.
 4. Then the normal install runs, asking for sudo only if something is missing.
 
@@ -333,11 +333,13 @@ Modules run in this order — dependencies first:
 | 19 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, no Accessibility needed. Tested only on macOS 26.7.1 (25G241). No-ops off macOS |
 | 20 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Tested only on macOS 26.7.1 (25G241). Only `install alttab` sets it up |
 | 21 | **htop** | htop config |
-| 22 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
-| 23 | **opencode** | opencode for Anthropic API / Bedrock users, locked to those providers with Claude Code-style permissions — see [docs](docs/modules.md#opencode). Opt-in |
-| 24 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
-| 25 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
-| 26 | **defaultshell** | Sets zsh as the default login shell |
+| 22 | **newsboat** | Feed reader with a curated security feed set; images inline via chafa, links in w3m |
+| 23 | **docs** | Offline usage docs from DevDocs and GitLab (`doc_sets`), read with the `docs` script |
+| 24 | **claude** | Claude Code global `CLAUDE.md` + managed keys merged into `settings.json` |
+| 25 | **opencode** | opencode for Anthropic API / Bedrock users, locked to those providers with Claude Code-style permissions — see [docs](docs/modules.md#opencode). Opt-in |
+| 26 | **wsl** | wsl.conf, sysctl tuning, .wslconfig, Windows home symlink, git fsmonitor |
+| 27 | **vmguest** | Hypervisor guest tools when running in a VM; no-op on bare metal or WSL |
+| 28 | **defaultshell** | Sets zsh as the default login shell |
 
 > [!NOTE]
 > **Opt-in modules** are skipped by `install all` until you enable them explicitly with `dfinstall install <name>`. Currently that's **windev** and **opencode**. Once enabled the choice persists in `config.yaml`, and future `install all` runs keep it current.
@@ -367,7 +369,7 @@ Two ways to wire it up:
 
 ## Building from Source
 
-**Requirements:** Go 1.25.5+ ([install](https://go.dev/doc/install)), Git, and optionally Make.
+**Requirements:** Go 1.26+ ([install](https://go.dev/doc/install)), Git, and optionally Make.
 
 ```bash
 git clone https://github.com/sresarehumantoo/dotfiles ~/dotfiles
@@ -404,9 +406,9 @@ bootstrap/               # WSL bootstrap wizard (PowerShell + bash), macOS boots
 config/                  # Config files symlinked into ~
   shell/                 #   zsh/bash dotfiles
   devtools/              #   utility scripts -> ~/.local/bin/
-  git/ nvim/ tmux/       #   tool configs
-  ghostty/ htop/ wsl/    #   more tool configs
-  konsole/ fonts/        #   terminal + font configs
+  git/ nvim/ tmux/ ...   #   one directory per tool
+  sway/ waybar/ ...      #   the Sway desktop
+  aerospace/ macos/ ...  #   macOS window manager, bar, keyboard
 cmd/
   dfinstall/             # CLI entry point (Cobra)
   dfinstall-mcp/         # MCP server (stdio JSON-RPC)
@@ -419,6 +421,8 @@ internal/
 tests/                   # Black-box tests (package tests)
                          #   in-package tests live beside the code in internal/
 docs/                    # In-depth documentation
+scripts/                 # e2e scenarios, corporate-network lab, release helpers
+.goreleaser.yaml         # Release archives, .debs, checksums
 ```
 
 </details>
@@ -441,6 +445,8 @@ make fmt            # gofmt -s -w (in place)
 make fmt-check      # gofmt -s check (non-mutating, same as CI)
 make check-decoupling  # guard against site-coupled content in this public repo
 make ci             # everything CI runs (fmt-check + lint + check-decoupling + build-all + test + test-race)
+make e2e            # end-to-end scenarios in Docker (SCENARIO=sudo runs one)
+make corplab        # corporate-network lab: TLS inspection + Nexus (SCENARIO=nexus runs one)
 make install        # build + dfinstall install all
 make uninstall      # build + dfinstall uninstall all
 make install-bin    # install both binaries onto PATH (~/.local/bin)
