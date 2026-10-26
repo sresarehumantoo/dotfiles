@@ -6,9 +6,9 @@ How to compile `dfinstall` from source and set up a development environment.
 
 | Requirement | Minimum | Notes |
 |-------------|---------|-------|
-| **Go** | 1.25.5 | The version declared in `go.mod`. [Install Go](https://go.dev/doc/install) |
+| **Go** | 1.26 | The version declared in `go.mod`. [Install Go](https://go.dev/doc/install) |
 | **Git** | any | For cloning and module downloads |
-| **Make** | any | Optional — convenience targets only |
+| **Make** | any | Optional; convenience targets only |
 
 No other system dependencies are needed to build. Runtime dependencies (zsh, curl, git, etc.) are installed by dfinstall itself.
 
@@ -32,9 +32,9 @@ go build \
 
 The `-ldflags` flag bakes the dotfiles directory path into the binary at compile time. This is only one input to how `dfinstall` locates its `config/` directory. At runtime `DotfilesDir()` resolves in order:
 
-1. `$DOTFILES` environment variable — explicit override, always wins.
-2. The machine-global canonical pointer file (`~/.config/dfinstall/dotfiles-dir`) — records which clone is authoritative on this host, so every clone links from one source. `install all` writes it (and self-heals a stale pointer).
-3. The clone the binary is physically running from — via `$DOTFILES`, then the baked-in path, then walking up from the executable to the nearest `go.mod`, then the current directory.
+1. `$DOTFILES` environment variable: explicit override, always wins.
+2. The machine-global canonical pointer file (`~/.config/dfinstall/dotfiles-dir`): records which clone is authoritative on this host, so every clone links from one source. `install all` writes it (and self-heals a stale pointer).
+3. The clone the binary is physically running from: via `$DOTFILES`, then the baked-in path, then walking up from the executable to the nearest `go.mod`, then the current directory.
 
 So the baked path is a fallback used only when neither `$DOTFILES` nor the canonical pointer applies. Recording the canonical clone on `install all` is what prevents symlink drift across multiple clones; verify with `dfinstall doctor` or `dfinstall diff`.
 
@@ -46,7 +46,7 @@ The Makefile passes a second `-X` for `core.Version`, derived from the tag:
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ```
 
-Both binaries read it — `dfinstall --version`, and the `serverInfo.version` the
+Both binaries read it: `dfinstall --version`, and the `serverInfo.version` the
 MCP server reports in its `initialize` response. A plain `go build` without the
 Makefile leaves it at `dev` rather than claiming a release.
 
@@ -130,7 +130,8 @@ Run `make` (or `make help`) to list every target.
 | `lint` | `go vet ./cmd/... ./internal/... ./tests/...` | Static analysis |
 | `fmt` | `gofmt -s -w cmd/ internal/ tests/` | Format source code in place |
 | `fmt-check` | `gofmt -s -l cmd internal tests` | Check formatting without modifying (same check as CI) |
-| `ci` | `fmt-check` + `lint` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
+| `check-decoupling` | `scripts/check-decoupling.sh` | Fail if site-specific content leaked into tracked files |
+| `ci` | `fmt-check` + `lint` + `check-decoupling` + `build-all` + `test` + `test-race` | Run every check CI runs, locally |
 | `e2e` | `scripts/e2e/run.sh <scenario>` | End-to-end scenarios in Docker; `SCENARIO=sudo` runs one |
 | `corplab` | `scripts/corplab/run.sh [scenario]` | Corporate-network scenarios (TLS inspection, Nexus) in Docker Compose; `SCENARIO=nexus` runs one |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
@@ -143,7 +144,7 @@ Run `make` (or `make help`) to list every target.
 ## Development Workflow
 
 ```bash
-# Run every check CI runs (fmt-check + vet + build both + test + race)
+# Run every check CI's Go job runs (fmt-check + vet + decoupling + build both + test + race)
 make ci
 
 # Test a single module
@@ -183,6 +184,20 @@ Note: the baked-in dotfiles path should match the target machine. If the path va
 ## Project Structure
 
 ```
+.config.yaml.example     # Documented example of every config key
+.github/                 # CI workflow + Dependabot config
+.goreleaser.yaml         # Release archives, .debs, checksums
+.mcp.json                # In-repo MCP server registration
+assets/                  # Logo SVG (+ generator) and the demo GIF
+bootstrap/               # WSL bootstrap wizard (PowerShell + bash), macOS bootstrap
+config/                  # Config files symlinked into ~, one directory per tool
+docs/                    # In-depth documentation
+scripts/                 # e2e scenarios, corporate-network lab, release helpers
+```
+
+The Go code:
+
+```
 cmd/
   dfinstall/         # CLI entry point (main.go)
   dfinstall-mcp/     # MCP server entry point (main.go) → bin/dfinstall-mcp
@@ -204,7 +219,7 @@ internal/
     registry.go      #   Toolkit registry fetch/cache/validate
     spinner.go       #   Animated progress with pause/resume
     version.go       #   core.Version, stamped at build time
-    virt.go          #   Virtualisation detection
+    virt.go          #   Virtualization detection
   modules/           # One file per module
     register.go        #   Module registration (order matters)
     omz_extended.go    #   Extended plugin menu and file writer
@@ -213,7 +228,7 @@ internal/
     github_release.go  #   GitHub release lookup and verified download, through a Nexus mirror when found
     mirrors.go         #   npm/pip/Go/cargo mirror detection (doctor's package mirrors row)
     json_settings.go   #   managedJSON: merge tracked keys into a settings file a program also writes
-    ...                #   19 modules total
+    ...                #   one file per module, 28 in all
 tests/                 # Black-box tests (package tests)
                        # In-package tests also live in internal/core/*_test.go
                        # and internal/modules/*_test.go for unexported internals
@@ -227,8 +242,8 @@ Tests use temporary directories and don't touch real system files. Run the full 
 make test
 ```
 
-A selection of the black-box suite in `tests/` — not the full list, see the
-directory for the rest:
+A selection of the black-box suite in `tests/` (not the full list; see the
+directory for the rest):
 
 | Test file | Coverage |
 |-----------|----------|
@@ -331,11 +346,15 @@ None of them can stand in for MDM, Santa, a corporate Nexus, or a particular Mac
 
 ## Continuous Integration
 
-CI runs on every push and pull request to `main` and `develop` via GitHub Actions (`.github/workflows/ci.yml`). Two jobs must pass:
+CI runs on every push and pull request to `main` and `develop`, and on manual dispatch, via GitHub Actions (`.github/workflows/ci.yml`):
 
 | Job | Checks |
 |-----|--------|
-| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
-| `shellcheck` | Lints the standalone bash scripts in `config/devtools/` and `bootstrap/` via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. |
+| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), the decoupling guard (`make check-decoupling`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
+| `go-macos` | Builds both binaries and runs `make test` on `macos-latest`, then checks that `bootstrap/macos-setup.sh` parses and runs `--help` under the stock `/bin/bash` 3.2. |
+| `goreleaser` | `goreleaser check`, so a broken `.goreleaser.yaml` fails here rather than on the next tag. |
+| `shellcheck` | Lints `config/devtools/`, `bootstrap/` and `scripts/`, one step each, via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. Any finding fails the job, a `note` included, and each step scans its whole directory rather than the diff. `make ci` does not run it. |
 
-The `main` branch is protected: both checks must pass before a pull request can merge.
+The `main` branch is protected: `go`, `go-macos` and `shellcheck` must pass before a pull request can merge.
+
+[Dependabot](../.github/dependabot.yml) opens weekly PRs against `develop` for Go modules and Actions. Minor and patch bumps are grouped into one PR per ecosystem; majors come one at a time, since they tend to need attention. The same checks gate them.
