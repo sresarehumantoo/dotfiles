@@ -157,7 +157,7 @@ var commandLayoutApps = []string{
 	"com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser",
 	"com.vivaldi.Vivaldi", "org.mozilla.firefox",
 	"com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.VSCode",
-	"com.hnc.Discord", "notion.id", "md.obsidian",
+	"com.hnc.Discord", "notion.id", "md.obsidian", "us.zoom.xos",
 	"com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint",
 	"com.microsoft.Outlook", "com.microsoft.onenote.mac",
 }
