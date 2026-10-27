@@ -34,6 +34,16 @@ Skips packages that are already installed. External command output is suppressed
 
 ---
 
+## tealdeer
+
+**File:** `modules/tealdeer.go`
+
+Links `config/tealdeer/config.toml` to `$XDG_CONFIG_HOME/tealdeer/config.toml`, macOS included: since 1.9 tealdeer reads the XDG dir there too, and uses `~/Library/Application Support/tealdeer` only while the XDG one does not exist (so a config left there from an older tealdeer stops being read once this link exists). It sets `tls_backend = "rustls-with-native-roots"`: tealdeer's default backend trusts only the roots built into it, so behind a TLS-inspecting proxy `tldr --update` fails, while native roots use the system store (the keychain on macOS, where an MDM installs the inspection CA, and the system bundle or `$SSL_CERT_FILE` elsewhere). The option arrived in tealdeer 1.8.0; older versions, such as Debian 13's 1.7.2, ignore it. Runs before `extras`, which installs tealdeer and updates its cache.
+
+**Status:** Checks 1 symlink.
+
+---
+
 ## extras
 
 **File:** `modules/extras.go`
