@@ -125,6 +125,8 @@ var appShortcuts = []appShortcut{
 	{"Bold", "^b", "@b", "@b"},
 	{"Italic", "^i", "@i", "@i"},
 	{"Underline", "^u", "@u", "@u"},
+	{"Developer Tools", "^$i", "@~i", "@~i"},
+	{"Email Link", "@$i", "@$i", "@$i"},
 }
 
 // An app's own NSUserKeyEquivalents is consulted before the global one, so
@@ -164,7 +166,13 @@ var commandLayoutApps = []string{
 
 // Apps on the command layout get the macOS shortcuts back, which already put
 // Windows' letters on the key that now sends Cmd, except where Windows differs.
-var commandLayoutShortcuts = map[string]string{"Paste and Match Style": "@$v"}
+// Chromium's Developer Tools is Ctrl+Shift+I on Windows but Cmd+Option+I on a
+// Mac, where Cmd+Shift+I is Email Link, so the two trade places.
+var commandLayoutShortcuts = map[string]string{
+	"Paste and Match Style": "@$v",
+	"Developer Tools":       "@$i",
+	"Email Link":            "@~i",
+}
 
 // shortcutTable pairs a preference domain with the column it gets.
 type shortcutTable struct {
