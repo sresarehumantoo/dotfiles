@@ -83,7 +83,7 @@ jobs:
 
       # Catches a broken .goreleaser.yaml before a tag is pushed, when it would
       # otherwise fail the release itself.
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
