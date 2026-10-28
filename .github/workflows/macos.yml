@@ -44,7 +44,7 @@ jobs:
         run: scripts/macos-harness/run.sh all --strict
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: harness-${{ matrix.os }}
           path: /tmp/dfinstall-macos-harness-*/
@@ -89,7 +89,7 @@ jobs:
         run: scripts/macos-ci/fresh-user.sh "$RUNNER_TEMP/fresh-user"
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fresh-user
           path: ${{ runner.temp }}/fresh-user/
@@ -110,7 +110,7 @@ jobs:
         run: scripts/macos-ci/mac-modules.sh "$RUNNER_TEMP/mac-modules"
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: mac-modules
           path: ${{ runner.temp }}/mac-modules/
@@ -131,7 +131,7 @@ jobs:
         run: scripts/macos-ci/tls-inspection.sh "$RUNNER_TEMP/tls"
 
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tls-inspection
           path: ${{ runner.temp }}/tls/
