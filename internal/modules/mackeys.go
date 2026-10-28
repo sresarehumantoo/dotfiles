@@ -84,6 +84,9 @@ var macKeyDefaults = []macDefault{
 	// Scrolling moves the view the way the wheel turns, as on Windows. The
 	// login helper sets this again, since it is easily reset.
 	{"NSGlobalDomain", "com.apple.swipescrolldirection", false},
+	// Finder shows hidden files and folders, as with Windows' "Show hidden
+	// items". Cmd+Shift+. still toggles it in a Finder window.
+	{"com.apple.finder", "AppleShowAllFiles", true},
 }
 
 // appShortcut is a menu title bound to Ctrl in every app; to Ctrl+Shift or
@@ -403,6 +406,9 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 	for _, d := range macKeyDefaults {
 		if _, err := runProbe(ctx, "defaults", "delete", d.domain, d.key); err == nil {
 			core.Changed("reset %s %s", d.domain, d.key)
+			if d.domain == "com.apple.finder" {
+				_ = runCmd(ctx, "killall", "Finder")
+			}
 		}
 	}
 	for _, t := range shortcutTables() {
@@ -599,7 +605,7 @@ func applyModifierSwap(ctx context.Context) (bool, error) {
 }
 
 func applyKeyDefaults(ctx context.Context) (bool, error) {
-	changed := false
+	changed, finder := false, false
 	domains := map[string]map[string]any{}
 	for _, d := range macKeyDefaults {
 		if _, ok := domains[d.domain]; !ok {
@@ -621,6 +627,14 @@ func applyKeyDefaults(ctx context.Context) (bool, error) {
 			return changed, err
 		}
 		core.Changed("set %s %s to %v", d.domain, d.key, d.want)
+		finder = finder || d.domain == "com.apple.finder"
+	}
+	// Finder reads its settings only at launch, and relaunches itself when
+	// quit, reopening its windows.
+	if finder {
+		if err := runCmd(ctx, "killall", "Finder"); err != nil {
+			core.Warn("Finder shows hidden files once it is relaunched: %v", err)
+		}
 	}
 	return changed, nil
 }
