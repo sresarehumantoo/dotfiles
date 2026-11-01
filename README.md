@@ -322,7 +322,7 @@ Modules run in this order, dependencies first. Each is documented in the [module
 | 17 | **sway** | Sway + waybar + swaync desktop ([guide](docs/sway.md)). No-ops without `sway` |
 | 18 | **aerospace** | macOS tiling window manager (AeroSpace). No-ops off macOS |
 | 19 | **sketchybar** | macOS status bar (SketchyBar). No-ops off macOS |
-| 20 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, no Accessibility needed. No-ops off macOS |
+| 20 | **mackeys** | macOS keyboard like a Windows laptop: modifier swap, Ctrl shortcuts in every app, key repeat, Finder showing hidden files, no Accessibility needed. No-ops off macOS |
 | 21 | **alttab** | macOS Option-Tab app switcher that looks like Command-Tab, and Win+L to lock, no Accessibility needed. Only `install alttab` sets it up |
 | 22 | **htop** | htop config |
 | 23 | **newsboat** | Feed reader with a curated security feed set; images inline via chafa, links in w3m |
