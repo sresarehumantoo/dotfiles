@@ -68,3 +68,23 @@ func TestExtractZipFile(t *testing.T) {
 		t.Fatal("expected an error for an absent member")
 	}
 }
+
+func TestTerraformBuildFor(t *testing.T) {
+	rel := terraformRelease{Builds: []terraformBuild{
+		{OS: "linux", Arch: "amd64", URL: "linux_amd64.zip"},
+		{OS: "darwin", Arch: "amd64", URL: "darwin_amd64.zip"},
+		{OS: "darwin", Arch: "arm64", URL: "darwin_arm64.zip"},
+	}}
+	for _, tc := range []struct{ goos, goarch, want string }{
+		{"linux", "amd64", "linux_amd64.zip"},
+		{"darwin", "arm64", "darwin_arm64.zip"},
+		{"darwin", "amd64", "darwin_amd64.zip"},
+	} {
+		if got, ok := terraformBuildFor(rel, tc.goos, tc.goarch); !ok || got != tc.want {
+			t.Errorf("%s/%s: got %q, %v; want %q", tc.goos, tc.goarch, got, ok, tc.want)
+		}
+	}
+	if got, ok := terraformBuildFor(rel, "linux", "arm64"); ok {
+		t.Errorf("linux/arm64 has no build but got %q", got)
+	}
+}
