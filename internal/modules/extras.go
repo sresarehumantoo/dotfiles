@@ -552,13 +552,10 @@ func installDockerPacman(ctx context.Context) error {
 
 func installHashicorp(ctx context.Context) error {
 	dst := core.HomeTarget(".local", "bin", "terraform")
-	upgrade := !core.IsMac() && upgradeable(dst)
+	upgrade := upgradeable(dst)
 	if localBinInstalled("terraform") && !upgrade {
 		core.Ok("Terraform already installed")
 		return nil
-	}
-	if core.IsMac() {
-		return installPkg(ctx, "hashicorp/tap/terraform")
 	}
 	rel, err := latestTerraform(ctx)
 	if err != nil {
@@ -594,6 +591,17 @@ type terraformBuild struct {
 	URL  string `json:"url"`
 }
 
+// terraformBuildFor returns the download URL of rel's build for goos/goarch.
+func terraformBuildFor(rel terraformRelease, goos, goarch string) (string, bool) {
+	i := slices.IndexFunc(rel.Builds, func(b terraformBuild) bool {
+		return b.OS == goos && b.Arch == goarch
+	})
+	if i < 0 {
+		return "", false
+	}
+	return rel.Builds[i].URL, true
+}
+
 // latestTerraform fetches the latest release's metadata from HashiCorp.
 func latestTerraform(ctx context.Context) (terraformRelease, error) {
 	var rel terraformRelease
@@ -610,19 +618,17 @@ func latestTerraform(ctx context.Context) (terraformRelease, error) {
 // installTerraformRelease installs a terraform release binary into
 // ~/.local/bin, checked against HashiCorp's signed SHA256SUMS. This replaces
 // adding HashiCorp's apt repository, which needed root and let that repo
-// supply any package to apt, for the sake of one static binary.
+// supply any package to apt, for the sake of one static binary. macOS takes
+// the same path: Homebrew 7 refuses hashicorp/tap until the user trusts it.
 func installTerraformRelease(ctx context.Context, rel terraformRelease) error {
 	dst := core.HomeTarget(".local", "bin", "terraform")
 	if err := core.CheckTarget(dst); err != nil {
 		return err
 	}
-	i := slices.IndexFunc(rel.Builds, func(b terraformBuild) bool {
-		return b.OS == "linux" && b.Arch == runtime.GOARCH
-	})
-	if i < 0 || rel.SHASums == "" {
-		return fmt.Errorf("no terraform %s build for linux/%s", rel.Version, runtime.GOARCH)
+	zipURL, ok := terraformBuildFor(rel, runtime.GOOS, runtime.GOARCH)
+	if !ok || rel.SHASums == "" {
+		return fmt.Errorf("no terraform %s build for %s/%s", rel.Version, runtime.GOOS, runtime.GOARCH)
 	}
-	zipURL := rel.Builds[i].URL
 
 	tmp, err := os.MkdirTemp("", "terraform-*")
 	if err != nil {
@@ -660,7 +666,11 @@ func installTerraformRelease(ctx context.Context, rel terraformRelease) error {
 	if err := extractZipFile(zipPath, "terraform", bin); err != nil {
 		return err
 	}
-	if err := runCmd(ctx, "install", "-D", "-m", "0755", bin, dst); err != nil {
+	// BSD install, on macOS, has no -D.
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := runCmd(ctx, "install", "-m", "0755", bin, dst); err != nil {
 		return err
 	}
 	core.Changed("Terraform %s installed to %s", rel.Version, dst)

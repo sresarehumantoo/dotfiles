@@ -69,8 +69,8 @@ Three groups of additional tooling:
 - macOS: Homebrew's keg-only `rustup` instead of `curl | sh`, which managed Macs often forbid; its `bin` (with the cargo/rustc proxies) goes on PATH the same way
 
 **Terraform:**
-- Linux: the latest release binary into `~/.local/bin`, no root. `SHA256SUMS` is verified against its detached signature, which must come from HashiCorp's release key (fingerprint pinned in `extras.go`); without `gpg` it falls back to the checksum alone and says so. Earlier versions added HashiCorp's apt repo instead; on those machines the repo and package are left as they are.
-- macOS: Homebrew's `hashicorp/tap/terraform`
+- Linux and macOS: the latest release binary into `~/.local/bin`, no root. `SHA256SUMS` is verified against its detached signature, which must come from HashiCorp's release key (fingerprint pinned in `extras.go`); without `gpg` it falls back to the checksum alone and says so. Earlier versions added HashiCorp's apt repo instead; on those machines the repo and package are left as they are.
+- macOS used Homebrew's `hashicorp/tap/terraform` until Homebrew 7 began refusing untrusted taps; a terraform already on `PATH` from it is left in place.
 
 Reads `/etc/os-release` for `VERSION_CODENAME` to construct the Docker apt repo URL.
 
