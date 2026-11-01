@@ -84,6 +84,9 @@ var macKeyDefaults = []macDefault{
 	// Scrolling moves the view the way the wheel turns, as on Windows. The
 	// login helper sets this again, since it is easily reset.
 	{"NSGlobalDomain", "com.apple.swipescrolldirection", false},
+	// Finder shows hidden files and folders, as with Windows' "Show hidden
+	// items". Cmd+Shift+. still toggles it in a Finder window.
+	{"com.apple.finder", "AppleShowAllFiles", true},
 }
 
 // appShortcut is a menu title bound to Ctrl in every app; to Ctrl+Shift or
@@ -125,6 +128,8 @@ var appShortcuts = []appShortcut{
 	{"Bold", "^b", "@b", "@b"},
 	{"Italic", "^i", "@i", "@i"},
 	{"Underline", "^u", "@u", "@u"},
+	{"Developer Tools", "^$i", "@~i", "@~i"},
+	{"Email Link", "@$i", "@$i", "@$i"},
 }
 
 // An app's own NSUserKeyEquivalents is consulted before the global one, so
@@ -157,14 +162,20 @@ var commandLayoutApps = []string{
 	"com.microsoft.edgemac", "com.brave.Browser", "company.thebrowser.Browser",
 	"com.vivaldi.Vivaldi", "org.mozilla.firefox",
 	"com.tinyspeck.slackmacgap", "com.microsoft.teams2", "com.microsoft.VSCode",
-	"com.hnc.Discord", "notion.id", "md.obsidian",
+	"com.hnc.Discord", "notion.id", "md.obsidian", "us.zoom.xos",
 	"com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint",
 	"com.microsoft.Outlook", "com.microsoft.onenote.mac",
 }
 
 // Apps on the command layout get the macOS shortcuts back, which already put
 // Windows' letters on the key that now sends Cmd, except where Windows differs.
-var commandLayoutShortcuts = map[string]string{"Paste and Match Style": "@$v"}
+// Chromium's Developer Tools is Ctrl+Shift+I on Windows but Cmd+Option+I on a
+// Mac, where Cmd+Shift+I is Email Link, so the two trade places.
+var commandLayoutShortcuts = map[string]string{
+	"Paste and Match Style": "@$v",
+	"Developer Tools":       "@$i",
+	"Email Link":            "@~i",
+}
 
 // shortcutTable pairs a preference domain with the column it gets.
 type shortcutTable struct {
@@ -403,6 +414,9 @@ func (m MackeysModule) Uninstall(ctx context.Context) error {
 	for _, d := range macKeyDefaults {
 		if _, err := runProbe(ctx, "defaults", "delete", d.domain, d.key); err == nil {
 			core.Changed("reset %s %s", d.domain, d.key)
+			if d.domain == "com.apple.finder" {
+				_ = runCmd(ctx, "killall", "Finder")
+			}
 		}
 	}
 	for _, t := range shortcutTables() {
@@ -599,7 +613,7 @@ func applyModifierSwap(ctx context.Context) (bool, error) {
 }
 
 func applyKeyDefaults(ctx context.Context) (bool, error) {
-	changed := false
+	changed, finder := false, false
 	domains := map[string]map[string]any{}
 	for _, d := range macKeyDefaults {
 		if _, ok := domains[d.domain]; !ok {
@@ -621,6 +635,14 @@ func applyKeyDefaults(ctx context.Context) (bool, error) {
 			return changed, err
 		}
 		core.Changed("set %s %s to %v", d.domain, d.key, d.want)
+		finder = finder || d.domain == "com.apple.finder"
+	}
+	// Finder reads its settings only at launch, and relaunches itself when
+	// quit, reopening its windows.
+	if finder {
+		if err := runCmd(ctx, "killall", "Finder"); err != nil {
+			core.Warn("Finder shows hidden files once it is relaunched: %v", err)
+		}
 	}
 	return changed, nil
 }

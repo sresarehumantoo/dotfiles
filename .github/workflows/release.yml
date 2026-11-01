@@ -40,7 +40,7 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: "~> v2"
@@ -58,7 +58,7 @@ jobs:
             echo "prerelease=false" >>"$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages
           path: |
@@ -83,7 +83,7 @@ jobs:
         uses: actions/checkout@v7
 
       - if: env.TAP_KEY != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: packages
           path: packages
@@ -125,7 +125,7 @@ jobs:
           fetch-depth: 0
 
       - if: env.SIGNING_KEY != ''
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: packages
           path: packages

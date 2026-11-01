@@ -1,0 +1,7 @@
+# tealdeer's default TLS backend trusts only its bundled roots, so `tldr
+# --update` fails behind a TLS-inspecting proxy. Native roots read the system
+# store: the keychain on macOS, where an MDM installs the inspection CA, and
+# the system bundle (or $SSL_CERT_FILE) elsewhere. tealdeer before 1.8 ignores
+# the key.
+[updates]
+tls_backend = "rustls-with-native-roots"

@@ -11,6 +11,7 @@ import (
 func RegisterAllModules() {
 	core.RegisterModule(&LocaleModule{})
 	core.RegisterModule(&PackagesModule{})
+	core.RegisterModule(&TealdeerModule{})
 	core.RegisterModule(&ExtrasModule{})
 	core.RegisterModule(&ToolkitModule{})
 	core.RegisterModule(&DeltaModule{})
