@@ -164,10 +164,11 @@ case "\$cmd" in
                 *)
                     if [ "\$verify" != yes ]; then
                         printf 'harness: would %s %s %s (UNVERIFIED: the real Homebrew could not be asked)\n' "\$cmd" "\$cask" "\$a" >>"$out/brew-requests.log"
-                    elif real info \$cask "\$a" >/dev/null 2>&1; then
+                    elif err=\$(real info \$cask "\$a" 2>&1 >/dev/null); then
                         printf 'harness: would %s %s %s\n' "\$cmd" "\$cask" "\$a" >>"$out/brew-requests.log"
                     else
-                        printf 'harness: NO SUCH %s %s\n' "\${cask:-formula}" "\$a" >>"$out/brew-requests.log"
+                        printf 'harness: NO SUCH %s %s (brew: %s)\n' "\${cask:-formula}" "\$a" \
+                            "\$(printf '%s\n' "\$err" | grep -v '^[[:space:]]*\$' | tail -n 3 | tr '\n' ' ')" >>"$out/brew-requests.log"
                         echo "Error: No available \${cask:+cask}\${cask:-formula} with the name \"\$a\"." >&2
                         rc=1
                     fi ;;
