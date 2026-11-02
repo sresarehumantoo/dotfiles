@@ -1350,9 +1350,9 @@ doas install -m0644 <dotfiles>/config/sway/swayfx.desktop /usr/share/wayland-ses
 > ninja -C build && install -m0755 build/sway/sway /opt/swayfx/bin/sway
 > ```
 >
-> The pre-patch binary is kept at `/opt/swayfx/bin/sway.orig-0.6`, and
-> `~/projects/sway-migration/swayfx-0.6/install.sh` still copies the
-> UNPATCHED prebuilt prefix.
+> The pre-patch binary is kept at `/opt/swayfx/bin/sway.orig-0.6`. The
+> prebuilt prefix that `~/projects/sway-migration/swayfx-0.6/install.sh`
+> copies carries the patched `sway` too, so a reinstall keeps the fix.
 
 > [!WARNING]
 > **Never pipe `ninja` into `tail`.** The pipeline's exit status is `tail`'s, so
