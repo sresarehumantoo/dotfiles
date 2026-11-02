@@ -1294,7 +1294,8 @@ That is the entire reason this was affordable.
 # Sources: swayfx 0.6 + scenefx 0.5 tarballs, wlroots 0.20.1 tarball.
 # Copies of all three are kept in ~/projects/sway-migration/swayfx-0.6/.
 tar xf swayfx-0.6.tar.gz && tar xf scenefx-0.5.tar.gz
-cd swayfx-0.6 && mkdir -p subprojects
+cd swayfx-0.6 && patch -p1 < <dotfiles>/config/sway/swayfx-close-anim.patch
+mkdir -p subprojects
 cp -r ../scenefx-0.5 subprojects/scenefx
 cp -r ../wlroots-0.20.1 subprojects/wlroots
 
@@ -1326,6 +1327,32 @@ doas ninja -C build install
 doas install -m0755 <dotfiles>/config/sway/swayfx-session /opt/swayfx/bin/
 doas install -m0644 <dotfiles>/config/sway/swayfx.desktop /usr/share/wayland-sessions/
 ```
+
+> [!IMPORTANT]
+> **`swayfx-close-anim.patch` is a LOCAL DELTA (2026-11-02).** Stock 0.6 aborts
+> when a window's close animation finishes and the view never had a saved
+> buffer (`view_remove_saved_buffer: Expected a saved buffer`); joining a Zoom
+> call (XWayland popups) took the whole session down. Upstream wlrfx/swayfx
+> #558 is open. `animation_duration_ms 0` does not avoid it: `add_animation`
+> then calls the same completion callback synchronously. The recipe builds
+> with meson's default `debug` buildtype, so `NDEBUG` is unset and every
+> `sway_assert` is fatal.
+>
+> **To rebuild only `sway` (the usual case for a patch):** skip the
+> subprojects and link against the prefix's own libraries, so nothing but the
+> patched code changes. The wlroots wraps are unpinned `revision = HEAD` git
+> clones, so a full rebuild would also pull whatever upstream has that day.
+>
+> ```bash
+> export PKG_CONFIG_PATH=/opt/swayfx/lib/x86_64-linux-gnu/pkgconfig:/opt/swayfx/share/pkgconfig
+> LDFLAGS="-Wl,-rpath,/opt/swayfx/lib/x86_64-linux-gnu" \
+>   meson setup build --prefix=/opt/swayfx --wrap-mode=nofallback
+> ninja -C build && install -m0755 build/sway/sway /opt/swayfx/bin/sway
+> ```
+>
+> The pre-patch binary is kept at `/opt/swayfx/bin/sway.orig-0.6`, and
+> `~/projects/sway-migration/swayfx-0.6/install.sh` still copies the
+> UNPATCHED prebuilt prefix.
 
 > [!WARNING]
 > **Never pipe `ninja` into `tail`.** The pipeline's exit status is `tail`'s, so
