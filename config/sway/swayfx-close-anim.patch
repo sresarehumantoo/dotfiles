@@ -1,0 +1,16 @@
+--- a/sway/desktop/transaction.c
++++ b/sway/desktop/transaction.c
+@@ -93,7 +93,12 @@
+ 
+ static void close_anim_complete_callback(void *data) {
+ 	struct sway_container *con = data;
+-	view_remove_saved_buffer(con->view);
++	// LOCAL DELTA: a view closed before any frame was saved (Zoom's
++	// short-lived XWayland popups) reaches here without a saved buffer, and
++	// the unguarded call aborted the compositor. Upstream wlrfx/swayfx #558.
++	if (con->view && con->view->saved_surface_tree) {
++		view_remove_saved_buffer(con->view);
++	}
+ 	container_destroy(con);
+ }
+ 
