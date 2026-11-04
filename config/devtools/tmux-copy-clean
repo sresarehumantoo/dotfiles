@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Strip powerlevel10k prompt decoration from text copied in tmux copy mode.
+set -euo pipefail
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+  cat <<'EOF'
+Usage: tmux-copy-clean [--load]
+
+Reads copied text on stdin and removes the p10k prompt from each line: the
+left prompt up to its end symbol (U+E0B0) and the right prompt from its start
+symbol (U+E0B2) on. A prompt line with no command is dropped; one with a
+command keeps just the command.
+
+  --load   replace the newest tmux buffer (the raw copy-pipe copy) with the
+           result and send it to the clipboard (OSC 52) instead of printing it
+EOF
+  exit 0
+fi
+
+# The glyphs are POWERLEVEL9K_LEFT_PROMPT_LAST_SEGMENT_END_SYMBOL and
+# POWERLEVEL9K_RIGHT_PROMPT_FIRST_SEGMENT_START_SYMBOL in config/shell/p10k.zsh.
+clean() {
+  perl -CSD -ne '
+    my $prompt = s/^.*?\x{E0B0} ?//;
+    $prompt = 1 if s/[ \t]*\x{E0B2}.*$//;
+    next if $prompt && /^\s*$/;
+    print;
+  '
+}
+
+if [[ ${1:-} == --load ]]; then
+  text=$(clean; printf x)
+  tmux delete-buffer 2>/dev/null || true
+  printf '%s' "${text%x}" | tmux load-buffer -w -
+else
+  clean
+fi

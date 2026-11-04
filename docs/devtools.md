@@ -312,6 +312,10 @@ $ tmux-restore off
 
 After flipping, reload a running session's config with `tmux source-file ~/.tmux.conf`, though `@continuum-restore` is only fully consulted at server start.
 
+### tmux-copy-clean
+
+Strips the powerlevel10k prompt from text copied in tmux copy mode, so a selection spanning several commands yields the commands and their output without the prompt glyphs or the right-side status. `tmux.conf` pipes both `y` and a mouse drag through it with `--load`, which replaces the raw copy with the cleaned one and sends it to the clipboard over OSC 52. Without `--load` it filters stdin to stdout. It keys on the prompt's powerline end symbols set in `config/shell/p10k.zsh`, so changing those means updating the script.
+
 ### claude-tmux
 
 Brings Claude Code conversations back when tmux-resurrect restores a server. Resurrect saves each pane's command line, which never holds a session id, so it cannot tell which conversation a pane had. This keeps that mapping in three steps, none of which you run by hand:
