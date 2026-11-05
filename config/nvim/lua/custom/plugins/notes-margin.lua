@@ -46,6 +46,13 @@ return {
       return n
     end
 
+    -- Global chrome saved while the margin is up. With laststatus=2 each window
+    -- draws its own statusline, so the filler split the bar at the margin and
+    -- left a stub to the right ("the extra bar"); a single global statusline
+    -- (3) spans the full width instead. Blanking the vertical separator hides
+    -- the line between the note and the filler. Both are restored in disable().
+    local saved_laststatus, saved_fillchars
+
     -- Pin a window to WIDTH with the filler absorbing the slack. winfixwidth
     -- keeps equalalways from stealing columns back once a sidebar appears.
     local function pin(win)
@@ -60,6 +67,12 @@ return {
       if vim.api.nvim_win_get_width(note) <= WIDTH then
         return -- screen already narrower than the cap; nothing to pad
       end
+      if saved_laststatus == nil then
+        saved_laststatus = vim.o.laststatus
+        saved_fillchars = vim.o.fillchars
+      end
+      vim.o.laststatus = 3
+      vim.opt.fillchars:append { vert = ' ' }
       -- noautocmd: the split must not re-trigger the BufWinEnter handler below.
       vim.cmd 'noautocmd silent vertical rightbelow new'
       local fill = vim.api.nvim_get_current_win()
@@ -85,6 +98,11 @@ return {
       local fill = vim.t.notes_margin_fill
       if fill and vim.api.nvim_win_is_valid(fill) then
         pcall(vim.api.nvim_win_close, fill, true)
+      end
+      if saved_laststatus ~= nil then
+        vim.o.laststatus = saved_laststatus
+        vim.o.fillchars = saved_fillchars
+        saved_laststatus, saved_fillchars = nil, nil
       end
       vim.t.notes_margin_fill = nil
       vim.t.notes_margin_on = false
