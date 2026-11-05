@@ -359,12 +359,8 @@ func (m SwayModule) Install(ctx context.Context) error {
 	}
 
 	core.Info("Linking sway + waybar config...")
-	if !core.DryRun {
-		for _, name := range swayScripts {
-			if err := os.Chmod(core.ConfigPath("sway", name), 0755); err != nil {
-				core.Warn("chmod failed for %s: %v", name, err)
-			}
-		}
+	for _, name := range swayScripts {
+		core.EnsureExecutable(core.ConfigPath("sway", name))
 	}
 	if err := m.Links().Apply(); err != nil {
 		return err

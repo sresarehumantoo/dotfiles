@@ -3,7 +3,6 @@ package modules
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
@@ -65,20 +64,14 @@ func (DevtoolsModule) Links() core.LinkSet {
 }
 
 // Install can't use LinkSet.Apply directly: each script needs the executable
-// bit set on the source (the symlink inherits it), and a single bad script
+// bit on the source (the symlink inherits it), and a single bad script
 // shouldn't abort the rest.
 func (m DevtoolsModule) Install(ctx context.Context) error {
 	core.Info("Installing devtools scripts...")
 
 	var failed int
 	for _, l := range m.Links() {
-		if !core.DryRun {
-			if err := os.Chmod(l.Src, 0755); err != nil {
-				core.Warn("chmod failed for %s: %v", l.Src, err)
-				failed++
-				continue
-			}
-		}
+		core.EnsureExecutable(l.Src)
 		if err := core.LinkFile(l.Src, l.Dst); err != nil {
 			core.Warn("link failed for %s: %v", l.Dst, err)
 			failed++
