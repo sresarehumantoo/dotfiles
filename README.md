@@ -213,7 +213,13 @@ Managed configs are symlinks into the clone, so editing `~/.config/ghostty/confi
 | `~/.config/ghostty/config` | `~/.config/ghostty/ghostty.user` |
 | `~/.zshrc`, `~/.zsh.d/*.zsh` | `~/.zshrc.local` |
 | `~/.aliases` | `~/.aliases.local` |
+| `~/.bashrc` | `~/.bashrc.local` |
+| `~/.config/tmux/tmux.conf` | `~/.config/tmux/tmux.user.conf` |
+| `~/.config/sway/config` | `~/.config/sway/config.d/local.conf` (sway loads every file in `config.d/` last) |
+| `~/.config/sketchybar/sketchybarrc` | `~/.config/sketchybar/local.sh` |
 | `~/.gitconfig` | `~/.gitconfig.user` (included last, so its values win; a removed key, or a rewritten multi-value key such as `credential.helper`, cannot move) |
+
+Neovim has a hook too, `~/.config/nvim/lua/custom/local.lua`, loaded last when it exists. Edits to `init.lua` are not moved there, because Lua is not later-wins line by line.
 
 Anything the override file already holds is not written again, so a repeated move, or a setting you had already put there, does not duplicate. You can write to these files directly too.
 
