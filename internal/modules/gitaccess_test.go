@@ -155,3 +155,12 @@ func TestOmzSkipsWithoutGit(t *testing.T) {
 		t.Fatalf("Install = %v, want a SkipError naming the missing git", err)
 	}
 }
+
+// A personal rewrite of GitHub https to ssh is common and is not a mirror.
+func TestGitAccessDoctorRewriteWording(t *testing.T) {
+	fakeGit(t, map[string]string{"FAKE_GIT_GETURL": "git@github.com:"})
+	r := gitAccessDoctorResult()
+	if !strings.Contains(r.Detail, "rewritten by insteadOf to git@github.com:") || strings.Contains(r.Detail, "mirror") {
+		t.Errorf("doctor = %q", r.Detail)
+	}
+}

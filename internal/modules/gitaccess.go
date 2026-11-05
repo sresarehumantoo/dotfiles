@@ -37,7 +37,7 @@ type gitAccess struct {
 	Reason  string
 	Version string
 	// Target is the URL asked about; URL is what git will fetch after its
-	// insteadOf rules, which differs only when a mirror is configured.
+	// insteadOf rules: a mirror, or ssh in place of https.
 	Target, URL string
 	Proxy       string
 	CAInfo      string
@@ -181,7 +181,7 @@ func gitAccessDoctorResult() DoctorResult {
 	case gitOK:
 		detail = "git " + a.Version + ", https allowed"
 	case gitViaMirror:
-		detail = fmt.Sprintf("git %s, github.com via mirror %s", a.Version, redactURL(a.URL))
+		detail = fmt.Sprintf("git %s, https://github.com/ rewritten by insteadOf to %s", a.Version, redactURL(a.URL))
 	default:
 		detail = string(a.State) + ": " + a.Reason
 	}
