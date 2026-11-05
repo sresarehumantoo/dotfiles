@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# jwt-encode: build and sign a JWT from JSON claims.
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+lib="$here/_jwt.pl"
+
+if [[ ${1:-} == -h || ${1:-} == --help ]]; then
+  cat <<'EOF'
+Usage: jwt-encode [options]
+       echo '{"sub":"owen"}' | jwt-encode --alg HS256 --secret s3cret
+
+Builds a JWT from a JSON payload and signs it. The payload comes from --payload
+or, by default, stdin. The token is printed to stdout.
+
+  --alg ALG           none | HS256/384/512 | RS* | PS* | ES* (default HS256)
+  --secret STR        HMAC secret for HS*
+  --secret-file FILE  read the HMAC secret from FILE (no trailing newline)
+  --key FILE          PEM PRIVATE key for RS/PS/ES (must be unencrypted)
+  --payload JSON      the claims, inline (otherwise read from stdin)
+  --payload-file FILE read the claims from FILE
+  --kid KID           set the header kid
+  --typ TYP           set the header typ (default JWT)
+  --iat               add iat = now
+  --exp SECONDS       add exp = now + SECONDS
+  --nbf SECONDS       add nbf = now + SECONDS
+
+This mints tokens for testing: a chosen exp or set of claims, alg=none, or a
+token signed with a given secret or key. It signs what you give it; it makes
+no claim that a server should accept the result.
+EOF
+  exit 0
+fi
+
+alg="HS256"
+secret=""; have_secret=0
+keyfile=""
+payload=""; have_payload=0
+kid=""; have_kid=0
+typ="JWT"
+add_iat=0
+exp=""; have_exp=0
+nbf=""; have_nbf=0
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --alg) alg=$2; shift ;;
+    --secret) secret=$2; have_secret=1; shift ;;
+    --secret-file) secret=$(cat -- "$2"); have_secret=1; shift ;;
+    --key) keyfile=$2; shift ;;
+    --payload) payload=$2; have_payload=1; shift ;;
+    --payload-file) payload=$(cat -- "$2"); have_payload=1; shift ;;
+    --kid) kid=$2; have_kid=1; shift ;;
+    --typ) typ=$2; shift ;;
+    --iat) add_iat=1 ;;
+    --exp) exp=$2; have_exp=1; shift ;;
+    --nbf) nbf=$2; have_nbf=1; shift ;;
+    -*) echo "jwt-encode: unknown option $1" >&2; exit 2 ;;
+    *) echo "jwt-encode: unexpected argument $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+if [[ $have_payload -eq 0 ]]; then
+  if [[ -t 0 ]]; then
+    echo "jwt-encode: provide --payload JSON or pipe the claims on stdin" >&2
+    exit 2
+  fi
+  payload=$(cat)
+fi
+
+# Build header+payload and the signing input in perl; sign in whichever way the
+# alg needs (HMAC here, openssl for RS/PS/ES), then emit the finished token.
+VERIFY_SECRET="$secret" perl -MJSON::PP -MDigest::SHA=hmac_sha256,hmac_sha384,hmac_sha512 -MFile::Temp=tempfile -e '
+  do $ARGV[0] or die $@;
+  my %o = (
+    lib => $ARGV[0], alg => $ARGV[1], payload => $ARGV[2], keyfile => $ARGV[3],
+    typ => $ARGV[4], kid => $ARGV[5], have_kid => $ARGV[6],
+    have_secret => $ARGV[7], add_iat => $ARGV[8],
+    have_exp => $ARGV[9], exp => $ARGV[10], have_nbf => $ARGV[11], nbf => $ARGV[12],
+  );
+
+  my $json = JSON::PP->new->canonical;
+  my $payload = eval { $json->decode($o{payload}) };
+  die "jwt-encode: the payload is not valid JSON\n" unless defined $payload;
+  die "jwt-encode: the payload must be a JSON object\n" unless ref $payload eq "HASH";
+
+  my $now = time;
+  $payload->{iat} = $now                        if $o{add_iat};
+  $payload->{exp} = $now + int($o{exp})         if $o{have_exp};
+  $payload->{nbf} = $now + int($o{nbf})         if $o{have_nbf};
+
+  my %header = (alg => $o{alg}, typ => $o{typ});
+  $header{kid} = $o{kid} if $o{have_kid};
+
+  my $signing_input = b64u_encode($json->encode(\%header)) . "." . b64u_encode($json->encode($payload));
+
+  my $alg = $o{alg};
+  my $sig;
+  if ($alg eq "none") {
+    $sig = "";
+  }
+  elsif ($alg =~ /^HS(256|384|512)$/) {
+    die "jwt-encode: $alg needs --secret\n" unless $o{have_secret};
+    my %fn = (256 => \&hmac_sha256, 384 => \&hmac_sha384, 512 => \&hmac_sha512);
+    $sig = b64u_encode($fn{$1}->($signing_input, $ENV{VERIFY_SECRET}));
+  }
+  elsif ($alg =~ /^(RS|PS|ES)(256|384|512)$/) {
+    my ($fam, $bits) = ($1, $2);
+    die "jwt-encode: $alg needs --key (PEM private key)\n" unless length $o{keyfile};
+    my $digest = "sha$bits";
+
+    my ($ifh, $ifile) = tempfile(UNLINK => 1);
+    binmode $ifh; print $ifh $signing_input; close $ifh;
+    my ($ofh, $ofile) = tempfile(UNLINK => 1); close $ofh;
+
+    my @cmd = ("openssl", "dgst", "-$digest", "-sign", $o{keyfile}, "-out", $ofile);
+    push @cmd, ("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:-1") if $fam eq "PS";
+    push @cmd, $ifile;
+
+    my $pid = fork();
+    if (!$pid) { open STDERR, ">", "/dev/null"; exec { $cmd[0] } @cmd; exit 127 }
+    waitpid $pid, 0;
+    die "jwt-encode: openssl could not sign (key unreadable or encrypted?)\n" if ($? >> 8) != 0;
+
+    open my $r, "<", $ofile or die "jwt-encode: $!\n";
+    binmode $r; local $/; my $raw = <$r>; close $r;
+    $raw = ecdsa_der_to_raw($raw, ecdsa_int_len($alg)) if $fam eq "ES";
+    $sig = b64u_encode($raw);
+  }
+  else {
+    die "jwt-encode: alg $alg unsupported\n";
+  }
+
+  print "$signing_input.$sig\n";
+' "$lib" "$alg" "$payload" "$keyfile" "$typ" "$kid" "$have_kid" "$have_secret" "$add_iat" "$have_exp" "$exp" "$have_nbf" "$nbf"

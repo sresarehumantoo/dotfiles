@@ -271,7 +271,7 @@ $ clipboard-vm
 
 ### jwt-decode
 
-Decodes a JWT and pretty-prints its header and payload, with `iat`, `nbf` and `exp` shown as local times and flagged when the token is expired or not yet valid. A leading `Bearer ` is ignored, and an encrypted (five-part) JWE is reported as unreadable rather than garbled. **The signature is not verified**: it shows what a token claims, not whether to trust it. Pure perl core modules, so it needs no jq.
+Decodes a JWT and pretty-prints its header and payload, with `iat`, `nbf` and `exp` shown as local times and flagged when the token is expired or not yet valid. A leading `Bearer ` is ignored, and an encrypted (five-part) JWE is reported as unreadable rather than garbled. Pure perl core modules plus `openssl`, so it needs no jq.
 
 Pass the token as an argument, or on stdin to keep it out of shell history:
 
@@ -279,6 +279,25 @@ Pass the token as an argument, or on stdin to keep it out of shell history:
 $ wl-paste | jwt-decode
 $ jwt-decode "$TOKEN"
 ```
+
+By default the signature is shown but **not** checked: the decode tells you what a token claims, the verify tells you whether to trust it. `--verify` checks it and sets the exit code (0 valid, 1 invalid, 2 cannot verify). HS256/384/512 take `--secret` (or `--secret-file`); RS/PS/ES take `--key` with a PEM public key. `alg: none` is reported as unsigned (exit 2), and an unsupported alg says so rather than claiming a verdict.
+
+```
+$ jwt-decode --verify --secret hunter2 "$TOKEN"
+$ jwt-decode --verify --key issuer-pub.pem "$TOKEN"
+```
+
+### jwt-encode
+
+Builds and signs a JWT from a JSON payload (inline `--payload`, `--payload-file`, or stdin). `--alg` defaults to HS256 and also takes `none`, `RS*`, `PS*` and `ES*`; HS* sign with `--secret`, the rest with `--key` (an unencrypted PEM private key). `--iat`, `--exp SECONDS` and `--nbf SECONDS` fill the time claims relative to now, and `--kid`/`--typ` set header fields. The token is printed to stdout.
+
+```
+$ echo '{"sub":"owen","role":"admin"}' | jwt-encode --alg HS256 --secret hunter2 --exp 3600
+$ jwt-encode --alg none --payload '{"sub":"admin"}'
+$ jwt-encode --alg ES256 --key ec.key --payload "$CLAIMS"
+```
+
+It shares the base64url and ECDSA raw↔DER conversion with `jwt-decode` through `_jwt.pl`. It signs exactly what you give it and makes no claim that a server should accept the result, which is the point when testing whether one does.
 
 ### tlog-clean
 

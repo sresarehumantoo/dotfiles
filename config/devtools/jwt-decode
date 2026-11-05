@@ -1,29 +1,56 @@
 #!/usr/bin/env bash
-# jwt-decode: print a JWT's header and payload, with its time claims readable.
+# jwt-decode: print a JWT's header and payload, with its time claims readable,
+# and optionally verify its signature.
 set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+lib="$here/_jwt.pl"
 
 if [[ ${1:-} == -h || ${1:-} == --help ]]; then
   cat <<'EOF'
-Usage: jwt-decode [TOKEN]
-       command | jwt-decode
+Usage: jwt-decode [options] [TOKEN]
+       command | jwt-decode [options]
 
 Decodes a JWT and pretty-prints its header and payload. The iat, nbf and exp
 claims are shown as local times, with whether the token is expired or not yet
 valid. A leading "Bearer " and surrounding whitespace are ignored.
 
-The signature is NOT verified: this shows what a token claims, not whether
-those claims can be trusted.
-
 With no TOKEN, reads it from stdin, so it never has to appear in shell history:
   wl-paste | jwt-decode
   jwt-decode < token.txt
+
+Verification (optional):
+  --verify            check the signature; exit 0 valid, 1 invalid, 2 cannot
+  --secret STR        HMAC secret for HS256/384/512
+  --secret-file FILE  read the HMAC secret from FILE (no trailing newline)
+  --key FILE          PEM PUBLIC key for RS/PS/ES (RSA or EC)
+
+Without --verify the signature is shown but NOT checked: the decode tells you
+what a token claims, the verify tells you whether to trust it. The signature
+is never required to decode.
 EOF
   exit 0
 fi
 
-if [[ $# -gt 0 ]]; then
-  token=$1
-else
+verify=0
+secret=""; have_secret=0
+keyfile=""
+token=""; have_token=0
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --verify) verify=1 ;;
+    --secret) secret=$2; have_secret=1; shift ;;
+    --secret-file) secret=$(cat -- "$2"); have_secret=1; shift ;;
+    --key) keyfile=$2; shift ;;
+    --) shift; token=${1:-}; have_token=1; break ;;
+    -*) echo "jwt-decode: unknown option $1" >&2; exit 2 ;;
+    *) token=$1; have_token=1 ;;
+  esac
+  shift
+done
+
+if [[ $have_token -eq 0 ]]; then
   [[ -t 0 ]] && echo "Paste the token, then Ctrl-D:" >&2
   token=$(cat)
 fi
@@ -31,8 +58,73 @@ fi
 color=0
 [[ -t 1 ]] && color=1
 
+note=""
+vrc=0
+if [[ $verify -eq 1 ]]; then
+  set +e
+  note=$(VERIFY_SECRET="$secret" perl -MMIME::Base64 -MJSON::PP -MDigest::SHA=hmac_sha256,hmac_sha384,hmac_sha512 -MFile::Temp=tempfile -e '
+    do $ARGV[0] or die $@;
+    my ($lib, $token, $keyfile, $have_secret, $color) = @ARGV;
+    my ($red, $green, $yellow, $reset) =
+      $color ? ("\e[31m", "\e[32m", "\e[33m", "\e[0m") : ("") x 4;
+
+    $token =~ s/^\s+|\s+$//g;
+    $token =~ s/^Bearer\s+//i;
+    my @p = split /\./, $token, -1;
+    exit_note(2, "${yellow}cannot verify: not a 3-part JWS${reset}") if @p != 3;
+
+    my $header = eval { JSON::PP->new->decode(b64u_decode($p[0])) };
+    my $alg = (ref $header eq "HASH" && defined $header->{alg}) ? $header->{alg} : "?";
+    my $signing_input = "$p[0].$p[1]";
+    my $sig = b64u_decode($p[2]);
+
+    sub exit_note { my ($rc, $n) = @_; print $n; exit $rc }
+
+    if ($alg eq "none") {
+      exit_note(2, "${yellow}UNSIGNED${reset}");
+    }
+    elsif ($alg =~ /^HS(256|384|512)$/) {
+      exit_note(2, "${yellow}cannot verify: HS$1 needs --secret${reset}") unless $have_secret;
+      my %fn = (256 => \&hmac_sha256, 384 => \&hmac_sha384, 512 => \&hmac_sha512);
+      my $want = $fn{$1}->($signing_input, $ENV{VERIFY_SECRET});
+      if ($want eq $sig) { exit_note(0, "${green}VERIFIED${reset}") }
+      else               { exit_note(1, "${red}INVALID SIGNATURE${reset}") }
+    }
+    elsif ($alg =~ /^(RS|PS|ES)(256|384|512)$/) {
+      my ($fam, $bits) = ($1, $2);
+      exit_note(2, "${yellow}cannot verify: $alg needs --key (PEM public key)${reset}") unless length $keyfile;
+      my $digest = "sha$bits";
+      my $der = $fam eq "ES" ? eval { ecdsa_raw_to_der($sig) } : $sig;
+      exit_note(2, "${yellow}cannot verify: malformed ECDSA signature${reset}") if $fam eq "ES" && !defined $der;
+
+      my ($ifh, $ifile) = tempfile(UNLINK => 1);
+      binmode $ifh; print $ifh $signing_input; close $ifh;
+      my ($sfh, $sfile) = tempfile(UNLINK => 1);
+      binmode $sfh; print $sfh $der; close $sfh;
+
+      my @cmd = ("openssl", "dgst", "-$digest", "-verify", $keyfile, "-signature", $sfile);
+      push @cmd, ("-sigopt", "rsa_padding_mode:pss", "-sigopt", "rsa_pss_saltlen:-1") if $fam eq "PS";
+      push @cmd, $ifile;
+
+      my $pid = fork();
+      if (!$pid) { open STDOUT, ">", "/dev/null"; open STDERR, ">", "/dev/null"; exec { $cmd[0] } @cmd; exit 127 }
+      waitpid $pid, 0;
+      my $rc = $? >> 8;
+      if    ($rc == 0) { exit_note(0, "${green}VERIFIED${reset}") }
+      elsif ($rc == 1) { exit_note(1, "${red}INVALID SIGNATURE${reset}") }
+      else             { exit_note(2, "${yellow}cannot verify: openssl failed (key not a matching public key?)${reset}") }
+    }
+    else {
+      exit_note(2, "${yellow}cannot verify: alg $alg unsupported (try jwt_tool)${reset}");
+    }
+  ' "$lib" "$token" "$keyfile" "$have_secret" "$color")
+  vrc=$?
+  set -e
+fi
+
 perl -MMIME::Base64 -MJSON::PP -MPOSIX=strftime -e '
-  my ($token, $color) = @ARGV;
+  do $ARGV[3] or die $@;
+  my ($token, $color, $note) = @ARGV;
   my ($bold, $dim, $red, $green, $yellow, $reset) =
     $color ? ("\e[1m", "\e[2m", "\e[31m", "\e[32m", "\e[33m", "\e[0m") : ("") x 6;
 
@@ -45,10 +137,7 @@ perl -MMIME::Base64 -MJSON::PP -MPOSIX=strftime -e '
   my $json = JSON::PP->new->pretty->indent_length(2)->canonical->allow_nonref;
   sub part {
     my ($name, $b64) = @_;
-    (my $s = $b64) =~ tr{-_}{+/};
-    $s .= "=" x ((4 - length($s) % 4) % 4);
-    my $raw = decode_base64($s);
-    my $data = eval { JSON::PP->new->decode($raw) };
+    my $data = eval { JSON::PP->new->decode(b64u_decode($b64)) };
     die "jwt-decode: the $name is not valid JSON\n" unless defined $data;
     return $data;
   }
@@ -75,14 +164,17 @@ perl -MMIME::Base64 -MJSON::PP -MPOSIX=strftime -e '
       my $t = int $payload->{$k};
       my $when = strftime("%Y-%m-%d %H:%M:%S %Z", localtime $t);
       my $rel = $t > $now ? "in " . ago($t - $now) : ago($now - $t) . " ago";
-      my $note = "";
-      if    ($k eq "exp") { $note = $t <= $now ? "  ${red}EXPIRED${reset}" : "  ${green}valid${reset}" }
-      elsif ($k eq "nbf" && $t > $now) { $note = "  ${yellow}NOT YET VALID${reset}" }
-      printf "  %-3s  %s  ${dim}(%s)${reset}%s\n", $k, $when, $rel, $note;
+      my $tag = "";
+      if    ($k eq "exp") { $tag = $t <= $now ? "  ${red}EXPIRED${reset}" : "  ${green}valid${reset}" }
+      elsif ($k eq "nbf" && $t > $now) { $tag = "  ${yellow}NOT YET VALID${reset}" }
+      printf "  %-3s  %s  ${dim}(%s)${reset}%s\n", $k, $when, $rel, $tag;
     }
   }
 
   my $alg = ref $header eq "HASH" ? ($header->{alg} // "?") : "?";
-  my $sig = $alg eq "none" || $parts[2] eq "" ? "${red}unsigned${reset}" : "present, NOT verified";
-  print "${bold}Signature${reset}\n  alg $alg, $sig\n";
-' "$token" "$color"
+  my $status = length $note ? $note
+             : ($alg eq "none" || $parts[2] eq "" ? "${red}unsigned${reset}" : "present, NOT verified");
+  print "${bold}Signature${reset}\n  alg $alg, $status\n";
+' "$token" "$color" "$note" "$lib"
+
+exit "$vrc"
