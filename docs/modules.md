@@ -529,6 +529,8 @@ Symlinks tmux configuration and installs TPM with plugins:
 
 Also cleans up old oh-my-tmux artifacts (`.tmux.conf.local`).
 
+**Machine-local overrides:** `tmux.conf` ends with `source-file -q ~/.config/tmux/tmux.user.conf`, so any settings in that untracked file are applied last and win (tmux is later-wins for `set`/`bind`). Put per-machine tmux tweaks there instead of editing the tracked `tmux.conf`; `dfinstall update` also moves appendable local edits into it automatically (via `overrideFor`, like `ghostty.user` and `.zshrc.local`). The name is `tmux.user.conf`, not `.local`, because the installer deletes the legacy oh-my-tmux `tmux.conf.local` on every run.
+
 **TPM (Tmux Plugin Manager):**
 - Clones `tmux-plugins/tpm` to `~/.tmux/plugins/tpm` (skips if already present)
 - Sets `TMUX_PLUGIN_MANAGER_PATH` in the tmux global environment before running the install script

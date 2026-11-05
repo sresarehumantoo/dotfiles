@@ -15,6 +15,7 @@ import (
 const (
 	fixtureGhostty   = "font-size = 12\nwindow-width = 100\nkeybind = ctrl+a=copy_to_clipboard\n"
 	fixtureZshrc     = "# zshrc\nexport EDITOR=nvim\n"
+	fixtureTmux      = "# tmux\nset -g mouse off\nset -g history-limit 10000\n"
 	fixtureGitconfig = "[init]\n\tdefaultBranch = main\n[pull]\n\trebase = false\n"
 )
 
@@ -36,6 +37,7 @@ func upgradeFixture(t *testing.T) (up, clone string) {
 	gitIn(t, up, "config", "user.name", "Test")
 	putFile(t, up, "config/ghostty/config", fixtureGhostty)
 	putFile(t, up, "config/shell/zshrc", fixtureZshrc)
+	putFile(t, up, "config/tmux/tmux.conf", fixtureTmux)
 	putFile(t, up, "config/git/gitconfig", fixtureGitconfig)
 	putFile(t, up, "cmd/dfinstall/main.go", "package main\n")
 	gitIn(t, up, "add", ".")
@@ -103,6 +105,12 @@ func TestPlanMove(t *testing.T) {
 		{"zsh comment removed", "config/shell/zshrc",
 			strings.Replace(fixtureZshrc, "# zshrc\n", "", 1) + "export PAGER=less\n",
 			true, "export PAGER=less"},
+		{"tmux addition", "config/tmux/tmux.conf",
+			fixtureTmux + "set -g mouse on\n",
+			true, "set -g mouse on"},
+		{"tmux changed value", "config/tmux/tmux.conf",
+			strings.Replace(fixtureTmux, "10000", "50000", 1),
+			false, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
