@@ -15,6 +15,7 @@ func (DevtoolsModule) Name() string { return "devtools" }
 // Each script links from config/devtools/<name> to ~/.local/bin/<name>.
 var devtoolsScripts = []string{
 	"_lib.sh",
+	"_jwt.pl",
 	"_scrub.sh",
 	"wsl-resize-disk",
 	"wsl-restart",
@@ -32,6 +33,9 @@ var devtoolsScripts = []string{
 	"ghostty-shader",
 	"newsboat-view",
 	"docs",
+	"tmux-copy-clean",
+	"jwt-decode",
+	"jwt-encode",
 }
 
 // linuxOnlyDevtools drive WSL or read /proc, /sys or /dev/dri, so they are not

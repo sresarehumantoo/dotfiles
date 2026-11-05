@@ -269,6 +269,36 @@ $ clipboard-vm
   ▸ Full report: /home/owen/clipboard-vm-report.txt
 ```
 
+### jwt-decode
+
+Decodes a JWT and pretty-prints its header and payload, with `iat`, `nbf` and `exp` shown as local times and flagged when the token is expired or not yet valid. A leading `Bearer ` is ignored, and an encrypted (five-part) JWE is reported as unreadable rather than garbled. Pure perl core modules plus `openssl`, so it needs no jq.
+
+Pass the token as an argument, or on stdin to keep it out of shell history:
+
+```
+$ wl-paste | jwt-decode
+$ jwt-decode "$TOKEN"
+```
+
+By default the signature is shown but **not** checked: the decode tells you what a token claims, the verify tells you whether to trust it. `--verify` checks it and sets the exit code (0 valid, 1 invalid, 2 cannot verify). HS256/384/512 take `--secret` (or `--secret-file`); RS/PS/ES take `--key` with a PEM public key. `alg: none` is reported as unsigned (exit 2), and an unsupported alg says so rather than claiming a verdict.
+
+```
+$ jwt-decode --verify --secret hunter2 "$TOKEN"
+$ jwt-decode --verify --key issuer-pub.pem "$TOKEN"
+```
+
+### jwt-encode
+
+Builds and signs a JWT from a JSON payload (inline `--payload`, `--payload-file`, or stdin). `--alg` defaults to HS256 and also takes `none`, `RS*`, `PS*` and `ES*`; HS* sign with `--secret`, the rest with `--key` (an unencrypted PEM private key). `--iat`, `--exp SECONDS` and `--nbf SECONDS` fill the time claims relative to now, and `--kid`/`--typ` set header fields. The token is printed to stdout.
+
+```
+$ echo '{"sub":"owen","role":"admin"}' | jwt-encode --alg HS256 --secret hunter2 --exp 3600
+$ jwt-encode --alg none --payload '{"sub":"admin"}'
+$ jwt-encode --alg ES256 --key ec.key --payload "$CLAIMS"
+```
+
+It shares the base64url and ECDSA raw↔DER conversion with `jwt-decode` through `_jwt.pl`. It signs exactly what you give it and makes no claim that a server should accept the result, which is the point when testing whether one does.
+
 ### tlog-clean
 
 Strips ANSI escape codes, powerline/nerd-font glyphs, and terminal noise from tmux-logging captures, producing clean, grep-friendly text. Unlike the other devtools, it does not source `_lib.sh`; it is a self-contained filter.
@@ -311,6 +341,10 @@ $ tmux-restore off
 ```
 
 After flipping, reload a running session's config with `tmux source-file ~/.tmux.conf`, though `@continuum-restore` is only fully consulted at server start.
+
+### tmux-copy-clean
+
+Strips the powerlevel10k prompt from text copied in tmux copy mode, so a selection spanning several commands yields the commands and their output without the prompt glyphs or the right-side status. `tmux.conf` pipes both `y` and a mouse drag through it with `--load`, which replaces the raw copy with the cleaned one and sends it to the clipboard over OSC 52. Without `--load` it filters stdin to stdout. It keys on the prompt's powerline end symbols set in `config/shell/p10k.zsh`, so changing those means updating the script.
 
 ### claude-tmux
 
