@@ -325,6 +325,11 @@ func overrideFor(rel string) (override, bool) {
 		o = override{core.HomeTarget(".zshrc.local"), overrideLines}
 	case rel == "config/shell/aliases":
 		o = override{core.HomeTarget(".aliases.local"), overrideLines}
+	case rel == "config/tmux/tmux.conf":
+		// tmux.conf sources tmux.user.conf last, and tmux is later-wins for
+		// set/bind, so appended lines override. Not .local: the installer
+		// deletes the legacy oh-my-tmux tmux.conf.local every run.
+		o = override{core.XDGTarget("tmux", "tmux.user.conf"), overrideLines}
 	default:
 		return o, false
 	}
