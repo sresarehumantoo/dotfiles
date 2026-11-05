@@ -219,6 +219,8 @@ Managed configs are symlinks into the clone, so editing `~/.config/ghostty/confi
 | `~/.config/sketchybar/sketchybarrc` | `~/.config/sketchybar/local.sh` |
 | `~/.gitconfig` | `~/.gitconfig.user` (included last, so its values win; a removed key, or a rewritten multi-value key such as `credential.helper`, cannot move) |
 
+fuzzel and swayosd load `~/.config/fuzzel/fuzzel.user.ini` and `~/.config/swayosd/style.user.css` last. Both complain when the file is missing, so the sway module creates them empty; keep them, even empty. Edits are not moved into them automatically.
+
 Neovim has a hook too, `~/.config/nvim/lua/custom/local.lua`, loaded last when it exists. Edits to `init.lua` are not moved there, because Lua is not later-wins line by line.
 
 Anything the override file already holds is not written again, so a repeated move, or a setting you had already put there, does not duplicate. You can write to these files directly too.
