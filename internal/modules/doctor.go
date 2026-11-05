@@ -141,7 +141,7 @@ func RunDoctorChecks() []DoctorResult {
 	if core.DotfilesDir() == "" {
 		results = append(results, DoctorResult{Name: "dotfiles clones", OK: false, Detail: "no dotfiles checkout found",
 			Extra: []string{"run 'dfinstall init' to clone one, or set $DOTFILES"}})
-		return append(results, mirrorsDoctorResult())
+		return append(results, mirrorsDoctorResult(), gitAccessDoctorResult())
 	}
 
 	// Managed symlinks should all point at one (canonical) dotfiles clone.
@@ -161,7 +161,7 @@ func RunDoctorChecks() []DoctorResult {
 	}
 
 	results = append(results, upgradeDoctorResults()...)
-	results = append(results, mirrorsDoctorResult())
+	results = append(results, mirrorsDoctorResult(), gitAccessDoctorResult())
 
 	// Is the canonical clone itself current? Nothing else here can answer it.
 	if r := cloneFreshness(core.DotfilesDir()); r != nil {
