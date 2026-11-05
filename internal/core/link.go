@@ -116,6 +116,26 @@ func WriteFileIfChanged(path string, data []byte, perm os.FileMode) (bool, error
 	return true, nil
 }
 
+// EnsureExecutable makes a script source executable only when it is not
+// already. The shipped mode is authoritative: content may be read-only or
+// root-owned, where an unconditional chmod fails even though the mode is right.
+// A failure warns rather than errors, and a missing file is left to LinkFile.
+func EnsureExecutable(path string) {
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm()&0o111 == 0o111 {
+		return
+	}
+	if DryRun {
+		Changed("would make %s executable", path)
+		return
+	}
+	if err := os.Chmod(path, 0o755); err != nil {
+		Warn("chmod failed for %s: %v", path, err)
+		return
+	}
+	Changed("made %s executable", path)
+}
+
 // CheckLink checks if dst is a symlink pointing to src.
 // Returns: "ok", "wrong", "missing", or "file" (regular file exists).
 func CheckLink(src, dst string) string {

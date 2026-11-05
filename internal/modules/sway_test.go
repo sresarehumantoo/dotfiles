@@ -281,3 +281,27 @@ func TestSwayScriptsHaveShebangs(t *testing.T) {
 		}
 	}
 }
+
+func TestEnsureEmptyFiles(t *testing.T) {
+	dir := t.TempDir()
+	absent := filepath.Join(dir, "new", "style.user.css")
+	kept := filepath.Join(dir, "fuzzel.user.ini")
+	if err := os.WriteFile(kept, []byte("[main]\nwidth=80\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	core.DryRun = true
+	ensureEmptyFiles([]string{absent})
+	core.DryRun = false
+	if _, err := os.Lstat(absent); !os.IsNotExist(err) {
+		t.Fatalf("dry run created %s", absent)
+	}
+
+	ensureEmptyFiles([]string{absent, kept})
+	if info, err := os.Stat(absent); err != nil || info.Size() != 0 {
+		t.Errorf("absent file not created empty: %v", err)
+	}
+	if b, _ := os.ReadFile(kept); string(b) != "[main]\nwidth=80\n" {
+		t.Errorf("existing user file rewritten: %q", b)
+	}
+}

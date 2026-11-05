@@ -325,6 +325,12 @@ func overrideFor(rel string) (override, bool) {
 		o = override{core.HomeTarget(".zshrc.local"), overrideLines}
 	case rel == "config/shell/aliases":
 		o = override{core.HomeTarget(".aliases.local"), overrideLines}
+	case rel == "config/shell/bashrc":
+		o = override{core.HomeTarget(".bashrc.local"), overrideLines}
+	case rel == "config/sway/config":
+		o = override{core.XDGTarget("sway", "config.d", "local.conf"), overrideLines}
+	case rel == "config/sketchybar/sketchybarrc":
+		o = override{core.XDGTarget("sketchybar", "local.sh"), overrideLines}
 	case rel == "config/tmux/tmux.conf":
 		// tmux.conf sources tmux.user.conf last, and tmux is later-wins for
 		// set/bind, so appended lines override. Not .local: the installer

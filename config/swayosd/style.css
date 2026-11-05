@@ -110,3 +110,7 @@ window#osd progress {
     border: none;
     background-image: linear-gradient(to right, @sapphire, @blue);
 }
+
+/* Machine-local rules, unmanaged and loaded last so they win. GTK logs an
+ * error when the file is missing, so the sway module creates it empty. */
+@import url("style.user.css");

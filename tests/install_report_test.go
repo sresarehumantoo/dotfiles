@@ -112,3 +112,26 @@ func TestInstallReport_DryRunListsOnlyRealChanges(t *testing.T) {
 		t.Error("dry run created the link")
 	}
 }
+
+type skipModule struct{}
+
+func (skipModule) Name() string { return "skipper" }
+func (skipModule) Install(context.Context) error {
+	return &core.SkipError{Reason: "git is not on PATH"}
+}
+func (skipModule) Status() core.ModuleStatus { return core.ModuleStatus{Name: "skipper"} }
+
+// A module that decides it cannot run here is reported as skipped, and is not
+// an error the caller would count as a failure.
+func TestInstallReport_ModuleSkipsItself(t *testing.T) {
+	reportSandbox(t)
+	r := runReport(t, skipModule{})
+	if o := r.Modules[0]; !o.Skipped || o.Failed {
+		t.Fatalf("outcome = %+v, want skipped and not failed", o)
+	}
+	var b strings.Builder
+	r.Write(&b, false)
+	if out := b.String(); !strings.Contains(out, "Skipped: skipper") {
+		t.Errorf("report:\n%s", out)
+	}
+}

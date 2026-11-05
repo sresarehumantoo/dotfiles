@@ -290,9 +290,7 @@ func linkWindevFiles() error {
 	// winbuild works even when windev is installed standalone. Same src means
 	// the link is idempotent with devtools and isn't touched on uninstall.
 	libSrc := core.ConfigPath("devtools", "_lib.sh")
-	if err := os.Chmod(libSrc, 0755); err != nil {
-		core.Warn("chmod failed for _lib.sh: %v", err)
-	}
+	core.EnsureExecutable(libSrc)
 	if err := core.LinkFile(libSrc, core.HomeTarget(".local", "bin", "_lib.sh")); err != nil {
 		core.Warn("could not link _lib.sh: %v", err)
 	}
@@ -300,9 +298,7 @@ func linkWindevFiles() error {
 	// The winbuild scripts need the executable bit on the source; the nvim
 	// plugin file doesn't, which is why this loops windevLinks and not Links().
 	for _, l := range windevLinks {
-		if err := os.Chmod(core.ConfigPath(l.src), 0755); err != nil {
-			core.Warn("chmod failed for %s: %v", l.src, err)
-		}
+		core.EnsureExecutable(core.ConfigPath(l.src))
 	}
 
 	return (WindevModule{}).Links().Apply()
