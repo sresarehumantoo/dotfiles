@@ -177,11 +177,17 @@ func main() {
 	updateCmd := &cobra.Command{
 		Use:   "update [module...|all]",
 		Short: "Update dotfile modules (install --upgrade)",
-		Long: fmt.Sprintf("Pull the dotfiles clone, update tools and plugins dfinstall installed, then re-apply the named modules, or all of them.\nThis is install --upgrade; --no-upgrade makes it a plain install.\nOmit module with --toolkit or --extended to install just that module.\n\n%s",
+		Long: fmt.Sprintf("Pull the dotfiles clone, update tools and plugins dfinstall installed, then re-apply the named modules.\nWith no module it updates all of them (unlike install, which needs an explicit target).\nThis is install --upgrade; --no-upgrade makes it a plain install.\nOmit module with --toolkit or --extended to update just that module.\n\n%s",
 			modules.ValidModuleNames()),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			up, _ := cmd.Flags().GetBool("upgrade")
 			flagUpgrade = up && !flagNoUpgrade
+			// Bare `update` means `update all`: refreshing everything installed
+			// is the sensible default. install stays explicit (install all is
+			// adoptive and writes the canonical pointer).
+			if len(args) == 0 && !flagToolkit && !flagExtended {
+				args = []string{"all"}
+			}
 			return runInstall(cmd, args)
 		},
 	}

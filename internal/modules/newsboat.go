@@ -53,10 +53,18 @@ func (m NewsboatModule) Install(ctx context.Context) error {
 	if err := seedNewsboatLocal(); err != nil {
 		return err
 	}
-	// newsboat reads ~/.newsboat instead of the XDG dir whenever it exists.
+	// newsboat (2.x) is XDG-first: it falls back to ~/.newsboat ONLY when the
+	// XDG config is absent. We just linked ~/.config/newsboat/config above, so a
+	// leftover ~/.newsboat no longer shadows it -- measured on 2.36: with the
+	// XDG config present, newsboat ignores ~/.newsboat entirely, even when that
+	// dir holds its own config+urls. Warning on mere existence fired on every
+	// run and was false, so warn only in the case newsboat would actually use
+	// the legacy dir: the XDG config is not in place (e.g. the link failed).
 	if legacy := core.HomeTarget(".newsboat"); legacy != "" {
-		if _, err := os.Stat(legacy); err == nil {
-			core.AlwaysWarn("%s exists, so newsboat will ignore ~/.config/newsboat; move its cache.db to ~/.local/share/newsboat and remove it", legacy)
+		_, legacyErr := os.Stat(legacy)
+		_, xdgErr := os.Stat(core.XDGTarget("newsboat", "config"))
+		if legacyErr == nil && errors.Is(xdgErr, fs.ErrNotExist) {
+			core.AlwaysWarn("%s exists and ~/.config/newsboat/config is missing, so newsboat will use the legacy dir; move its cache.db to ~/.local/share/newsboat and remove it", legacy)
 		}
 	}
 	core.Ok("newsboat config done")
