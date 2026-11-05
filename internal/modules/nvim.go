@@ -429,6 +429,7 @@ var nvimLinks = []nvimLink{
 	{"nvim/lua/custom/plugins/flash.lua", "lua/custom/plugins/flash.lua"},
 	{"nvim/lua/custom/plugins/markdown.lua", "lua/custom/plugins/markdown.lua"},
 	{"nvim/lua/custom/plugins/notes.lua", "lua/custom/plugins/notes.lua"},
+	{"nvim/lua/custom/plugins/notes-margin.lua", "lua/custom/plugins/notes-margin.lua"},
 	{"nvim/lua/custom/plugins/smear-cursor.lua", "lua/custom/plugins/smear-cursor.lua"},
 	{"nvim/lua/custom/plugins/diffview.lua", "lua/custom/plugins/diffview.lua"},
 
