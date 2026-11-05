@@ -269,6 +269,17 @@ $ clipboard-vm
   ▸ Full report: /home/owen/clipboard-vm-report.txt
 ```
 
+### jwt-decode
+
+Decodes a JWT and pretty-prints its header and payload, with `iat`, `nbf` and `exp` shown as local times and flagged when the token is expired or not yet valid. A leading `Bearer ` is ignored, and an encrypted (five-part) JWE is reported as unreadable rather than garbled. **The signature is not verified**: it shows what a token claims, not whether to trust it. Pure perl core modules, so it needs no jq.
+
+Pass the token as an argument, or on stdin to keep it out of shell history:
+
+```
+$ wl-paste | jwt-decode
+$ jwt-decode "$TOKEN"
+```
+
 ### tlog-clean
 
 Strips ANSI escape codes, powerline/nerd-font glyphs, and terminal noise from tmux-logging captures, producing clean, grep-friendly text. Unlike the other devtools, it does not source `_lib.sh`; it is a self-contained filter.

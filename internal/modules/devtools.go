@@ -33,6 +33,7 @@ var devtoolsScripts = []string{
 	"newsboat-view",
 	"docs",
 	"tmux-copy-clean",
+	"jwt-decode",
 }
 
 // linuxOnlyDevtools drive WSL or read /proc, /sys or /dev/dri, so they are not
