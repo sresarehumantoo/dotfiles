@@ -147,13 +147,26 @@ func (TmuxModule) Install(ctx context.Context) error {
 	}
 	enableTmuxSave(ctx)
 
-	// Install TPM (Tmux Plugin Manager)
+	if a := gitAccessLocal(ctx, tpmRepo); a.usable() {
+		installTPM(ctx)
+	} else {
+		core.Notice("skipped TPM and tmux plugins, which need git: %s", a.Reason)
+	}
+
+	core.Ok("tmux setup done")
+	return nil
+}
+
+const tpmRepo = "https://github.com/tmux-plugins/tpm"
+
+// installTPM clones TPM (Tmux Plugin Manager) and installs the plugins it manages.
+func installTPM(ctx context.Context) {
 	tpmDir := core.HomeTarget(".tmux", "plugins", "tpm")
 
 	if _, err := os.Stat(tpmDir); os.IsNotExist(err) {
 		core.Info("Installing TPM...")
 		if err := runCmd(ctx, "git", "clone", "--depth=1",
-			"https://github.com/tmux-plugins/tpm", tpmDir); err != nil {
+			tpmRepo, tpmDir); err != nil {
 			core.Warn("TPM clone failed: %v", err)
 		} else {
 			core.Changed("cloned TPM")
@@ -187,9 +200,6 @@ func (TmuxModule) Install(ctx context.Context) error {
 			}
 		}
 	}
-
-	core.Ok("tmux setup done")
-	return nil
 }
 
 func (m TmuxModule) Uninstall(ctx context.Context) error {

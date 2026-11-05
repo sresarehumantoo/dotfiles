@@ -2,10 +2,13 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
 )
 
 // fakeGit puts a git on PATH (and nothing else) that answers from the env
@@ -141,5 +144,14 @@ func TestGitProtocol(t *testing.T) {
 		if got := gitProtocol(in); got != want {
 			t.Errorf("gitProtocol(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestOmzSkipsWithoutGit(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	err := OmzModule{}.Install(context.Background())
+	var skip *core.SkipError
+	if !errors.As(err, &skip) || !strings.Contains(skip.Reason, "not on PATH") {
+		t.Fatalf("Install = %v, want a SkipError naming the missing git", err)
 	}
 }
