@@ -1,22 +1,5 @@
 Package: dfinstall
 Architecture: amd64
-Version: 2.1.0
-Priority: optional
-Section: utils
-Maintainer: SREsAreHumanToo <88474954+sresarehumantoo@users.noreply.github.com>
-Installed-Size: 20436
-Depends: git, curl
-Filename: pool/main/d/dfinstall/dfinstall_2.1.0_amd64.deb
-Size: 8431586
-MD5sum: 54df85093809eb2c0d4ec35bdefcbd56
-SHA1: dd42c3c40ec00bb5b0749ce88c15ba483e18e656
-SHA256: 705d1bad922c86c66dfce0f17debac4a6d057bea645fa493ac6286ef9c4b1827
-SHA512: 45abb0c3132756a2532e596e9c9d7c45661756a4d685fa44133eec463bd2ac703ee920dda29ecd639e096534a6dabed09a2b7a21344ff2b5abcf77f4a414a14c
-Homepage: https://github.com/sresarehumantoo/dotfiles
-Description: Dotfiles installer and manager
-
-Package: dfinstall
-Architecture: amd64
 Version: 2.1.1
 Priority: optional
 Section: utils
@@ -46,6 +29,23 @@ MD5sum: 107b731fd3663e112045cbea2696f65e
 SHA1: 870d8cf6d09c31a7ae45b2eba3fe9596b73ea420
 SHA256: ea712d7fab9845e6caea0e115e75bff8faefb2b49107ba38e921cfdc8a91c86b
 SHA512: 1986ce4fdb189a2b539732cd6e8eac042768b96e7f589bcf15d4453ba2dac763fb0a9c15bcb888744ba7bfa953de5e850a571c56d176aae278ea0106f6ad3110
+Homepage: https://github.com/sresarehumantoo/dotfiles
+Description: Dotfiles installer and manager
+
+Package: dfinstall
+Architecture: amd64
+Version: 2.3.0
+Priority: optional
+Section: utils
+Maintainer: SREsAreHumanToo <88474954+sresarehumantoo@users.noreply.github.com>
+Installed-Size: 20448
+Depends: git, curl
+Filename: pool/main/d/dfinstall/dfinstall_2.3.0_amd64.deb
+Size: 8435004
+MD5sum: 084f8e41222fef83b01cd18167b441af
+SHA1: 0123a023bc00ed168695432fe10b5281d0cfa95f
+SHA256: 860f7a1b8cf5572c5b8a0429ab615548426030c3eb8d083960377cf2ab6c24b3
+SHA512: 4288bebfad2c9ec48a2d3c137e46a38927d5baae387425b010182439c325b50d032f3dccead0246f012ff65ffc8cb5b67f16dc694e843fb1525393df193153ec
 Homepage: https://github.com/sresarehumantoo/dotfiles
 Description: Dotfiles installer and manager
 
