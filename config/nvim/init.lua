@@ -234,10 +234,14 @@ end
 -- [[ Install `lazy.nvim` plugin manager ]]
 local lazypath = vim.fn.stdpath 'data' .. '/lazy/lazy.nvim'
 if not (vim.uv or vim.loop).fs_stat(lazypath) then
-  local lazyrepo = 'https://github.com/folke/lazy.nvim.git'
-  local out = vim.fn.system { 'git', 'clone', '--filter=blob:none', '--branch=stable', lazyrepo, lazypath }
-  if vim.v.shell_error ~= 0 then
-    error('Error cloning lazy.nvim:\n' .. out)
+  if vim.fn.executable 'git' == 1 then
+    local lazyrepo = 'https://github.com/folke/lazy.nvim.git'
+    local out = vim.fn.system { 'git', 'clone', '--filter=blob:none', '--branch=stable', lazyrepo, lazypath }
+    if vim.v.shell_error ~= 0 then
+      error('Error cloning lazy.nvim:\n' .. out)
+    end
+  else
+    vim.api.nvim_echo({ { 'lazy.nvim is not installed and git is not available, so plugins are off', 'WarningMsg' } }, true, {})
   end
 end
 
@@ -245,8 +249,11 @@ end
 local rtp = vim.opt.rtp
 rtp:prepend(lazypath)
 
+-- Without lazy.nvim, setup is a no-op so the rest of the config still loads.
+local lazy = (vim.uv or vim.loop).fs_stat(lazypath) and require 'lazy' or { setup = function() end }
+
 -- [[ Configure and install plugins ]]
-require('lazy').setup({
+lazy.setup({
   'NMAC427/guess-indent.nvim',
 
   { -- Gitsigns
