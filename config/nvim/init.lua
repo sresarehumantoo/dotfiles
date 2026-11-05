@@ -136,13 +136,20 @@ vim.g.notes_dirs = notes_dirs
 
 -- Files with no built-in detection, which opened with no filetype and no
 -- 'commentstring': this repo's source for ~/.gitconfig, and Konsole's KDE-style
--- INI files, here and where Konsole keeps them.
+-- INI files, here and where Konsole keeps them. The alias files are sourced,
+-- not executed, so they carry no shebang for nvim to sniff and otherwise open
+-- as filetype "" -- which is why `gc`/`gcc` errored on them (no commentstring).
 vim.filetype.add {
-  filename = { konsolerc = 'confini' },
+  filename = {
+    konsolerc = 'confini',
+    ['.aliasrc'] = 'bash',
+    ['.aliases'] = 'bash',
+  },
   pattern = {
     ['.*/config/git/gitconfig'] = 'gitconfig',
     ['.*/konsole/.*%.profile'] = 'confini',
     ['.*/konsole/.*%.colorscheme'] = 'confini',
+    ['.*/%.aliases%.local'] = 'bash',
   },
 }
 
