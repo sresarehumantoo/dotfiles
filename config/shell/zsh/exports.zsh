@@ -4,6 +4,13 @@ if (( $+commands[nvim] && $+commands[man] )); then
   export MANPAGER='nvim +Man!'
 fi
 
+# The AWS CLI pipes output through a pager (less) whenever stdout is a terminal,
+# so a one-line `aws` query opens less. An empty AWS_PAGER is the documented way
+# to turn that off globally without a per-command --no-cli-pager.
+if (( $+commands[aws] )); then
+  export AWS_PAGER=''
+fi
+
 # CA bundle exports (REQUESTS_CA_BUNDLE / SSL_CERT_FILE / CURL_CA_BUNDLE)
 # moved to ~/.profile so non-zsh shells (bash subshells, ansible-playbook from
 # Claude Code's Bash tool, cron, etc.) also pick them up.

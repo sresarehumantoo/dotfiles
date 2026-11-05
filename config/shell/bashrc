@@ -71,3 +71,8 @@ export EDITOR='nvim'
 if command -v nvim >/dev/null && command -v man >/dev/null; then
   export MANPAGER='nvim +Man!'
 fi
+
+# Disable the AWS CLI pager (it pages whenever stdout is a terminal).
+if command -v aws >/dev/null; then
+  export AWS_PAGER=''
+fi
