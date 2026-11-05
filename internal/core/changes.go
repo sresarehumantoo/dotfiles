@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -38,6 +39,13 @@ type ModuleOutcome struct {
 	Failed  bool
 }
 
+// SkipError is what Install returns when the module decided not to run on
+// this machine, such as oh-my-zsh where git cannot run. Run reports the module
+// as skipped, not failed, and returns nil.
+type SkipError struct{ Reason string }
+
+func (e *SkipError) Error() string { return e.Reason }
+
 // Run installs m, attributing every Changed call it makes to it.
 func (s *InstallSession) Run(ctx context.Context, m Module) error {
 	o := &ModuleOutcome{Name: m.Name()}
@@ -47,10 +55,17 @@ func (s *InstallSession) Run(ctx context.Context, m Module) error {
 	changesMu.Unlock()
 
 	err := m.Install(ctx)
+	var skip *SkipError
+	skipped := errors.As(err, &skip)
+	if skipped {
+		Notice("%s skipped: %s", m.Name(), skip.Reason)
+		err = nil
+	}
 
 	changesMu.Lock()
 	s.current = nil
 	o.Failed = err != nil
+	o.Skipped = skipped
 	changesMu.Unlock()
 	return err
 }
