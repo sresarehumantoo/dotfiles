@@ -76,3 +76,5 @@ fi
 if command -v aws >/dev/null; then
   export AWS_PAGER=''
 fi
+
+if [ -f ~/.bashrc.local ]; then . ~/.bashrc.local; fi

@@ -826,3 +826,8 @@ require('lazy').setup({
 -- vim: ts=2 sts=2 sw=2 et
 
 require 'custom.keybinds'
+
+-- Machine-local settings, unmanaged. Required unguarded so its errors still show.
+if vim.api.nvim_get_runtime_file('lua/custom/local.lua', false)[1] then
+  require 'custom.local'
+end

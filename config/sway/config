@@ -677,3 +677,7 @@ exec_always gsettings set org.gnome.desktop.interface color-scheme 'prefer-dark'
 # rather than defining an unused `bar {}`.
 
 include /etc/sway/config.d/*
+
+# Machine-local additions, unmanaged and loaded last so they win. A glob that
+# matches nothing is silent (measured with --validate).
+include $HOME/.config/sway/config.d/*
