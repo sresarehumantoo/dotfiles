@@ -424,3 +424,26 @@ func TestBinaryStale(t *testing.T) {
 		t.Error("stale in a directory that is not a checkout")
 	}
 }
+
+// Each override path must be the file the shipped hook actually loads, or a
+// moved edit lands somewhere nothing reads.
+func TestOverrideForLocalHooks(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	cases := []struct{ rel, want string }{
+		{"config/shell/bashrc", ".bashrc.local"},
+		{"config/sway/config", ".config/sway/config.d/local.conf"},
+		{"config/sketchybar/sketchybarrc", ".config/sketchybar/local.sh"},
+	}
+	for _, c := range cases {
+		o, ok := overrideFor(c.rel)
+		if !ok || o.kind != overrideLines {
+			t.Errorf("%s: ok=%v kind=%v, want a lines override", c.rel, ok, o.kind)
+			continue
+		}
+		if want := filepath.Join(home, c.want); o.path != want {
+			t.Errorf("%s: override = %s, want %s", c.rel, o.path, want)
+		}
+	}
+}

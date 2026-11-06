@@ -79,4 +79,8 @@ sketchybar --add bracket status clock battery network volume caffeinate vpn \
   --set status background.color="$PILL" background.border_color="$PILL_BORDER" \
     background.border_width=1 background.corner_radius=16 background.height=32
 
+
+# Machine-local additions, unmanaged.
+[ -f "$CONFIG_DIR/local.sh" ] && . "$CONFIG_DIR/local.sh"
+
 sketchybar --update

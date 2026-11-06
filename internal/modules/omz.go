@@ -31,6 +31,10 @@ func (OmzModule) Install(ctx context.Context) error {
 		return fmt.Errorf("oh-my-zsh dir: %w", err)
 	}
 
+	if a := gitAccessLocal(ctx, omzRepo); !a.usable() {
+		return &core.SkipError{Reason: "oh-my-zsh needs git: " + a.Reason}
+	}
+
 	if err := installOmz(ctx, omzDir); err != nil {
 		core.Warn("Oh My Zsh install failed: %v", err)
 	}
@@ -84,6 +88,8 @@ func (OmzModule) Install(ctx context.Context) error {
 	return nil
 }
 
+const omzRepo = "https://github.com/ohmyzsh/ohmyzsh.git"
+
 // installOmz installs Oh My Zsh into omzDir using a direct git clone
 // (rather than the upstream curl|install.sh wrapper). The wrapper refuses
 // to run if $ZSH exists at all, which makes recovery impossible after a
@@ -127,7 +133,7 @@ func installOmz(ctx context.Context, omzDir string) error {
 
 	core.Info("Installing Oh My Zsh (git clone)...")
 	if err := runCmd(ctx, "git", "clone", "--depth=1",
-		"https://github.com/ohmyzsh/ohmyzsh.git", omzDir); err != nil {
+		omzRepo, omzDir); err != nil {
 		return fmt.Errorf("git clone: %w", err)
 	}
 

@@ -212,16 +212,20 @@ func (ToolkitModule) Install(ctx context.Context) error {
 	}
 
 	// Install git clone tools
-	if len(gitCloneTools) > 0 {
-		if _, err := exec.LookPath("git"); err != nil {
-			core.Warn("git not found, skipping %d git-clone tools", len(gitCloneTools))
-		} else {
-			for _, t := range gitCloneTools {
-				if err := installGitClone(ctx, t.Binary, t.GitRepo); err != nil {
-					core.Warn("Failed to clone %s: %v", t.Binary, err)
-				}
-			}
+	var gitSkipped []string
+	var gitReason string
+	for _, t := range gitCloneTools {
+		// Probed per repo: an insteadOf mirror, and so the protocol, can differ.
+		if a := gitAccessLocal(ctx, t.GitRepo); !a.usable() {
+			gitSkipped, gitReason = append(gitSkipped, t.Binary), a.Reason
+			continue
 		}
+		if err := installGitClone(ctx, t.Binary, t.GitRepo); err != nil {
+			core.Warn("Failed to clone %s: %v", t.Binary, err)
+		}
+	}
+	if len(gitSkipped) > 0 {
+		core.Notice("skipped %s, which need git: %s", strings.Join(gitSkipped, ", "), gitReason)
 	}
 
 	// Install AppImage tools

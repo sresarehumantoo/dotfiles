@@ -359,20 +359,58 @@ func (m SwayModule) Install(ctx context.Context) error {
 	}
 
 	core.Info("Linking sway + waybar config...")
-	if !core.DryRun {
-		for _, name := range swayScripts {
-			if err := os.Chmod(core.ConfigPath("sway", name), 0755); err != nil {
-				core.Warn("chmod failed for %s: %v", name, err)
-			}
-		}
+	for _, name := range swayScripts {
+		core.EnsureExecutable(core.ConfigPath("sway", name))
 	}
 	if err := m.Links().Apply(); err != nil {
 		return err
 	}
 	m.removeLegacyScripts()
+	ensureEmptyFiles(swayUserFiles())
 	m.reloadUserSystemd(ctx)
 	core.Ok("sway config done")
 	return nil
+}
+
+// swayUserFiles are the machine-local files fuzzel.ini and swayosd's style.css
+// load last. Both programs log an error on every start when one is missing.
+func swayUserFiles() []string {
+	return []string{
+		// fuzzel's include takes only an absolute or ~/ path, so it names
+		// ~/.config literally rather than XDG_CONFIG_HOME.
+		core.HomeTarget(".config", "fuzzel", "fuzzel.user.ini"),
+		// A relative @import resolves next to the style.css link.
+		core.XDGTarget("swayosd", "style.user.css"),
+	}
+}
+
+// ensureEmptyFiles creates each file empty when absent. One that exists is the
+// user's and is never rewritten.
+func ensureEmptyFiles(paths []string) {
+	for _, p := range paths {
+		if err := core.CheckTarget(p); err != nil {
+			core.Warn("not creating %q: %v", p, err)
+			continue
+		}
+		if _, err := os.Lstat(p); !os.IsNotExist(err) {
+			continue
+		}
+		if core.DryRun {
+			core.Changed("would create empty %s", p)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			core.Warn("could not create %s: %v", p, err)
+			continue
+		}
+		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err != nil {
+			core.Warn("could not create %s: %v", p, err)
+			continue
+		}
+		f.Close()
+		core.Changed("created empty %s", p)
+	}
 }
 
 // reloadUserSystemd makes systemd notice a newly linked waybar.service.
