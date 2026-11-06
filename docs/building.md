@@ -75,8 +75,10 @@ git push origin v1.11.0
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`:
 
-1. **GoReleaser** (`.goreleaser.yaml`) builds both binaries for linux and darwin on amd64 and arm64 and publishes the GitHub release: one `dfinstall_<version>_<os>_<arch>.tar.gz` per platform, a `.deb` per Linux arch, and `checksums.txt`. Each binary is built twice, with `core.Channel=release` for the archives and `core.Channel=deb` for the packages. ⚠ `modules.releaseArchiveName` looks for exactly that archive name to self-update, so the `name_template` must not change without it.
-2. **Homebrew**: `scripts/release/brew-formula.sh` writes `Formula/dfinstall.rb` from `checksums.txt` and pushes it to `sresarehumantoo/homebrew-tap`. The formula installs the release archive, and a release binary running from a Cellar reports the `brew` channel. GoReleaser's own formula support is deprecated in favor of casks, which quarantine what they download.
+1. **GoReleaser** (`.goreleaser.yaml`) builds both binaries for linux and darwin on amd64 and arm64 and publishes the GitHub release: one `dfinstall_<version>_<os>_<arch>.tar.gz` per platform, a `.deb` per Linux arch, `dfinstall-content_<version>.tar.gz`, and `checksums.txt`. Each binary is built twice, with `core.Channel=release` for the archives and `core.Channel=deb` for the packages. ⚠ `modules.releaseArchiveName` looks for exactly that archive name to self-update, so the `name_template` must not change without it.
+
+   The content tarball holds the `config/` tree and its stamp, `.dfinstall-content.json` (each file's sha256 and mode, plus the release tag), for installs that have no clone. `scripts/release/content.sh` stages it from `git archive HEAD`, never the working tree, so gitignored machine-local files such as `config/sway/outputs.conf` cannot reach a release. The `.deb` installs the same tree to `/usr/share/dfinstall/`, owned by root. Nothing reads the packaged content yet; a binary run from inside that directory does not take it for a checkout.
+2. **Homebrew**: `scripts/release/brew-formula.sh` writes `Formula/dfinstall.rb` from `checksums.txt` and pushes it to `sresarehumantoo/homebrew-tap`. The formula installs the release archive, with the content tarball as a resource under `share/dfinstall`, and a release binary running from a Cellar reports the `brew` channel. GoReleaser's own formula support is deprecated in favor of casks, which quarantine what they download.
 3. **apt**: `scripts/release/apt-repo.sh` adds the `.deb`s to a signed repository (suite `stable`, component `main`, newest three versions kept) on the `gh-pages` branch under `apt/`, served by GitHub Pages.
 
 Tags containing `-` (`v2.0.0-rc1`) are GitHub prereleases and skip steps 2 and 3. CI runs `goreleaser check` on every push, so a broken config fails before a tag does.
@@ -337,7 +339,7 @@ GitHub's macOS runners are throwaway Macs with passwordless sudo, so `.github/wo
 | Job | Runner | What it proves |
 |---|---|---|
 | Install harness | Apple Silicon, Intel | the harness itself leaves a real Mac unchanged, and (`--strict`) every formula and cask dfinstall asks for exists |
-| Homebrew formula | Apple Silicon, Intel | the snapshot release installs with the real Homebrew from a tap, reports the `brew` channel, passes `brew test`/`audit --strict`/`style`, and `update` defers to `brew upgrade` |
+| Homebrew formula | Apple Silicon, Intel | the snapshot release installs with the real Homebrew from a tap, reports the `brew` channel, installs the packaged content to `share/dfinstall`, passes `brew test`/`audit --strict`/`style`, and `update` defers to `brew upgrade` |
 | Fresh install as a standard account | Apple Silicon | `scripts/macos-ci/fresh-user.sh`: a new non-admin user (the managed work Mac's shape) bootstraps from nothing with a Homebrew of its own, casks land in `~/Applications`, a second install changes nothing, uninstall removes every link |
 | macOS-only modules | Apple Silicon | `scripts/macos-ci/mac-modules.sh`: mackeys, alttab, sketchybar and aerospace installed and removed for real, checking the defaults keys, launch agents, Homebrew service and links each leaves behind |
 | TLS inspection | Apple Silicon | `scripts/macos-ci/tls-inspection.sh`: mitmproxy's CA trusted in the System keychain as MDM would install a proxy root; the bootstrap detects the inspection and wires curl, git, Node, pip and Homebrew, and Go verifies from the keychain alone |
@@ -352,7 +354,7 @@ CI runs on every push and pull request to `main` and `develop`, and on manual di
 |-----|--------|
 | `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), the decoupling guard (`make check-decoupling`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
 | `go-macos` | Builds both binaries and runs `make test` on `macos-latest`, then checks that `bootstrap/macos-setup.sh` parses and runs `--help` under the stock `/bin/bash` 3.2. |
-| `goreleaser` | `goreleaser check`, so a broken `.goreleaser.yaml` fails here rather than on the next tag. |
+| `goreleaser` | `goreleaser check`, so a broken `.goreleaser.yaml` fails here rather than on the next tag, then a snapshot release and `scripts/release/verify-content.sh`: the content tarball and each `.deb` must hold exactly the files their stamp lists, with its digests and modes, all owned by root. |
 | `shellcheck` | Lints `config/devtools/`, `bootstrap/` and `scripts/`, one step each, via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. Any finding fails the job, a `note` included, and each step scans its whole directory rather than the diff. `make ci` does not run it. |
 
 The `main` branch is protected: `go`, `go-macos` and `shellcheck` must pass before a pull request can merge.

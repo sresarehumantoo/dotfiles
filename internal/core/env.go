@@ -416,8 +416,9 @@ func InvokingCloneDir() string {
 		}
 	}
 
-	// 4. Fallback: current working directory
-	if cwd, err := os.Getwd(); err == nil && LooksLikeDotfilesRepo(cwd) {
+	// 4. Fallback: current working directory, unless it is a package's content
+	// tree, which a package upgrade replaces under any links into it.
+	if cwd, err := os.Getwd(); err == nil && LooksLikeDotfilesRepo(cwd) && !fileExists(filepath.Join(cwd, ContentStampName)) {
 		return cwd
 	}
 	return ""
