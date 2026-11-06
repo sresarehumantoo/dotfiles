@@ -30,6 +30,10 @@ bin="$(brew --prefix)/bin"
 check "dfinstall and dfinstall-mcp are linked into $bin" test -x "$bin/dfinstall" -a -x "$bin/dfinstall-mcp"
 check_output "--version reports the brew channel" '\(brew\)$' "$bin/dfinstall" --version
 check_output "the binary is the one from the Cellar" '/Cellar/dfinstall/' readlink -f "$bin/dfinstall"
+share="$(brew --prefix dfinstall)/share/dfinstall"
+check "the content stamp is installed to $share" test -f "$share/.dfinstall-content.json"
+check "a config file and an executable script are installed" \
+    test -f "$share/config/shell/zshrc" -a -x "$share/config/devtools/_lib.sh"
 check "brew test" brew test "$tap/dfinstall"
 check "brew audit --strict" brew audit --strict --formula "$tap/dfinstall"
 check "brew style" brew style "$formula"
