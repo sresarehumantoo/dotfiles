@@ -271,7 +271,7 @@ $ clipboard-vm
 
 ### jwt-decode
 
-Decodes a JWT and pretty-prints its header and payload, with `iat`, `nbf` and `exp` shown as local times and flagged when the token is expired or not yet valid. A leading `Bearer ` is ignored, and an encrypted (five-part) JWE is reported as unreadable rather than garbled. Pure perl core modules plus `openssl`, so it needs no jq.
+Decodes a JWT and pretty-prints its header and payload, with `iat`, `nbf` and `exp` shown as local times and flagged when the token is expired or not yet valid. A leading `Bearer ` is ignored. The header is always printed, since it is readable even when the rest is not: for an encrypted (five-part) JWE the payload is reported as encrypted with its `enc`, and a detached (`header..sig`) or non-JSON payload is described rather than failing the decode. Pure perl core modules plus `openssl`, so it needs no jq.
 
 Pass the token as an argument, or on stdin to keep it out of shell history:
 

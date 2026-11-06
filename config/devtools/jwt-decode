@@ -13,7 +13,9 @@ Usage: jwt-decode [options] [TOKEN]
 
 Decodes a JWT and pretty-prints its header and payload. The iat, nbf and exp
 claims are shown as local times, with whether the token is expired or not yet
-valid. A leading "Bearer " and surrounding whitespace are ignored.
+valid. A leading "Bearer " and surrounding whitespace are ignored. The header
+is always shown: an encrypted JWT (JWE) or a payload that is detached or not
+JSON is described rather than rejected.
 
 With no TOKEN, reads it from stdin, so it never has to appear in shell history:
   wl-paste | jwt-decode
@@ -80,6 +82,8 @@ if [[ $verify -eq 1 ]]; then
 
     sub exit_note { my ($rc, $n) = @_; print $n; exit $rc }
 
+    exit_note(2, "${yellow}cannot verify: detached payload is not in the token${reset}") if $p[1] eq "";
+
     if ($alg eq "none") {
       exit_note(2, "${yellow}UNSIGNED${reset}");
     }
@@ -131,21 +135,34 @@ perl -MMIME::Base64 -MJSON::PP -MPOSIX=strftime -e '
   $token =~ s/^\s+|\s+$//g;
   $token =~ s/^Bearer\s+//i;
   my @parts = split /\./, $token, -1;
-  if (@parts == 5) { die "jwt-decode: this is an encrypted JWT (JWE); its payload cannot be read without the key\n" }
-  if (@parts != 3) { die "jwt-decode: expected 3 dot-separated parts, got " . scalar(@parts) . "\n" }
+  if (@parts != 3 && @parts != 5) { die "jwt-decode: expected 3 dot-separated parts (or 5 for a JWE), got " . scalar(@parts) . "\n" }
 
   my $json = JSON::PP->new->pretty->indent_length(2)->canonical->allow_nonref;
-  sub part {
-    my ($name, $b64) = @_;
-    my $data = eval { JSON::PP->new->decode(b64u_decode($b64)) };
-    die "jwt-decode: the $name is not valid JSON\n" unless defined $data;
-    return $data;
-  }
-  my $header  = part("header",  $parts[0]);
-  my $payload = part("payload", $parts[1]);
+  my $header = eval { JSON::PP->new->decode(b64u_decode($parts[0])) };
+  die "jwt-decode: the header is not valid JSON\n" unless defined $header;
+  print "${bold}Header${reset}\n", $json->encode($header);
 
-  print "${bold}Header${reset}\n",  $json->encode($header);
-  print "${bold}Payload${reset}\n", $json->encode($payload);
+  if (@parts == 5) {
+    my $enc = ref $header eq "HASH" ? ($header->{enc} // "?") : "?";
+    print "${bold}Payload${reset}\n  encrypted (JWE, enc $enc); cannot be read without the key\n";
+    print "${bold}Signature${reset}\n  $note\n" if length $note;
+    exit 0;
+  }
+
+  # RFC 7797: with "b64": false the payload segment is the raw bytes, not base64url.
+  my $raw_payload = ref $header eq "HASH" && exists $header->{b64} && !$header->{b64};
+  my $payload;
+  if ($parts[1] eq "") {
+    print "${bold}Payload${reset}\n  ${dim}detached (not carried in the token)${reset}\n";
+  } else {
+    my $bytes = $raw_payload ? $parts[1] : b64u_decode($parts[1]);
+    $payload = eval { JSON::PP->new->decode($bytes) };
+    if (defined $payload) {
+      print "${bold}Payload${reset}\n", $json->encode($payload);
+    } else {
+      printf "${bold}Payload${reset}\n  ${dim}not JSON, %d bytes${reset}\n", length $bytes;
+    }
+  }
 
   sub ago {
     my $d = abs(shift);
