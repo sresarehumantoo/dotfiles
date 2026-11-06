@@ -1,6 +1,7 @@
 package tests
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,6 +43,20 @@ func TestInvokingCloneDir_FindsCloneInWorkingDir(t *testing.T) {
 	t.Chdir(clone)
 	if got := core.InvokingCloneDir(); got != clone {
 		t.Errorf("InvokingCloneDir = %q, want %q", got, clone)
+	}
+}
+
+// A package's content tree (/usr/share/dfinstall) has a config/ directory too,
+// but links into it would dangle on the next package upgrade.
+func TestInvokingCloneDir_IgnoresPackagedContentInWorkingDir(t *testing.T) {
+	noCloneHome(t)
+	pkg := makeRepo(t, t.TempDir(), "pkg")
+	if err := os.WriteFile(filepath.Join(pkg, core.ContentStampName), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(pkg)
+	if got := core.InvokingCloneDir(); got != "" {
+		t.Errorf("InvokingCloneDir = %q from packaged content, want \"\"", got)
 	}
 }
 
