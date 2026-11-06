@@ -22,7 +22,7 @@ version="${tag#v}"
 base="${3:-https://github.com/sresarehumantoo/dotfiles/releases/download/$tag}"
 
 sha() {
-    local name="dfinstall_${version}_$1_$2.tar.gz" sum
+    local name="$1" sum
     sum="$(awk -v n="$name" '$2 == n { print $1 }' "$checksums")"
     if [[ ! "$sum" =~ ^[0-9a-f]{64}$ ]]; then
         echo "brew-formula: no sha256 for $name in $checksums" >&2
@@ -33,7 +33,7 @@ sha() {
 
 block() {
     local sum
-    sum="$(sha "$1" "$2")" || return 1
+    sum="$(sha "dfinstall_${version}_$1_$2.tar.gz")" || return 1
     printf '      url "%s/dfinstall_%s_%s_%s.tar.gz"\n' "$base" "$version" "$1" "$2"
     printf '      sha256 "%s"' "$sum"
 }
@@ -44,6 +44,8 @@ darwin_arm64="$(block darwin arm64)"
 darwin_amd64="$(block darwin amd64)"
 linux_arm64="$(block linux arm64)"
 linux_amd64="$(block linux amd64)"
+content_name="dfinstall-content_${version}.tar.gz"
+content_sha="$(sha "$content_name")"
 
 cat <<RUBY
 class Dfinstall < Formula
@@ -72,8 +74,14 @@ $linux_amd64
     end
   end
 
+  resource "content" do
+    url "$base/$content_name"
+    sha256 "$content_sha"
+  end
+
   def install
     bin.install "dfinstall", "dfinstall-mcp"
+    resource("content").stage { pkgshare.install "config", ".dfinstall-content.json" }
   end
 
   test do

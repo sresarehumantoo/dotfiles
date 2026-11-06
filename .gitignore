@@ -61,3 +61,6 @@ __pycache__/
 
 # goreleaser output
 /dist/
+
+# Packaged content staged by scripts/release/content.sh
+/build/
