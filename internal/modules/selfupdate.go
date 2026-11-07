@@ -45,16 +45,35 @@ func updateBinary(ctx context.Context, channel string) string {
 			core.AlwaysWarn("dfinstall not updated, continuing with %s: %v", core.Version, err)
 		}
 		return exe
-	case core.ChannelBrew:
-		core.Notice("dfinstall is installed by Homebrew; update it with 'brew upgrade dfinstall'")
-	case core.ChannelDeb:
-		core.Notice("dfinstall is installed from a .deb; update it with 'sudo apt-get update && sudo apt-get install --only-upgrade dfinstall'")
-	case core.ChannelGo:
-		core.Notice("dfinstall is installed with go install; update it with 'go install %s@latest'", core.MainPackagePath())
+	case core.ChannelBrew, core.ChannelDeb, core.ChannelGo:
+		packageUpdateHint(ctx, channel)
 	default:
 		core.AlwaysWarn("dfinstall was built for an unknown install channel %q; update it the way it was installed", channel)
 	}
 	return ""
+}
+
+// packageUpdateHint tells the user how to update a binary a package manager
+// owns, but only when a newer release exists. When the latest release cannot
+// be looked up (offline, filtered network) it gives the hint anyway, since
+// staying quiet there would hide updates from that machine for good.
+func packageUpdateHint(ctx context.Context, channel string) {
+	how := map[string]string{
+		core.ChannelBrew: "dfinstall is installed by Homebrew; update it with 'brew upgrade dfinstall'",
+		core.ChannelDeb:  "dfinstall is installed from a .deb; update it with 'sudo apt-get update && sudo apt-get install --only-upgrade dfinstall'",
+		core.ChannelGo:   fmt.Sprintf("dfinstall is installed with go install; update it with 'go install %s@latest'", core.MainPackagePath()),
+	}[channel]
+	tag, _, err := latestRelease(ctx, releaseRepo)
+	if err != nil {
+		core.Debug("could not look up the latest dfinstall release: %v", err)
+		core.Notice("%s", how)
+		return
+	}
+	if !newerRelease(tag, core.Version) {
+		core.Status("dfinstall %s is the latest release", core.Version)
+		return
+	}
+	core.Notice("dfinstall %s is available (this is %s). %s", tag, core.Version, how)
 }
 
 // selfUpdate replaces the running binary, and its sibling, with the latest
