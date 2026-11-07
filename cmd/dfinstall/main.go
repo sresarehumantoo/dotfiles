@@ -313,7 +313,7 @@ func main() {
 				return nil
 			}
 			current, stale := modules.RootStatus(ctx)
-			core.PrintResult(current+stale, stale)
+			core.PrintResult(current+stale, stale, "installed")
 			return nil
 		},
 	}
@@ -541,7 +541,7 @@ func installAll(ctx context.Context) error {
 	if sess.DidBackup() {
 		core.PrintHint("Backup saved; restore with: dfinstall restore")
 	}
-	core.PrintResult(total-skipped, len(failures))
+	core.PrintResult(total-skipped, len(failures), sess.Report().Outcome())
 	core.PrintHint("Open a new terminal or run: exec zsh")
 	return installFailure(failures)
 }
@@ -664,7 +664,7 @@ func installSome(ctx context.Context, mods []core.Module) error {
 	if sess.DidBackup() {
 		core.PrintHint("Backup saved; restore with: dfinstall restore")
 	}
-	core.PrintResult(len(mods), len(errs))
+	core.PrintResult(len(mods), len(errs), sess.Report().Outcome())
 	return moduleFailure(mods, errs, "install")
 }
 
@@ -710,7 +710,7 @@ func uninstallAll(ctx context.Context) error {
 		core.Err("%s", f)
 	}
 
-	core.PrintResult(total, len(failures))
+	core.PrintResult(total, len(failures), "removed")
 	return uninstallFailure(failures)
 }
 
@@ -769,7 +769,7 @@ func uninstallSome(ctx context.Context, mods []core.Module) error {
 	if len(errs) > 0 && len(mods) == 1 {
 		return moduleFailure(mods, errs, "uninstall")
 	}
-	core.PrintResult(len(mods), len(errs))
+	core.PrintResult(len(mods), len(errs), "removed")
 	return moduleFailure(mods, errs, "uninstall")
 }
 

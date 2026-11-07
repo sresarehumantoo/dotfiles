@@ -113,6 +113,18 @@ func TestInstallReport_DryRunListsOnlyRealChanges(t *testing.T) {
 	}
 }
 
+// The "Done" line said "N modules installed" whether anything changed or not,
+// so a no-op update read the same as one that rewrote the machine.
+func TestInstallReport_OutcomeCountsChangedModules(t *testing.T) {
+	m := reportSandbox(t)
+	if got := runReport(t, m, "skipped-one").Outcome(); got != "installed, 1 changed" {
+		t.Errorf("first run outcome = %q", got)
+	}
+	if got := runReport(t, m).Outcome(); got != "installed, 0 changed" {
+		t.Errorf("second run outcome = %q", got)
+	}
+}
+
 type skipModule struct{}
 
 func (skipModule) Name() string { return "skipper" }

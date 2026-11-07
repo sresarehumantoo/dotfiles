@@ -237,18 +237,18 @@ func SpinnerDetail(msg string, args ...any) {
 	}
 }
 
-// PrintResult prints the final success/failure summary after Stop.
-func PrintResult(total, failed int) {
+// PrintResult prints the final success/failure summary after Stop. outcome
+// follows the module count: "removed", or an InstallReport's Outcome.
+func PrintResult(total, failed int, outcome string) {
 	if failed == 0 {
 		if total == 1 {
 			emitRaw(fmt.Sprintf("  %s Done\n", doneColor(G.Ok)))
 		} else {
-			emitRaw(fmt.Sprintf("  %s Done: %d modules installed\n", doneColor(G.Ok), total))
+			emitRaw(fmt.Sprintf("  %s Done: %d modules %s\n", doneColor(G.Ok), total, outcome))
 		}
 		return
 	}
-	installed := total - failed
-	emitRaw(fmt.Sprintf("  %s Done: %d/%d modules installed\n", failColor(G.Warn), installed, total))
+	emitRaw(fmt.Sprintf("  %s Done: %d/%d modules %s\n", failColor(G.Warn), total-failed, total, outcome))
 }
 
 // PrintHint prints a dimmed hint message.

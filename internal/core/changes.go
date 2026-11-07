@@ -108,6 +108,18 @@ type InstallReport struct {
 	DryRun  bool
 }
 
+// Outcome is the end of the run's "Done" line: how many modules changed
+// something, which tells an install that did nothing from one that did.
+func (r InstallReport) Outcome() string {
+	n := 0
+	for _, o := range r.Modules {
+		if !o.Skipped && len(o.Changes) > 0 {
+			n++
+		}
+	}
+	return fmt.Sprintf("installed, %d changed", n)
+}
+
 // maxChangesShown caps each module's lines in the report; -v prints them all
 // as they happen anyway.
 const maxChangesShown = 6
