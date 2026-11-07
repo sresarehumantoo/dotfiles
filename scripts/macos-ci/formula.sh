@@ -40,7 +40,9 @@ check "brew style" brew style "$formula"
 
 echo "== update defers to Homebrew"
 check "dfinstall init adopts the checkout" "$bin/dfinstall" init --dir "$repo"
-check_output "update names brew upgrade instead of replacing the binary" 'brew upgrade dfinstall' \
+# A snapshot build has the latest tag's version, so update reports it current.
+check_output "update names brew upgrade, or reports it current, instead of replacing the binary" \
+    'brew upgrade dfinstall|is the latest release' \
     "$bin/dfinstall" update htop --dry-run
 
 echo "== uninstall"
