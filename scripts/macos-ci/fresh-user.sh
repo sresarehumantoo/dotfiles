@@ -71,11 +71,13 @@ echo "== attribution scrub"
 # ahead of ~/.local/bin in exactly this shell.
 check_output "a login zsh running one command finds the git wrapper first" "^$home/.local/bin/git\$" \
     as_user DF_PROFILE_SOURCED=1 PATH="$home/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin" /bin/zsh -l -c 'command -v git'
+# shellcheck disable=SC2016 # expands in the test account's shell
 check_output "/usr/bin/git, bypassing the wrapper, still strips attribution" '^clean$' \
     as_user /bin/bash -c 'cd "$(mktemp -d)" && /usr/bin/git init -q &&
         /usr/bin/git -c user.name=ci -c user.email=ci@example.invalid commit -q --allow-empty \
             -m "$(printf "s\n\nCo-Authored-By: Claude <noreply@anthropic.com>")" &&
         if /usr/bin/git log -1 --format=%B | grep -q Claude; then echo leaked; else echo clean; fi'
+# shellcheck disable=SC2016 # expands in the test account's shell
 check_output "a repository's own hooks still run under the global hooksPath" '^ran$' \
     as_user /bin/bash -c 'cd "$(mktemp -d)" && /usr/bin/git init -q &&
         printf "#!/bin/sh\ntouch ran\n" >.git/hooks/pre-commit && chmod +x .git/hooks/pre-commit &&
