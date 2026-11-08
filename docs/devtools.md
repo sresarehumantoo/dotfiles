@@ -359,6 +359,12 @@ Brings Claude Code conversations back when tmux-resurrect restores a server. Res
 
 The id is stored on the pane and only turned into a position at save time because `renumber-windows` moves windows during a session, while a restore preserves the saved positions exactly.
 
+### claude-no-attribution
+
+Claude Code's PreToolUse hook for Bash (claude module): refuses, before it runs, any command that runs `git` or `gh` with AI attribution in it, the same assistant `Co-authored-by` trailers, `Generated with` lines and session links the [git](#git) wrapper strips. Claude gets the refusal on stderr and is told to retry without that text. A human co-author, or a command that only searches for attribution, passes.
+
+The wrappers only see the git and gh that resolve to them; this sees the command itself, so it also covers `/usr/bin/git`, a git found ahead of `~/.local/bin`, and a repository whose own `core.hooksPath` displaces the global one. The hook does nothing when the script is not installed, so the claude module works without devtools. The AI names come from `_scrub.sh`.
+
 ### winbuild
 
 Dispatches a build to a Windows compilation server over SSH: rsyncs the project up, runs a configurable build command remotely, and rsyncs artifacts back. Installed by the [windev](modules.md#windev) module (not by devtools), but lives here so it picks up `_lib.sh` and the standard shellcheck scope. For end-to-end setup including SSH config and BUILD_CMD recipes, see the [Windows Cross-Development guide](windev.md#remote-windows-build-server).

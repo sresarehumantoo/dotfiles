@@ -28,6 +28,7 @@ var devtoolsScripts = []string{
 	"clipboard-vm",
 	"tmux-restore",
 	"claude-tmux",
+	"claude-no-attribution",
 	"demorec",
 	"wsl-ffmpeg",
 	"ghostty-shader",
