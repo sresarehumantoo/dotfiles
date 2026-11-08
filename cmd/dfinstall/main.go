@@ -669,6 +669,7 @@ func installSome(ctx context.Context, mods []core.Module) error {
 }
 
 func uninstallAll(ctx context.Context) error {
+	defer core.ClearDriftCache()
 	all := core.AllModules()
 	total := len(all)
 
@@ -723,6 +724,7 @@ func uninstallFailure(failures []string) error {
 }
 
 func uninstallSome(ctx context.Context, mods []core.Module) error {
+	defer core.ClearDriftCache()
 	var errs []error
 	run := func(m core.Module) {
 		u, ok := m.(core.Uninstaller)

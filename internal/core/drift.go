@@ -2,6 +2,7 @@ package core
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -83,4 +84,24 @@ func DetectLinkDrift() LinkDrift {
 		}
 	}
 	return d
+}
+
+// ClearDriftCache drops the result config/shell/zsh/drift.zsh caches between
+// prompts, so a shell does not report drift that an install or uninstall has
+// just put right: the check runs at most every ten minutes, and a result taken
+// before the run would otherwise be printed at the prompt after it.
+func ClearDriftCache() {
+	if DryRun {
+		return
+	}
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		base = HomeTarget(".local", "state")
+	}
+	if base == "" {
+		return
+	}
+	for _, name := range []string{"drift", "drift.checked"} {
+		_ = os.Remove(filepath.Join(base, AppDirName, name))
+	}
 }
