@@ -65,9 +65,27 @@ as_user "$df" install all </dev/null >"$logs/second-install.log" 2>&1 || true
 check_output "a second install all changes nothing" 'Unchanged' cat "$logs/second-install.log"
 check "a second install all reports no changes" sh -c "! grep -q 'Changed:' '$logs/second-install.log'"
 
+echo "== attribution scrub"
+# How an agent runs a command: a login zsh, inheriting a terminal's environment
+# that already sourced ~/.profile. /etc/zprofile's path_helper moves /usr/bin
+# ahead of ~/.local/bin in exactly this shell.
+check_output "a login zsh running one command finds the git wrapper first" "^$home/.local/bin/git\$" \
+    as_user DF_PROFILE_SOURCED=1 PATH="$home/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin" /bin/zsh -l -c 'command -v git'
+check_output "/usr/bin/git, bypassing the wrapper, still strips attribution" '^clean$' \
+    as_user /bin/bash -c 'cd "$(mktemp -d)" && /usr/bin/git init -q &&
+        /usr/bin/git -c user.name=ci -c user.email=ci@example.invalid commit -q --allow-empty \
+            -m "$(printf "s\n\nCo-Authored-By: Claude <noreply@anthropic.com>")" &&
+        if /usr/bin/git log -1 --format=%B | grep -q Claude; then echo leaked; else echo clean; fi'
+check_output "a repository's own hooks still run under the global hooksPath" '^ran$' \
+    as_user /bin/bash -c 'cd "$(mktemp -d)" && /usr/bin/git init -q &&
+        printf "#!/bin/sh\ntouch ran\n" >.git/hooks/pre-commit && chmod +x .git/hooks/pre-commit &&
+        /usr/bin/git -c user.name=ci -c user.email=ci@example.invalid commit -q --allow-empty -m s &&
+        test -e ran && echo ran'
+
 echo "== uninstall"
 as_user "$df" uninstall all </dev/null >"$logs/uninstall.log" 2>&1 || true
 left="$(sudo find "$home" -maxdepth 4 -type l -lname "$home/dotfiles/*" 2>/dev/null | wc -l | tr -d ' ')"
 check "uninstall all leaves no link into the checkout ($left left)" test "$left" -eq 0
+check "uninstall all removes the global hooksPath include" sudo test ! -e "$home/.config/dfinstall/git-scrub.gitconfig"
 
 finish
