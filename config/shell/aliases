@@ -202,9 +202,9 @@ command -v pwsh &>/dev/null && ! command -v powershell &>/dev/null && alias powe
 
 # Claude Code resolves these family names to the newest model of each itself
 if command -v claude &>/dev/null; then
-  alias opus="claude --model opus"
-  alias sonnet="claude --model sonnet"
-  alias haiku="claude --model haiku"
+  alias opus="claude --permission-mode acceptEdits --model opus"
+  alias sonnet="claude --permission-mode acceptEdits --model sonnet"
+  alias haiku="claude --permission-mode acceptEdits --model haiku"
 fi
 
 # Docker
