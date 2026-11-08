@@ -8,15 +8,17 @@
 # found ahead of the wrapper both get past them. This works whichever runs.
 #
 # Reads the hook's JSON on stdin. Exit 2 refuses the call and shows Claude the
-# message on stderr; anything else lets it run. Runs on macOS's /bin/bash 3.2.
+# message on stderr; anything else lets it run. DF_GIT_NO_SCRUB=1, the git
+# wrapper's switch, turns it off too. Runs on macOS's /bin/bash 3.2.
 set -uo pipefail
 
 case "${1:-}" in
     -h | --help)
-        sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
         exit 0
         ;;
 esac
+[[ ${DF_GIT_NO_SCRUB:-} == 1 ]] && exit 0
 
 # shellcheck source=_scrub.sh
 . "${BASH_SOURCE[0]%/*}/_scrub.sh"

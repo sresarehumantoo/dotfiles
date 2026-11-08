@@ -35,7 +35,8 @@ repo_hooks() {
 # the repository's own.
 if [[ ${0##*/} != git ]]; then
     name=${0##*/}
-    if [[ $name == commit-msg && -f ${1:-} ]]; then
+    # The repository's own hooks still run when scrubbing is off.
+    if [[ $name == commit-msg && -f ${1:-} && ${DF_GIT_NO_SCRUB:-} != 1 ]]; then
         # shellcheck source=_scrub.sh
         . "$(dirname "$(readlink "$0")")/_scrub.sh"
         clean=$(scrub <"$1")

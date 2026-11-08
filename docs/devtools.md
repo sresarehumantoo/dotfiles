@@ -155,7 +155,7 @@ How:
 - **`--no-verify`** skips `commit-msg`, so after a commit or merge any unpublished commit still carrying attribution is re-created with only the message changed.
 - **push** first rewrites, on every local branch it is about to send (named refspecs, `--all`/`--mirror`, `push.default=matching`, else the current branch), the commits that no remote-tracking ref contains, from the first one carrying attribution onward. It uses `commit-tree` + `update-ref`, so trees, authors and dates are kept and a dirty worktree is fine. A published commit is never rewritten. If the rewrite fails, the push is refused.
 
-Every rewrite is logged to `~/.local/state/git-scrub.log`. `DF_GIT_NO_SCRUB=1` runs the real git untouched. Every other subcommand is a plain `exec` (about 2ms of overhead). What counts as attribution is defined once, in `_scrub.sh`, which the `gh` wrapper shares.
+Every rewrite is logged to `~/.local/state/git-scrub.log`. `DF_GIT_NO_SCRUB=1` runs the real git untouched, and turns off the global hooks' scrub and the [claude-no-attribution](#claude-no-attribution) hook too; export it from `~/.profile.local` to opt out on a machine for good. Every other subcommand is a plain `exec` (about 2ms of overhead). What counts as attribution is defined once, in `_scrub.sh`, which the `gh` wrapper shares.
 
 ### gh
 
