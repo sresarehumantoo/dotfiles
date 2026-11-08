@@ -5,10 +5,31 @@
 # before a push. It prints nothing; what it rewrites is logged to
 # ${XDG_STATE_HOME:-~/.local/state}/git-scrub.log. DF_GIT_NO_SCRUB=1 bypasses it.
 #
+# The hooks directory is also the global core.hooksPath (dfinstall install
+# devtools sets it), so a git that never sees PATH, such as /usr/bin/git run
+# directly, still scrubs at commit-msg.
+#
 # Runs on macOS's /bin/bash 3.2. No -e: git's exit status must pass through.
 set -uo pipefail
 
-hooks="${XDG_CACHE_HOME:-$HOME/.cache}/git-scrub/hooks"
+hooks="$HOME/.local/share/dfinstall/git-hooks"
+
+# The hooks directory the repository itself uses: its core.hooksPath, or
+# .git/hooks. One naming $hooks is the global setting, not the repository's.
+# $@ is the git to ask.
+repo_hooks() {
+    local p
+    p=$("$@" config --type=path --get core.hooksPath 2>/dev/null)
+    if [[ -n $p && ! $p -ef $hooks ]]; then
+        case $p in
+            /*) ;;
+            *) p=$("$@" rev-parse --show-toplevel 2>/dev/null)/$p ;;
+        esac
+    else
+        p=$("$@" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) && p=$p/hooks
+    fi
+    printf '%s\n' "$p"
+}
 
 # Invoked as a hook from $hooks: scrub at commit-msg, then hand every hook to
 # the repository's own.
@@ -20,7 +41,10 @@ if [[ ${0##*/} != git ]]; then
         clean=$(scrub <"$1")
         [[ $clean == "$(cat "$1")" ]] || printf '%s\n' "$clean" >"$1"
     fi
+    # Unset when git found these hooks through the global core.hooksPath
+    # rather than through this wrapper.
     orig=${DF_GIT_SCRUB_HOOKS:-}
+    [[ -n $orig ]] || orig=$(repo_hooks git)
     if [[ -n $orig && -x $orig/$name && ! $orig/$name -ef $0 ]]; then
         exec "$orig/$name" "$@"
     fi
@@ -191,14 +215,10 @@ for n in applypatch-msg pre-applypatch post-applypatch pre-commit pre-merge-comm
     mkdir -p "$hooks" && ln -sf "$(cd "${BASH_SOURCE[0]%/*}" && pwd)/${BASH_SOURCE[0]##*/}" "$hooks/$n"
 done
 
-orig=$(g config --type=path --get core.hooksPath 2>/dev/null) ||
-    orig=$(g rev-parse --path-format=absolute --git-path hooks 2>/dev/null)
-case $orig in
-    /* | "") ;;
-    *) orig=$(g rev-parse --show-toplevel 2>/dev/null)/$orig ;;
-esac
-# A git run from inside one of these hooks inherits our core.hooksPath.
-[[ -n $orig && $orig -ef $hooks ]] && orig=${DF_GIT_SCRUB_HOOKS:-}
+# A git run from inside one of these hooks inherits our core.hooksPath, which
+# hides the repository's own, so it takes the outer run's answer.
+orig=${DF_GIT_SCRUB_HOOKS:-}
+[[ -n $orig ]] || orig=$(repo_hooks g)
 
 DF_GIT_SCRUB_HOOKS=$orig "$real" ${globals[@]+"${globals[@]}"} -c core.hooksPath="$hooks" "${args[@]:i}"
 rc=$?
