@@ -150,11 +150,12 @@ Linked as `~/.local/bin/git`, ahead of the real git on PATH, so it applies to an
 
 How:
 
-- **commit, merge** (and aliases to them) run with `core.hooksPath` pointed at `~/.cache/git-scrub/hooks`. Its `commit-msg` cleans the message before the commit is created, so the hash git prints is the final one. Every other hook there hands off to the repository's own hooks (`.git/hooks`, or its `core.hooksPath`, husky included).
+- **commit, merge** (and aliases to them) run with `core.hooksPath` pointed at `~/.local/share/dfinstall/git-hooks`. Its `commit-msg` cleans the message before the commit is created, so the hash git prints is the final one. Every other hook there hands off to the repository's own hooks (`.git/hooks`, or its `core.hooksPath`, husky included).
+- **Any other git** (`/usr/bin/git` run directly, a tool that never reads your shell files) still gets the `commit-msg` scrub: `install devtools` writes `~/.config/dfinstall/git-scrub.gitconfig`, which the tracked gitconfig includes, making that hooks directory the global `core.hooksPath`. Uninstalling devtools removes the file, so repositories fall back to their own hooks. A repository that sets its own `core.hooksPath` (husky does) overrides the global one, so there only the wrapper scrubs, and the push rewrite below is the backstop.
 - **`--no-verify`** skips `commit-msg`, so after a commit or merge any unpublished commit still carrying attribution is re-created with only the message changed.
 - **push** first rewrites, on every local branch it is about to send (named refspecs, `--all`/`--mirror`, `push.default=matching`, else the current branch), the commits that no remote-tracking ref contains, from the first one carrying attribution onward. It uses `commit-tree` + `update-ref`, so trees, authors and dates are kept and a dirty worktree is fine. A published commit is never rewritten. If the rewrite fails, the push is refused.
 
-Every rewrite is logged to `~/.local/state/git-scrub.log`. `DF_GIT_NO_SCRUB=1` runs the real git untouched. Every other subcommand is a plain `exec` (about 2ms of overhead). What counts as attribution is defined once, in `_scrub.sh`, which the `gh` wrapper shares.
+Every rewrite is logged to `~/.local/state/git-scrub.log`. `DF_GIT_NO_SCRUB=1` runs the real git untouched, and turns off the global hooks' scrub and the [claude-no-attribution](#claude-no-attribution) hook too; export it from `~/.profile.local` to opt out on a machine for good. Every other subcommand is a plain `exec` (about 2ms of overhead). What counts as attribution is defined once, in `_scrub.sh`, which the `gh` wrapper shares.
 
 ### gh
 
@@ -357,6 +358,12 @@ Brings Claude Code conversations back when tmux-resurrect restores a server. Res
 | `resume` | resurrect, in a restored pane whose saved command started with `claude` | `claude --resume <id>` for that pane's position, tagging the pane straight away so a save before SessionStart fires keeps it. Without an id it uses `claude --continue` only when the map shows no other Claude pane in that directory, since `--continue` opens the directory's latest conversation and two panes would both get it. Otherwise, and when the pane has no entry or its directory does not match, it opens the picker (`claude --resume`). |
 
 The id is stored on the pane and only turned into a position at save time because `renumber-windows` moves windows during a session, while a restore preserves the saved positions exactly.
+
+### claude-no-attribution
+
+Claude Code's PreToolUse hook for Bash (claude module): refuses, before it runs, any command that runs `git` or `gh` with AI attribution in it, the same assistant `Co-authored-by` trailers, `Generated with` lines and session links the [git](#git) wrapper strips. Claude gets the refusal on stderr and is told to retry without that text. A human co-author, or a command that only searches for attribution, passes.
+
+The wrappers only see the git and gh that resolve to them; this sees the command itself, so it also covers `/usr/bin/git`, a git found ahead of `~/.local/bin`, and a repository whose own `core.hooksPath` displaces the global one. The hook does nothing when the script is not installed, so the claude module works without devtools. The AI names come from `_scrub.sh`.
 
 ### winbuild
 

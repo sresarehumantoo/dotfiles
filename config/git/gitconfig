@@ -1,3 +1,8 @@
+# Written by dfinstall install devtools, absent without it: makes the
+# attribution-scrubbing hooks the global core.hooksPath. First, so a
+# core.hooksPath in either file below wins.
+[include]
+	path = ~/.config/dfinstall/git-scrub.gitconfig
 [include]
 	path = ~/.gitconfig.local
 
