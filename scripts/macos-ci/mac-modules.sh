@@ -40,7 +40,7 @@ check_output "app shortcuts are set in NSGlobalDomain" 'NSUserKeyEquivalents' de
 check "the login helper agent is loaded" agent_loaded io.github.sresarehumantoo.mackeys
 check "the helper's plist is in ~/Library/LaunchAgents" test -f "$HOME/Library/LaunchAgents/io.github.sresarehumantoo.mackeys.plist"
 run mackeys-again install mackeys
-check_output "a second install mackeys changes nothing" 'Unchanged' cat "$logs/mackeys-again.log"
+check_output "a second install mackeys changes nothing" '[Uu]nchanged' cat "$logs/mackeys-again.log"
 run mackeys-uninstall uninstall mackeys
 check "KeyRepeat is removed" sh -c '! defaults read NSGlobalDomain KeyRepeat >/dev/null 2>&1'
 check "the app shortcuts are removed" sh -c '! defaults read NSGlobalDomain NSUserKeyEquivalents >/dev/null 2>&1'
