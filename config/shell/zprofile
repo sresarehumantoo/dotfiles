@@ -32,3 +32,12 @@
 if [[ -r "$HOME/.profile" && -z "$DF_PROFILE_SOURCED" ]]; then
   emulate sh -c 'source "$HOME/.profile"'
 fi
+
+# macOS: /etc/zprofile has just run path_helper, which moves /usr/bin and /bin
+# ahead of ~/.local/bin. An interactive shell puts them back in .zshrc, but a
+# login shell that runs one command never reads .zshrc, and that is how agents
+# run commands: Claude Code's got /usr/bin/git, bypassing the attribution
+# scrubbing ~/.local/bin/git wrapper. path.zsh is safe to source twice.
+if [[ -r "$HOME/.zsh.d/path.zsh" ]]; then
+  source "$HOME/.zsh.d/path.zsh"
+fi
