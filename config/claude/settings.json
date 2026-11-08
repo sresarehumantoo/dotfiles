@@ -8,6 +8,17 @@
   "autoUpdatesChannel": "latest",
   "tui": "default",
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -x \"$HOME/.local/bin/claude-no-attribution\" ] || \"$HOME/.local/bin/claude-no-attribution\""
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [

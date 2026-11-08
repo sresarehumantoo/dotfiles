@@ -405,6 +405,7 @@ Symlinks utility scripts into `~/.local/bin/`:
 | `clipboard-vm` | Diagnose and fix SPICE clipboard sharing in a QEMU/KVM guest (`--reset`) |
 | `tmux-restore` | Toggle tmux session auto-restore (continuum + resurrect) on/off |
 | `claude-tmux` | Resume each pane's Claude Code conversation when resurrect restores a server (`record`/`save`/`resume`) |
+| `claude-no-attribution` | Claude Code PreToolUse hook: refuse a git or gh command that writes AI attribution |
 | `demorec` | Record the screen to mp4 and re-encode it small (`start`/`stop`/`status`/`render`) |
 | `wsl-ffmpeg` | Install a standalone Windows ffmpeg.exe for demorec's WSL capture (`--dir`, `--yes`, `--force`) |
 | `ghostty-shader` | Enable/disable Ghostty's cursor-trail shader per machine (`status`/`on`/`off`/`auto`/`reset`) |
@@ -728,7 +729,7 @@ Fetches offline usage documentation, the pages a project publishes on its site r
 
 Symlinks `config/claude/CLAUDE.md` to `~/.claude/CLAUDE.md`, the global Claude Code instructions loaded in every session. It ends with `@~/.claude/CLAUDE.local.md`, so each machine can layer untracked, host-specific instructions on top; Claude Code skips the import when the file is absent.
 
-`~/.claude/settings.json` is **merged, not linked**, because Claude Code rewrites it itself (`/config`, `/model`, plugin toggles). Each top-level key in `config/claude/settings.json` (commit/PR attribution off, `includeCoAuthoredBy: false`, the update channel, a SessionStart hook running `claude-tmux record`) replaces the live value; every other key is left untouched. That includes `hooks` as a whole, so a hook added by hand to the live file is replaced on the next install; add it to the tracked file instead. Keep anything machine-specific (permissions, `autoMode.environment`, `env`) out of the tracked file: this repo is public. An unparsable live file is never rewritten. Uninstall removes the link and leaves the merged keys in place.
+`~/.claude/settings.json` is **merged, not linked**, because Claude Code rewrites it itself (`/config`, `/model`, plugin toggles). Each top-level key in `config/claude/settings.json` (commit/PR attribution off, `includeCoAuthoredBy: false`, the update channel, a SessionStart hook running `claude-tmux record`, a PreToolUse hook running `claude-no-attribution`) replaces the live value; every other key is left untouched. That includes `hooks` as a whole, so a hook added by hand to the live file is replaced on the next install; add it to the tracked file instead. Keep anything machine-specific (permissions, `autoMode.environment`, `env`) out of the tracked file: this repo is public. An unparsable live file is never rewritten. Uninstall removes the link and leaves the merged keys in place.
 
 **Status:** Checks 1 symlink; stale managed settings keys are listed alongside.
 
