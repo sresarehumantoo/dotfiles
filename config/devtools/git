@@ -57,10 +57,20 @@ if [[ ${0##*/} != git ]]; then
     exit 0
 fi
 
+# Itself, or another copy of it further down PATH (a second clone's, a test's):
+# two copies that each took the other for the real git would exec each other
+# forever. A real git is a binary, so only a script is read past two bytes.
+is_wrapper() {
+    local head
+    [[ $1 -ef ${BASH_SOURCE[0]} ]] && return 0
+    IFS= read -r -n 2 head <"$1" 2>/dev/null && [[ $head == '#!' ]] &&
+        grep -q '^# Shadows git on PATH' "$1" 2>/dev/null
+}
+
 real=
 IFS=: read -ra dirs <<<"$PATH"
 for d in "${dirs[@]}"; do
-    if [[ -n $d && -x $d/git && ! $d/git -ef ${BASH_SOURCE[0]} ]]; then
+    if [[ -n $d && -x $d/git ]] && ! is_wrapper "$d/git"; then
         real=$d/git
         break
     fi
