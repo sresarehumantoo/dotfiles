@@ -62,7 +62,7 @@ check_output "doctor sees a standard account" 'macOS admin: no \(standard accoun
 sed 's/\x1b\[[0-9;]*m//g' "$logs/doctor.log" | sed 's/^/      /'
 
 as_user "$df" install all </dev/null >"$logs/second-install.log" 2>&1 || true
-check_output "a second install all changes nothing" 'Unchanged' cat "$logs/second-install.log"
+check_output "a second install all changes nothing" '[Uu]nchanged' cat "$logs/second-install.log"
 check "a second install all reports no changes" sh -c "! grep -q 'Changed:' '$logs/second-install.log'"
 
 echo "== attribution scrub"

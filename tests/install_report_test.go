@@ -84,9 +84,17 @@ func TestInstallReport_SecondRunIsUnchanged(t *testing.T) {
 	}
 
 	var b strings.Builder
-	second.Write(&b, false)
+	second.Write(&b, true)
 	if out := b.String(); !strings.Contains(out, "Unchanged: fake") || !strings.Contains(out, "Skipped: skipped-one") || strings.Contains(out, "Changed") {
-		t.Errorf("report:\n%s", out)
+		t.Errorf("full report:\n%s", out)
+	}
+
+	// The compact report, after every install and update, counts the modules
+	// that did nothing rather than listing them.
+	b.Reset()
+	second.Write(&b, false)
+	if out := b.String(); out != "  1 unchanged, 1 skipped; -v lists them\n" {
+		t.Errorf("compact report:\n%q", out)
 	}
 }
 
@@ -142,7 +150,7 @@ func TestInstallReport_ModuleSkipsItself(t *testing.T) {
 		t.Fatalf("outcome = %+v, want skipped and not failed", o)
 	}
 	var b strings.Builder
-	r.Write(&b, false)
+	r.Write(&b, true)
 	if out := b.String(); !strings.Contains(out, "Skipped: skipper") {
 		t.Errorf("report:\n%s", out)
 	}

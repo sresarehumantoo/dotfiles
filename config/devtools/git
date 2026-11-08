@@ -5,22 +5,27 @@
 # before a push. It prints nothing; what it rewrites is logged to
 # ${XDG_STATE_HOME:-~/.local/state}/git-scrub.log. DF_GIT_NO_SCRUB=1 bypasses it.
 #
-# The hooks directory is also the global core.hooksPath (dfinstall install
-# devtools sets it), so a git that never sees PATH, such as /usr/bin/git run
-# directly, still scrubs at commit-msg.
+# dfinstall install devtools also makes these hooks the global core.hooksPath,
+# so a git that never sees PATH, such as /usr/bin/git run directly, still
+# scrubs at commit-msg.
 #
 # Runs on macOS's /bin/bash 3.2. No -e: git's exit status must pass through.
 set -uo pipefail
 
-hooks="$HOME/.local/share/dfinstall/git-hooks"
+# Two directories of links back to this script: $hooks, which the wrapper
+# creates for itself and passes with -c, and $managed, the global
+# core.hooksPath that only dfinstall install devtools writes. Kept apart so
+# neither ever finds links it did not make, which dfinstall would report as
+# drift.
+hooks="${XDG_CACHE_HOME:-$HOME/.cache}/git-scrub/hooks"
+managed="$HOME/.local/share/dfinstall/git-hooks"
 
 # The hooks directory the repository itself uses: its core.hooksPath, or
-# .git/hooks. One naming $hooks is the global setting, not the repository's.
-# $@ is the git to ask.
+# .git/hooks. Neither of ours counts as the repository's. $@ is the git to ask.
 repo_hooks() {
     local p
     p=$("$@" config --type=path --get core.hooksPath 2>/dev/null)
-    if [[ -n $p && ! $p -ef $hooks ]]; then
+    if [[ -n $p && ! $p -ef $hooks && ! $p -ef $managed ]]; then
         case $p in
             /*) ;;
             *) p=$("$@" rev-parse --show-toplevel 2>/dev/null)/$p ;;
@@ -52,10 +57,20 @@ if [[ ${0##*/} != git ]]; then
     exit 0
 fi
 
+# Itself, or another copy of it further down PATH (a second clone's, a test's):
+# two copies that each took the other for the real git would exec each other
+# forever. A real git is a binary, so only a script is read past two bytes.
+is_wrapper() {
+    local head
+    [[ $1 -ef ${BASH_SOURCE[0]} ]] && return 0
+    IFS= read -r -n 2 head <"$1" 2>/dev/null && [[ $head == '#!' ]] &&
+        grep -q '^# Shadows git on PATH' "$1" 2>/dev/null
+}
+
 real=
 IFS=: read -ra dirs <<<"$PATH"
 for d in "${dirs[@]}"; do
-    if [[ -n $d && -x $d/git && ! $d/git -ef ${BASH_SOURCE[0]} ]]; then
+    if [[ -n $d && -x $d/git ]] && ! is_wrapper "$d/git"; then
         real=$d/git
         break
     fi

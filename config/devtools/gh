@@ -9,10 +9,20 @@
 # Runs on macOS's /bin/bash 3.2. No -e: gh's exit status must pass through.
 set -uo pipefail
 
+# Itself, or another copy of it further down PATH (a second clone's, a test's):
+# two copies that each took the other for the real gh would exec each other
+# forever. A real gh is a binary, so only a script is read past two bytes.
+is_wrapper() {
+    local head
+    [[ $1 -ef ${BASH_SOURCE[0]} ]] && return 0
+    IFS= read -r -n 2 head <"$1" 2>/dev/null && [[ $head == '#!' ]] &&
+        grep -q '^# Shadows gh on PATH' "$1" 2>/dev/null
+}
+
 real=
 IFS=: read -ra dirs <<<"$PATH"
 for d in "${dirs[@]}"; do
-    if [[ -n $d && -x $d/gh && ! $d/gh -ef ${BASH_SOURCE[0]} ]]; then
+    if [[ -n $d && -x $d/gh ]] && ! is_wrapper "$d/gh"; then
         real=$d/gh
         break
     fi
