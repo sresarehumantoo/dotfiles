@@ -133,6 +133,22 @@ func TestInstallReport_OutcomeCountsChangedModules(t *testing.T) {
 	}
 }
 
+// The "exec zsh" hint printed after every install; it now depends on whether
+// a module that affects the running shell changed anything.
+func TestInstallReport_ChangedAny(t *testing.T) {
+	r := core.InstallReport{Modules: []core.ModuleOutcome{
+		{Name: "tmux", Changes: []string{"linked ~/.tmux.conf"}},
+		{Name: "shell"},
+		{Name: "omz", Changes: []string{"cloned"}, Skipped: true},
+	}}
+	if r.ChangedAny("shell", "omz") {
+		t.Error("unchanged and skipped modules counted as changed")
+	}
+	if !r.ChangedAny("shell", "tmux") {
+		t.Error("changed module not reported")
+	}
+}
+
 // The spinner said "Installing" for every module, including the ones that
 // found everything in place; it now says "Checking" until a module changes
 // something, which RunWithProgress reports once.

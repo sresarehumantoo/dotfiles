@@ -137,6 +137,21 @@ func (r InstallReport) Outcome() string {
 	return fmt.Sprintf("installed, %d changed", n)
 }
 
+// ChangedAny reports whether any of the named modules changed something.
+func (r InstallReport) ChangedAny(names ...string) bool {
+	for _, o := range r.Modules {
+		if o.Skipped || len(o.Changes) == 0 {
+			continue
+		}
+		for _, n := range names {
+			if o.Name == n {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // maxChangesShown caps each module's lines in the report; -v prints them all
 // as they happen anyway.
 const maxChangesShown = 6

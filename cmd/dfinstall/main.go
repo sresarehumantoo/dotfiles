@@ -515,7 +515,7 @@ func installAll(ctx context.Context) error {
 		}
 		fmt.Println()
 		sess.Report().Write(os.Stdout, true)
-		core.Info("Done! Open a new terminal or run: exec zsh")
+		shellReloadHint(sess.Report())
 		return installFailure(failures)
 	}
 
@@ -552,8 +552,19 @@ func installAll(ctx context.Context) error {
 		core.PrintHint("Backup saved; restore with: dfinstall restore")
 	}
 	core.PrintResult(total-skipped, len(failures), sess.Report().Outcome())
-	core.PrintHint("Open a new terminal or run: exec zsh")
+	shellReloadHint(sess.Report())
 	return installFailure(failures)
+}
+
+// shellModules change what a running shell has already loaded: rc files,
+// oh-my-zsh, PATH snippets and the login shell. A new script in ~/.local/bin
+// needs no reload, since zsh searches PATH for commands it has not hashed.
+var shellModules = []string{"packages", "omz", "shell", "windev", "opencode", "wsl", "defaultshell"}
+
+func shellReloadHint(r core.InstallReport) {
+	if !r.DryRun && r.ChangedAny(shellModules...) {
+		core.PrintHint("Open a new terminal or run: exec zsh")
+	}
 }
 
 // installFailure turns collected per-module failures into a non-zero exit.
@@ -644,6 +655,7 @@ func installSome(ctx context.Context, mods []core.Module) error {
 		}
 		fmt.Println()
 		sess.Report().Write(os.Stdout, true)
+		shellReloadHint(sess.Report())
 		if len(mods) > 1 {
 			for _, e := range errs {
 				core.Err("%v", e)
@@ -681,6 +693,7 @@ func installSome(ctx context.Context, mods []core.Module) error {
 		core.PrintHint("Backup saved; restore with: dfinstall restore")
 	}
 	core.PrintResult(len(mods), len(errs), sess.Report().Outcome())
+	shellReloadHint(sess.Report())
 	return moduleFailure(mods, errs, "install")
 }
 
