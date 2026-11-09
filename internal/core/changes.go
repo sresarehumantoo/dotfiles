@@ -16,11 +16,19 @@ import (
 // word it as what would change.
 func Changed(msg string, args ...any) {
 	formatted := fmt.Sprintf(msg, args...)
+	var first func()
 	changesMu.Lock()
 	if activeSession != nil && activeSession.current != nil {
-		activeSession.current.Changes = append(activeSession.current.Changes, formatted)
+		o := activeSession.current
+		if len(o.Changes) == 0 {
+			first = o.firstChange
+		}
+		o.Changes = append(o.Changes, formatted)
 	}
 	changesMu.Unlock()
+	if first != nil {
+		first()
+	}
 	if Level >= LogVerbose {
 		emit(okSymbol(G.Ok), formatted)
 	}
@@ -37,6 +45,8 @@ type ModuleOutcome struct {
 	Changes []string
 	Skipped bool
 	Failed  bool
+
+	firstChange func()
 }
 
 // SkipError is what Install returns when the module decided not to run on
@@ -48,7 +58,13 @@ func (e *SkipError) Error() string { return e.Reason }
 
 // Run installs m, attributing every Changed call it makes to it.
 func (s *InstallSession) Run(ctx context.Context, m Module) error {
-	o := &ModuleOutcome{Name: m.Name()}
+	return s.RunWithProgress(ctx, m, nil)
+}
+
+// RunWithProgress is Run, calling firstChange when m first changes something,
+// so a spinner can say "Checking" until a module actually installs or updates.
+func (s *InstallSession) RunWithProgress(ctx context.Context, m Module, firstChange func()) error {
+	o := &ModuleOutcome{Name: m.Name(), firstChange: firstChange}
 	changesMu.Lock()
 	s.outcomes = append(s.outcomes, o)
 	s.current = o
@@ -96,6 +112,7 @@ func (s *InstallSession) Report() InstallReport {
 	for _, o := range s.outcomes {
 		c := *o
 		c.Changes = append([]string(nil), o.Changes...)
+		c.firstChange = nil
 		r.Modules = append(r.Modules, c)
 	}
 	return r
