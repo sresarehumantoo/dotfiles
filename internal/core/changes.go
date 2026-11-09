@@ -124,9 +124,10 @@ func (r InstallReport) Outcome() string {
 // as they happen anyway.
 const maxChangesShown = 6
 
-// Write renders the report. all lists every change rather than capping each
-// module at maxChangesShown.
-func (r InstallReport) Write(w io.Writer, all bool) {
+// Write renders the report. full lists every change rather than capping each
+// module at maxChangesShown, and names the unchanged and skipped modules
+// instead of counting them.
+func (r InstallReport) Write(w io.Writer, full bool) {
 	var unchanged, skipped []string
 	width := 0
 	for _, o := range r.Modules {
@@ -156,7 +157,7 @@ func (r InstallReport) Write(w io.Writer, all bool) {
 			wroteHeading = true
 		}
 		shown := o.Changes
-		if !all && len(shown) > maxChangesShown {
+		if !full && len(shown) > maxChangesShown {
 			shown = shown[:maxChangesShown-1]
 		}
 		for i, c := range shown {
@@ -169,6 +170,19 @@ func (r InstallReport) Write(w io.Writer, all bool) {
 		if more := len(o.Changes) - len(shown); more > 0 {
 			fmt.Fprintf(w, "    %-*s  ... and %d more (-v lists them)\n", width, "", more)
 		}
+	}
+	if !full {
+		var parts []string
+		if len(unchanged) > 0 {
+			parts = append(parts, fmt.Sprintf("%d unchanged", len(unchanged)))
+		}
+		if len(skipped) > 0 {
+			parts = append(parts, fmt.Sprintf("%d skipped", len(skipped)))
+		}
+		if len(parts) > 0 {
+			fmt.Fprintf(w, "  %s; -v lists them\n", strings.Join(parts, ", "))
+		}
+		return
 	}
 	if len(unchanged) > 0 {
 		// Several modules skip their package and network steps under DryRun

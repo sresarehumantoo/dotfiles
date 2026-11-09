@@ -596,6 +596,7 @@ func handleUninstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.Cal
 	if err := core.RequireDotfiles(); err != nil {
 		return mcp.NewToolResultError(err.Error()), nil
 	}
+	defer core.ClearDriftCache()
 
 	if name == "all" {
 		defer core.ReleaseSudo()

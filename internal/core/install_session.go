@@ -147,6 +147,7 @@ func (s *InstallSession) Finish() {
 		}
 	}
 	s.saveConfig()
+	ClearDriftCache()
 }
 
 func (s *InstallSession) saveConfig() {
