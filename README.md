@@ -61,7 +61,6 @@ sudo apt-get update && sudo apt-get install dfinstall
 
 # With Go: builds through GOPROXY, so a corporate Go mirror serves it
 go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall@latest
-go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall-mcp@latest
 
 # Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
 ```
@@ -347,6 +346,8 @@ Modules run in this order, dependencies first. Each is documented in the [module
 mackeys and alttab rest on undocumented macOS behavior and have been tested only on macOS 26.7.1; the module reference says what to check on another version.
 
 ## MCP Server
+
+> **Deprecated.** `dfinstall-mcp` will be removed in dfinstall 3.0. It returns the same text reports as the CLI, so an assistant that can run shell commands gets the same result from `dfinstall status`, `doctor`, `diff` and the rest, and one fewer binary and dependency set ships with each release. To unregister it: `claude mcp remove -s user dfinstall`.
 
 dfinstall ships an [MCP](https://modelcontextprotocol.io/) server so an AI assistant can drive the same operations as the CLI, over stdio JSON-RPC.
 

@@ -15,7 +15,13 @@ import (
 	"github.com/sresarehumantoo/dotfiles/v2/internal/modules"
 )
 
+const deprecationNotice = "dfinstall-mcp is deprecated and will be removed in dfinstall 3.0. " +
+	"Run the dfinstall CLI instead, which prints the same reports: status, install, uninstall, diff, " +
+	"doctor, restore --list, registry validate. Settings live in ~/.config/dfinstall/config.yaml."
+
 func main() {
+	fmt.Fprintln(os.Stderr, deprecationNotice)
+
 	// Save real stdout for MCP JSON-RPC transport.
 	// All fmt.Printf (used by core output functions) will go to stderr.
 	realStdout := os.Stdout
@@ -34,7 +40,7 @@ func main() {
 	}
 	modules.RegisterAllModules()
 
-	s := server.NewMCPServer("dfinstall", core.Version)
+	s := server.NewMCPServer("dfinstall", core.Version, server.WithInstructions(deprecationNotice))
 	registerTools(s)
 
 	stdioServer := server.NewStdioServer(s)
