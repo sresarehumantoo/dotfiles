@@ -133,6 +133,31 @@ func TestInstallReport_OutcomeCountsChangedModules(t *testing.T) {
 	}
 }
 
+// The spinner said "Installing" for every module, including the ones that
+// found everything in place; it now says "Checking" until a module changes
+// something, which RunWithProgress reports once.
+func TestRunWithProgress_FirstChangeOnly(t *testing.T) {
+	m := reportSandbox(t)
+	run := func() int {
+		calls := 0
+		sess, err := core.BeginInstall(core.InstallOptions{})
+		if err != nil {
+			t.Fatalf("BeginInstall: %v", err)
+		}
+		defer sess.Finish()
+		if err := sess.RunWithProgress(context.Background(), m, func() { calls++ }); err != nil {
+			t.Fatalf("Install: %v", err)
+		}
+		return calls
+	}
+	if n := run(); n != 1 {
+		t.Errorf("a module making two changes reported %d first changes, want 1", n)
+	}
+	if n := run(); n != 0 {
+		t.Errorf("a module changing nothing reported %d first changes, want 0", n)
+	}
+}
+
 type skipModule struct{}
 
 func (skipModule) Name() string { return "skipper" }

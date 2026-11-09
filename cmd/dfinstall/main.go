@@ -442,6 +442,15 @@ func main() {
 	}
 }
 
+// activeVerb names what a module that changes something is doing: installing,
+// or, under update, updating. Until it changes something it is only checked.
+func activeVerb() string {
+	if flagUpgrade {
+		return "Updating"
+	}
+	return "Installing"
+}
+
 // upgradeClone is the first half of --upgrade: bring the clone and dfinstall
 // up to date, and re-exec when dfinstall was replaced, so the install runs the
 // new code.
@@ -520,9 +529,10 @@ func installAll(ctx context.Context) error {
 			skipped++
 			continue
 		}
-		sp.Update("Installing %s (%d/%d)", m.Name(), i+1, total)
+		label := fmt.Sprintf("%s (%d/%d)", m.Name(), i+1, total)
+		sp.Update("Checking %s", label)
 		core.Debug("starting module %s", m.Name())
-		if err := sess.Run(ctx, m); err != nil {
+		if err := sess.RunWithProgress(ctx, m, func() { sp.Update("%s %s", activeVerb(), label) }); err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", m.Name(), err))
 		}
 	}
@@ -609,8 +619,14 @@ func installSome(ctx context.Context, mods []core.Module) error {
 	defer sess.Finish()
 
 	var errs []error
+	var sp *core.Spinner
+	label := ""
 	run := func(m core.Module) {
-		if err := sess.Run(ctx, m); err != nil {
+		var progress func()
+		if sp != nil {
+			progress = func() { sp.Update("%s %s", activeVerb(), label) }
+		}
+		if err := sess.RunWithProgress(ctx, m, progress); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", m.Name(), err))
 		}
 	}
@@ -637,14 +653,14 @@ func installSome(ctx context.Context, mods []core.Module) error {
 	}
 
 	// Default: spinner mode
-	sp := core.NewSpinner()
+	sp = core.NewSpinner()
 	sp.Start()
 	for i, m := range mods {
+		label = m.Name()
 		if len(mods) > 1 {
-			sp.Update("Installing %s (%d/%d)", m.Name(), i+1, len(mods))
-		} else {
-			sp.Update("Installing %s", m.Name())
+			label = fmt.Sprintf("%s (%d/%d)", m.Name(), i+1, len(mods))
 		}
+		sp.Update("Checking %s", label)
 		run(m)
 	}
 	sp.Stop()
