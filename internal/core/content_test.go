@@ -32,7 +32,13 @@ func TestContentDirBeside_ResolvesKegSymlink(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(share, ContentStampName), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := contentDirBeside(link); got != share {
-		t.Errorf("contentDirBeside = %q, want the keg's %q", got, share)
+	// The result is resolved, and on macOS TempDir itself sits under a
+	// symlink (/var -> /private/var).
+	want, err := filepath.EvalSymlinks(share)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := contentDirBeside(link); got != want {
+		t.Errorf("contentDirBeside = %q, want the keg's %q", got, want)
 	}
 }
