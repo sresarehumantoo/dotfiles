@@ -357,3 +357,80 @@ func TestPrepareContent_LeavesACloneAlone(t *testing.T) {
 		t.Error("a clone install got a content store")
 	}
 }
+
+// packagedInstall sets up packaged content v1.0.0 with this binary at
+// version, and htop linked from it.
+func packagedInstall(t *testing.T, version string) string {
+	t.Helper()
+	isolate(t)
+	saved := core.Version
+	t.Cleanup(func() { core.Version = saved })
+	packagedFixture(t, "v1.0.0")
+	if _, err := InitContent(context.Background(), InitOptions{Packaged: true}); err != nil {
+		t.Fatal(err)
+	}
+	core.Version = version
+	return linkAt(t, core.ContentCurrentDir())
+}
+
+func editStore(t *testing.T, rel, body string) {
+	t.Helper()
+	p := filepath.Join(core.ContentCurrentDir(), rel)
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestContentDoctor(t *testing.T) {
+	packagedInstall(t, "v1.0.0")
+	if r := contentSourceResult(); !strings.Contains(r.Detail, "packaged content v1.0.0") {
+		t.Errorf("content source = %q", r.Detail)
+	}
+	if r := contentVersionResult(); !r.OK {
+		t.Errorf("content version failed on a match: %q", r.Detail)
+	}
+
+	core.Version = "v2.0.0"
+	r := contentVersionResult()
+	if r.OK || !strings.Contains(r.Detail, "v1.0.0") || !strings.Contains(strings.Join(r.Extra, " "), "install all") {
+		t.Errorf("behind: %+v, want a failure naming the version and the fix", r)
+	}
+
+	core.Version = "v1.0.0"
+	editStore(t, "config/htop/htoprc", "edited\n")
+	r = contentVersionResult()
+	if r.OK || !strings.Contains(strings.Join(r.Extra, " "), "config/htop/htoprc") {
+		t.Errorf("edited: %+v, want a failure listing the file", r)
+	}
+}
+
+func TestContentDiff(t *testing.T) {
+	packagedInstall(t, "v2.0.0")
+	editStore(t, "config/htop/htoprc", "edited\n")
+
+	r := CollectDiff()
+	if !r.Packaged || r.ContentVersion != "v1.0.0" {
+		t.Fatalf("Packaged=%v ContentVersion=%q", r.Packaged, r.ContentVersion)
+	}
+	var brief strings.Builder
+	r.WriteBrief(&brief)
+	for _, want := range []string{
+		"packaged content is v1.0.0 but dfinstall is v2.0.0",
+		"edited in packaged content (config/htop/htoprc); install all restores it",
+	} {
+		if !strings.Contains(brief.String(), want) {
+			t.Errorf("brief missing %q:\n%s", want, brief.String())
+		}
+	}
+	if r.Edited != 0 || r.Issues < 2 {
+		t.Errorf("Issues=%d Edited=%d, want the edit and the version counted as fixable issues", r.Issues, r.Edited)
+	}
+	var full strings.Builder
+	r.Write(&full, "run install all", "install all")
+	if strings.Contains(full.String(), "git -C") {
+		t.Errorf("packaged report gives git advice:\n%s", full.String())
+	}
+}
