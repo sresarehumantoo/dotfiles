@@ -72,7 +72,8 @@ install-bin: build-all ## Install both binaries onto PATH (~/.local/bin)
 	install -m 0755 $(BUILD_DIR)/$(MCP_BINARY) $(LOCAL_BIN)/$(MCP_BINARY)
 	@echo "Installed $(BINARY) + $(MCP_BINARY) to $(LOCAL_BIN)"
 
-install-mcp: build-mcp ## Register the MCP server with Claude Code (user scope, works anywhere)
+install-mcp: build-mcp ## Register the MCP server with Claude Code (deprecated, removed in 3.0)
+	@echo "warning: dfinstall-mcp is deprecated and will be removed in dfinstall 3.0; use the dfinstall CLI instead" >&2
 	@command -v claude >/dev/null 2>&1 || { echo "claude CLI not found — install Claude Code first"; exit 1; }
 	@claude mcp remove -s user dfinstall >/dev/null 2>&1 || true
 	claude mcp add -s user dfinstall -- $(CURDIR)/$(BUILD_DIR)/$(MCP_BINARY)
