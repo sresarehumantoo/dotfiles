@@ -408,17 +408,24 @@ func main() {
 	var initOpts modules.InitOptions
 	initCmd := &cobra.Command{
 		Use:   "init",
-		Short: "Clone the dotfiles checkout a released binary links from",
+		Short: "Set up the dotfiles content a released binary links from",
 		Long: "Clone a dotfiles repository and record it as this machine's checkout, so a binary installed\n" +
 			"without the repo (a release, a package, go install) has configs to link.\n\n" +
 			"With no --dir and a checkout already recorded, init does nothing. --dir pointing at an\n" +
 			"existing checkout adopts it without cloning. The default branch is the default ref:\n" +
-			"'update' fast-forwards a branch, which a tag checkout does not have.",
+			"'update' fast-forwards a branch, which a tag checkout does not have.\n\n" +
+			"--packaged uses the content shipped with this dfinstall (its deb, Homebrew formula or\n" +
+			"release) instead of a clone, for machines where git or GitHub is not available. Where\n" +
+			"git is missing, cannot run or is denied by policy, a plain init does this by itself.\n" +
+			"From a clone install it moves the links over and leaves the clone in place; it refuses\n" +
+			"while the clone has edits or unpushed commits unless given --force. 'init --dir <clone>'\n" +
+			"switches back.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if os.Geteuid() == 0 {
 				return fmt.Errorf("refusing to run as root; run init as your normal user")
 			}
+			core.DetectEnvironment()
 			_, err := modules.InitContent(cmd.Context(), initOpts)
 			core.FlushWarnings()
 			return err
@@ -427,6 +434,8 @@ func main() {
 	initCmd.Flags().StringVar(&initOpts.Repo, "repo", "", "repository to clone (default "+modules.DefaultContentRepo+")")
 	initCmd.Flags().StringVar(&initOpts.Ref, "ref", "", "branch or tag to check out (default: the repository's default branch)")
 	initCmd.Flags().StringVar(&initOpts.Dir, "dir", "", "where to put the checkout (default "+modules.DefaultContentDir()+")")
+	initCmd.Flags().BoolVar(&initOpts.Packaged, "packaged", false, "use the content shipped with this dfinstall instead of a clone")
+	initCmd.Flags().BoolVar(&initOpts.Force, "force", false, "with --packaged, switch from a clone even if its edits or commits stop applying")
 
 	rootCmd.AddCommand(initCmd, installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd, uninstallCmd, diffCmd, registryCmd)
 

@@ -24,6 +24,10 @@ type InstallOptions struct {
 	// ForceBackup corresponds to --backup: snapshot regardless of the
 	// skip_backup config preference.
 	ForceBackup bool
+	// ContentOnly is for init, which installs content but replaces nothing
+	// in the user's home: no snapshot unless ForceBackup asks for one, and a
+	// first run's automatic backup stays armed for the install that does.
+	ContentOnly bool
 }
 
 // InstallSession owns the setup and teardown shared by every install path —
@@ -100,6 +104,9 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 	}
 
 	s.doBackup, s.firstRun = shouldBackup(opt.ForceBackup)
+	if opt.ContentOnly && !opt.ForceBackup {
+		s.doBackup, s.firstRun = false, false
+	}
 	if s.doBackup {
 		if err := StartBackup(); err != nil {
 			// No session is returned, so no Finish will run to release this.
