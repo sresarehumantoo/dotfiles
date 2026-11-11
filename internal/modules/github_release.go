@@ -66,7 +66,16 @@ func latestAssets(ctx context.Context, repo string) ([]ghAsset, error) {
 
 // latestRelease returns the tag and assets of a repo's latest release.
 func latestRelease(ctx context.Context, repo string) (string, []ghAsset, error) {
-	apiURL := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	return fetchRelease(ctx, repo, fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo))
+}
+
+// taggedRelease returns the assets of one release of a repo.
+func taggedRelease(ctx context.Context, repo, tag string) ([]ghAsset, error) {
+	_, assets, err := fetchRelease(ctx, repo, fmt.Sprintf("https://api.github.com/repos/%s/releases/tags/%s", repo, url.PathEscape(tag)))
+	return assets, err
+}
+
+func fetchRelease(ctx context.Context, repo, apiURL string) (string, []ghAsset, error) {
 	out, err := githubProbe(ctx, apiURL)
 	if err != nil {
 		return "", nil, fmt.Errorf("fetch releases for %s: %w", repo, err)
