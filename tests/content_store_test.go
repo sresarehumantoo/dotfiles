@@ -28,16 +28,19 @@ func contentHome(t *testing.T) (*core.InstallSession, string) {
 		t.Fatalf("BeginInstall: %v", err)
 	}
 	t.Cleanup(sess.Finish)
-	// Sealed versions are read-only; let TempDir's cleanup remove them.
-	t.Cleanup(func() {
-		filepath.WalkDir(home, func(p string, d fs.DirEntry, err error) error {
-			if err == nil && d.IsDir() {
-				os.Chmod(p, 0o755)
-			}
-			return nil
-		})
-	})
+	t.Cleanup(func() { removeSealed(home) })
 	return sess, home
+}
+
+// removeSealed restores write on the read-only directories of a content
+// store, so TempDir's cleanup can remove them.
+func removeSealed(root string) {
+	filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			os.Chmod(p, 0o755)
+		}
+		return nil
+	})
 }
 
 // contentFixture writes a stamped content tree for version and returns its

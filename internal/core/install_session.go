@@ -68,8 +68,14 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 	InstallingAll = opt.All
 
 	// A binary running from no clone (a release or package) keeps whichever
-	// checkout `init` recorded.
-	if invoking := InvokingCloneDir(); opt.All && invoking != "" {
+	// checkout `init` recorded. Packaged content is only left by an explicit
+	// `init --dir`, never because install all ran from inside an old clone.
+	invoking, fromCwd := invokingClone()
+	if opt.All && invoking != "" && fromCwd && ReadCanonicalDir() == ContentCurrentDir() {
+		Notice("using packaged content, not the clone at %s; to switch to it: dfinstall init --dir %s", invoking, invoking)
+		invoking = ""
+	}
+	if opt.All && invoking != "" {
 		switch {
 		case DryRun:
 			// The canonical pointer is machine-global, so adopting during a
