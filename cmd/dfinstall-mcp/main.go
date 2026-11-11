@@ -244,6 +244,9 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 
 		var b strings.Builder
 		b.WriteString(upgradeReport)
+		if err := modules.PrepareContent(ctx, sess); err != nil {
+			fmt.Fprintf(&b, "%v\n\n", err)
+		}
 		if sess.CanonicalNow != "" && sess.CanonicalPrev != "" {
 			fmt.Fprintf(&b, "Canonical dotfiles dir set to %s (was %s), repointing symlinks\n\n", sess.CanonicalNow, sess.CanonicalPrev)
 		}
@@ -296,10 +299,14 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 
 	defer core.ReleaseSudo()
 
-	err = sess.Run(ctx, m)
-
 	var b strings.Builder
 	b.WriteString(upgradeReport)
+	if err := modules.PrepareContent(ctx, sess); err != nil {
+		fmt.Fprintf(&b, "%v\n\n", err)
+	}
+
+	err = sess.Run(ctx, m)
+
 	if err != nil {
 		sess.MarkFailed()
 		fmt.Fprintf(&b, "install %s error: %v\n", name, err)
@@ -321,7 +328,7 @@ func handleInstall(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallT
 // on with the code it started with.
 func upgradeClone(ctx context.Context, all bool) string {
 	dir := core.DotfilesDir()
-	if invoking := core.InvokingCloneDir(); all && invoking != "" {
+	if invoking := core.AllInstallClone(); all && invoking != "" {
 		dir = invoking
 	}
 	var b strings.Builder

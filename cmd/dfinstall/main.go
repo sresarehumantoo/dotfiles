@@ -470,7 +470,7 @@ func upgradeClone(ctx context.Context, all bool) {
 	// install all adopts the clone it runs from; anything else links into
 	// the canonical one.
 	dir := core.DotfilesDir()
-	if invoking := core.InvokingCloneDir(); all && invoking != "" {
+	if invoking := core.AllInstallClone(); all && invoking != "" {
 		dir = invoking
 	}
 	exe := modules.UpgradeClone(ctx, dir)
@@ -488,6 +488,9 @@ func installAll(ctx context.Context) error {
 		return err
 	}
 	defer sess.Finish()
+	if err := modules.PrepareContent(ctx, sess); err != nil {
+		core.AlwaysWarn("%v", err)
+	}
 
 	if sess.CanonicalNow != "" {
 		if sess.CanonicalPrev != "" {
@@ -637,6 +640,9 @@ func installSome(ctx context.Context, mods []core.Module) error {
 		return err
 	}
 	defer sess.Finish()
+	if err := modules.PrepareContent(ctx, sess); err != nil {
+		core.AlwaysWarn("%v", err)
+	}
 
 	var errs []error
 	var sp *core.Spinner

@@ -304,3 +304,56 @@ func TestInitContent_FallsBackWhenGitIsDenied(t *testing.T) {
 		t.Error("plain init did not fall back to packaged content")
 	}
 }
+
+// After a package upgrade the store is behind the binary; the next install
+// syncs it, and links keep their path through current.
+func TestPrepareContent_SyncsToTheBinarysVersion(t *testing.T) {
+	isolate(t)
+	saved := core.Version
+	t.Cleanup(func() { core.Version = saved })
+	packagedFixture(t, "v1.0.0")
+	core.Version = "v1.0.0"
+	if _, err := InitContent(context.Background(), InitOptions{Packaged: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	packagedFixture(t, "v2.0.0")
+	core.Version = "v2.0.0"
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Finish()
+	if err := PrepareContent(context.Background(), sess); err != nil {
+		t.Fatalf("PrepareContent: %v", err)
+	}
+	if got := core.CurrentContentVersion(); got != "v2.0.0" {
+		t.Errorf("current = %s, want v2.0.0", got)
+	}
+	if got := getFile(t, core.ContentCurrentDir(), "config/htop/htoprc"); got != "# htoprc v2.0.0\n" {
+		t.Errorf("htoprc = %q", got)
+	}
+	if got := core.ReadCanonicalDir(); got != core.ContentCurrentDir() {
+		t.Errorf("pointer = %q", got)
+	}
+}
+
+func TestPrepareContent_LeavesACloneAlone(t *testing.T) {
+	_, clone := upgradeFixture(t)
+	isolate(t)
+	if err := core.WriteCanonicalDir(clone); err != nil {
+		t.Fatal(err)
+	}
+	packagedFixture(t, "v1.0.0")
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Finish()
+	if err := PrepareContent(context.Background(), sess); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(core.ContentStoreDir()); err == nil {
+		t.Error("a clone install got a content store")
+	}
+}

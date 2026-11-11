@@ -728,6 +728,18 @@ func clip(s string, n int) string {
 // binary to re-exec, or "" when there is none to switch to. Failures are
 // reported and the install goes on with what it has.
 func UpgradeClone(ctx context.Context, dir string) string {
+	if dir != "" && dir == core.ContentCurrentDir() {
+		// Packaged content has no clone to pull and no source to rebuild:
+		// it follows the binary, and the install after this syncs it.
+		core.Status("using packaged content %s, which updates with dfinstall", core.CurrentContentVersion())
+		ch := core.BuildChannel()
+		if ch == core.ChannelSource {
+			return ""
+		}
+		exe := updateBinary(ctx, ch)
+		core.FlushWarnings()
+		return exe
+	}
 	changed, err := ConvergeClone(ctx, dir)
 	if err != nil {
 		core.AlwaysWarn("could not update %s: %v", dir, err)

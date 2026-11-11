@@ -172,6 +172,22 @@ func adoptContent(dir, format string, args ...any) error {
 	return nil
 }
 
+// PrepareContent brings packaged content to this dfinstall's version before
+// an install links from it, as after a package upgrade. A clone install is
+// left alone; pulling it is --upgrade's job.
+func PrepareContent(ctx context.Context, sess *core.InstallSession) error {
+	if !core.UsingPackagedContent() || core.ContentUpToDate(core.Version) {
+		return nil
+	}
+	if v := core.CurrentContentVersion(); v != "" && v != core.Version {
+		core.Status("updating packaged content %s to %s", v, core.Version)
+	}
+	if err := packagedSync(ctx, sess); err != nil {
+		return fmt.Errorf("packaged content not updated, linking from %s: %w", core.CurrentContentVersion(), err)
+	}
+	return nil
+}
+
 // packagedSync installs this binary's packaged content. Tests replace it,
 // since where that content comes from depends on how the test binary was
 // built.
