@@ -366,13 +366,36 @@ type DiffReport struct {
 	// Root is the clone the links point into.
 	Root  string
 	Drift core.LinkDrift
+	// Packaged is set when Root is the content store. Edits there are
+	// Issues, since install restores the store, and ContentVersion is the
+	// version it holds.
+	Packaged       bool
+	ContentVersion string
+}
+
+// contentBehind reports packaged content that does not match this dfinstall,
+// as after a package upgrade, in the words both renderings use.
+func (r DiffReport) contentBehind() string {
+	if !r.Packaged || r.ContentVersion == core.Version {
+		return ""
+	}
+	return fmt.Sprintf("packaged content is %s but dfinstall is %s", r.ContentVersion, core.Version)
 }
 
 // CollectDiff inspects every module and reports what differs from config.
 func CollectDiff() DiffReport {
 	root := core.DotfilesDir()
-	r := DiffReport{Root: root}
-	edited := editedInClone(root)
+	r := DiffReport{Root: root, Packaged: root != "" && root == core.ContentCurrentDir()}
+	var edited []string
+	if r.Packaged {
+		r.ContentVersion = core.CurrentContentVersion()
+		edited = core.ContentEdits(root)
+		if r.contentBehind() != "" {
+			r.Issues++
+		}
+	} else {
+		edited = editedInClone(root)
+	}
 
 	for _, m := range core.AllModules() {
 		if pg, ok := m.(platformGated); ok {
@@ -407,7 +430,13 @@ func CollectDiff() DiffReport {
 					e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: state})
 					r.Issues++
 				case len(edited) > 0:
-					if rel := editedUnder(edited, root, lp.Src); rel != "" {
+					rel := editedUnder(edited, root, lp.Src)
+					switch {
+					case rel == "":
+					case r.Packaged:
+						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel})
+						r.Issues++
+					default:
 						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel, MoveTo: movableTo(root, rel), Changes: describeEdit(root, rel)})
 						r.Edited++
 					}
@@ -562,6 +591,11 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 			case "content":
 				fmt.Fprintf(w, "      %s: %s\n", tildePath(p.Dst), p.Detail)
 			case "edited":
+				if r.Packaged {
+					fmt.Fprintf(w, "      edited in packaged content (%s): %s\n", p.Detail, tildePath(p.Dst))
+					fmt.Fprintf(w, "        %s\n", paint(faint, "install restores it; keep a change in the file's override instead"))
+					continue
+				}
 				fmt.Fprintf(w, "      edited in the clone (uncommitted %s): %s\n", p.Detail, tildePath(p.Dst))
 				for _, ch := range p.Changes {
 					fmt.Fprintf(w, "          %s\n", ch)
@@ -586,6 +620,9 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, "%s\n\n", paint(faint, "Modules: "+strings.Join(summary, ", ")))
+	if behind := r.contentBehind(); behind != "" {
+		fmt.Fprintf(w, "%s %s\n", paint(red, core.G.Fail), behind)
+	}
 
 	if r.Issues == 0 {
 		fmt.Fprintln(w, "No drift detected.")
@@ -619,6 +656,9 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 // whose counts include packages a machine may lack on purpose.
 func (r DiffReport) WriteBrief(w io.Writer) {
 	short := tildePath
+	if behind := r.contentBehind(); behind != "" {
+		fmt.Fprintf(w, "%s; dfinstall install all updates it\n", behind)
+	}
 	for _, e := range r.Entries {
 		for _, p := range e.Problems {
 			switch p.State {
@@ -629,7 +669,9 @@ func (r DiffReport) WriteBrief(w io.Writer) {
 			case "content":
 				fmt.Fprintf(w, "%s: %s\n", short(p.Dst), p.Detail)
 			case "edited":
-				if p.MoveTo != "" {
+				if r.Packaged {
+					fmt.Fprintf(w, "%s: edited in packaged content (%s); install all restores it\n", short(p.Dst), p.Detail)
+				} else if p.MoveTo != "" {
 					fmt.Fprintf(w, "%s: edited in the clone (%s); install all --upgrade can move it to %s\n", short(p.Dst), p.Detail, short(p.MoveTo))
 				} else {
 					fmt.Fprintf(w, "%s: edited in the clone (%s); commit or revert it there\n", short(p.Dst), p.Detail)

@@ -83,3 +83,44 @@ func TestBeginInstallAll_KeepsCheckoutWhenRunFromNoClone(t *testing.T) {
 		t.Errorf("session reported adopting %q", sess.CanonicalNow)
 	}
 }
+
+// Packaged content is only left by an explicit init --dir. install all run
+// from inside the old clone used to adopt it again.
+func TestBeginInstallAll_KeepsPackagedContentWhenRunFromAClone(t *testing.T) {
+	noCloneHome(t)
+	saveGlobals(t)
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.SyncContentDir(contentFixture(t, "v1.0.0"), "v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	sess.Finish()
+	t.Cleanup(func() { removeSealed(core.ContentStoreDir()) })
+	if err := core.WriteCanonicalDir(core.ContentCurrentDir()); err != nil {
+		t.Fatal(err)
+	}
+	clone := makeRepo(t, t.TempDir(), "clone")
+	t.Chdir(clone)
+
+	sess, err = core.BeginInstall(core.InstallOptions{All: true})
+	if err != nil {
+		t.Fatalf("BeginInstall: %v", err)
+	}
+	sess.Finish()
+	if got := core.ReadCanonicalDir(); got != core.ContentCurrentDir() {
+		t.Errorf("canonical pointer = %q, want packaged content kept", got)
+	}
+
+	// $DOTFILES is an explicit choice, so it still switches.
+	t.Setenv("DOTFILES", clone)
+	sess, err = core.BeginInstall(core.InstallOptions{All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Finish()
+	if got := core.ReadCanonicalDir(); got != clone {
+		t.Errorf("canonical pointer = %q with $DOTFILES set, want %q", got, clone)
+	}
+}

@@ -17,7 +17,48 @@ import (
 
 // upgradeDoctorResults reports each of them.
 func upgradeDoctorResults() []DoctorResult {
-	return []DoctorResult{binaryOnPathResult(), checkoutFilesResult(), settingsFileResult()}
+	results := []DoctorResult{binaryOnPathResult(), contentSourceResult()}
+	if core.UsingPackagedContent() {
+		results = append(results, contentVersionResult())
+	}
+	return append(results, checkoutFilesResult(), settingsFileResult())
+}
+
+// contentSourceResult says where managed files link from: a clone, or the
+// packaged content store and the version it holds.
+func contentSourceResult() DoctorResult {
+	const name = "content source"
+	root := core.DotfilesDir()
+	if !core.UsingPackagedContent() {
+		return DoctorResult{Name: name, OK: true, Detail: "clone at " + root}
+	}
+	detail := "packaged content " + core.CurrentContentVersion() + " at " + root
+	switch ch := core.BuildChannel(); {
+	case (ch == core.ChannelDeb || ch == core.ChannelBrew) && core.PackagedContentDir() == "":
+		detail += "; this " + string(ch) + " install ships no content beside it, so links keep the copy already here"
+	case ch == core.ChannelSource || ch == core.ChannelGo:
+		detail += "; a " + ch + " build cannot update it"
+	}
+	return DoctorResult{Name: name, OK: true, Detail: detail}
+}
+
+// contentVersionResult fails when packaged content does not match this
+// dfinstall, or was edited where it is stored. Install fixes both.
+func contentVersionResult() DoctorResult {
+	const name = "content version"
+	current := core.CurrentContentVersion()
+	switch {
+	case current != core.Version:
+		return DoctorResult{Name: name, OK: false,
+			Detail: fmt.Sprintf("packaged content is %s but dfinstall is %s", current, core.Version),
+			Extra:  []string{"run 'dfinstall install all' to update it"}}
+	case !core.ContentUpToDate(core.Version):
+		edits := core.ContentEdits(core.ContentCurrentDir())
+		return DoctorResult{Name: name, OK: false,
+			Detail: fmt.Sprintf("%d file(s) in packaged content were edited where they are stored", len(edits)),
+			Extra:  append([]string{"run 'dfinstall install all' to restore them; keep changes in override files"}, edits...)}
+	}
+	return DoctorResult{Name: name, OK: true, Detail: current + ", matches dfinstall"}
 }
 
 // binaryOnPathResult reports when the dfinstall PATH finds is not this one,
@@ -75,10 +116,13 @@ func checkoutFilesResult() DoctorResult {
 	if missing == 0 {
 		return DoctorResult{Name: name, OK: true, Detail: "every file this dfinstall links is in " + core.DotfilesDir()}
 	}
+	fix := "the checkout is older than this dfinstall: pull it (git -C " + core.DotfilesDir() + " pull), then run 'dfinstall install all'"
+	if core.UsingPackagedContent() {
+		fix = "packaged content is older than this dfinstall: run 'dfinstall install all' to update it"
+	}
 	return DoctorResult{Name: name, OK: false,
 		Detail: fmt.Sprintf("%d file(s) this dfinstall links are missing from %s", missing, core.DotfilesDir()),
-		Extra: []string{"the checkout is older than this dfinstall: pull it (git -C " + core.DotfilesDir() + " pull), then run 'dfinstall install all'",
-			"first missing: " + first}}
+		Extra:  []string{fix, "first missing: " + first}}
 }
 
 // settingsFileResult says which settings file is in use, and when a pre-2.0
