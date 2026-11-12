@@ -319,7 +319,7 @@ Empty or `0` means "start tmux"; anything else means "don't". The name is negati
 
 There was no opt-out before 2026-09-10, and that is what made this hard to live with. The only reliable route to a tmux-free shell was running `bash`. `TERM=dumb zsh` worked too, but by accident of the guard list, and it drags the prompt down to `robbyrussell`, drops the cursor-shape keybinds and un-colors tldr as side effects.
 
-The block is skipped when: `DF_NO_TMUX` is set, tmux is not installed, `$TMUX` is already set, the shell is not interactive, `$TERM` is `linux` or `dumb`, the shell belongs to a VS Code (`TERM_PROGRAM=vscode`, which also covers Cursor and Windsurf) or JetBrains (`TERMINAL_EMULATOR=JetBrains-JediTerm`) integrated terminal, or the shell is an inbound ssh login.
+The block is skipped when: `DF_NO_TMUX` is set, tmux is not installed, `$TMUX` is already set, the shell is not interactive, `$TERM` is `linux` or `dumb`, the shell belongs to a VS Code (`TERM_PROGRAM=vscode`, which also covers Cursor and Windsurf) or JetBrains (`TERMINAL_EMULATOR=JetBrains-JediTerm`) integrated terminal, the shell is root (`sudo -s`, `doas -s` and `su` drop `$TMUX`, so root's copy of `zshrc` used to start a second server inside the pane, with the same stacked-prefix problem as ssh below), or the shell is an inbound ssh login.
 
 ### An inbound ssh login does not start tmux
 
