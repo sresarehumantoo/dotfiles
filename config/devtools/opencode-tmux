@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+# Bring opencode conversations back when tmux-resurrect restores a server.
+#
+# Resurrect saves each pane's command line, which names a session only when
+# one was passed. opencode has no session hooks, so this wraps the process
+# instead: run picks the session id up front (opencode 2 creates a session
+# under an id it is given), tags the pane with it, and marks it exited when
+# opencode returns. The opencode shell function calls run inside tmux.
+#
+#   run     run opencode in this pane under a known session id
+#   save    resurrect post-save-all hook: write pane position -> session id
+#   resume  what resurrect runs in a restored pane that was running opencode
+#
+# Like claude-tmux, the id lives on the pane ("-" while a continued session's
+# id is unknown) and becomes a position at save time. The pane's process is
+# this script, not opencode, so resurrect matches it as "~opencode-tmux run". run also updates the pane's map entry at start and exit: the restore
+# list is the last save, up to an autosave interval old, so a conversation
+# exited after it would otherwise come back on the next restore.
+set -euo pipefail
+
+MAP="${XDG_STATE_HOME:-$HOME/.local/state}/opencode-tmux/panes"
+
+usage() {
+    echo "Usage: opencode-tmux run [opencode args]|save|resume"
+    echo ""
+    echo "  run      Run opencode with the given arguments, adding -s <new id> unless they"
+    echo "           already name or continue a session, and track it on \$TMUX_PANE."
+    echo "  save     Write every tagged pane's position and session id to the map."
+    echo "  resume   Resume the conversation this pane held. Without one, the latest in"
+    echo "           this directory (-c) if no other opencode pane was there, else a new one."
+    echo ""
+    echo "Map: $MAP"
+}
+
+# Replace this pane's map entry. Fields: position, session id, directory, and
+# "exited" once the conversation has ended.
+set_entry() {
+    local key dir tmp
+    key=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}:#{window_index}.#{pane_index}')
+    dir=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_current_path}')
+    mkdir -p "${MAP%/*}"
+    tmp=$(mktemp "$MAP.XXXXXX")
+    { awk -F'\t' -v k="$key" '$1 != k' "$MAP" 2>/dev/null || true; printf '%s\t%s\t%s%s\n' "$key" "$1" "$dir" "${2:+$'\t'$2}"; } >"$tmp"
+    mv -f "$tmp" "$MAP"
+}
+
+run() {
+    if [[ -z "${TMUX_PANE:-}" ]]; then
+        exec opencode "$@"
+    fi
+    local id="" new=1 a prev=""
+    for a in "$@"; do
+        case $a in
+            --session=*) id=${a#--session=} new=0 ;;
+            -c|--continue) new=0 ;;
+        esac
+        if [[ $prev == -s || $prev == --session ]]; then
+            id=$a new=0
+        fi
+        prev=$a
+    done
+    if ((new)); then
+        id="ses_tmux$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+        set -- "$@" -s "$id"
+    fi
+    local tag=${id:--} rc=0
+    tmux set-option -p -t "$TMUX_PANE" @opencode-session "$tag"
+    set_entry "$id"
+    opencode "$@" || rc=$?
+    if [[ "$(tmux show-options -pqv -t "$TMUX_PANE" @opencode-session)" == "$tag" ]]; then
+        tmux set-option -pu -t "$TMUX_PANE" @opencode-session
+        set_entry "$id" exited
+    fi
+    return "$rc"
+}
+
+save() {
+    mkdir -p "${MAP%/*}"
+    local tmp
+    tmp=$(mktemp "$MAP.XXXXXX")
+    tmux list-panes -a -F "#{session_name}:#{window_index}.#{pane_index}"$'\t'"#{@opencode-session}"$'\t'"#{pane_current_path}"$'\t'"#{pane_current_command}" |
+        awk -F'\t' -v OFS='\t' '$2 != "" || $4 == "opencode" { print $1, ($2 == "-" ? "" : $2), $3 }' >"$tmp"
+    mv -f "$tmp" "$MAP"
+}
+
+resume() {
+    local key entry id dir state here siblings
+    key=$(tmux display-message -p -t "${TMUX_PANE:?not inside tmux}" '#{session_name}:#{window_index}.#{pane_index}')
+    here=$(pwd -P)
+    entry=$( (awk -F'\t' -v k="$key" '$1 == k' "$MAP" | head -n 1) 2>/dev/null || true)
+    # cut, not read: tab is IFS whitespace, so read collapses an empty id field.
+    id=$(cut -f2 <<<"$entry")
+    dir=$(cut -f3 <<<"$entry")
+    state=$(cut -f4 <<<"$entry")
+    # A restored pane holds nothing but this conversation, so replay (the
+    # default) is wanted here: without it the earlier messages are not shown.
+    if [[ -n "$entry" && "$dir" == "$here" ]]; then
+        if [[ "$state" == exited ]]; then
+            echo "opencode-tmux: the conversation in this pane was exited before the restart (opencode mini -s $id)"
+            return 0
+        fi
+        if [[ -n "$id" ]]; then
+            run mini -s "$id"
+            return
+        fi
+        siblings=$(awk -F'\t' -v k="$key" -v d="$here" '$1 != k && $3 == d' "$MAP" | wc -l)
+        if ((siblings == 0)); then
+            run mini -c
+            return
+        fi
+    fi
+    run mini --no-replay
+}
+
+case "${1:-}" in
+    run)
+        shift
+        run "$@"
+        ;;
+    save) save ;;
+    resume) resume ;;
+    -h|--help) usage ;;
+    *)
+        usage >&2
+        exit 2
+        ;;
+esac

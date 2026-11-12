@@ -24,9 +24,19 @@
   "autoupdate": false,
   "plugin": [],
 
+  // No plugins run, a cloned repo's .opencode/plugins included, which would
+  // otherwise run on any opencode command (`opencode models` too). For
+  // policies the rules in this file win over a project's, so a repo cannot
+  // allow them again.
+  "policies": [{ "action": "plugin.use", "resource": "*", "effect": "deny" }],
+
   // opencode does not follow @imports in AGENTS.md, so the import at the end of
-  // the shared CLAUDE.md has to be listed here.
-  "instructions": ["~/.claude/CLAUDE.local.md"],
+  // the shared CLAUDE.md has to be listed here. opencode 2 reads only a
+  // project's AGENTS.md, so CLAUDE.md and Claude Code's per-project
+  // CLAUDE.local.md are listed too. Relative entries are looked up from the
+  // working directory to the repository root; a CLAUDE.md that is a symlink to
+  // AGENTS.md is read once.
+  "instructions": ["~/.claude/CLAUDE.local.md", "CLAUDE.md", "CLAUDE.local.md"],
 
   // Modeled on Claude Code's default mode: reads and searches run freely, edits
   // and shell commands ask, the temp dir is open. opencode's own defaults are

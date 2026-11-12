@@ -28,6 +28,16 @@
           }
         ]
       }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "[ ! -x \"$HOME/.local/bin/claude-tmux\" ] || \"$HOME/.local/bin/claude-tmux\" end"
+          }
+        ]
+      }
     ]
   }
 }

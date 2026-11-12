@@ -71,3 +71,25 @@ func TestZshQuote(t *testing.T) {
 		t.Errorf("zshQuote = %s", got)
 	}
 }
+
+// GitHub lists releases by creation, and the 1.x line and the process-daemon
+// publish into the same repository, so the newest 2.x has to be found by tag.
+func TestPickOpencodeRelease(t *testing.T) {
+	listing := `[
+		{"tag_name": "process-daemon-v0.5.2", "assets": []},
+		{"tag_name": "v2.3.0", "prerelease": true, "assets": []},
+		{"tag_name": "v2.2.10", "draft": true, "assets": []},
+		{"tag_name": "v2.2.7", "assets": [{"name": "opencode-linux-x64.tar.gz"}]},
+		{"tag_name": "v1.19.5", "assets": []},
+		{"tag_name": "v2.2.10-rc1", "assets": []},
+		{"tag_name": "v2.10.0", "assets": [{"name": "newest"}]},
+		{"tag_name": "v2.2.0", "assets": []}
+	]`
+	tag, assets, err := pickOpencodeRelease([]byte(listing))
+	if err != nil || tag != "v2.10.0" || len(assets) != 1 || assets[0].Name != "newest" {
+		t.Errorf("pickOpencodeRelease = %q, %v, %v; want v2.10.0", tag, assets, err)
+	}
+	if _, _, err := pickOpencodeRelease([]byte(`[{"tag_name": "v1.19.5"}]`)); err == nil {
+		t.Error("a listing with no 2.x release must be an error")
+	}
+}

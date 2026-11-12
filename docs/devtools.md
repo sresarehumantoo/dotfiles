@@ -349,15 +349,20 @@ Strips the powerlevel10k prompt from text copied in tmux copy mode, so a selecti
 
 ### claude-tmux
 
-Brings Claude Code conversations back when tmux-resurrect restores a server. Resurrect saves each pane's command line, which never holds a session id, so it cannot tell which conversation a pane had. This keeps that mapping in three steps, none of which you run by hand:
+Brings Claude Code conversations back when tmux-resurrect restores a server. Resurrect saves each pane's command line, which never holds a session id, so it cannot tell which conversation a pane had. This keeps that mapping in four steps, none of which you run by hand:
 
 | Command | Run by | Does |
 |---------|--------|------|
 | `record` | Claude Code's SessionStart hook (claude module) | Sets the `@claude-session` option on `$TMUX_PANE` from the hook's JSON. Fires on startup, resume, `/clear` and compaction, so it follows the pane's current conversation. Prints nothing, since SessionStart stdout is added to the conversation. |
+| `end` | Claude Code's SessionEnd hook (claude module) | Clears the pane's tag and marks its map entry `exited`. |
 | `save` | resurrect's post-save-all hook (`tmux.conf`) | Writes `session:window.pane`, session id and directory to `~/.local/state/claude-tmux/panes` for every tagged pane, and for every untagged pane running `claude` with an empty id. |
-| `resume` | resurrect, in a restored pane whose saved command started with `claude` | `claude --resume <id>` for that pane's position, tagging the pane straight away so a save before SessionStart fires keeps it. Without an id it uses `claude --continue` only when the map shows no other Claude pane in that directory, since `--continue` opens the directory's latest conversation and two panes would both get it. Otherwise, and when the pane has no entry or its directory does not match, it opens the picker (`claude --resume`). |
+| `resume` | resurrect, in a restored pane whose saved command started with `claude` | `claude --resume <id>` for that pane's position, tagging the pane straight away so a save before SessionStart fires keeps it. Without an id it uses `claude --continue` only when the map shows no other Claude pane in that directory, since `--continue` opens the directory's latest conversation and two panes would both get it. Otherwise, and when the pane has no entry or its directory does not match, it opens the picker (`claude --resume`). An entry marked `exited` restores a plain shell with a one-line note naming the conversation. |
 
-The id is stored on the pane and only turned into a position at save time because `renumber-windows` moves windows during a session, while a restore preserves the saved positions exactly.
+The id is stored on the pane and turned into a position at save time because `renumber-windows` moves windows during a session, while a restore preserves the saved positions exactly. `record` and `end` also update the pane's map entry at once. The restore list is the last save, which continuum writes every 15 minutes and never at shutdown, so without that a conversation exited after the last save came back on the next restore.
+
+### opencode-tmux
+
+The same for opencode, which has no session hooks. Instead it wraps the process: the `opencode` shell function (opencode module) runs `opencode-tmux run mini ...` inside tmux, which picks a session id up front (opencode 2 creates a session under an id given with `-s`), tags the pane with `@opencode-session`, runs opencode, and marks the map entry `exited` when it returns. `save` and `resume` work as in claude-tmux, with the map in `~/.local/state/opencode-tmux/panes`; `resume` runs `opencode mini -s <id>`, which replays the conversation into the fresh pane, or `-c` for an untagged pane alone in its directory, or a new session. The pane's process is this script rather than opencode, so `tmux.conf` matches it as `~opencode-tmux run`.
 
 ### claude-no-attribution
 
