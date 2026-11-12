@@ -104,6 +104,39 @@ func ReadContentStamp(root string) (ContentStamp, error) {
 	return st, nil
 }
 
+// CurrentContentVersion is the version the store's current names, or "".
+func CurrentContentVersion() string {
+	store := ContentStoreDir()
+	if store == "" {
+		return ""
+	}
+	return currentContentVersion(store)
+}
+
+// UsingPackagedContent reports whether managed files link from the content
+// store rather than a clone.
+func UsingPackagedContent() bool {
+	d := DotfilesDir()
+	return d != "" && d == ContentCurrentDir()
+}
+
+// ContentEdits lists the stamped files under root, relative to it, that no
+// longer match the stamp: the packaged counterpart of a clone's git diff.
+func ContentEdits(root string) []string {
+	st, err := ReadContentStamp(root)
+	if err != nil {
+		return nil
+	}
+	var edited []string
+	for rel, f := range st.Files {
+		if sum, err := FileHash(filepath.Join(root, filepath.FromSlash(rel))); err != nil || sum != f.SHA256 {
+			edited = append(edited, rel)
+		}
+	}
+	slices.Sort(edited)
+	return edited
+}
+
 // ContentUpToDate reports whether current names version and that copy still
 // matches its stamp.
 func ContentUpToDate(version string) bool {

@@ -387,14 +387,21 @@ func ResetDotfilesDir() {
 // answers "which clone should I link from". It is used when adopting a new
 // canonical (install all) and when warning about non-canonical runs.
 func InvokingCloneDir() string {
+	dir, _ := invokingClone()
+	return dir
+}
+
+// invokingClone is InvokingCloneDir, also reporting whether the answer came
+// only from the working directory.
+func invokingClone() (dir string, fromCwd bool) {
 	// 1. $DOTFILES env var
 	if env := os.Getenv("DOTFILES"); env != "" {
-		return env
+		return env, false
 	}
 
 	// 2. Build-time baked path
 	if LooksLikeDotfilesRepo(DefaultDotfilesDir) {
-		return DefaultDotfilesDir
+		return DefaultDotfilesDir, false
 	}
 
 	// 3. Walk up from executable looking for go.mod
@@ -404,7 +411,7 @@ func InvokingCloneDir() string {
 		for {
 			if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 				if LooksLikeDotfilesRepo(dir) {
-					return dir
+					return dir, false
 				}
 				break
 			}
@@ -419,9 +426,9 @@ func InvokingCloneDir() string {
 	// 4. Fallback: current working directory, unless it is a package's content
 	// tree, which a package upgrade replaces under any links into it.
 	if cwd, err := os.Getwd(); err == nil && LooksLikeDotfilesRepo(cwd) && !fileExists(filepath.Join(cwd, ContentStampName)) {
-		return cwd
+		return cwd, true
 	}
-	return ""
+	return "", false
 }
 
 // DotfilesDir returns the root of the dotfiles repository that symlinks should

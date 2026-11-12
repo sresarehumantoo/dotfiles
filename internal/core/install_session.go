@@ -24,6 +24,10 @@ type InstallOptions struct {
 	// ForceBackup corresponds to --backup: snapshot regardless of the
 	// skip_backup config preference.
 	ForceBackup bool
+	// ContentOnly is for init, which installs content but replaces nothing
+	// in the user's home: no snapshot unless ForceBackup asks for one, and a
+	// first run's automatic backup stays armed for the install that does.
+	ContentOnly bool
 }
 
 // InstallSession owns the setup and teardown shared by every install path —
@@ -69,7 +73,10 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 
 	// A binary running from no clone (a release or package) keeps whichever
 	// checkout `init` recorded.
-	if invoking := InvokingCloneDir(); opt.All && invoking != "" {
+	if dir, _ := invokingClone(); opt.All && dir != "" && AllInstallClone() == "" {
+		Notice("using packaged content, not the clone at %s; to switch to it: dfinstall init --dir %s", dir, dir)
+	}
+	if invoking := AllInstallClone(); opt.All && invoking != "" {
 		switch {
 		case DryRun:
 			// The canonical pointer is machine-global, so adopting during a
@@ -94,6 +101,9 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 	}
 
 	s.doBackup, s.firstRun = shouldBackup(opt.ForceBackup)
+	if opt.ContentOnly && !opt.ForceBackup {
+		s.doBackup, s.firstRun = false, false
+	}
 	if s.doBackup {
 		if err := StartBackup(); err != nil {
 			// No session is returned, so no Finish will run to release this.
@@ -105,6 +115,18 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 	activeSession = s
 	changesMu.Unlock()
 	return s, nil
+}
+
+// AllInstallClone is the clone `install all` adopts: the one it runs from,
+// unless that is only the working directory while packaged content is in use.
+// Packaged content is left by an explicit `init --dir`, never because install
+// all ran from inside an old clone. "" when there is none to adopt.
+func AllInstallClone() string {
+	dir, fromCwd := invokingClone()
+	if fromCwd && ReadCanonicalDir() == ContentCurrentDir() {
+		return ""
+	}
+	return dir
 }
 
 // DidBackup reports whether a restorable snapshot was taken.
