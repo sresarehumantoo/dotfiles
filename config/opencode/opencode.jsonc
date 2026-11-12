@@ -25,8 +25,9 @@
   "plugin": [],
 
   // opencode does not follow @imports in AGENTS.md, so the import at the end of
-  // the shared CLAUDE.md has to be listed here.
-  "instructions": ["~/.claude/CLAUDE.local.md"],
+  // the shared CLAUDE.md has to be listed here. It loads a project's AGENTS.md
+  // or CLAUDE.md on its own, but not Claude Code's per-project CLAUDE.local.md.
+  "instructions": ["~/.claude/CLAUDE.local.md", "CLAUDE.local.md"],
 
   // Modeled on Claude Code's default mode: reads and searches run freely, edits
   // and shell commands ask, the temp dir is open. opencode's own defaults are
