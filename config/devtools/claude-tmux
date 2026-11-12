@@ -6,12 +6,16 @@
 # `claude` starts empty. This keeps the missing mapping:
 #
 #   record  Claude Code SessionStart hook: tag the pane with its session id
+#   end     Claude Code SessionEnd hook: mark the pane's conversation exited
 #   save    resurrect post-save-all hook: write pane position -> session id
 #   resume  what resurrect runs in a restored pane that was running claude
 #
 # The id lives on the pane (an option that follows the pane through
-# renumber-windows) and is only turned into a position at save time, because
-# position is the one key a restore preserves.
+# renumber-windows) and is turned into a position at save time, because
+# position is the one key a restore preserves. record and end also update the
+# pane's map entry at once: the restore list is the last save, up to an
+# autosave interval old, so a conversation exited after it would otherwise come
+# back on the next restore.
 set -euo pipefail
 
 MAP="${XDG_STATE_HOME:-$HOME/.local/state}/claude-tmux/panes"
@@ -20,6 +24,7 @@ usage() {
     echo "Usage: claude-tmux record|save|resume"
     echo ""
     echo "  record   Read SessionStart hook JSON on stdin, tag \$TMUX_PANE with its session id."
+    echo "  end      Read SessionEnd hook JSON on stdin, mark the pane's conversation exited."
     echo "  save     Write every tagged pane's position and session id to the map."
     echo "  resume   Resume the conversation this pane held at the last save. Without"
     echo "           one, the latest in this directory (claude --continue) if no other"
@@ -28,13 +33,42 @@ usage() {
     echo "Map: $MAP"
 }
 
+hook_session_id() {
+    grep -o '"session_id"[[:space:]]*:[[:space:]]*"[A-Za-z0-9-]*"' | head -n 1 | sed 's/.*"\([A-Za-z0-9-]*\)"$/\1/' || true
+}
+
+# Replace this pane's map entry. Fields: position, session id, directory, and
+# "exited" once the conversation has ended.
+set_entry() {
+    local key dir tmp
+    key=$(tmux display-message -p -t "$TMUX_PANE" '#{session_name}:#{window_index}.#{pane_index}')
+    dir=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_current_path}')
+    mkdir -p "${MAP%/*}"
+    tmp=$(mktemp "$MAP.XXXXXX")
+    { awk -F'\t' -v k="$key" '$1 != k' "$MAP" 2>/dev/null || true; printf '%s\t%s\t%s%s\n' "$key" "$1" "$dir" "${2:+$'\t'$2}"; } >"$tmp"
+    mv -f "$tmp" "$MAP"
+}
+
 record() {
     [[ -n "${TMUX_PANE:-}" ]] || return 0
     local id
-    id=$(grep -o '"session_id"[[:space:]]*:[[:space:]]*"[A-Za-z0-9-]*"' | head -n 1 | sed 's/.*"\([A-Za-z0-9-]*\)"$/\1/') || true
+    id=$(hook_session_id)
     [[ -n "$id" ]] || return 0
     # SessionStart stdout is added to the conversation's context, so stay silent.
     tmux set-option -p -t "$TMUX_PANE" @claude-session "$id" >/dev/null
+    set_entry "$id"
+}
+
+# /clear ends one conversation and starts another in the same process; the
+# SessionStart that follows records the new one over this.
+end() {
+    [[ -n "${TMUX_PANE:-}" ]] || return 0
+    local id
+    id=$(hook_session_id)
+    [[ -n "$id" ]] || return 0
+    [[ "$(tmux show-options -pqv -t "$TMUX_PANE" @claude-session)" == "$id" ]] || return 0
+    tmux set-option -pu -t "$TMUX_PANE" @claude-session
+    set_entry "$id" exited
 }
 
 # Untagged claude panes are kept too, with an empty id: resume needs to know
@@ -49,16 +83,21 @@ save() {
 }
 
 resume() {
-    local key entry id dir here siblings
+    local key entry id dir state here siblings
     key=$(tmux display-message -p -t "${TMUX_PANE:?not inside tmux}" '#{session_name}:#{window_index}.#{pane_index}')
     here=$(pwd -P)
     entry=$( (awk -F'\t' -v k="$key" '$1 == k' "$MAP" | head -n 1) 2>/dev/null || true)
     # cut, not read: tab is IFS whitespace, so read collapses an empty id field.
     id=$(cut -f2 <<<"$entry")
     dir=$(cut -f3 <<<"$entry")
+    state=$(cut -f4 <<<"$entry")
     # Resurrect reopens the pane in the directory it saved, so a different one
     # means the map and the restored save disagree about this pane.
     if [[ -n "$entry" && "$dir" == "$here" ]]; then
+        if [[ "$state" == exited ]]; then
+            echo "claude-tmux: the conversation in this pane was exited before the restart (claude --resume $id)"
+            return 0
+        fi
         if [[ -n "$id" ]]; then
             # Tag now: a save before SessionStart fires would otherwise drop it.
             tmux set-option -p -t "$TMUX_PANE" @claude-session "$id"
@@ -74,6 +113,7 @@ resume() {
 
 case "${1:-}" in
     record) record ;;
+    end) end ;;
     save) save ;;
     resume) resume ;;
     -h|--help) usage ;;
