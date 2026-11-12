@@ -360,6 +360,9 @@ func handleDoctor(_ context.Context, _ mcp.CallToolRequest) (*mcp.CallToolResult
 			} else {
 				fmt.Fprintf(&b, "  ok  %s\n", r.Name)
 			}
+			for _, e := range r.Extra {
+				fmt.Fprintf(&b, "        %s\n", e)
+			}
 		} else {
 			fmt.Fprintf(&b, "  FAIL  %s - %s\n", r.Name, r.Detail)
 			for _, e := range r.Extra {

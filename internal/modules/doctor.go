@@ -333,6 +333,11 @@ func RunDoctor() {
 			} else {
 				core.Status("%s", r.Name)
 			}
+			// A passing row's extra lines are still what to do next, such
+			// as which seeded file has an update waiting.
+			for _, e := range r.Extra {
+				core.Status("    %s", e)
+			}
 		} else {
 			core.AlwaysWarn("%s: %s", r.Name, r.Detail)
 			for _, e := range r.Extra {
