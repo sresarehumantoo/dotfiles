@@ -24,8 +24,9 @@ const opencodeBase = `{
 }`
 
 // opencodeSandbox points HOME, XDG_CONFIG_HOME and DOTFILES at temp dirs and
-// puts a stand-in opencode first on PATH, so Install takes the "installed
-// elsewhere" branch and never touches the network.
+// puts a stand-in opencode 2 first on PATH, so Install takes the "installed
+// elsewhere" branch and never touches the network. The stand-in logs its
+// arguments to the file named by OPENCODE_STUB_LOG.
 func opencodeSandbox(t *testing.T) (home, cfg string) {
 	t.Helper()
 	home = t.TempDir()
@@ -46,8 +47,15 @@ func opencodeSandbox(t *testing.T) (home, cfg string) {
 	os.WriteFile(filepath.Join(dots, "config", "claude", "CLAUDE.md"), []byte("# rules\n"), 0o644)
 
 	bin := t.TempDir()
-	os.WriteFile(filepath.Join(bin, "opencode"), []byte("#!/bin/sh\necho 1.0.0\n"), 0o755)
+	os.WriteFile(filepath.Join(bin, "opencode"), []byte(`#!/bin/sh
+echo "$*" >>"$OPENCODE_STUB_LOG"
+case "$1" in
+--version) echo "opencode v2.0.0" ;;
+service) if [ "$2" = status ]; then echo stopped; fi ;;
+esac
+`), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("OPENCODE_STUB_LOG", filepath.Join(bin, "calls"))
 
 	saved := core.Cfg.OpencodeEnabled
 	core.Cfg.OpencodeEnabled = true
@@ -91,6 +99,15 @@ func TestOpencodeInstallMergesLinksAndPins(t *testing.T) {
 		t.Errorf("pin = %v", pin)
 	}
 
+	// The background service reads its environment once, at startup, so the
+	// pins must also go into its own config.
+	calls, _ := os.ReadFile(os.Getenv("OPENCODE_STUB_LOG"))
+	for _, k := range []string{"OPENCODE_CONFIG_CONTENT", "OPENCODE_DISABLE_FREE_MODELS", "OPENCODE_DISABLE_AUTOUPDATE"} {
+		if !strings.Contains(string(calls), "service set env "+k+" ") {
+			t.Errorf("Install did not run 'opencode service set env %s'; calls:\n%s", k, calls)
+		}
+	}
+
 	if s := m.Status(); s.Linked != 1 || s.Extra != "" {
 		t.Errorf("after Install: linked=%d extra=%q", s.Linked, s.Extra)
 	}
@@ -107,7 +124,11 @@ func opencodePin(t *testing.T, path string) map[string]any {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"export OPENCODE_PURE=1", "export OPENCODE_DISABLE_FREE_MODELS=1", "alias opencode-untrusted="} {
+	for _, want := range []string{
+		"export OPENCODE_DISABLE_FREE_MODELS=1",
+		"alias opencode-untrusted='OPENCODE_DISABLE_PROJECT_CONFIG=1 opencode --standalone'",
+		"command opencode mini $replay",
+	} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf("%s lacks %q", path, want)
 		}
@@ -241,6 +262,7 @@ func TestOpencodeShippedConfig(t *testing.T) {
 		Share             string                     `json:"share"`
 		Plugin            []string                   `json:"plugin"`
 		Permission        map[string]json.RawMessage `json:"permission"`
+		Policies          []map[string]string        `json:"policies"`
 	}
 	if err := json.Unmarshal(std, &c); err != nil {
 		t.Fatal(err)
@@ -253,6 +275,11 @@ func TestOpencodeShippedConfig(t *testing.T) {
 	}
 	if c.Share != "disabled" || c.Plugin == nil || len(c.Plugin) != 0 {
 		t.Errorf("share = %q, plugin = %v", c.Share, c.Plugin)
+	}
+	// opencode 2 has no OPENCODE_PURE; this policy is what keeps a cloned
+	// repo's .opencode/plugins from running.
+	if want := []map[string]string{{"action": "plugin.use", "resource": "*", "effect": "deny"}}; !reflect.DeepEqual(c.Policies, want) {
+		t.Errorf("policies = %v, want %v", c.Policies, want)
 	}
 	for _, tool := range []string{"edit", "bash"} {
 		var rules map[string]string
