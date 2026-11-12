@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
@@ -13,6 +14,9 @@ import (
 type ShellModule struct{}
 
 func (ShellModule) Name() string { return "shell" }
+
+// shellSeeded are the files `p10k configure` rewrites (see core.PolicySeed).
+var shellSeeded = []string{"shell/p10k.zsh"}
 
 var shellLinks = []struct{ src, dst string }{
 	{"shell/zshrc", ".zshrc"},
@@ -176,6 +180,9 @@ func (ShellModule) Links() core.LinkSet {
 	ls := make(core.LinkSet, len(shellLinks))
 	for i, l := range shellLinks {
 		ls[i] = core.LinkPair{Src: core.ConfigPath(l.src), Dst: core.HomeTarget(l.dst)}
+		if slices.Contains(shellSeeded, l.src) {
+			ls[i].Policy = core.PolicySeed
+		}
 	}
 	return ls
 }

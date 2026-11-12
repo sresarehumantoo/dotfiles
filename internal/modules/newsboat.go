@@ -36,7 +36,7 @@ func newsboatLocal() string { return core.XDGTarget("newsboat", "config.local") 
 func (NewsboatModule) Links() core.LinkSet {
 	return core.LinkSet{
 		{Src: core.ConfigPath("newsboat", "config"), Dst: core.XDGTarget("newsboat", "config")},
-		{Src: core.ConfigPath("newsboat", "urls"), Dst: core.XDGTarget("newsboat", "urls")},
+		{Src: core.ConfigPath("newsboat", "urls"), Dst: core.XDGTarget("newsboat", "urls"), Policy: core.PolicySeed},
 	}
 }
 

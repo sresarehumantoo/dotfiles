@@ -128,7 +128,7 @@ func statusRow(m core.Module) StatusRow {
 		r.State = StatePartial
 		if le, ok := m.(core.LinkExporter); ok {
 			for _, lp := range le.Links() {
-				if state := core.CheckLink(lp.Src, lp.Dst); state != "ok" {
+				if state := lp.Check(); state != "ok" {
 					r.Problems = append(r.Problems, DiffProblem{Dst: lp.Dst, State: state})
 				}
 			}
@@ -424,7 +424,7 @@ func CollectDiff() DiffReport {
 			e.Exported = true
 			e.Links = len(links)
 			for _, lp := range links {
-				state := core.CheckLink(lp.Src, lp.Dst)
+				state := lp.Check()
 				switch {
 				case state != "ok":
 					e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: state})

@@ -28,7 +28,7 @@ func (MackeysModule) Links() core.LinkSet {
 		return nil
 	}
 	return core.LinkSet{
-		{Src: core.ConfigPath("macos", "DefaultKeyBinding.dict"), Dst: core.HomeTarget("Library", "KeyBindings", "DefaultKeyBinding.dict")},
+		{Src: core.ConfigPath("macos", "DefaultKeyBinding.dict"), Dst: core.HomeTarget("Library", "KeyBindings", "DefaultKeyBinding.dict"), Policy: core.PolicySeed},
 	}
 }
 

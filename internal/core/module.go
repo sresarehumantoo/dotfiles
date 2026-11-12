@@ -29,11 +29,52 @@ type Uninstaller interface {
 
 // LinkPair describes a single source → destination symlink.
 type LinkPair struct {
-	Src string
-	Dst string
+	Src    string
+	Dst    string
+	Policy LinkPolicy
 }
 
-// LinkSet is a module's complete set of managed symlinks.
+// LinkPolicy says how a managed file reaches its destination.
+type LinkPolicy int
+
+const (
+	// PolicyLink symlinks the file. The default.
+	PolicyLink LinkPolicy = iota
+	// PolicySeed is for a file its program rewrites, or one with no include
+	// for local changes. With packaged content it is copied into place and
+	// replaced on upgrade only while unchanged (see SeedFile). A clone
+	// install links it like any other file, so editing it edits the clone.
+	PolicySeed
+)
+
+func (l LinkPair) seeded() bool { return l.Policy == PolicySeed && UsingPackagedContent() }
+
+// Apply puts the file in place by its policy.
+func (l LinkPair) Apply() error {
+	if l.seeded() {
+		return SeedFile(l.Src, l.Dst)
+	}
+	return LinkFile(l.Src, l.Dst)
+}
+
+// Remove takes the file away by its policy, leaving anything that is not
+// dfinstall's: a link elsewhere, a user's file, a seeded copy they changed.
+func (l LinkPair) Remove() error {
+	if l.seeded() {
+		return UnseedFile(l.Src, l.Dst)
+	}
+	return UnlinkFile(l.Src, l.Dst)
+}
+
+// Check reports the file in CheckLink's terms, by its policy.
+func (l LinkPair) Check() string {
+	if l.seeded() {
+		return CheckSeed(l.Dst)
+	}
+	return CheckLink(l.Src, l.Dst)
+}
+
+// LinkSet is a module's complete set of managed files.
 //
 // Declare it once and derive Install/Uninstall/Status from it. These three
 // previously each restated the same paths, so changing a path in two of them
@@ -41,33 +82,32 @@ type LinkPair struct {
 // longer creates, or Uninstall missing one.
 type LinkSet []LinkPair
 
-// Apply creates every link in the set. LinkFile creates missing parent
-// directories, so callers need no EnsureDir of their own.
+// Apply puts every file in the set in place. LinkFile and SeedFile create
+// missing parent directories, so callers need no EnsureDir of their own.
 func (ls LinkSet) Apply() error {
 	for _, l := range ls {
-		if err := LinkFile(l.Src, l.Dst); err != nil {
+		if err := l.Apply(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Remove unlinks every link in the set. UnlinkFile leaves anything that isn't
-// our symlink alone, so this won't delete a user's real file.
+// Remove takes away every file in the set that is still dfinstall's.
 func (ls LinkSet) Remove() error {
 	for _, l := range ls {
-		if err := UnlinkFile(l.Src, l.Dst); err != nil {
+		if err := l.Remove(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Status counts how many of the set's links are correctly in place.
+// Status counts how many of the set's files are correctly in place.
 func (ls LinkSet) Status(name string) ModuleStatus {
 	s := ModuleStatus{Name: name}
 	for _, l := range ls {
-		if CheckLink(l.Src, l.Dst) == "ok" {
+		if l.Check() == "ok" {
 			s.Linked++
 		} else {
 			s.Missing++
