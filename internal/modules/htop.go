@@ -12,7 +12,7 @@ func (HtopModule) Name() string { return "htop" }
 
 func (HtopModule) Links() core.LinkSet {
 	return core.LinkSet{
-		{Src: core.ConfigPath("htop", "htoprc"), Dst: core.XDGTarget("htop", "htoprc")},
+		{Src: core.ConfigPath("htop", "htoprc"), Dst: core.XDGTarget("htop", "htoprc"), Policy: core.PolicySeed},
 	}
 }
 

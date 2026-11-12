@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
@@ -161,7 +162,7 @@ func adoptContent(dir, format string, args ...any) error {
 	}
 	core.Status(format, args...)
 	if leaving {
-		n := repointLinks(prev)
+		n := repointLinks(prev) + relinkSeeds()
 		core.Status("moved %d link(s) from packaged content to %s", n, dir)
 		return nil
 	}
@@ -278,6 +279,8 @@ func initPackaged(ctx context.Context, force bool) (string, error) {
 // cloneOnlyChanges lists what applies on this machine only because links point
 // into the clone at dir: uncommitted edits under config/, and commits no
 // remote has. A directory that is not a git checkout has nothing to list.
+// Edits to seeded files are left out: the migration copies those files, edits
+// and all.
 func cloneOnlyChanges(ctx context.Context, dir string) ([]string, error) {
 	if _, err := gitOut(ctx, dir, "rev-parse", "--git-dir"); err != nil {
 		return nil, nil
@@ -287,8 +290,11 @@ func cloneOnlyChanges(ctx context.Context, dir string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", dir, err)
 	}
+	seeded := seededSources(dir)
 	for _, rel := range edited {
-		kept = append(kept, "edited "+rel)
+		if !slices.Contains(seeded, rel) {
+			kept = append(kept, "edited "+rel)
+		}
 	}
 	unpushed, err := gitOut(ctx, dir, "rev-list", "--count", "HEAD", "--not", "--remotes")
 	if err != nil {
@@ -300,6 +306,51 @@ func cloneOnlyChanges(ctx context.Context, dir string) ([]string, error) {
 	return kept, nil
 }
 
+// managedPairs is every file any module manages, whatever its policy.
+func managedPairs() core.LinkSet {
+	var all core.LinkSet
+	for _, m := range core.AllModules() {
+		if le, ok := m.(core.LinkExporter); ok {
+			all = append(all, le.Links()...)
+		}
+	}
+	return all
+}
+
+// seededSources lists the seeded files' paths relative to root, the content
+// the links currently come from.
+func seededSources(root string) []string {
+	var rels []string
+	for _, l := range managedPairs() {
+		if l.Policy != core.PolicySeed {
+			continue
+		}
+		if rel, err := filepath.Rel(root, l.Src); err == nil && !strings.HasPrefix(rel, "..") {
+			rels = append(rels, filepath.ToSlash(rel))
+		}
+	}
+	return rels
+}
+
+// relinkSeeds turns the seeded copies back into links to the clone now
+// recorded, wherever that loses nothing. Returns how many it turned.
+func relinkSeeds() int {
+	n := 0
+	for _, l := range managedPairs() {
+		if l.Policy != core.PolicySeed {
+			continue
+		}
+		ok, err := core.SeedToLink(l.Src, l.Dst)
+		if err != nil {
+			core.Warn("could not link %s again: %v", l.Dst, err)
+		}
+		if ok {
+			n++
+		}
+	}
+	return n
+}
+
 // repointLinks moves every managed link that points into the content root
 // from to the same file under the current dotfiles content. Links anywhere
 // else, and paths that are not links, are left alone. Returns how many moved.
@@ -307,23 +358,17 @@ func repointLinks(from string) int {
 	prefix := strings.TrimSuffix(from, "/") + "/"
 	root := core.DotfilesDir()
 	moved := 0
-	for _, m := range core.AllModules() {
-		le, ok := m.(core.LinkExporter)
-		if !ok {
+	for _, l := range managedPairs() {
+		target, err := os.Readlink(l.Dst)
+		if err != nil || !strings.HasPrefix(target, prefix) || l.Src != core.SubPath(root, strings.TrimPrefix(target, prefix)) {
 			continue
 		}
-		for _, l := range le.Links() {
-			target, err := os.Readlink(l.Dst)
-			if err != nil || !strings.HasPrefix(target, prefix) || l.Src != core.SubPath(root, strings.TrimPrefix(target, prefix)) {
-				continue
-			}
-			if err := core.LinkFile(l.Src, l.Dst); err != nil {
-				core.Warn("could not move %s: %v", l.Dst, err)
-				continue
-			}
-			if now, _ := os.Readlink(l.Dst); now == l.Src {
-				moved++
-			}
+		if err := l.Apply(); err != nil {
+			core.Warn("could not move %s: %v", l.Dst, err)
+			continue
+		}
+		if l.Check() == "ok" {
+			moved++
 		}
 	}
 	return moved

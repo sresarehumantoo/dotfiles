@@ -208,6 +208,37 @@ func TestMoveLinesSkipsWhatIsThere(t *testing.T) {
 	}
 }
 
+// A line added inside a multi-line command is an addition, but on its own in
+// the override it is a fragment that breaks every shell sourcing the file.
+func TestMoveLinesRefusesFragment(t *testing.T) {
+	if _, err := exec.LookPath("zsh"); err != nil {
+		t.Skip("zsh not installed")
+	}
+	ctx := context.Background()
+	up, clone := upgradeFixture(t)
+	rel := "config/shell/zshrc"
+	guard := "if [[ -z $DF_NO_TMUX ]] \\\n  && [[ -z $TMUX ]] \\\n  && [[ $- == *i* ]]; then\n  tmux\nfi\n"
+	commitUpstream(t, up, rel, fixtureZshrc+guard)
+	gitIn(t, clone, "pull", "-q")
+	o, _ := overrideFor(rel)
+
+	putFile(t, clone, rel, fixtureZshrc+strings.Replace(guard, "  && [[ -z $TMUX ]] \\\n",
+		"  && [[ -z $TMUX ]] \\\n  # not as root\n  && (( EUID != 0 )) \\\n", 1))
+	edit, ok := planMove(ctx, clone, rel, o.kind)
+	if !ok || edit.String() != "  # not as root\n  && (( EUID != 0 )) \\" {
+		t.Fatalf("planMove = %q, %v", edit, ok)
+	}
+	if parsesAlone(ctx, o, edit) {
+		t.Error("a continuation line parses on its own")
+	}
+
+	putFile(t, clone, rel, fixtureZshrc+guard+"alias k=kubectl\n")
+	edit, _ = planMove(ctx, clone, rel, o.kind)
+	if !parsesAlone(ctx, o, edit) {
+		t.Errorf("%q does not parse", edit)
+	}
+}
+
 func TestApplyMoveAppends(t *testing.T) {
 	_, clone := upgradeFixture(t)
 	o, _ := overrideFor("config/shell/zshrc")

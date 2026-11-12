@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -310,6 +311,8 @@ const (
 type override struct {
 	path string
 	kind overrideKind
+	// shell parses the override file, which is sourced; "" for other files.
+	shell string
 }
 
 // overrideFor maps a file in the clone to the override file that is loaded
@@ -318,24 +321,24 @@ func overrideFor(rel string) (override, bool) {
 	var o override
 	switch {
 	case rel == "config/ghostty/config":
-		o = override{core.XDGTarget("ghostty", "ghostty.user"), overrideGhostty}
+		o = override{core.XDGTarget("ghostty", "ghostty.user"), overrideGhostty, ""}
 	case rel == "config/git/gitconfig":
-		o = override{core.HomeTarget(".gitconfig.user"), overrideGit}
+		o = override{core.HomeTarget(".gitconfig.user"), overrideGit, ""}
 	case rel == "config/shell/zshrc", path.Dir(rel) == "config/shell/zsh" && path.Ext(rel) == ".zsh":
-		o = override{core.HomeTarget(".zshrc.local"), overrideLines}
+		o = override{core.HomeTarget(".zshrc.local"), overrideLines, "zsh"}
 	case rel == "config/shell/aliases":
-		o = override{core.HomeTarget(".aliases.local"), overrideLines}
+		o = override{core.HomeTarget(".aliases.local"), overrideLines, "zsh"}
 	case rel == "config/shell/bashrc":
-		o = override{core.HomeTarget(".bashrc.local"), overrideLines}
+		o = override{core.HomeTarget(".bashrc.local"), overrideLines, "bash"}
 	case rel == "config/sway/config":
-		o = override{core.XDGTarget("sway", "config.d", "local.conf"), overrideLines}
+		o = override{core.XDGTarget("sway", "config.d", "local.conf"), overrideLines, ""}
 	case rel == "config/sketchybar/sketchybarrc":
-		o = override{core.XDGTarget("sketchybar", "local.sh"), overrideLines}
+		o = override{core.XDGTarget("sketchybar", "local.sh"), overrideLines, "sh"}
 	case rel == "config/tmux/tmux.conf":
 		// tmux.conf sources tmux.user.conf last, and tmux is later-wins for
 		// set/bind, so appended lines override. Not .local: the installer
 		// deletes the legacy oh-my-tmux tmux.conf.local every run.
-		o = override{core.XDGTarget("tmux", "tmux.user.conf"), overrideLines}
+		o = override{core.XDGTarget("tmux", "tmux.user.conf"), overrideLines, ""}
 	default:
 		return o, false
 	}
@@ -632,6 +635,10 @@ func moveLocalEdits(ctx context.Context, dir string) {
 			continue
 		}
 		edit = withoutPresent(ctx, o, edit)
+		if !parsesAlone(ctx, o, edit) {
+			core.Notice("%s has local edits that are not complete commands on their own (a line added inside a multi-line one), so %s cannot hold them; kept in the clone. Commit them to keep them everywhere, or revert: git -C %s checkout -- %s", rel, o.path, dir, rel)
+			continue
+		}
 		already := edit.empty()
 		title := fmt.Sprintf("Move this machine's edits to %s into %s?", rel, o.path)
 		desc := clip(edit.String(), 30) + "\n\nThey keep applying from there, and the clone goes back to upstream's version."
@@ -671,6 +678,30 @@ func moveLocalEdits(ctx context.Context, dir string) {
 		}
 		core.Status("%s", done)
 	}
+}
+
+// parsesAlone reports whether the lines an edit would append to a sourced
+// override file parse by themselves. Only added lines move, so one added
+// inside a multi-line command arrives as a fragment that breaks every shell
+// sourcing the file. Without the shell to ask, it assumes they do.
+func parsesAlone(ctx context.Context, o override, edit movedEdit) bool {
+	if o.shell == "" || len(edit.lines) == 0 {
+		return true
+	}
+	if _, err := exec.LookPath(o.shell); err != nil {
+		return true
+	}
+	f, err := os.CreateTemp("", "dfinstall-override-*")
+	if err != nil {
+		return true
+	}
+	defer os.Remove(f.Name())
+	_, werr := f.WriteString(edit.String() + "\n")
+	if cerr := f.Close(); werr != nil || cerr != nil {
+		return true
+	}
+	_, err = runProbe(ctx, o.shell, "-n", f.Name())
+	return err == nil
 }
 
 func applyMove(ctx context.Context, o override, rel string, edit movedEdit) error {
