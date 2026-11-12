@@ -128,7 +128,7 @@ func statusRow(m core.Module) StatusRow {
 		r.State = StatePartial
 		if le, ok := m.(core.LinkExporter); ok {
 			for _, lp := range le.Links() {
-				if state := core.CheckLink(lp.Src, lp.Dst); state != "ok" {
+				if state := lp.Check(); state != "ok" {
 					r.Problems = append(r.Problems, DiffProblem{Dst: lp.Dst, State: state})
 				}
 			}
@@ -387,6 +387,7 @@ func CollectDiff() DiffReport {
 	root := core.DotfilesDir()
 	r := DiffReport{Root: root, Packaged: root != "" && root == core.ContentCurrentDir()}
 	var edited []string
+	pending := core.SeedPending()
 	if r.Packaged {
 		r.ContentVersion = core.CurrentContentVersion()
 		edited = core.ContentEdits(root)
@@ -424,7 +425,7 @@ func CollectDiff() DiffReport {
 			e.Exported = true
 			e.Links = len(links)
 			for _, lp := range links {
-				state := core.CheckLink(lp.Src, lp.Dst)
+				state := lp.Check()
 				switch {
 				case state != "ok":
 					e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: state})
@@ -440,6 +441,10 @@ func CollectDiff() DiffReport {
 						e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "edited", Detail: rel, MoveTo: movableTo(root, rel), Changes: describeEdit(root, rel)})
 						r.Edited++
 					}
+				}
+				if p := pending[lp.Dst]; p != "" && lp.Policy == core.PolicySeed {
+					e.Problems = append(e.Problems, DiffProblem{Dst: lp.Dst, State: "pending", Detail: p})
+					r.Edited++
 				}
 			}
 			if cd, ok := m.(contentDrifter); ok {
@@ -590,6 +595,9 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 				fmt.Fprintf(w, "      %s: %s\n", linkProblemLabel(p.State), tildePath(p.Dst))
 			case "content":
 				fmt.Fprintf(w, "      %s: %s\n", tildePath(p.Dst), p.Detail)
+			case "pending":
+				fmt.Fprintf(w, "      your copy kept; shipped version waiting at %s: %s\n", tildePath(p.Detail), tildePath(p.Dst))
+				fmt.Fprintf(w, "        %s\n", paint(faint, "merge what you want from it into your copy, then delete it"))
 			case "edited":
 				if r.Packaged {
 					fmt.Fprintf(w, "      edited in packaged content (%s): %s\n", p.Detail, tildePath(p.Dst))
@@ -630,7 +638,7 @@ func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 		fmt.Fprintf(w, "%d issue(s): %s\n", r.Issues, fixHint)
 	}
 	if r.Edited > 0 {
-		fmt.Fprintf(w, "%d managed file(s) edited through their link; install all leaves them as they are\n", r.Edited)
+		fmt.Fprintf(w, "%d managed file(s) changed on this machine; install all leaves them as they are\n", r.Edited)
 	}
 
 	// Flag the multi-clone case explicitly: symlinks split across dotfiles
@@ -668,6 +676,8 @@ func (r DiffReport) WriteBrief(w io.Writer) {
 				fmt.Fprintf(w, "%s was replaced by a file\n", short(p.Dst))
 			case "content":
 				fmt.Fprintf(w, "%s: %s\n", short(p.Dst), p.Detail)
+			case "pending":
+				fmt.Fprintf(w, "%s: your copy kept; merge the shipped version from %s, then delete it\n", short(p.Dst), short(p.Detail))
 			case "edited":
 				if r.Packaged {
 					fmt.Fprintf(w, "%s: edited in packaged content (%s); install all restores it\n", short(p.Dst), p.Detail)

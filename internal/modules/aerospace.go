@@ -22,7 +22,7 @@ func (AerospaceModule) Links() core.LinkSet {
 		return nil
 	}
 	return core.LinkSet{
-		{Src: core.ConfigPath("aerospace", "aerospace.toml"), Dst: core.XDGTarget("aerospace", "aerospace.toml")},
+		{Src: core.ConfigPath("aerospace", "aerospace.toml"), Dst: core.XDGTarget("aerospace", "aerospace.toml"), Policy: core.PolicySeed},
 	}
 }
 

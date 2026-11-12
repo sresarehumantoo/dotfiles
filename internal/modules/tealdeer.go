@@ -14,7 +14,7 @@ func (TealdeerModule) Name() string { return "tealdeer" }
 // Application Support only while the XDG one does not exist.
 func (TealdeerModule) Links() core.LinkSet {
 	return core.LinkSet{
-		{Src: core.ConfigPath("tealdeer", "config.toml"), Dst: core.XDGTarget("tealdeer", "config.toml")},
+		{Src: core.ConfigPath("tealdeer", "config.toml"), Dst: core.XDGTarget("tealdeer", "config.toml"), Policy: core.PolicySeed},
 	}
 }
 

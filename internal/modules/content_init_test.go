@@ -60,15 +60,27 @@ func isolate(t *testing.T) string {
 	return home
 }
 
-// linkAt makes the link a clone install would have made for htop.
+// linkAt makes the link an install from root would have made for ~/.zshrc,
+// a linked file.
 func linkAt(t *testing.T, root string) string {
 	t.Helper()
-	dst := core.XDGTarget("htop", "htoprc")
+	return linkFrom(t, root, "config/shell/zshrc", core.HomeTarget(".zshrc"))
+}
+
+// seedLinkAt makes the link a clone install has for htoprc, which packaged
+// content seeds instead.
+func seedLinkAt(t *testing.T, root string) string {
+	t.Helper()
+	return linkFrom(t, root, "config/htop/htoprc", core.XDGTarget("htop", "htoprc"))
+}
+
+func linkFrom(t *testing.T, root, rel, dst string) string {
+	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	os.Remove(dst)
-	if err := os.Symlink(filepath.Join(root, "config", "htop", "htoprc"), dst); err != nil {
+	if err := os.Symlink(filepath.Join(root, filepath.FromSlash(rel)), dst); err != nil {
 		t.Fatal(err)
 	}
 	return dst
@@ -138,14 +150,20 @@ func TestInitPackaged_MigratesAndRollsBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	dst := linkAt(t, clone)
+	seed := seedLinkAt(t, clone)
 	packagedFixture(t, "v1.0.0")
 
 	if _, err := InitContent(context.Background(), InitOptions{Packaged: true}); err != nil {
 		t.Fatalf("migration: %v", err)
 	}
-	want := filepath.Join(core.ContentCurrentDir(), "config", "htop", "htoprc")
+	want := filepath.Join(core.ContentCurrentDir(), "config", "shell", "zshrc")
 	if got := readLink(t, dst); got != want {
-		t.Errorf("htoprc -> %q after migration, want %q (unresolved current)", got, want)
+		t.Errorf(".zshrc -> %q after migration, want %q (unresolved current)", got, want)
+	}
+	if fi, err := os.Lstat(seed); err != nil || !fi.Mode().IsRegular() {
+		t.Errorf("htoprc is not a seeded copy after migration: %v", err)
+	} else if got := getFile(t, filepath.Dir(seed), "htoprc"); got != "# clone htoprc\n" {
+		t.Errorf("seeded htoprc = %q, want the clone's version it was showing", got)
 	}
 	if got := getFile(t, core.AppDataPath(), "previous-clone"); got != clone+"\n" {
 		t.Errorf("previous-clone = %q", got)
@@ -165,8 +183,11 @@ func TestInitPackaged_MigratesAndRollsBack(t *testing.T) {
 	if got := core.ReadCanonicalDir(); got != clone {
 		t.Errorf("pointer = %q after rollback, want %q", got, clone)
 	}
-	if got := readLink(t, dst); got != filepath.Join(clone, "config", "htop", "htoprc") {
-		t.Errorf("htoprc -> %q after rollback, want the clone again", got)
+	if got := readLink(t, dst); got != filepath.Join(clone, "config", "shell", "zshrc") {
+		t.Errorf(".zshrc -> %q after rollback, want the clone again", got)
+	}
+	if got := readLink(t, seed); got != filepath.Join(clone, "config", "htop", "htoprc") {
+		t.Errorf("htoprc -> %q after rollback, want a link to the clone again", got)
 	}
 }
 
@@ -409,7 +430,7 @@ func TestContentDoctor(t *testing.T) {
 
 func TestContentDiff(t *testing.T) {
 	packagedInstall(t, "v2.0.0")
-	editStore(t, "config/htop/htoprc", "edited\n")
+	editStore(t, "config/shell/zshrc", "edited\n")
 
 	r := CollectDiff()
 	if !r.Packaged || r.ContentVersion != "v1.0.0" {
@@ -419,7 +440,7 @@ func TestContentDiff(t *testing.T) {
 	r.WriteBrief(&brief)
 	for _, want := range []string{
 		"packaged content is v1.0.0 but dfinstall is v2.0.0",
-		"edited in packaged content (config/htop/htoprc); install all restores it",
+		"edited in packaged content (config/shell/zshrc); install all restores it",
 	} {
 		if !strings.Contains(brief.String(), want) {
 			t.Errorf("brief missing %q:\n%s", want, brief.String())
@@ -432,5 +453,87 @@ func TestContentDiff(t *testing.T) {
 	r.Write(&full, "run install all", "install all")
 	if strings.Contains(full.String(), "git -C") {
 		t.Errorf("packaged report gives git advice:\n%s", full.String())
+	}
+}
+
+// An edit to a seeded file does not block the migration: the file is copied,
+// edit and all.
+func TestInitPackaged_KeepsASeededFileEdit(t *testing.T) {
+	up, clone := upgradeFixture(t)
+	isolate(t)
+	putFile(t, up, "config/htop/htoprc", "# upstream htoprc\n")
+	gitIn(t, up, "add", ".")
+	gitIn(t, up, "commit", "-q", "-m", "htop")
+	gitIn(t, clone, "pull", "-q")
+	if err := core.WriteCanonicalDir(clone); err != nil {
+		t.Fatal(err)
+	}
+	seed := seedLinkAt(t, clone)
+	packagedFixture(t, "v1.0.0")
+	putFile(t, clone, "config/htop/htoprc", "# saved by htop on this machine\n")
+
+	kept, err := cloneOnlyChanges(context.Background(), clone)
+	if err != nil || len(kept) != 0 {
+		t.Fatalf("cloneOnlyChanges = %v, %v; want a seeded file's edit not counted", kept, err)
+	}
+	if _, err := InitContent(context.Background(), InitOptions{Packaged: true}); err != nil {
+		t.Fatalf("migration: %v", err)
+	}
+	if got := getFile(t, filepath.Dir(seed), "htoprc"); got != "# saved by htop on this machine\n" {
+		t.Errorf("htoprc = %q, want the edit carried into the copy", got)
+	}
+	if core.SeedPending()[seed] == "" {
+		t.Error("the shipped htoprc was not staged beside the user's edited copy")
+	}
+}
+
+func TestSeedPendingReported(t *testing.T) {
+	packagedInstall(t, "v1.0.0")
+	pair := HtopModule{}.Links()[0]
+	if err := pair.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(pair.Dst); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("htoprc not seeded as a copy: %v", err)
+	}
+	if err := os.WriteFile(pair.Dst, []byte("saved by htop\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packagedFixture(t, "v2.0.0")
+	core.Version = "v2.0.0"
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareContent(context.Background(), sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := (HtopModule{}).Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sess.Finish()
+	if got := getFile(t, filepath.Dir(pair.Dst), "htoprc"); got != "saved by htop\n" {
+		t.Fatalf("upgrade replaced the user's htoprc: %q", got)
+	}
+
+	r := CollectDiff()
+	var brief strings.Builder
+	r.WriteBrief(&brief)
+	if !strings.Contains(brief.String(), "htoprc: your copy kept; merge the shipped version from") {
+		t.Errorf("brief does not report the pending update:\n%s", brief.String())
+	}
+	for _, e := range r.Entries {
+		if e.Name != "htop" {
+			continue
+		}
+		if len(e.Problems) != 1 || e.Problems[0].State != "pending" {
+			t.Errorf("htop problems = %+v, want only the pending update", e.Problems)
+		}
+	}
+	if r.Edited < 1 {
+		t.Errorf("Edited = %d; a pending update is counted with what install leaves alone", r.Edited)
+	}
+	if d := seededFilesResult(); !d.OK || !strings.Contains(strings.Join(d.Extra, " "), "htoprc") {
+		t.Errorf("doctor seeded files = %+v", d)
 	}
 }

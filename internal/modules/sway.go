@@ -23,8 +23,8 @@ func (SwayModule) Links() core.LinkSet {
 	}
 	return core.LinkSet{
 		{Src: core.ConfigPath("sway", "config"), Dst: core.XDGTarget("sway", "config")},
-		{Src: core.ConfigPath("waybar", "config"), Dst: core.XDGTarget("waybar", "config")},
-		{Src: core.ConfigPath("waybar", "style.css"), Dst: core.XDGTarget("waybar", "style.css")},
+		{Src: core.ConfigPath("waybar", "config"), Dst: core.XDGTarget("waybar", "config"), Policy: core.PolicySeed},
+		{Src: core.ConfigPath("waybar", "style.css"), Dst: core.XDGTarget("waybar", "style.css"), Policy: core.PolicySeed},
 		// waybar's supervisor. A FULL REPLACEMENT for the packaged unit, not a
 		// drop-in: the vendor unit carries Requisite=graphical-session.target,
 		// that target is inactive under gdm-wayland-session + swayfx, and an
@@ -41,9 +41,9 @@ func (SwayModule) Links() core.LinkSet {
 		// swaync is the active notification daemon. mako stays installed and
 		// managed as a one-line fallback (see the autostart block in
 		// config/sway/config) — mako cannot animate, which is why it lost.
-		{Src: core.ConfigPath("swaync", "config.json"), Dst: core.XDGTarget("swaync", "config.json")},
-		{Src: core.ConfigPath("swaync", "style.css"), Dst: core.XDGTarget("swaync", "style.css")},
-		{Src: core.ConfigPath("mako", "config"), Dst: core.XDGTarget("mako", "config")},
+		{Src: core.ConfigPath("swaync", "config.json"), Dst: core.XDGTarget("swaync", "config.json"), Policy: core.PolicySeed},
+		{Src: core.ConfigPath("swaync", "style.css"), Dst: core.XDGTarget("swaync", "style.css"), Policy: core.PolicySeed},
+		{Src: core.ConfigPath("mako", "config"), Dst: core.XDGTarget("mako", "config"), Policy: core.PolicySeed},
 		// swayosd's overlay. Linked because its upstream default colors come
 		// from the system GTK theme, which renders a light pill on this dark
 		// desktop. ⚠ That file is GTK4 CSS, unlike every other stylesheet this
@@ -64,8 +64,8 @@ func (SwayModule) Links() core.LinkSet {
 		// Note the destination BASENAMES differ from the sources: GTK requires
 		// `settings.ini` under a version-named directory, so the repo names
 		// them by version to keep both readable side by side in config/gtk/.
-		{Src: core.ConfigPath("gtk", "gtk3-settings.ini"), Dst: core.XDGTarget("gtk-3.0", "settings.ini")},
-		{Src: core.ConfigPath("gtk", "gtk4-settings.ini"), Dst: core.XDGTarget("gtk-4.0", "settings.ini")},
+		{Src: core.ConfigPath("gtk", "gtk3-settings.ini"), Dst: core.XDGTarget("gtk-3.0", "settings.ini"), Policy: core.PolicySeed},
+		{Src: core.ConfigPath("gtk", "gtk4-settings.ini"), Dst: core.XDGTarget("gtk-4.0", "settings.ini"), Policy: core.PolicySeed},
 		// Portal routing is per-desktop and keyed on XDG_CURRENT_DESKTOP, so
 		// this file only takes effect under sway and leaves GNOME's portals
 		// alone. Managed here so `diff`/`status` see it like any other link.

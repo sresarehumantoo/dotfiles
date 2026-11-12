@@ -24,8 +24,8 @@ func (KonsoleModule) Links() core.LinkSet {
 		return core.HomeTarget(".local", "share", "konsole", name)
 	}
 	return core.LinkSet{
-		{Src: core.ConfigPath("konsole", "konsolerc"), Dst: core.XDGTarget("konsolerc")},
-		{Src: core.ConfigPath("konsole", "Dotfiles.profile"), Dst: shareDir("Dotfiles.profile")},
+		{Src: core.ConfigPath("konsole", "konsolerc"), Dst: core.XDGTarget("konsolerc"), Policy: core.PolicySeed},
+		{Src: core.ConfigPath("konsole", "Dotfiles.profile"), Dst: shareDir("Dotfiles.profile"), Policy: core.PolicySeed},
 		{Src: core.ConfigPath("konsole", "Dotfiles.colorscheme"), Dst: shareDir("Dotfiles.colorscheme")},
 	}
 }
