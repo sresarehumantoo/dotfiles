@@ -143,6 +143,29 @@ export OPENCODE_DISABLE_LSP_DOWNLOAD=1
 export OPENCODE_PURE=1
 # For a checkout you don't trust: ignore its opencode.json and AGENTS.md too.
 alias opencode-untrusted='OPENCODE_DISABLE_PROJECT_CONFIG=1 opencode'
+
+# The TUI starts in mini mode, which writes to the terminal's own scrollback,
+# so tmux copy-mode and the mouse wheel work. By default mini clears the
+# scrollback (ESC[3J) and reprints the session on every resize, which in tmux
+# wipes the pane's history on each zoom or split; --no-replay stops that. A
+# resume keeps replay, or the earlier conversation is not shown at all.
+# Subcommands pass through; 'command opencode' starts the full-screen TUI.
+opencode() {
+  if [[ $# -gt 0 && $1 != -* && ! -d $1 ]]; then
+    command opencode "$@"
+    return
+  fi
+  local a
+  for a in "$@"; do
+    case $a in
+      -c|--continue|-s|--session|--session=*)
+        command opencode --mini "$@"
+        return
+        ;;
+    esac
+  done
+  command opencode --mini --no-replay "$@"
+}
 `
 	_, err = core.WriteFileIfChanged(opencodeEnvPath(), []byte(content), 0o644)
 	return err
