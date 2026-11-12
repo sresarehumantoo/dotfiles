@@ -33,6 +33,7 @@
 if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   && command -v tmux &>/dev/null \
   && [[ -z "$TMUX" ]] \
+  && (( EUID != 0 )) \
   && [[ $- == *i* ]] \
   && [[ "$TERM" != "linux" ]] \
   && [[ "$TERM" != "dumb" ]] \
@@ -68,6 +69,12 @@ if [[ -z "$DF_NO_TMUX" || "$DF_NO_TMUX" == 0 ]] \
   #
   # SSH_TTY is checked beside SSH_CONNECTION because a login shell can carry
   # one without the other depending on sshd's settings.
+  #
+  # A ROOT SHELL DOES NOT START TMUX. `sudo -s`/`doas -s`/`su` run root's copy
+  # of this file (installed by `dfinstall root`) with $TMUX scrubbed, since
+  # neither doas without keepenv nor sudo's env_reset keeps it, so root started
+  # a second server under /tmp/tmux-0 inside the pane: the same stacked-prefix
+  # trap as ssh. Root is reached from a session that already exists.
   # ⚠ GIVE THE SERVER THE ENVIRONMENT, NOT JUST THE PANES. The tmux server is
   # forked from THIS shell, which has not reached the ~/.zsh.d/*.zsh sourcing
   # further down yet. Panes recover, because each pane's zsh sources them on the
