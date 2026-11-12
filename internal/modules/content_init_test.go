@@ -486,3 +486,54 @@ func TestInitPackaged_KeepsASeededFileEdit(t *testing.T) {
 		t.Error("the shipped htoprc was not staged beside the user's edited copy")
 	}
 }
+
+func TestSeedPendingReported(t *testing.T) {
+	packagedInstall(t, "v1.0.0")
+	pair := HtopModule{}.Links()[0]
+	if err := pair.Apply(); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Lstat(pair.Dst); err != nil || !fi.Mode().IsRegular() {
+		t.Fatalf("htoprc not seeded as a copy: %v", err)
+	}
+	if err := os.WriteFile(pair.Dst, []byte("saved by htop\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	packagedFixture(t, "v2.0.0")
+	core.Version = "v2.0.0"
+	sess, err := core.BeginInstall(core.InstallOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := PrepareContent(context.Background(), sess); err != nil {
+		t.Fatal(err)
+	}
+	if err := (HtopModule{}).Install(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sess.Finish()
+	if got := getFile(t, filepath.Dir(pair.Dst), "htoprc"); got != "saved by htop\n" {
+		t.Fatalf("upgrade replaced the user's htoprc: %q", got)
+	}
+
+	r := CollectDiff()
+	var brief strings.Builder
+	r.WriteBrief(&brief)
+	if !strings.Contains(brief.String(), "htoprc: your copy kept; merge the shipped version from") {
+		t.Errorf("brief does not report the pending update:\n%s", brief.String())
+	}
+	for _, e := range r.Entries {
+		if e.Name != "htop" {
+			continue
+		}
+		if len(e.Problems) != 1 || e.Problems[0].State != "pending" {
+			t.Errorf("htop problems = %+v, want only the pending update", e.Problems)
+		}
+	}
+	if r.Edited < 1 {
+		t.Errorf("Edited = %d; a pending update is counted with what install leaves alone", r.Edited)
+	}
+	if d := seededFilesResult(); !d.OK || !strings.Contains(strings.Join(d.Extra, " "), "htoprc") {
+		t.Errorf("doctor seeded files = %+v", d)
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
@@ -19,7 +20,7 @@ import (
 func upgradeDoctorResults() []DoctorResult {
 	results := []DoctorResult{binaryOnPathResult(), contentSourceResult()}
 	if core.UsingPackagedContent() {
-		results = append(results, contentVersionResult())
+		results = append(results, contentVersionResult(), seededFilesResult())
 	}
 	return append(results, checkoutFilesResult(), settingsFileResult())
 }
@@ -40,6 +41,25 @@ func contentSourceResult() DoctorResult {
 		detail += "; a " + ch + " build cannot update it"
 	}
 	return DoctorResult{Name: name, OK: true, Detail: detail}
+}
+
+// seededFilesResult lists the seeded files whose shipped version is waiting
+// for the user to merge. It never fails: install cannot do the merge, so its
+// fix line would be wrong.
+func seededFilesResult() DoctorResult {
+	const name = "seeded files"
+	pending := core.SeedPending()
+	if len(pending) == 0 {
+		return DoctorResult{Name: name, OK: true, Detail: "no shipped updates waiting"}
+	}
+	var extra []string
+	for dst, p := range pending {
+		extra = append(extra, tildePath(dst)+": merge from "+tildePath(p)+", then delete it")
+	}
+	slices.Sort(extra)
+	return DoctorResult{Name: name, OK: true,
+		Detail: fmt.Sprintf("%d shipped update(s) waiting to be merged into your copies", len(pending)),
+		Extra:  extra}
 }
 
 // contentVersionResult fails when packaged content does not match this
