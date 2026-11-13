@@ -296,7 +296,7 @@ func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
 	// wins, and diff shows the change itself.
 	var b strings.Builder
 	r.WriteBrief(&b)
-	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); install all --upgrade can move it to ~/.gitconfig.user\n"; uniqueLines(b.String()) != want {
+	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); install all --upgrade can move it to ~/.gitconfig.user\n"; b.String() != want {
 		t.Errorf("brief for a changed key:\n%s\nwant:\n%s", b.String(), want)
 	}
 	b.Reset()
@@ -311,7 +311,7 @@ func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
 	r = modules.CollectDiff()
 	b.Reset()
 	r.WriteBrief(&b)
-	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); commit or revert it there\n"; uniqueLines(b.String()) != want {
+	if want := "~/.gitconfig: edited in the clone (config/git/gitconfig); commit or revert it there\n"; b.String() != want {
 		t.Errorf("brief for a removed key:\n%s\nwant:\n%s", b.String(), want)
 	}
 	b.Reset()
@@ -319,18 +319,4 @@ func TestCollectDiff_EditThroughLinkIsReported(t *testing.T) {
 	if !strings.Contains(b.String(), "git -C "+dots+" checkout -- config/git/gitconfig") || strings.Contains(b.String(), "can move") {
 		t.Errorf("diff for a removed key:\n%s", b.String())
 	}
-}
-
-// uniqueLines drops repeated lines: other tests in this package call
-// RegisterAllModules too, so a module can be registered more than once.
-func uniqueLines(s string) string {
-	var out strings.Builder
-	seen := map[string]bool{}
-	for _, l := range strings.SplitAfter(s, "\n") {
-		if l != "" && !seen[l] {
-			seen[l] = true
-			out.WriteString(l)
-		}
-	}
-	return out.String()
 }

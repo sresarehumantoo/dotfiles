@@ -129,8 +129,13 @@ func init() {
 	moduleMap = make(map[string]Module)
 }
 
-// RegisterModule adds a module to the ordered registry.
+// RegisterModule adds a module to the ordered registry. A name already
+// registered is left as it is, so registering the set again (tests do) does
+// not run every module twice.
 func RegisterModule(m Module) {
+	if _, ok := moduleMap[m.Name()]; ok {
+		return
+	}
 	modules = append(modules, m)
 	moduleMap[m.Name()] = m
 }
