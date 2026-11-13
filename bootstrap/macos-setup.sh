@@ -42,21 +42,26 @@ show_help() {
 Usage: macos-setup.sh [options]
 
 Installs the Xcode Command Line Tools, Homebrew and Ghostty, then dfinstall
-from the Homebrew tap, clones (or reuses) the dotfiles and runs
-`dfinstall install all`. Asks before each step that changes the machine;
-declining one stops there and changes nothing further.
+from the Homebrew tap, and runs `dfinstall init` and `dfinstall install all`
+with the configs the formula ships: no clone and no git needed. Asks before
+each step that changes the machine; declining one stops there and changes
+nothing further.
 
-On a branch other than main, with --from-source, or when the tap cannot be
-reached, it installs Go and builds dfinstall from the clone instead
+With --clone, --dir, or when run from a clone, it keeps the dotfiles in a git
+clone instead. On a branch other than main, with --from-source, or when the
+tap cannot be reached, it also installs Go and builds dfinstall from the clone
 (`make install`): a release is cut from main, so another branch's configs may
 need code no release has yet.
 
 Options:
+  --clone               Keep the dotfiles in a git clone rather than use the
+                        configs the formula ships
   --branch <branch>     Branch to clone (default: main). An existing clone is
                         used as it is, on whatever branch it has checked out.
-  --from-source         Build dfinstall from the clone rather than install it
+  --from-source         Clone, and build dfinstall from the clone rather than
+                        install it
   --dir <path>          Where the clone lives (default: the clone this script
-                        is in, else ~/dotfiles)
+                        is in, else ~/dotfiles); implies --clone
   --brew-prefix <path>  Use, or install, a Homebrew at this path, for when the
                         default one cannot be written by this account. At most
                         13 characters (as long as /opt/homebrew) and every
@@ -509,7 +514,7 @@ install_release() {
 }
 
 install_dotfiles() {
-    local branch="$1" dir="$2" from_source="$3" dfinstall
+    local branch="$1" dir="$2" from_source="$3" clone="$4" dfinstall
     if [[ "$from_source" != true && "$branch" == main ]] && install_release; then
         dfinstall="$BREW_PREFIX/bin/dfinstall"
     else
@@ -519,6 +524,14 @@ install_dotfiles() {
     fi
 
     header "Dotfiles"
+    if [[ "$from_source" != true && "$clone" != true ]]; then
+        "$dfinstall" init
+        info "'dfinstall install all' installs Homebrew packages, then symlinks for the shell, git, nvim, tmux and Ghostty configs into your home folder. 'dfinstall install all --dry-run' shows the full list first."
+        confirm "Run dfinstall install all?" || stop_here
+        "$dfinstall" install all <&3
+        write_doctor_report "$dfinstall"
+        return
+    fi
     if [[ -d "$dir/.git" ]]; then
         info "Using the existing clone at ${dir} ($(git -C "$dir" branch --show-current))"
     elif [[ -e "$dir" ]]; then
@@ -537,9 +550,12 @@ install_dotfiles() {
         confirm "Run dfinstall install all?" || stop_here
         "$dfinstall" install all <&3
     fi
+    write_doctor_report "$dfinstall"
+}
 
-    # A record of the environment to share if anything on this Mac misbehaves.
-    local report
+# A record of the environment to share if anything on this Mac misbehaves.
+write_doctor_report() {
+    local dfinstall="$1" report
     report="$HOME/Library/Logs/dotfiles-doctor-$(date +%Y%m%d-%H%M%S).log"
     mkdir -p "$HOME/Library/Logs"
     if "$dfinstall" doctor >"$report" 2>&1; then
@@ -550,11 +566,12 @@ install_dotfiles() {
 }
 
 main() {
-    local branch="main" dir="" do_ghostty=true do_dotfiles=true from_source=false
+    local branch="main" dir="" do_ghostty=true do_dotfiles=true from_source=false clone=false
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --branch)        branch="${2:?--branch needs a value}"; shift 2 ;;
-            --dir)           dir="${2:?--dir needs a value}"; shift 2 ;;
+            --dir)           dir="${2:?--dir needs a value}"; clone=true; shift 2 ;;
+            --clone)         clone=true; shift ;;
             --brew-prefix)   BREW_PREFIX_REQ="${2:?--brew-prefix needs a value}"; BREW_PREFIX_REQ="${BREW_PREFIX_REQ%/}"; shift 2 ;;
             --skip-ghostty)  do_ghostty=false; shift ;;
             --skip-dotfiles) do_dotfiles=false; shift ;;
@@ -567,7 +584,11 @@ main() {
 
     [[ "$(uname -s)" == Darwin ]] || die "This script is for macOS. On WSL use bootstrap/wsl-setup.sh."
     [[ "$(id -u)" -ne 0 ]] || die "Run as your normal user, not root. Homebrew refuses to run as root."
-    [[ -n "$dir" ]] || dir="$(default_dir)"
+    if [[ -z "$dir" ]]; then
+        dir="$(default_dir)"
+        [[ "$dir" == "$HOME/dotfiles" ]] || clone=true
+    fi
+    [[ "$from_source" != true && "$branch" == main ]] || clone=true
 
     # Piped from curl, stdin is the script itself. Homebrew's installer then
     # goes non-interactive and aborts unless sudo is already cached, and
@@ -589,7 +610,9 @@ main() {
         info "4. Ghostty"
     fi
     if [[ "$do_dotfiles" == true ]]; then
-        if [[ "$from_source" != true && "$branch" == main ]]; then
+        if [[ "$clone" != true ]]; then
+            info "5. dfinstall from the Homebrew tap with its configs, then dfinstall install all"
+        elif [[ "$from_source" != true && "$branch" == main ]]; then
             info "5. dfinstall from the Homebrew tap, dotfiles in ${dir}, then dfinstall install all"
         else
             info "5. Go, dotfiles in ${dir}, then make install"
@@ -605,7 +628,7 @@ main() {
         install_ghostty
     fi
     if [[ "$do_dotfiles" == true ]]; then
-        install_dotfiles "$branch" "$dir" "$from_source"
+        install_dotfiles "$branch" "$dir" "$from_source" "$clone"
     fi
 
     header "Done"

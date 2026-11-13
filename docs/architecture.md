@@ -45,9 +45,9 @@ dfinstall install all [--backup]
   spinner / summary        <- core/spinner.go
 ```
 
-Both the CLI and the MCP server go through `BeginInstall`/`Finish` and
-`SkipInAll`. They previously hand-rolled this and drifted: the MCP server took
-no backup and installed opt-out modules.
+Every install path goes through `BeginInstall`/`Finish` and `SkipInAll`. The
+2.x MCP server once hand-rolled this and drifted: it took no backup and
+installed opt-out modules.
 
 ## Module System
 
@@ -71,7 +71,7 @@ type ModuleStatus struct {
 ```
 
 `Install` takes a context so a long install can be canceled: the CLI binds it
-to SIGINT, the MCP server to the per-request context. **Modules must pass it
+to SIGINT. **Modules must pass it
 down to every subprocess they spawn.** `Status` deliberately takes none: it is a
 fast synchronous read for display, and anything slow enough to need canceling
 doesn't belong in it.
@@ -364,9 +364,8 @@ are both deliberate:
 It returns `nil` (no row at all) when the dotfiles root is not a git checkout,
 so a tarball install is not nagged about a question that does not apply to it.
 
-⚠ Its detail line is its **entire** output, since it never fails. The MCP doctor
-renderer originally printed only `ok  <name>` for passing rows and so dropped it
-silently while the CLI showed it; both surfaces now print the detail.
+⚠ Its detail line is its **entire** output, since it never fails, so doctor
+prints the detail for passing rows too.
 
 The second row is the WSL exception and is covered in `docs/modules.md`. Note
 that none of those three copies goes through the backup manifest: `BackupFile`
@@ -548,8 +547,7 @@ Individual failures are warned but don't stop the restore. A summary error is re
 `core/exec.go` defines the deadlines; `modules/packages.go` provides the wrappers.
 
 The rule is that **every** subprocess is cancelable: `cmd/` and `internal/` contain no
-`exec.Command` calls at all, only `exec.CommandContext`, so a Ctrl-C (or an MCP
-request cancellation) tears down whatever is running. The three wrappers below
+`exec.Command` calls at all, only `exec.CommandContext`, so a Ctrl-C tears down whatever is running. The three wrappers below
 are how a command *additionally* gets a deadline.
 
 | Wrapper | Deadline | For |
@@ -561,7 +559,7 @@ are how a command *additionally* gets a deadline.
 These are hang detectors, not performance budgets: each sits well past the
 slowest healthy run of its class. Before them, a `curl` to a blackholed host or
 an `apt` blocked on a dpkg lock hung the whole run behind a spinner with no way
-out but Ctrl-C, and under the MCP server there is no terminal to Ctrl-C from.
+out but Ctrl-C.
 
 `runCmd` also owns output routing (straight to the terminal under `-v`,
 otherwise captured and replayed on failure), spinner pausing, and sudo TTY
@@ -595,7 +593,7 @@ Not every direct call site is unbounded, though: `core/virt.go`'s
 ## Install Session
 
 `core/install_session.go` wraps the setup and teardown every install path
-shares, so the CLI and the MCP server cannot drift apart on it:
+shares:
 
 ```go
 sess, err := core.BeginInstall(core.InstallOptions{All: true, ForceBackup: flagBackup})
@@ -611,8 +609,7 @@ Rendering stays with the caller: the session reports `CanonicalPrev`,
 Modules are run with `sess.Run(ctx, m)` (and left out with `sess.Skip(name)`),
 which attributes every `core.Changed` call to the running module.
 `sess.Report().Write(w, all)` then prints what changed per module, and which
-modules were unchanged or skipped; both the CLI and the MCP server render that
-one report. The report is only worth reading if a module that did nothing says
+modules were unchanged or skipped. The report is only worth reading if a module that did nothing says
 nothing, so:
 
 - **`Changed` is for something the install did to the machine; anything that
@@ -622,8 +619,8 @@ nothing, so:
 - **Under `--dry-run` a step records what it *would* change**, and only that:
   `LinkFile` used to print "would link" for every link, correct or not.
 
-Before this existed the MCP server took no backup at all and ignored the windev
-opt-in, while being annotated idempotent and non-destructive.
+Before this existed the 2.x MCP server took no backup at all and ignored the
+windev opt-in, while being annotated idempotent and non-destructive.
 
 Three rules the session enforces, each of which was once a data-loss bug:
 
@@ -631,9 +628,8 @@ Three rules the session enforces, each of which was once a data-loss bug:
   backup session, the canonical pointer and `Cfg` are all global. Two overlapping
   installs meant the second `StartBackup` replaced the first's manager, and the
   first `FinishBackup` then wrote its manifest into the second's directory,
-  leaving the first's copied files with no manifest, invisible to `restore`. The
-  CLI only ever runs one install; the MCP server dispatches tool calls from a
-  worker pool, so its handlers really can overlap. They queue instead.
+  leaving the first's copied files with no manifest, invisible to `restore`. A
+  second install in the same process queues instead.
 - **Call `sess.MarkFailed()` when the install fails.** Otherwise the deferred
   `Finish` still persists the first-run config, and `skip_backup: true` disarms
   the automatic backup before the run that actually replaces the user's dotfiles.
@@ -653,9 +649,7 @@ Three rules the session enforces, each of which was once a data-loss bug:
 | `CollectDiff()` | walk every module, returning a `DiffReport` |
 | `DiffReport.Write(w, fixHint, consolidateCmd)` | render it |
 
-The writer is why one implementation serves both surfaces: the CLI passes
-`os.Stdout`, the MCP server a `strings.Builder`. The two hint strings are the
-only thing that differs between them: each names its own command.
+The CLI passes `os.Stdout`; tests pass a `strings.Builder`.
 
 ## Error Handling
 

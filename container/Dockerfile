@@ -55,7 +55,7 @@ RUN install -D -m 0644 /src/container/config.container.yaml "/home/${USERNAME}/.
 # Copies /src -> ~/dotfiles, runs `make build`, then `dfinstall install all`.
 RUN /src/bootstrap/wsl-setup.sh install-dotfiles "${BRANCH}" /src
 
-# Put dfinstall + dfinstall-mcp on PATH. Without this the binaries exist only at
+# Put dfinstall on PATH. Without this the binary exists only at
 # ~/dotfiles/bin and `dfinstall status` is a "command not found" in a fresh shell,
 # which is not what a WSL-equivalent should feel like.
 RUN cd "/home/${USERNAME}/dotfiles" && make install-bin

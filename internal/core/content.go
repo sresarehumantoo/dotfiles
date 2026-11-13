@@ -221,6 +221,10 @@ func (s *InstallSession) syncContent(version, from string, stage func(dir string
 			return err
 		}
 	}
+	// Sealed only now: macOS refuses to rename a directory it cannot write.
+	if err := os.Chmod(dst, 0o555); err != nil {
+		return err
+	}
 
 	link := filepath.Join(store, contentCurrentName+".tmp")
 	if err := os.Remove(link); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -322,8 +326,9 @@ func verifyContent(root, version string) error {
 }
 
 // sealContent makes a verified tree read-only: files take 0444 or 0555 from
-// their stamp, directories 0555, deepest first so each is still writable while
-// its children are changed.
+// their stamp, directories below root 0555, deepest first so each is still
+// writable while its children are changed. root stays writable so it can be
+// renamed into place; the caller seals it after.
 func sealContent(root string) error {
 	st, err := ReadContentStamp(root)
 	if err != nil {
@@ -348,7 +353,7 @@ func sealContent(root string) error {
 	if err != nil {
 		return err
 	}
-	for _, d := range slices.Backward(dirs) {
+	for _, d := range slices.Backward(dirs[1:]) {
 		if err := os.Chmod(d, 0o555); err != nil {
 			return err
 		}

@@ -365,8 +365,7 @@ func (r RestoreResult) Summary(ts string) string {
 		ts, r.Total, len(r.Dangling))
 }
 
-// WriteBackupList renders the backup table. Shared so the CLI and the MCP
-// server cannot drift into two different listings of the same thing.
+// WriteBackupList renders the backup table.
 func WriteBackupList(w io.Writer, backups []BackupListEntry) {
 	if len(backups) == 0 {
 		fmt.Fprintln(w, "No backups found.")

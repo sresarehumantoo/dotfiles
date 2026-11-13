@@ -12,7 +12,7 @@
 version: 2
 
 updates:
-  # Go module deps (cobra, huh, mcp-go, yaml.v3, x/term, ...)
+  # Go module deps (cobra, huh, yaml.v3, x/term, ...)
   - package-ecosystem: "gomod"
     directory: "/"
     target-branch: "develop"

@@ -299,10 +299,32 @@ func snapshot(t *testing.T, root string) string {
 	return b.String()
 }
 
-// Where git's own policy denies the clone, a plain init uses packaged content
-// when this build has some, and otherwise fails naming the policy. Nothing
-// here reaches the network: the deny is decided locally.
-func TestInitContent_FallsBackWhenGitIsDenied(t *testing.T) {
+// A plain init uses packaged content wherever the build has some, without
+// asking git anything, and leaves a recorded clone alone.
+func TestInitContent_DefaultsToPackaged(t *testing.T) {
+	isolate(t)
+	saved := core.Channel
+	t.Cleanup(func() { core.Channel = saved })
+	core.Channel = core.ChannelRelease
+	packagedFixture(t, "v1.0.0")
+	// git works but the remote is unreachable, so a probe would fail init.
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url."+filepath.Join(t.TempDir(), "none")+"/.insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/")
+
+	if _, err := InitContent(context.Background(), InitOptions{}); err != nil {
+		t.Fatalf("plain init: %v", err)
+	}
+	if !core.UsingPackagedContent() {
+		t.Error("plain init did not use packaged content")
+	}
+}
+
+// Where git's own policy denies the clone, --clone fails naming the policy
+// and points at packaged content when the build has some; a build with none
+// fails the same way from a plain init. Nothing here reaches the network: the
+// deny is decided locally.
+func TestInitContent_RefusesADeniedClone(t *testing.T) {
 	isolate(t)
 	t.Setenv("GIT_ALLOW_PROTOCOL", "ssh")
 	saved := core.Channel
@@ -316,14 +338,38 @@ func TestInitContent_FallsBackWhenGitIsDenied(t *testing.T) {
 
 	core.Channel = core.ChannelRelease
 	packagedFixture(t, "v1.0.0")
-	if _, err := InitContent(context.Background(), InitOptions{Repo: DefaultContentRepo}); err == nil || !strings.Contains(err.Error(), "cannot clone") {
-		t.Fatalf("explicit --repo: err = %v, want no fallback", err)
+	for _, o := range []InitOptions{{Clone: true}, {Repo: DefaultContentRepo}} {
+		_, err := InitContent(context.Background(), o)
+		if err == nil || !strings.Contains(err.Error(), "GIT_ALLOW_PROTOCOL") || !strings.Contains(err.Error(), "init --packaged") {
+			t.Errorf("%+v: err = %v, want the policy named and --packaged suggested", o, err)
+		}
 	}
+	if core.ReadCanonicalDir() != "" {
+		t.Error("a refused clone recorded dotfiles content")
+	}
+}
+
+// From packaged content, --clone goes on to clone rather than reporting the
+// content already set up.
+func TestInitContent_CloneLeavesPackaged(t *testing.T) {
+	isolate(t)
+	saved := core.Channel
+	t.Cleanup(func() { core.Channel = saved })
+	core.Channel = core.ChannelRelease
+	packagedFixture(t, "v1.0.0")
+	if _, err := InitContent(context.Background(), InitOptions{Packaged: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("GIT_ALLOW_PROTOCOL", "ssh")
 	if _, err := InitContent(context.Background(), InitOptions{}); err != nil {
-		t.Fatalf("plain init: %v", err)
+		t.Errorf("plain init over packaged content: %v", err)
 	}
-	if !core.UsingPackagedContent() {
-		t.Error("plain init did not fall back to packaged content")
+	if _, err := InitContent(context.Background(), InitOptions{Clone: true}); err == nil || !strings.Contains(err.Error(), "cannot clone") {
+		t.Errorf("--clone from packaged content: err = %v, want a clone attempt", err)
+	}
+	if _, err := InitContent(context.Background(), InitOptions{Clone: true, Packaged: true}); err == nil {
+		t.Error("--clone with --packaged was accepted")
 	}
 }
 

@@ -20,9 +20,8 @@ type DoctorResult struct {
 	Extra  []string // additional indented lines (collision list, drift breakdown)
 }
 
-// RunDoctorChecks runs every health check and returns structured results. It is
-// the single source of truth shared by the CLI `doctor` command (RunDoctor) and
-// the MCP dfinstall_doctor tool, so the two renderings can't drift.
+// RunDoctorChecks runs every health check and returns structured results for
+// RunDoctor to render.
 func RunDoctorChecks() []DoctorResult {
 	checks := []struct {
 		name  string

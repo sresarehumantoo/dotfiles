@@ -449,7 +449,7 @@ Key settings:
 
 Sets up a full Neovim configuration under `~/.config/nvim/`:
 
-- **23 symlinks** covering init.lua, lazy-lock.json, .stylua.toml, `notes.markdownlint.yaml` (the vault's relaxed lint rules), lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
+- **24 symlinks** covering init.lua, .stylua.toml, `notes.markdownlint.yaml` (the vault's relaxed lint rules), lua files for custom plugins and kickstart plugins, and an `after/ftplugin/markdown.lua` editor-options file
 - **Neovim itself:** if nvim is missing or older than nvim-treesitter needs, installs the official prebuilt into `~/.local/opt` and links `~/.local/bin/nvim`, no root. An older distro or `/opt` copy is left installed (it is shadowed on PATH) and the command to remove it is printed. The tree-sitter CLI goes to `~/.local/bin` the same way.
 - **Plugins:** Runs `nvim --headless "+Lazy! install" "+qa"` after linking, which only adds missing plugins; `--upgrade` runs `Lazy! sync` instead to update them
 - **Backup:** If an existing nvim config is a git repo (not symlinks), backs it up to `~/.config/nvim.bak`
@@ -467,7 +467,7 @@ force it off on a terminal without its own trail.
 
 **Kickstart plugins:** autopairs, debug, gitsigns, indent_line, lint, neo-tree
 
-**Status:** Checks 23 symlinks.
+**Status:** Checks 24 symlinks.
 
 ---
 
@@ -950,6 +950,6 @@ After installing, enables/starts the relevant systemd units (`qemu-guest-agent`,
 
 Sets zsh as the default login shell. Skips when the account's recorded login shell (`getent passwd`, or `dscl` on macOS) is already the zsh path resolved from `$PATH`; `$SHELL` is not used, because it only changes at the next login. A shell of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
 
-With a terminal it runs plain `chsh -s <zsh>`, which asks for the user's own password and needs no root. Without one (under the MCP server, where stdin is the JSON-RPC stream, or a piped bootstrap), or when plain `chsh` fails, it uses `sudo chsh` only if sudo needs no password (a NOPASSWD rule, cached credentials, the bootstrap drop-in). Otherwise it warns with the `chsh -s <path>` command to run.
+With a terminal it runs plain `chsh -s <zsh>`, which asks for the user's own password and needs no root. Without one (a piped bootstrap, for example), or when plain `chsh` fails, it uses `sudo chsh` only if sudo needs no password (a NOPASSWD rule, cached credentials, the bootstrap drop-in). Otherwise it warns with the `chsh -s <path>` command to run.
 
 **Status:** Reports "zsh" if the account's login shell is zsh, or that shell's path.

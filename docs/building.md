@@ -46,8 +46,7 @@ The Makefile passes a second `-X` for `core.Version`, derived from the tag:
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 ```
 
-Both binaries read it: `dfinstall --version`, and the `serverInfo.version` the
-MCP server reports in its `initialize` response. A plain `go build` without the
+`dfinstall --version` reads it. A plain `go build` without the
 Makefile leaves it at `dev` rather than claiming a release.
 
 **Anything that reports a version must read `core.Version`.** The MCP server
@@ -104,7 +103,6 @@ Dependencies are managed via Go modules (`go.mod` / `go.sum`) and fetched automa
 | `github.com/fatih/color` | Colored terminal output |
 | `github.com/charmbracelet/huh` | Interactive terminal forms (extended plugin menu) |
 | `github.com/charmbracelet/bubbles` | Terminal UI components used by the menus |
-| `github.com/mark3labs/mcp-go` | MCP protocol/stdio server (`bin/dfinstall-mcp`) |
 | `golang.org/x/term` | Terminal detection (TTY guard for menus) |
 | `gopkg.in/yaml.v3` | YAML config parsing (`config.yaml`) |
 
@@ -125,8 +123,7 @@ Run `make` (or `make help`) to list every target.
 |--------|---------|-------------|
 | `help` | — | List all targets (the default goal) |
 | `build` | `go build ...` | Compile to `bin/dfinstall` |
-| `build-mcp` | `go build ...` | Compile the MCP server to `bin/dfinstall-mcp` |
-| `build-all` | `build` + `build-mcp` | Compile both binaries |
+| `build-all` | `build` | Kept for dfinstall 2.x, which rebuilds itself with it |
 | `test` | `go test ./cmd/... ./internal/... ./tests/...` | Run all unit tests |
 | `test-race` | `go test -race ./cmd/... ./internal/... ./tests/...` | Run the suite under the race detector |
 | `lint` | `go vet ./cmd/... ./internal/... ./tests/...` | Static analysis |
@@ -138,9 +135,8 @@ Run `make` (or `make help`) to list every target.
 | `corplab` | `scripts/corplab/run.sh [scenario]` | Corporate-network scenarios (TLS inspection, Nexus) in Docker Compose; `SCENARIO=nexus` runs one |
 | `install` | `make build && bin/dfinstall install all` | Build and install everything |
 | `uninstall` | `make build && bin/dfinstall uninstall all` | Remove all managed symlinks |
-| `install-bin` | `install ... ~/.local/bin` | Install both binaries onto `PATH` (`~/.local/bin`) |
-| `install-mcp` | `claude mcp add -s user ...` | Register the MCP server with Claude Code (user scope, works anywhere) |
-| `uninstall-mcp` | `claude mcp remove dfinstall` | Unregister the MCP server from Claude Code |
+| `install-bin` | `install ... ~/.local/bin` | Install `dfinstall` onto `PATH` (`~/.local/bin`), removing a `dfinstall-mcp` 2.x left there |
+| `uninstall-mcp` | `claude mcp remove dfinstall` | Unregister the MCP server dfinstall 2.x shipped from Claude Code |
 | `clean` | `rm -rf bin/` | Remove build artifacts |
 
 ## Development Workflow
@@ -189,7 +185,6 @@ Note: the baked-in dotfiles path should match the target machine. If the path va
 .config.yaml.example     # Documented example of every config key
 .github/                 # CI workflow + Dependabot config
 .goreleaser.yaml         # Release archives, .debs, checksums
-.mcp.json                # In-repo MCP server registration
 assets/                  # Logo SVG (+ generator) and the demo GIF
 bootstrap/               # WSL bootstrap wizard (PowerShell + bash), macOS bootstrap
 config/                  # Config files symlinked into ~, one directory per tool
@@ -202,7 +197,6 @@ The Go code:
 ```
 cmd/
   dfinstall/         # CLI entry point (main.go)
-  dfinstall-mcp/     # MCP server entry point (main.go) → bin/dfinstall-mcp
 internal/
   core/              # Shared libraries
     apt.go           #   apt/dpkg helpers
@@ -278,6 +272,7 @@ minutes each; CI does not run them.
 |----------|--------|
 | `sudo` | How many sudo password prompts each command causes (none for anything installed into `~`, one per run otherwise), that dfinstall drops credentials it obtained and keeps ones the user already had, and where Neovim, tree-sitter, delta and Terraform land |
 | `bootstrap` | `bootstrap/wsl-setup.sh` in the order `wsl-bootstrap.ps1` runs it: the temporary NOPASSWD drop-in, `install all` without a password, and its removal plus the expired fallback password at the end |
+| `bootstrap-packaged` | `wsl-setup.sh install-dotfiles main` with the `.deb` already installed: no clone, the store is the dotfiles content, no sudo prompt |
 | `deb-git` | The `.deb` recommends git rather than depending on it: upgrading from a package that depended on it, `apt-get autoremove` keeps a git that came in only as that dependency (a package with no git relation is the control) |
 | `rootless` | `install extras` with a systemd user session. A user already in the `docker` group is left as they are, with no rootless packages; for anyone else Docker runs rootless with its own context, a re-run asks nothing, `sudo docker` still reaches the system daemon, and the user never joins the `docker` group |
 
@@ -353,8 +348,8 @@ CI runs on every push and pull request to `main` and `develop`, and on manual di
 
 | Job | Checks |
 |-----|--------|
-| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), the decoupling guard (`make check-decoupling`), build of both the `dfinstall` and MCP binaries (`make build` + `make build-mcp`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
-| `go-macos` | Builds both binaries and runs `make test` on `macos-latest`, then checks that `bootstrap/macos-setup.sh` parses and runs `--help` under the stock `/bin/bash` 3.2. |
+| `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), the decoupling guard (`make check-decoupling`), build (`make build`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
+| `go-macos` | Builds `dfinstall` and runs `make test` on `macos-latest`, then checks that `bootstrap/macos-setup.sh` parses and runs `--help` under the stock `/bin/bash` 3.2. |
 | `goreleaser` | `goreleaser check`, so a broken `.goreleaser.yaml` fails here rather than on the next tag, then a snapshot release and `scripts/release/verify-content.sh`: the content tarball and each `.deb` must hold exactly the files their stamp lists, with its digests and modes, all owned by root, and each `.deb` must recommend git rather than depend on it. |
 | `shellcheck` | Lints `config/devtools/`, `bootstrap/` and `scripts/`, one step each, via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. Any finding fails the job, a `note` included, and each step scans its whole directory rather than the diff. `make ci` does not run it. |
 

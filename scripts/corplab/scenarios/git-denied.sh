@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # git present but its https transport denied by the system gitconfig, and the
-# internet blocked: init uses the release's content archive and names the
-# setting, and the modules that need git are skipped.
+# internet blocked: init --clone names the setting, init uses the release's
+# content archive, and the modules that need git are skipped.
 set -uo pipefail
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
@@ -12,10 +12,14 @@ stage_noclone
 use_nexus
 system_git_config protocol.https.allow never
 
+out="$("$DFINSTALL" init --clone 2>&1)"
+rc=$?
+check "init --clone fails" test "$rc" -ne 0
+check "it names the setting that stops the clone" grep -q "cannot clone .*protocol.https.allow=never.*run: dfinstall init --packaged" <<<"$out"
+
 out="$("$DFINSTALL" init 2>&1)"
 rc=$?
 check "init succeeds" test "$rc" -eq 0
-check "it names the setting that stopped the clone" grep -q "not cloning .*protocol.https.allow=never.*using the content packaged" <<<"$out"
 check "the store is the dotfiles content" \
     test "$(cat "$XDG_CONFIG_HOME/dfinstall/dotfiles-dir")" = "$HOME/.local/share/dfinstall/content/current"
 
