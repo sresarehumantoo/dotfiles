@@ -91,7 +91,10 @@ nfpms:
     license: MIT
     section: utils
     bindir: /usr/bin
-    dependencies: [git, curl]
+    dependencies: [curl]
+    # Recommends, not dropped: apt keeps a recommended package from autoremove,
+    # so git stays on a machine where it came in only as a 2.x dependency.
+    recommends: [git]
     contents:
       - src: build/content/config
         dst: /usr/share/dfinstall/config
