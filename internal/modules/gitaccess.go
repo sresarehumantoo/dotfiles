@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -55,7 +56,14 @@ func gitAccessLocal(ctx context.Context, target string) gitAccess {
 	}
 	// EDR or app control can leave a binary on disk that cannot execute.
 	out, err := runProbe(ctx, "git", "--version")
-	if err != nil {
+	var ee *exec.ExitError
+	switch {
+	case errors.As(err, &ee) && ee.ExitCode() == 127:
+		// The shell's "command not found": the devtools git wrapper, with no
+		// git behind it to run.
+		a.State, a.Reason = gitAbsent, "git is not on PATH"
+		return a
+	case err != nil:
 		a.State, a.Reason = gitBlockedExec, fmt.Sprintf("git is installed but does not run: %v", err)
 		return a
 	}
