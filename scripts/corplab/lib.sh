@@ -59,3 +59,39 @@ lacks() { ! grep -q "$1" <<<"$2"; }
 
 # quietly CMD...: run CMD with its output discarded.
 quietly() { "$@" >/dev/null 2>&1; }
+
+# stage_noclone: a fresh home with no clone and a release build of dfinstall
+# in ~/.local/bin, which installs its release's content archive. Modules that
+# need apt or a chsh are skipped: the firewall stops those whatever git can do.
+stage_noclone() {
+    stage
+    rm -rf "$HOME/dotfiles"
+    unset DOTFILES
+    printf 'skip_backup: true\nskip_modules: [packages, extras, newsboat, docs, defaultshell, locale]\n' \
+        > "$HOME/.config/dfinstall/config.yaml"
+    mkdir -p "$HOME/.local/bin"
+    cp /lab/bin/dfinstall-release "$HOME/.local/bin/dfinstall"
+    DFINSTALL="$HOME/.local/bin/dfinstall"
+    cd "$HOME" || return
+}
+
+# requests_mark: how many requests the firewall has seen so far.
+requests_mark() { wc -l < /lab/log/requests; }
+
+# requests_since MARK: the requests after MARK, one "host path" per line.
+requests_since() { tail -n "+$(($1 + 1))" /lab/log/requests; }
+
+# without_git: git off the workstation until the scenario exits, as on a
+# machine that never had it.
+without_git() {
+    sudo mv /usr/bin/git /usr/bin/git.corplab-off
+    trap 'sudo mv /usr/bin/git.corplab-off /usr/bin/git' EXIT
+}
+
+# system_git_config KEY VALUE: set KEY in the system gitconfig, as IT would,
+# until the scenario exits.
+system_git_config() {
+    sudo git config --system "$1" "$2"
+    # shellcheck disable=SC2064 # expand KEY now
+    trap "sudo git config --system --unset-all '$1'" EXIT
+}

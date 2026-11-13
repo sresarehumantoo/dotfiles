@@ -5,12 +5,16 @@
     drop:github.com   the connection is reset instead
     *                 everything
     !nexus            exempt, checked before any block
+
+Every request is appended to /log/requests as "host path", so a scenario can
+show that a command made no request.
 """
 from pathlib import Path
 
 from mitmproxy import http
 
 BLOCKLIST = Path("/state/policy/blocklist")
+REQUESTS = Path("/log/requests")
 PAGE = b"<html><body><h1>Web Page Blocked</h1><p>Access to this site is blocked by corporate policy.</p></body></html>"
 
 
@@ -19,6 +23,8 @@ def _matches(host: str, pattern: str) -> bool:
 
 
 def request(flow: http.HTTPFlow) -> None:
+    with REQUESTS.open("a") as log:
+        log.write(f"{flow.request.pretty_host} {flow.request.path}\n")
     try:
         rules = BLOCKLIST.read_text().split()
     except FileNotFoundError:

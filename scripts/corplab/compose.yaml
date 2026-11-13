@@ -30,10 +30,17 @@ services:
     cap_add: [NET_ADMIN]
     volumes:
       - ./.state:/state:ro
+      - ./.state/log:/log
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/ready"]
       interval: 2s
       retries: 30
+
+  # An internal git server holding a mirror of the dotfiles repo, as an
+  # insteadOf rule on a managed machine would point at.
+  gitmirror:
+    build: ./gitmirror
+    networks: [corp]
 
   dev:
     build: ./dev
@@ -44,6 +51,8 @@ services:
         condition: service_healthy
       proxy:
         condition: service_healthy
+      gitmirror:
+        condition: service_started
     volumes:
       - ${REPO:?set REPO to the dotfiles checkout}:/src:ro
       - ./.state:/lab:ro
