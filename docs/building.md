@@ -273,6 +273,7 @@ minutes each; CI does not run them.
 | `sudo` | How many sudo password prompts each command causes (none for anything installed into `~`, one per run otherwise), that dfinstall drops credentials it obtained and keeps ones the user already had, and where Neovim, tree-sitter, delta and Terraform land |
 | `bootstrap` | `bootstrap/wsl-setup.sh` in the order `wsl-bootstrap.ps1` runs it: the temporary NOPASSWD drop-in, `install all` without a password, and its removal plus the expired fallback password at the end |
 | `bootstrap-packaged` | `wsl-setup.sh install-dotfiles main` with the `.deb` already installed: no clone, the store is the dotfiles content, no sudo prompt |
+| `deb-git` | The `.deb` recommends git rather than depending on it: upgrading from a package that depended on it, `apt-get autoremove` keeps a git that came in only as that dependency (a package with no git relation is the control) |
 | `rootless` | `install extras` with a systemd user session. A user already in the `docker` group is left as they are, with no rootless packages; for anyone else Docker runs rootless with its own context, a re-run asks nothing, `sudo docker` still reaches the system daemon, and the user never joins the `docker` group |
 
 A scenario whose script contains the line `# e2e: systemd` runs in a privileged
@@ -349,7 +350,7 @@ CI runs on every push and pull request to `main` and `develop`, and on manual di
 |-----|--------|
 | `go` | `gofmt -s` formatting (`make fmt-check`), `go vet` (`make lint`), the decoupling guard (`make check-decoupling`), build (`make build`), the full test suite (`make test`), and the suite again under the race detector (`make test-race`). The Go version tracks `go.mod`. |
 | `go-macos` | Builds `dfinstall` and runs `make test` on `macos-latest`, then checks that `bootstrap/macos-setup.sh` parses and runs `--help` under the stock `/bin/bash` 3.2. |
-| `goreleaser` | `goreleaser check`, so a broken `.goreleaser.yaml` fails here rather than on the next tag, then a snapshot release and `scripts/release/verify-content.sh`: the content tarball and each `.deb` must hold exactly the files their stamp lists, with its digests and modes, all owned by root. |
+| `goreleaser` | `goreleaser check`, so a broken `.goreleaser.yaml` fails here rather than on the next tag, then a snapshot release and `scripts/release/verify-content.sh`: the content tarball and each `.deb` must hold exactly the files their stamp lists, with its digests and modes, all owned by root, and each `.deb` must recommend git rather than depend on it. |
 | `shellcheck` | Lints `config/devtools/`, `bootstrap/` and `scripts/`, one step each, via [`ludeeus/action-shellcheck`](https://github.com/ludeeus/action-shellcheck) with `-x --source-path=SCRIPTDIR` so the dynamic `_lib.sh` source resolves. Any finding fails the job, a `note` included, and each step scans its whole directory rather than the diff. `make ci` does not run it. |
 
 The `main` branch is protected: `go`, `go-macos` and `shellcheck` must pass before a pull request can merge.
