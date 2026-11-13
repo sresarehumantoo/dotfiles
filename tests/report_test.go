@@ -85,40 +85,6 @@ func TestStatusRows_MarksSkipped(t *testing.T) {
 	}
 }
 
-// The CLI and the MCP server render the same DiffReport and differ only in the
-// remediation hint. Rendering one report through both must produce identical
-// output apart from that phrase — this is the property that stops the two
-// surfaces drifting apart again.
-func TestDiffReport_OnlyTheFixHintDiffers(t *testing.T) {
-	report := modules.DiffReport{
-		Entries: []modules.DiffEntry{
-			{Name: "shell", Exported: true, Links: 11},
-			{Name: "nvim", Exported: true, Links: 2, Problems: []modules.DiffProblem{
-				{Dst: "/home/u/.config/nvim/init.lua", State: "missing"},
-				{Dst: "/home/u/.config/nvim/x.lua", State: "wrong"},
-			}},
-			{Name: "windev", Skipped: true},
-			{Name: "packages", Missing: 3},
-			{Name: "locale", Extra: "en_US.UTF-8"},
-		},
-		Issues: 5,
-	}
-
-	var cli, mcp strings.Builder
-	report.Write(&cli, "run dfinstall install all to fix", "'dfinstall install all'")
-	report.Write(&mcp, "run dfinstall_install with module 'all' to fix", "dfinstall_install with module 'all'")
-
-	normalize := func(s string) string {
-		return strings.ReplaceAll(strings.ReplaceAll(s,
-			"run dfinstall install all to fix", "<HINT>"),
-			"run dfinstall_install with module 'all' to fix", "<HINT>")
-	}
-	if normalize(cli.String()) != normalize(mcp.String()) {
-		t.Errorf("CLI and MCP renderings differ beyond the hint:\n--- cli ---\n%s\n--- mcp ---\n%s",
-			cli.String(), mcp.String())
-	}
-}
-
 func TestDiffReport_RendersEachEntryShape(t *testing.T) {
 	report := modules.DiffReport{
 		Entries: []modules.DiffEntry{
@@ -166,8 +132,7 @@ func TestDiffReport_RendersEachEntryShape(t *testing.T) {
 }
 
 // The multi-clone drift block renders only when links are actually split, so
-// no real machine here exercises it — construct one. Both surfaces must render
-// it with their own command name.
+// no real machine here exercises it — construct one.
 func TestDiffReport_RendersSplitCloneDrift(t *testing.T) {
 	report := modules.DiffReport{
 		Entries: []modules.DiffEntry{{Name: "shell", Exported: true, Links: 2}},
@@ -180,9 +145,8 @@ func TestDiffReport_RendersSplitCloneDrift(t *testing.T) {
 		},
 	}
 
-	var cli, mcp strings.Builder
+	var cli strings.Builder
 	report.Write(&cli, "run dfinstall install all to fix", "'dfinstall install all'")
-	report.Write(&mcp, "run dfinstall_install with module 'all' to fix", "dfinstall_install with module 'all'")
 
 	for _, want := range []string{
 		"Symlinks split across 2 dotfiles clone(s):",
@@ -192,16 +156,10 @@ func TestDiffReport_RendersSplitCloneDrift(t *testing.T) {
 		if !strings.Contains(cli.String(), want) {
 			t.Errorf("CLI drift block missing %q:\n%s", want, cli.String())
 		}
-		if !strings.Contains(mcp.String(), want) {
-			t.Errorf("MCP drift block missing %q:\n%s", want, mcp.String())
-		}
 	}
 
 	if !strings.Contains(cli.String(), "Run 'dfinstall install all' from /home/u/projects/dotfiles to consolidate.") {
 		t.Errorf("CLI consolidate line wrong:\n%s", cli.String())
-	}
-	if !strings.Contains(mcp.String(), "Run dfinstall_install with module 'all' from /home/u/projects/dotfiles to consolidate.") {
-		t.Errorf("MCP consolidate line wrong:\n%s", mcp.String())
 	}
 }
 

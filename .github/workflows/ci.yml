@@ -40,10 +40,8 @@ jobs:
       - name: Decoupling check (no site-specific content in tracked files)
         run: make check-decoupling
 
-      - name: Build dfinstall + MCP binaries
-        run: |
-          make build
-          make build-mcp
+      - name: Build dfinstall
+        run: make build
 
       - name: Test
         run: make test
@@ -62,8 +60,8 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build dfinstall + MCP binaries
-        run: make build-all
+      - name: Build dfinstall
+        run: make build
 
       - name: Test
         run: make test

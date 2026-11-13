@@ -32,3 +32,19 @@ func TestBinaryOnPathResult_NotOnPath(t *testing.T) {
 		t.Errorf("no dfinstall on PATH is not a problem: %+v", r)
 	}
 }
+
+func TestRetiredBinaryResult(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	if r, ok := retiredBinaryResult(); ok {
+		t.Errorf("no dfinstall-mcp on PATH reported a row: %+v", r)
+	}
+	mcp := filepath.Join(dir, "dfinstall-mcp")
+	if err := os.WriteFile(mcp, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, ok := retiredBinaryResult()
+	if !ok || r.OK || !strings.Contains(r.Detail, mcp) {
+		t.Errorf("a leftover dfinstall-mcp should fail naming it: ok=%v %+v", ok, r)
+	}
+}

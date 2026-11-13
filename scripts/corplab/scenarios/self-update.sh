@@ -23,14 +23,14 @@ raw_proxy_online() {
 JSON
 }
 
-# install_old: the old release's binaries in ~/.local/bin, as the release
+# install_old: the old release's binary in ~/.local/bin, as the release
 # tarball install in the README puts them.
 install_old() {
     local archive
     archive="dfinstall_${old#v}_linux_$(dpkg --print-architecture).tar.gz"
     mkdir -p "$HOME/.local/bin"
     curl -fsSL --max-time 120 "$nexus/github/sresarehumantoo/dotfiles/releases/download/$old/$archive" |
-        tar -xz -C "$HOME/.local/bin" dfinstall dfinstall-mcp
+        tar -xz -C "$HOME/.local/bin" dfinstall
 }
 
 trust_ca
@@ -42,14 +42,12 @@ check "github.com is blocked" test "$(http_code https://github.com)" = 403
 bin="$HOME/.local/bin/dfinstall"
 check "the $old archive comes through Nexus" install_old
 check "it is the $old release build" grep -qx "dfinstall version $old (release)" <<<"$("$bin" --version)"
-mcp_before="$(sha256sum < "$HOME/.local/bin/dfinstall-mcp")"
 
 out="$("$bin" update htop -v 2>&1)"
 version="$("$bin" --version)"
 check "update replaces it with a newer release" grep -q "updated dfinstall $old to v" <<<"$out"
 check "the new binary is a release build" grep -Eq '^dfinstall version v[0-9.]+ \(release\)$' <<<"$version"
 check "and is not $old" lacks "$old" "$version"
-check "dfinstall-mcp beside it is replaced too" test "$(sha256sum < "$HOME/.local/bin/dfinstall-mcp")" != "$mcp_before"
 check "no GitHub fallback was needed" lacks "GitHub mirror failed" "$out"
 check "and goes on to install the module" test -L "$XDG_CONFIG_HOME/htop/htoprc"
 
