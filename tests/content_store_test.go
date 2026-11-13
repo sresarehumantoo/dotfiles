@@ -234,6 +234,7 @@ func TestContentSync_FromDir(t *testing.T) {
 		"config/devtools/tool": 0o555,
 		"config/shell":         0o555,
 		"config":               0o555,
+		".":                    0o555,
 		core.ContentStampName:  0o444,
 	}
 	for rel, want := range modes {
@@ -419,6 +420,8 @@ func TestContentSync_InterruptedBeforeSwap(t *testing.T) {
 		t.Fatalf("current unusable between rename and swap: %q", got)
 	}
 	v2 := filepath.Join(core.ContentStoreDir(), "v2.0.0")
+	// Interrupted between the rename and sealing the version directory.
+	os.Chmod(v2, 0o755)
 	before, _ := os.Stat(v2)
 	if err := sess.SyncContentDir(contentFixture(t, "v2.0.0"), "v2.0.0"); err != nil {
 		t.Fatal(err)
@@ -429,6 +432,9 @@ func TestContentSync_InterruptedBeforeSwap(t *testing.T) {
 	after, _ := os.Stat(v2)
 	if !os.SameFile(before, after) {
 		t.Error("the intact v2.0.0 copy was rebuilt instead of reused")
+	}
+	if got := after.Mode().Perm(); got != 0o555 {
+		t.Errorf("reused v2.0.0 mode = %o, want it sealed", got)
 	}
 }
 
