@@ -563,10 +563,8 @@ var (
 	sudoKeepAlive chan struct{}
 )
 
-// Interactive reports whether it is safe to prompt on stdin. True for the CLI;
-// the MCP server sets it false because there os.Stdin carries the JSON-RPC
-// request stream — reading from it consumes protocol bytes and wedges the
-// session. Code that would prompt must check this and pick a safe default.
+// Interactive reports whether it is safe to prompt on stdin. Tests set it
+// false. Code that would prompt must check this and pick a safe default.
 var Interactive = true
 
 // EnsureSudo makes sure sudo credentials are cached before a command that needs

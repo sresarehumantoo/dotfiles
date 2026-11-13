@@ -104,7 +104,7 @@ func TestSkipInAll_HonorsSkipModules(t *testing.T) {
 	}
 }
 
-// BeginInstall owns the backup decision for both the CLI and the MCP server.
+// BeginInstall owns the backup decision.
 func TestBeginInstall_BackupPolicy(t *testing.T) {
 	cases := []struct {
 		name       string

@@ -59,6 +59,7 @@ func TestGitAccessLocal(t *testing.T) {
 	}{
 		{"ok", nil, gitOK, ""},
 		{"blocked exec", map[string]string{"FAKE_GIT_EXEC_RC": "126"}, gitBlockedExec, "does not run"},
+		{"wrapper with no git behind it", map[string]string{"FAKE_GIT_EXEC_RC": "127"}, gitAbsent, "not on PATH"},
 		{"https never", map[string]string{"FAKE_GIT_CONFIG": "protocol.https.allow never"},
 			gitDenied, "protocol.https.allow=never"},
 		{"protocol.allow never", map[string]string{"FAKE_GIT_CONFIG": "protocol.allow never"},

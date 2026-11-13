@@ -1,8 +1,6 @@
 BINARY     := dfinstall
-MCP_BINARY := dfinstall-mcp
 BUILD_DIR  := bin
 SRC_DIR    := cmd/dfinstall
-MCP_SRC    := cmd/dfinstall-mcp
 GO         := go
 # Derived from the tag so the version a binary reports can't drift from the
 # release it was built at. Falls back to the short SHA on an untagged tree, and
@@ -14,8 +12,8 @@ LOCAL_BIN  := $(HOME)/.local/bin
 
 .DEFAULT_GOAL := help
 
-.PHONY: help build build-mcp build-all test test-race lint fmt fmt-check ci check-decoupling e2e corplab \
-        install uninstall install-bin install-mcp uninstall-mcp clean
+.PHONY: help build build-all test test-race lint fmt fmt-check ci check-decoupling e2e corplab \
+        install uninstall install-bin uninstall-mcp clean
 
 help: ## Show this help
 	@echo "dfinstall — make targets:"
@@ -25,10 +23,8 @@ help: ## Show this help
 build: ## Compile the dfinstall CLI to bin/dfinstall
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(BINARY) ./$(SRC_DIR)
 
-build-mcp: ## Compile the MCP server to bin/dfinstall-mcp
-	$(GO) build -ldflags "$(LDFLAGS)" -o $(BUILD_DIR)/$(MCP_BINARY) ./$(MCP_SRC)
-
-build-all: build build-mcp ## Compile both binaries
+# dfinstall 2.x rebuilds itself with this target after pulling the clone.
+build-all: build
 
 test: ## Run the test suite
 	$(GO) test ./cmd/... ./internal/... ./tests/...
@@ -51,9 +47,9 @@ fmt-check: ## Check formatting without modifying (same as CI)
 check-decoupling: ## Fail if site-specific content leaked into tracked files
 	./scripts/check-decoupling.sh
 
-ci: fmt-check lint check-decoupling build-all test test-race ## Run every check CI runs (fmt/vet/decoupling/build/test/race)
+ci: fmt-check lint check-decoupling build test test-race ## Run every check CI runs (fmt/vet/decoupling/build/test/race)
 
-e2e: ## Run the end-to-end scenarios in Docker (slow; SCENARIO=sudo|bootstrap|rootless for one)
+e2e: ## Run the end-to-end scenarios in Docker (slow; SCENARIO=sudo|bootstrap|bootstrap-packaged|deb-git|rootless|packaged|migration for one)
 	@for s in $(or $(SCENARIO),$(basename $(notdir $(wildcard scripts/e2e/scenarios/*.sh)))); do \
 	  echo "== e2e: $$s"; scripts/e2e/run.sh $$s || exit 1; done
 
@@ -66,20 +62,13 @@ install: build ## Build, then apply all dotfile modules (dfinstall install all)
 uninstall: build ## Build, then remove all managed symlinks (dfinstall uninstall all)
 	./$(BUILD_DIR)/$(BINARY) uninstall all
 
-install-bin: build-all ## Install both binaries onto PATH (~/.local/bin)
+install-bin: build ## Install dfinstall onto PATH (~/.local/bin)
 	@mkdir -p $(LOCAL_BIN)
 	install -m 0755 $(BUILD_DIR)/$(BINARY) $(LOCAL_BIN)/$(BINARY)
-	install -m 0755 $(BUILD_DIR)/$(MCP_BINARY) $(LOCAL_BIN)/$(MCP_BINARY)
-	@echo "Installed $(BINARY) + $(MCP_BINARY) to $(LOCAL_BIN)"
+	rm -f $(LOCAL_BIN)/dfinstall-mcp
+	@echo "Installed $(BINARY) to $(LOCAL_BIN)"
 
-install-mcp: build-mcp ## Register the MCP server with Claude Code (deprecated, removed in 3.0)
-	@echo "warning: dfinstall-mcp is deprecated and will be removed in dfinstall 3.0; use the dfinstall CLI instead" >&2
-	@command -v claude >/dev/null 2>&1 || { echo "claude CLI not found — install Claude Code first"; exit 1; }
-	@claude mcp remove -s user dfinstall >/dev/null 2>&1 || true
-	claude mcp add -s user dfinstall -- $(CURDIR)/$(BUILD_DIR)/$(MCP_BINARY)
-	@echo "Registered 'dfinstall' MCP server (user scope). Restart Claude Code to load it."
-
-uninstall-mcp: ## Unregister the MCP server from Claude Code
+uninstall-mcp: ## Unregister the MCP server that dfinstall 2.x shipped from Claude Code
 	@command -v claude >/dev/null 2>&1 || { echo "claude CLI not found"; exit 1; }
 	claude mcp remove dfinstall
 

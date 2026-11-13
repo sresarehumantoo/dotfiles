@@ -38,14 +38,14 @@ Most dotfiles repos are a pile of symlinks and a `bootstrap.sh` that nobody dare
 ## Contents
 
 - [Install](#install) · [Usage](#usage) · [Upgrading](#upgrading) · [Backup and Restore](#backup-and-restore)
-- [Configuration](#configuration) · [Modules](#modules) · [MCP Server](#mcp-server)
+- [Configuration](#configuration) · [Modules](#modules)
 - [Development](#development) · [Documentation](#documentation)
 
 ## Install
 
 ### From a package
 
-Every release publishes `dfinstall` and `dfinstall-mcp` for Linux and macOS on amd64 and arm64, as archives, a Homebrew formula and a `.deb`:
+Every release publishes `dfinstall` for Linux and macOS on amd64 and arm64, as archives, a Homebrew formula and a `.deb`:
 
 ```bash
 # Homebrew (macOS or Linux)
@@ -65,16 +65,17 @@ go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall@latest
 # Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
 ```
 
-A packaged binary has no configs to link until it has a checkout. `dfinstall init` clones one to `~/.local/share/dfinstall/dotfiles` and records it as the machine's checkout; every command that links or inspects managed files tells you to run it when none is found.
+A packaged binary has no configs to link until `dfinstall init` sets them up; every command that links or inspects managed files tells you to run it when none are found. By default `init` uses the configs shipped with the binary (the `.deb` and the formula carry them, a release binary downloads them), which needs no git and no access to GitHub. `--clone` makes a git checkout instead, at `~/.local/share/dfinstall/dotfiles`, for a machine where you want to edit and commit the configs.
 
 ```bash
-dfinstall init                          # clone this repo's default branch
-dfinstall init --repo <url> --ref <ref> # another remote, branch or tag
-dfinstall init --dir ~/dotfiles         # another location, or adopt a checkout already there
+dfinstall init                                  # the configs shipped with this dfinstall
+dfinstall init --clone                          # clone this repo's default branch instead
+dfinstall init --repo <url> --ref <ref>         # another remote, branch or tag
+dfinstall init --dir ~/dotfiles                 # another location, or adopt a checkout already there
 dfinstall install all
 ```
 
-`init` is a no-op once a checkout is recorded. It defaults to the default branch rather than a tag because `update` fast-forwards a branch, and a tag checkout has none to follow.
+`init` is a no-op once either is recorded, so an existing clone install stays one. `init --packaged` moves a clone install to the shipped configs (it refuses while the clone has edits or unpushed commits, and leaves the clone in place), and `init --dir <clone>` moves back. A clone defaults to the default branch rather than a tag because `update` fast-forwards a branch, and a tag checkout has none to follow. A `go install` binary ships no configs, so its `init` clones.
 
 `dfinstall --version` names the channel the binary came from (`release`, `brew`, `deb`, `go`, or `source` for a `make` build), which decides how `update` replaces it.
 
@@ -82,7 +83,7 @@ dfinstall install all
 
 The bootstrap scripts start from nothing and end with `dfinstall install all`. [The bootstrap guide](docs/bootstrap.md) covers their flags, mirrors, company-managed Macs and TLS-inspecting proxies.
 
-**WSL**, from PowerShell: creates a Debian distro and user, builds Neovim, installs Ghostty and dfinstall (from its apt repository), then the dotfiles.
+**WSL**, from PowerShell: creates a Debian distro and user, builds Neovim, installs Ghostty and dfinstall (from its apt repository), then the dotfiles from the configs the package ships (`-Clone` for a git clone).
 
 ```powershell
 git clone https://github.com/sresarehumantoo/dotfiles
@@ -92,7 +93,7 @@ powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1
 
 `-ExecutionPolicy Bypass` is needed because Windows refuses to run scripts by default; it applies to that one PowerShell process and changes no setting on the machine.
 
-**macOS**: installs the Xcode Command Line Tools, Homebrew, Ghostty and dfinstall (from the Homebrew tap), clones to `~/dotfiles`, then installs the dotfiles. It asks before every step that changes the machine, and on a company-managed Mac nothing after it needs admin rights.
+**macOS**: installs the Xcode Command Line Tools, Homebrew, Ghostty and dfinstall (from the Homebrew tap), then installs the dotfiles from the configs the formula ships (`--clone` for a git clone). It asks before every step that changes the machine, and on a company-managed Mac nothing after it needs admin rights.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
@@ -117,7 +118,7 @@ make install
 
 | Command | What it does |
 |---------|--------------|
-| `dfinstall init` | Clone the dotfiles checkout, for a binary installed without the repo |
+| `dfinstall init` | Set up the configs a binary installed without the repo links from: shipped with it, or `--clone` |
 | `dfinstall install all` | Install every module (except opt-in ones) |
 | `dfinstall install shell git` | Install the named modules, run in dependency order whatever order you name them |
 | `dfinstall update all` | Pull the clone, then install and update what dfinstall installed earlier (`install all --upgrade`) |
@@ -184,7 +185,7 @@ Output falls back to ASCII symbols and drops the spinner on terminals that canno
    | Installed by | `update` |
    |---|---|
    | `make` in a clone | rebuilds it when the pull changed dfinstall's source, then re-runs it |
-   | a release archive | downloads the newer release for this platform, checks its sha256 against the release listing, swaps `dfinstall` (and `dfinstall-mcp` if it is installed beside it) in place, then re-runs it |
+   | a release archive | downloads the newer release for this platform, checks its sha256 against the release listing, swaps `dfinstall` in place (removing a `dfinstall-mcp` that 2.x left beside it), then re-runs it |
    | Homebrew, a `.deb`, `go install` | leaves the binary alone and prints the command that updates it |
 
    Release downloads go through a Nexus GitHub mirror when npm points at one, falling back to GitHub.
@@ -344,31 +345,6 @@ Modules run in this order, dependencies first. Each is documented in the [module
 > **Opt-in modules** (**windev** and **opencode**) are skipped by `install all` until you enable them with `dfinstall install <name>`. The choice then persists in `config.yaml`, and later `install all` runs keep them current.
 
 mackeys and alttab rest on undocumented macOS behavior and have been tested only on macOS 26.7.1; the module reference says what to check on another version.
-
-## MCP Server
-
-> **Deprecated.** `dfinstall-mcp` will be removed in dfinstall 3.0. It returns the same text reports as the CLI, so an assistant that can run shell commands gets the same result from `dfinstall status`, `doctor`, `diff` and the rest, and one fewer binary and dependency set ships with each release. To unregister it: `claude mcp remove -s user dfinstall`.
-
-dfinstall ships an [MCP](https://modelcontextprotocol.io/) server so an AI assistant can drive the same operations as the CLI, over stdio JSON-RPC.
-
-```bash
-make build-mcp    # compile to bin/dfinstall-mcp
-make install-mcp  # register with Claude Code (user scope, any session)
-```
-
-There are two ways to wire it up:
-
-- **In the repo:** the committed `.mcp.json` points at `./bin/dfinstall-mcp`, which Claude Code picks up when launched from the repo (after `make build-mcp`).
-- **Anywhere:** `make install-mcp` registers it user-scoped with an absolute path. `make uninstall-mcp` removes it.
-
-<details>
-<summary><b>Available tools (10)</b></summary>
-
-`dfinstall_status` · `dfinstall_install` · `dfinstall_uninstall` · `dfinstall_diff` · `dfinstall_doctor` · `dfinstall_list_modules` · `dfinstall_list_backups` · `dfinstall_restore` · `dfinstall_config` · `dfinstall_registry_validate`
-
-`diff` and `doctor` report multi-clone symlink drift, and `install` with module `all` records the canonical clone, matching the CLI exactly because both go through the same code. `install` takes `upgrade: true` to do what `update` does. It returns the pull's report, and when the pull changes dfinstall's source it rebuilds the binaries and asks for a reconnect, since the running server keeps its old code. Moving local edits into override files needs a terminal, so here it only reports them. `restore` lists snapshots by default and restores only with `action: "restore"` and an explicit timestamp.
-
-</details>
 
 ## Development
 

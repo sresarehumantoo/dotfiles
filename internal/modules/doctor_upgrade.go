@@ -14,11 +14,16 @@ import (
 
 // What an upgrade from an older dfinstall can leave behind, especially when the
 // new one comes from a package rather than the clone: an older binary that PATH
-// still runs, a checkout older than the binary, and a pre-2.0 settings file.
+// still runs, the MCP server 2.x shipped, a checkout older than the binary,
+// and a pre-2.0 settings file.
 
 // upgradeDoctorResults reports each of them.
 func upgradeDoctorResults() []DoctorResult {
-	results := []DoctorResult{binaryOnPathResult(), contentSourceResult()}
+	results := []DoctorResult{binaryOnPathResult()}
+	if r, ok := retiredBinaryResult(); ok {
+		results = append(results, r)
+	}
+	results = append(results, contentSourceResult())
 	if core.UsingPackagedContent() {
 		results = append(results, contentVersionResult(), seededFilesResult())
 	}
@@ -91,10 +96,6 @@ func binaryOnPathResult() DoctorResult {
 		return DoctorResult{Name: name, OK: true, Detail: "could not locate the running binary"}
 	}
 	self = resolvedPath(self)
-	// The MCP server answers for the CLI installed beside it.
-	if filepath.Base(self) != "dfinstall" {
-		self = filepath.Join(filepath.Dir(self), "dfinstall")
-	}
 	found, err := exec.LookPath("dfinstall")
 	if err != nil {
 		return DoctorResult{Name: name, OK: true, Detail: "not on PATH; running " + self}
@@ -110,7 +111,20 @@ func binaryOnPathResult() DoctorResult {
 	return DoctorResult{Name: name, OK: false,
 		Detail: fmt.Sprintf("%s (%s) runs, not this one (%s, %s)", found, other, self, core.Version),
 		Extra: []string{"usually a source build left behind after installing dfinstall from a package",
-			"remove " + found + " (and dfinstall-mcp beside it), or put " + filepath.Dir(self) + " earlier on PATH"}}
+			"remove " + found + ", or put " + filepath.Dir(self) + " earlier on PATH"}}
+}
+
+// retiredBinaryResult reports a dfinstall-mcp on PATH. A package upgrade
+// removes it and a release self-update from 3.x does too, but a 2.x binary
+// updating itself to 3 or a source build's install-bin from 2.x leaves it.
+func retiredBinaryResult() (DoctorResult, bool) {
+	found, err := exec.LookPath(retiredBinary)
+	if err != nil {
+		return DoctorResult{}, false
+	}
+	return DoctorResult{Name: retiredBinary, OK: false,
+		Detail: found + " is left from dfinstall 2.x, which 3 no longer ships",
+		Extra:  []string{"remove it, and run 'claude mcp remove dfinstall' if you registered it"}}, true
 }
 
 // checkoutFilesResult reports files this dfinstall links that the checkout
@@ -119,12 +133,18 @@ func binaryOnPathResult() DoctorResult {
 func checkoutFilesResult() DoctorResult {
 	const name = "checkout files"
 	missing, first := 0, ""
+	// Some links chain to another managed file in the home (tmux's ~/.tmux.conf),
+	// which exists only once that module is installed.
+	root := core.DotfilesDir() + string(filepath.Separator)
 	for _, m := range core.AllModules() {
 		le, ok := m.(core.LinkExporter)
 		if !ok {
 			continue
 		}
 		for _, l := range le.Links() {
+			if !strings.HasPrefix(l.Src, root) {
+				continue
+			}
 			if _, err := os.Stat(l.Src); err != nil {
 				missing++
 				if first == "" {

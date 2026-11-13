@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -22,7 +23,11 @@ import (
 const releaseRepo = "sresarehumantoo/dotfiles"
 
 // releaseBinaries are the executables a release archive carries.
-var releaseBinaries = []string{"dfinstall", "dfinstall-mcp"}
+var releaseBinaries = []string{"dfinstall"}
+
+// retiredBinary is the MCP server 2.x shipped beside the CLI. Left in place it
+// would run 2.x code against state this version writes.
+const retiredBinary = "dfinstall-mcp"
 
 // maxBinarySize bounds what extraction will write for one binary, so a
 // malformed archive cannot fill the disk.
@@ -76,7 +81,7 @@ func packageUpdateHint(ctx context.Context, channel string) {
 	core.Notice("dfinstall %s is available (this is %s). %s", tag, core.Version, how)
 }
 
-// selfUpdate replaces the running binary, and its sibling, with the latest
+// selfUpdate replaces the running binary with the latest
 // release when that is newer. Returns the path to re-exec, "" when nothing
 // was replaced.
 func selfUpdate(ctx context.Context) (string, error) {
@@ -107,9 +112,8 @@ func selfUpdate(ctx context.Context) (string, error) {
 }
 
 // installRelease downloads tag's archive for this platform, checks it against
-// its published digest, and swaps its binaries in beside exe. The running
-// binary is always replaced, its sibling only when it is installed there too.
-// Each swap is a rename within the directory, so a failure leaves either the
+// its published digest, and swaps it in for exe, removing a retiredBinary
+// beside it. Each swap is a rename within the directory, so a failure leaves either the
 // old binary or the new one, never a partial file.
 func installRelease(ctx context.Context, tag string, assets []ghAsset, exe string) error {
 	name := releaseArchiveName(tag, runtime.GOOS, runtime.GOARCH)
@@ -148,6 +152,13 @@ func installRelease(ctx context.Context, tag string, assets []ghAsset, exe strin
 		if err := os.Rename(src, dst); err != nil {
 			return fmt.Errorf("replace %s: %w", dst, err)
 		}
+	}
+	retired := filepath.Join(binDir, retiredBinary)
+	switch err := os.Remove(retired); {
+	case err == nil:
+		core.Status("removed %s, which dfinstall 3 no longer ships", retired)
+	case !errors.Is(err, fs.ErrNotExist):
+		core.AlwaysWarn("could not remove %s, which dfinstall 3 no longer ships: %v", retired, err)
 	}
 	return nil
 }

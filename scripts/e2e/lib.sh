@@ -42,6 +42,51 @@ stage_repo() {
     chown -R "$user:" "$home/dotfiles" "$home/.config"
 }
 
+# build_deb N CONTENT OUT [RELATIONS]: a .deb of /e2e/pkg/N/dfinstall laid out
+# as the release's nfpms config lays it out, with CONTENT as
+# /usr/share/dfinstall. RELATIONS are its control file's Depends and
+# Recommends lines, by default the release's.
+build_deb() {
+    local n="$1" content="$2" out="$3" relations="${4:-$'Depends: curl\nRecommends: git'}" root
+    root="$(mktemp -d)"
+    mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/usr/share/dfinstall"
+    install -m 755 "/e2e/pkg/$n/dfinstall" "$root/usr/bin/dfinstall"
+    cp -a "$content/." "$root/usr/share/dfinstall/"
+    cat > "$root/DEBIAN/control" <<EOF
+Package: dfinstall
+Version: 3.0.0~e2e.$n
+Architecture: $(dpkg --print-architecture)
+Maintainer: e2e <e2e@example.invalid>
+$relations
+Description: dfinstall e2e build $n
+EOF
+    dpkg-deb --root-owner-group -Zgzip --build "$root" "$out" >/dev/null
+    rm -rf "$root"
+}
+
+# content_v2 OUT: the first build's content with the changes a second release
+# brings: a linked file, an untouched seeded file and an edited one.
+content_v2() {
+    local out="$1"
+    cp -a /e2e/pkg/1/content "$out"
+    chmod -R u+w "$out"
+    echo '# v2' >> "$out/config/tmux/tmux.conf"
+    echo '# v2' >> "$out/config/htop/htoprc"
+    echo '# v2' >> "$out/config/shell/p10k.zsh"
+    /e2e/contentstamp -root "$out" -version v3.0.0-e2e.2
+}
+
+# links_under HOME: every symlink under HOME with its target, sorted, leaving
+# out dfinstall's own data (backups, the store's current link).
+links_under() {
+    find "$1" -path "$1/.local/share/dfinstall" -prune -o -type l -printf '%p -> %l\n' | sort
+}
+
+# tree_sum DIR: one digest of every path, mode and file content under DIR.
+tree_sum() {
+    (cd "$1" && find . -printf '%p %m %y\n' | sort && find . -type f -exec sha256sum {} + | sort) | sha256sum
+}
+
 finish() {
     echo
     if ((fails)); then

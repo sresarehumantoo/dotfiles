@@ -11,9 +11,7 @@ import (
 // and the first FinishBackup then writes its manifest into the second's
 // directory, leaving the first's copied files unlisted and unrestorable.
 //
-// The CLI only ever runs one install, but the MCP server dispatches tool calls
-// from a pool of workers, so two dfinstall_install calls really can overlap.
-// They queue here instead.
+// One process runs one install at a time; a second BeginInstall queues here.
 var installMu sync.Mutex
 
 // InstallOptions configures an install session.
@@ -31,8 +29,7 @@ type InstallOptions struct {
 }
 
 // InstallSession owns the setup and teardown shared by every install path —
-// canonical adoption, the backup lifecycle, and config persistence — so the CLI
-// and the MCP server cannot drift apart on it. It performs side effects and
+// canonical adoption, the backup lifecycle, and config persistence. It performs side effects and
 // reports what it did; rendering stays with the caller.
 //
 // Usage:
@@ -63,8 +60,7 @@ func BeginInstall(opt InstallOptions) (*InstallSession, error) {
 
 	// Published so a module can tell "you asked for me specifically" from
 	// "you asked for everything". Set here rather than in the CLI because
-	// this is the one path both the CLI and the MCP server go through, so
-	// the two cannot drift — the reason this session type exists at all.
+	// this is the one path every install goes through.
 	//
 	// The sway module is the current consumer: installing a compositor and a
 	// bar is right when someone types `install sway`, and wrong to do
@@ -154,8 +150,7 @@ func (s *InstallSession) Finish() {
 	s.finished = true
 	defer installMu.Unlock()
 	// Reset with the lock still held. Leaving it set would make the NEXT
-	// session inherit this one's answer — in a long-lived MCP process that
-	// is a real sequence, not a hypothetical one.
+	// session inherit this one's answer.
 	defer func() { InstallingAll = false }()
 	defer func() {
 		changesMu.Lock()

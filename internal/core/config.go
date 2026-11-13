@@ -113,8 +113,7 @@ var OptInMode bool
 
 // InstallingAll reports whether the current install session is `install all`
 // rather than a single named module. Owned and reset by BeginInstall/Finish —
-// do not set it directly; that is what keeps the CLI and the MCP server from
-// answering it differently.
+// do not set it directly.
 //
 // It lets a module distinguish "the user asked for me by name" from "the user
 // asked for everything", which matters when a module's side effects are too

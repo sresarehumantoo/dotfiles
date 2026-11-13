@@ -409,17 +409,18 @@ func main() {
 	initCmd := &cobra.Command{
 		Use:   "init",
 		Short: "Set up the dotfiles content a released binary links from",
-		Long: "Clone a dotfiles repository and record it as this machine's checkout, so a binary installed\n" +
-			"without the repo (a release, a package, go install) has configs to link.\n\n" +
-			"With no --dir and a checkout already recorded, init does nothing. --dir pointing at an\n" +
-			"existing checkout adopts it without cloning. The default branch is the default ref:\n" +
-			"'update' fast-forwards a branch, which a tag checkout does not have.\n\n" +
-			"--packaged uses the content shipped with this dfinstall (its deb, Homebrew formula or\n" +
-			"release) instead of a clone, for machines where git or GitHub is not available. Where\n" +
-			"git is missing, cannot run or is denied by policy, a plain init does this by itself.\n" +
-			"From a clone install it moves the links over and leaves the clone in place; it refuses\n" +
-			"while the clone has edits or unpushed commits unless given --force. 'init --dir <clone>'\n" +
-			"switches back.",
+		Long: "Set up the configs a binary installed without the repo (a release, a package, go install)\n" +
+			"links from, and record them as this machine's dotfiles content.\n\n" +
+			"By default that is the content shipped with this dfinstall (its deb, Homebrew formula or\n" +
+			"release), which needs no git. A go install or source build ships none, so it clones.\n" +
+			"With content already recorded, a plain init does nothing.\n\n" +
+			"--clone clones the dotfiles repository instead; --repo, --ref and --dir imply it. --dir\n" +
+			"pointing at an existing checkout adopts it without cloning. The default branch is the\n" +
+			"default ref: 'update' fast-forwards a branch, which a tag checkout does not have. From\n" +
+			"packaged content, --clone moves the links to the clone.\n\n" +
+			"--packaged moves a clone install to the packaged content. It leaves the clone in place\n" +
+			"and refuses while the clone has edits or unpushed commits unless given --force.\n" +
+			"'init --dir <clone>' switches back.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if os.Geteuid() == 0 {
@@ -431,10 +432,11 @@ func main() {
 			return err
 		},
 	}
+	initCmd.Flags().BoolVar(&initOpts.Clone, "clone", false, "clone the dotfiles repository instead of using packaged content")
 	initCmd.Flags().StringVar(&initOpts.Repo, "repo", "", "repository to clone (default "+modules.DefaultContentRepo+")")
 	initCmd.Flags().StringVar(&initOpts.Ref, "ref", "", "branch or tag to check out (default: the repository's default branch)")
 	initCmd.Flags().StringVar(&initOpts.Dir, "dir", "", "where to put the checkout (default "+modules.DefaultContentDir()+")")
-	initCmd.Flags().BoolVar(&initOpts.Packaged, "packaged", false, "use the content shipped with this dfinstall instead of a clone")
+	initCmd.Flags().BoolVar(&initOpts.Packaged, "packaged", false, "move a clone install to the content shipped with this dfinstall")
 	initCmd.Flags().BoolVar(&initOpts.Force, "force", false, "with --packaged, switch from a clone even if its edits or commits stop applying")
 
 	rootCmd.AddCommand(initCmd, installCmd, updateCmd, statusCmd, doctorCmd, restoreCmd, rootSetupCmd, uninstallCmd, diffCmd, registryCmd)

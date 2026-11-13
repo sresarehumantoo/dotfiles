@@ -27,7 +27,7 @@ formula="$(brew --repository "$tap")/Formula/dfinstall.rb"
 echo "== install"
 check "brew install $tap/dfinstall" brew install "$tap/dfinstall"
 bin="$(brew --prefix)/bin"
-check "dfinstall and dfinstall-mcp are linked into $bin" test -x "$bin/dfinstall" -a -x "$bin/dfinstall-mcp"
+check "dfinstall is linked into $bin" test -x "$bin/dfinstall"
 check_output "--version reports the brew channel" '\(brew\)$' "$bin/dfinstall" --version
 check_output "the binary is the one from the Cellar" '/Cellar/dfinstall/' readlink -f "$bin/dfinstall"
 share="$(brew --prefix dfinstall)/share/dfinstall"
@@ -37,6 +37,37 @@ check "a config file and an executable script are installed" \
 check "brew test" brew test "$tap/dfinstall"
 check "brew audit --strict" brew audit --strict --formula "$tap/dfinstall"
 check "brew style" brew style "$formula"
+
+echo "== packaged content"
+# A fresh home, so nothing the runner already has decides where links point.
+home="$(mktemp -d)"
+home="$(cd "$home" && pwd -P)"
+store="$home/.local/share/dfinstall/content"
+# The tag the binary and its content are stamped with; a snapshot's archive
+# names carry a different version.
+tag="$("$bin/dfinstall" --version | awk '{print $3}')"
+in_home() {
+    (cd "$home" && env -u DOTFILES HOME="$home" XDG_CONFIG_HOME="$home/.config" XDG_DATA_HOME="$home/.local/share" \
+        XDG_STATE_HOME="$home/.local/state" XDG_CACHE_HOME="$home/.cache" "$@")
+}
+mkdir -p "$home/.config/dfinstall"
+printf 'skip_backup: true\n' >"$home/.config/dfinstall/config.yaml"
+# Every symlink under the home and its target, leaving out the store's own
+# current link.
+links() { find "$home" -path "$store" -prune -o -type l -print | while read -r l; do printf '%s -> %s\n' "$l" "$(readlink "$l")"; done; }
+dangling() { find "$home" -type l | while read -r l; do [ -e "$l" ] || echo "$l"; done; }
+
+check "init --packaged" in_home "$bin/dfinstall" init --packaged
+check "the store is the dotfiles content" \
+    test "$(cat "$home/.config/dfinstall/dotfiles-dir")" = "$store/current"
+check "the store holds the snapshot's version" test -f "$store/$tag/.dfinstall-content.json"
+check "install shell htop" in_home "$bin/dfinstall" install shell htop
+check "the zshrc links into the store" test "$(readlink "$home/.zshrc")" = "$store/current/config/shell/zshrc"
+check "htoprc is a seeded copy" test -f "$home/.config/htop/htoprc" -a ! -L "$home/.config/htop/htoprc"
+check "the install made links" test "$(links | grep -c "$store/current/")" -gt 3
+check "no link points into the Cellar" test -z "$(links | grep /Cellar/)"
+links | grep /Cellar/ || true
+check_output "doctor names the packaged content" "packaged content $tag " in_home "$bin/dfinstall" doctor
 
 echo "== update defers to Homebrew"
 check "dfinstall init adopts the checkout" "$bin/dfinstall" init --dir "$repo"
@@ -48,6 +79,8 @@ check_output "update names brew upgrade, or reports it current, instead of repla
 echo "== uninstall"
 check "brew uninstall" brew uninstall "$tap/dfinstall"
 check "no dfinstall left in $bin" test ! -e "$bin/dfinstall"
+check "the packaged links outlive the keg" test -z "$(dangling)"
+dangling
 brew untap "$tap" >/dev/null
 
 finish

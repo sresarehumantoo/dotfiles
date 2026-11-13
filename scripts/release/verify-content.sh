@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Check a GoReleaser dist/ directory's packaged content: the content tarball
 # and every .deb must hold exactly the files their stamp lists, with the
-# recorded digests and modes, owned by root.
+# recorded digests and modes, owned by root. Each .deb must recommend git
+# rather than depend on it.
 #
 # Usage: verify-content.sh <dist-dir>
 set -euo pipefail
@@ -26,6 +27,9 @@ owned_by_root() {
     fi
 }
 
+# lists PKG FIELD: a control field's comma-separated list names PKG.
+lists() { [[ ",${2// /}," == *",$1,"* ]]; }
+
 # restamp DIR: regenerate DIR's stamp and compare it with the shipped one.
 restamp() {
     local dir="$1" version
@@ -44,6 +48,12 @@ echo "ok $(basename "$tarball")"
 
 for deb in "$dist"/*.deb; do
     owned_by_root "$deb" "$(dpkg-deb -c "$deb")"
+    depends="$(dpkg-deb -f "$deb" Depends)"
+    recommends="$(dpkg-deb -f "$deb" Recommends)"
+    if lists git "$depends" || ! lists git "$recommends"; then
+        echo "verify-content: $(basename "$deb") must recommend git, not depend on it (Depends: $depends; Recommends: $recommends)" >&2
+        exit 1
+    fi
     rm -rf "$work/deb"
     dpkg-deb -x "$deb" "$work/deb"
     restamp "$work/deb/usr/share/dfinstall"

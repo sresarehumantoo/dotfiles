@@ -6,7 +6,8 @@
 # would for a person. Prints "STEP <label> prompts=<n> auth=<m> rc=<exit>" per
 # step: n counts sudo password prompts actually shown, m other password prompts
 # (PAM's "Password: ", as from chsh). Both get PASSWORD. dfinstall's own
-# questions are answered with their defaults (git identity with a placeholder).
+# questions are answered with their defaults (git identity with a placeholder,
+# and update's offer to move edits into an override file).
 
 set timeout 1200
 log_user 0
@@ -29,6 +30,7 @@ while {[gets $f line] >= 0} {
     set prompts 0
     set auth 0
     set rc "?"
+    set moved 0
     send "$cmd; echo E2E_RC=\$?\r"
     expect {
         -re {password for [^:\r\n]*: ?$} { incr prompts; send "$password\r"; exp_continue }
@@ -36,6 +38,11 @@ while {[gets $f line] >= 0} {
         -re {Git user\.name: $} { send "e2e\r"; exp_continue }
         -re {Git user\.email: $} { send "e2e@example.invalid\r"; exp_continue }
         -re {\[[yY]/[nN]\]: $} { send "\r"; exp_continue }
+        -re {Move this machine's edits to } {
+            # huh redraws the form; answer its default once.
+            if {!$moved} { set moved 1; send "\r" }
+            exp_continue
+        }
         -re {E2E_RC=([0-9]+)} { set rc $expect_out(1,string); exp_continue }
         -re $prompt_re {}
         timeout {

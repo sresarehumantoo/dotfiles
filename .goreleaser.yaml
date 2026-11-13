@@ -28,26 +28,16 @@ builds:
       - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version={{ .Tag }}
       - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Channel=release
   - <<: *build
-    id: dfinstall-mcp
-    main: ./cmd/dfinstall-mcp
-    binary: dfinstall-mcp
-  - <<: *build
     id: dfinstall-deb
     goos: [linux]
-    ldflags: &debldflags
+    ldflags:
       - -s -w
       - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version={{ .Tag }}
       - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Channel=deb
-  - <<: *build
-    id: dfinstall-mcp-deb
-    main: ./cmd/dfinstall-mcp
-    binary: dfinstall-mcp
-    goos: [linux]
-    ldflags: *debldflags
 
 archives:
   - id: release
-    ids: [dfinstall, dfinstall-mcp]
+    ids: [dfinstall]
     formats: [tar.gz]
     # modules.releaseArchiveName looks for exactly this name to self-update.
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -80,7 +70,7 @@ checksum:
 
 nfpms:
   - id: deb
-    ids: [dfinstall-deb, dfinstall-mcp-deb]
+    ids: [dfinstall-deb]
     package_name: dfinstall
     file_name_template: "{{ .PackageName }}_{{ .Version }}_{{ .Arch }}"
     formats: [deb]
@@ -91,7 +81,10 @@ nfpms:
     license: MIT
     section: utils
     bindir: /usr/bin
-    dependencies: [git, curl]
+    dependencies: [curl]
+    # Recommends, not dropped: apt keeps a recommended package from autoremove,
+    # so git stays on a machine where it came in only as a 2.x dependency.
+    recommends: [git]
     contents:
       - src: build/content/config
         dst: /usr/share/dfinstall/config

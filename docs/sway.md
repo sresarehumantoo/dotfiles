@@ -14,7 +14,7 @@ apt-get a compositor onto a machine that did not ask for one.
 the request as "set this desktop up" and will install any missing packages from
 the list below before linking, so it bootstraps a bare machine. The two paths
 are distinguished by `core.InstallingAll`, which `BeginInstall` sets from the
-session options, so the CLI and the MCP server cannot answer it differently.
+session options.
 
 ## Package requirements
 
