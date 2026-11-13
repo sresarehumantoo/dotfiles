@@ -72,5 +72,12 @@ check "login shell changed to zsh" test "$(getent passwd tester | cut -d: -f7)" 
 check "en_US.UTF-8 was not generated" bash -c '! locale -a | grep -qi "^en_us"'
 check "shells fall back to C.UTF-8" test "$(env -i PATH=/usr/bin:/bin zsh -fc "source /src/config/shell/zsh/locale.zsh; print -r -- \$LANG")" = C.UTF-8
 check "/root/.zshrc is a root-owned copy" test "$(stat -c '%F %U:%G %a' /root/.zshrc)" = "regular file root:root 644"
+check "root has oh-my-zsh" owned_by root /root/.oh-my-zsh/oh-my-zsh.sh
+check "root has zsh-autosuggestions" owned_by root /root/.oh-my-zsh/custom/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+check "root has powerlevel10k" owned_by root /root/.oh-my-zsh/custom/themes/powerlevel10k/powerlevel10k.zsh-theme
+check "nothing under /root/.oh-my-zsh is owned by anyone but root" test -z "$(find /root/.oh-my-zsh ! -user root)"
+# p10k writes a cursor-shape escape ahead of the output, so match, don't compare.
+p10k_loaded="$(HOME=/root TERM=xterm-256color zsh -ic 'print -r -- p10k=${+functions[prompt_powerlevel9k_setup]}' 2>/dev/null </dev/null || true)"
+check "root's zsh loads the p10k theme" test "${p10k_loaded//*p10k=1*/yes}" = yes
 
 finish
