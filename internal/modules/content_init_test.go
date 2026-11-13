@@ -2,6 +2,7 @@ package modules
 
 import (
 	"context"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -536,4 +537,31 @@ func TestSeedPendingReported(t *testing.T) {
 	if d := seededFilesResult(); !d.OK || !strings.Contains(strings.Join(d.Extra, " "), "htoprc") {
 		t.Errorf("doctor seeded files = %+v", d)
 	}
+	// The row passes, and doctor printed only a failing row's extra lines,
+	// so it said an update was waiting without saying which file.
+	if out := doctorOutput(t); !strings.Contains(out, "htoprc: merge from") {
+		t.Errorf("doctor does not name the file with an update waiting:\n%s", out)
+	}
+}
+
+func doctorOutput(t *testing.T) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	done := make(chan string, 1)
+	go func() {
+		var sb strings.Builder
+		_, _ = io.Copy(&sb, r)
+		done <- sb.String()
+	}()
+	RunDoctor()
+	os.Stdout = orig
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	return out
 }
