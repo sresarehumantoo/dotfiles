@@ -21,6 +21,9 @@ type InitOptions struct {
 	Repo string // clone URL; DefaultContentRepo when empty
 	Ref  string // branch or tag; the repository's default branch when empty
 	Dir  string // checkout location; DefaultContentDir when empty
+	// Clone makes a clone even where this dfinstall has packaged content.
+	// Repo, Ref and Dir imply it.
+	Clone bool
 	// Packaged installs the content this dfinstall's package or release
 	// ships, instead of cloning.
 	Packaged bool
@@ -35,30 +38,33 @@ func DefaultContentDir() string {
 }
 
 // InitContent gives a binary that runs from no clone the content it links
-// from: a clone it makes (or adopts), or with Packaged the content its
-// package ships. With no options and content already recorded it does
-// nothing, so it is safe to run again.
+// from: the content its package or release ships, or a clone it makes (or
+// adopts) when asked for one or when the build ships none. With no options and
+// content already recorded it does nothing, so it is safe to run again, and an
+// existing clone install stays one.
 //
-// Before cloning it asks what git may do here. Where git is missing, cannot
-// run or is denied by policy, a plain init uses packaged content instead,
-// since a clone cannot work there; an unreachable remote may be transient, so
-// that only fails and suggests --packaged.
+// Before cloning it asks what git may do here, and fails naming the reason,
+// pointing at packaged content where this build has some.
 //
 // The default branch is the default ref because `update` fast-forwards the
 // checkout's branch, which a tag checkout does not have, and main only ever
 // moves to a release.
 func InitContent(ctx context.Context, o InitOptions) (string, error) {
-	explicit := o.Repo != "" || o.Ref != "" || o.Dir != ""
+	clone := o.Clone || o.Repo != "" || o.Ref != "" || o.Dir != ""
 	if o.Packaged {
-		if explicit {
-			return "", errors.New("--packaged takes no --repo, --ref or --dir")
+		if clone {
+			return "", errors.New("--packaged takes no --clone, --repo, --ref or --dir")
 		}
 		return initPackaged(ctx, o.Force)
 	}
 	if o.Dir == "" {
-		if canon := core.ReadCanonicalDir(); canon != "" {
+		// --clone from packaged content goes on to clone and move the links.
+		if canon := core.ReadCanonicalDir(); canon != "" && !(o.Clone && core.UsingPackagedContent()) {
 			core.Status("dotfiles content already set up at %s", canon)
 			return canon, nil
+		}
+		if !clone && packagedContentAvailable() {
+			return initPackaged(ctx, false)
 		}
 		o.Dir = DefaultContentDir()
 	}
@@ -94,11 +100,8 @@ func InitContent(ctx context.Context, o InitOptions) (string, error) {
 			return "", fmt.Errorf("cannot reach %s: %s; if git cannot reach it from this network, run: dfinstall init --packaged", o.Repo, a.Reason)
 		}
 		return "", fmt.Errorf("cannot reach %s: %s", o.Repo, a.Reason)
-	case explicit:
-		return "", fmt.Errorf("cannot clone %s: %s", o.Repo, a.Reason)
 	case packagedContentAvailable():
-		core.Notice("not cloning %s: %s; using the content packaged with this dfinstall instead", o.Repo, a.Reason)
-		return initPackaged(ctx, false)
+		return "", fmt.Errorf("cannot clone %s: %s; to use the content packaged with this dfinstall instead, run: dfinstall init --packaged", o.Repo, a.Reason)
 	default:
 		return "", fmt.Errorf("cannot clone %s: %s, and a %s build of dfinstall has no packaged content to use instead", o.Repo, a.Reason, core.BuildChannel())
 	}

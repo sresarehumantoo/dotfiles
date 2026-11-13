@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# No git on the workstation and the internet blocked: init uses the release's
-# content archive, fetched through Nexus, and the modules that need git say so
-# and are skipped.
+# No git on the workstation and the internet blocked: init --clone says why it
+# cannot, init uses the release's content archive, fetched through Nexus, and
+# the modules that need git say so and are skipped.
 set -uo pipefail
 # shellcheck source=../lib.sh
 source "$(dirname "$0")/../lib.sh"
@@ -13,10 +13,14 @@ use_nexus
 without_git
 check "git is not on PATH" bash -c '! command -v git'
 
+out="$("$DFINSTALL" init --clone 2>&1)"
+rc=$?
+check "init --clone fails" test "$rc" -ne 0
+check "it says why and suggests --packaged" grep -q "cannot clone .*git is not on PATH; .*run: dfinstall init --packaged" <<<"$out"
+
 out="$("$DFINSTALL" init 2>&1)"
 rc=$?
 check "init succeeds" test "$rc" -eq 0
-check "it says why it did not clone" grep -q "not cloning .*git is not on PATH; using the content packaged" <<<"$out"
 check "the store is the dotfiles content" \
     test "$(cat "$XDG_CONFIG_HOME/dfinstall/dotfiles-dir")" = "$HOME/.local/share/dfinstall/content/current"
 

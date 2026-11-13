@@ -411,13 +411,9 @@ type nvimLink struct {
 	Dst string
 }
 
-// nvimSeeded are the files lazy.nvim rewrites (see core.PolicySeed).
-var nvimSeeded = []string{"nvim/lazy-lock.json"}
-
 var nvimLinks = []nvimLink{
 	// Root files
 	{"nvim/init.lua", "init.lua"},
-	{"nvim/lazy-lock.json", "lazy-lock.json"},
 	{"nvim/.stylua.toml", ".stylua.toml"},
 	{"nvim/notes.markdownlint.yaml", "notes.markdownlint.yaml"},
 
@@ -544,9 +540,6 @@ func (NvimModule) Links() core.LinkSet {
 		ls[i] = core.LinkPair{
 			Src: core.ConfigPath(l.Src),
 			Dst: filepath.Join(nvimDir, l.Dst),
-		}
-		if slices.Contains(nvimSeeded, l.Src) {
-			ls[i].Policy = core.PolicySeed
 		}
 	}
 	return ls

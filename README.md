@@ -65,16 +65,17 @@ go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall@latest
 # Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
 ```
 
-A packaged binary has no configs to link until it has a checkout. `dfinstall init` clones one to `~/.local/share/dfinstall/dotfiles` and records it as the machine's checkout; every command that links or inspects managed files tells you to run it when none is found.
+A packaged binary has no configs to link until `dfinstall init` sets them up; every command that links or inspects managed files tells you to run it when none are found. By default `init` uses the configs shipped with the binary (the `.deb` and the formula carry them, a release binary downloads them), which needs no git and no access to GitHub. `--clone` makes a git checkout instead, at `~/.local/share/dfinstall/dotfiles`, for a machine where you want to edit and commit the configs.
 
 ```bash
-dfinstall init                          # clone this repo's default branch
-dfinstall init --repo <url> --ref <ref> # another remote, branch or tag
-dfinstall init --dir ~/dotfiles         # another location, or adopt a checkout already there
+dfinstall init                                  # the configs shipped with this dfinstall
+dfinstall init --clone                          # clone this repo's default branch instead
+dfinstall init --repo <url> --ref <ref>         # another remote, branch or tag
+dfinstall init --dir ~/dotfiles                 # another location, or adopt a checkout already there
 dfinstall install all
 ```
 
-`init` is a no-op once a checkout is recorded. It defaults to the default branch rather than a tag because `update` fast-forwards a branch, and a tag checkout has none to follow.
+`init` is a no-op once either is recorded, so an existing clone install stays one. `init --packaged` moves a clone install to the shipped configs (it refuses while the clone has edits or unpushed commits, and leaves the clone in place), and `init --dir <clone>` moves back. A clone defaults to the default branch rather than a tag because `update` fast-forwards a branch, and a tag checkout has none to follow. A `go install` binary ships no configs, so its `init` clones.
 
 `dfinstall --version` names the channel the binary came from (`release`, `brew`, `deb`, `go`, or `source` for a `make` build), which decides how `update` replaces it.
 
@@ -117,7 +118,7 @@ make install
 
 | Command | What it does |
 |---------|--------------|
-| `dfinstall init` | Clone the dotfiles checkout, for a binary installed without the repo |
+| `dfinstall init` | Set up the configs a binary installed without the repo links from: shipped with it, or `--clone` |
 | `dfinstall install all` | Install every module (except opt-in ones) |
 | `dfinstall install shell git` | Install the named modules, run in dependency order whatever order you name them |
 | `dfinstall update all` | Pull the clone, then install and update what dfinstall installed earlier (`install all --upgrade`) |
