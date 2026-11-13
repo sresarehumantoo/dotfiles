@@ -299,7 +299,7 @@ func confirmNvimUpgrade(version, path, owner string) bool {
 	}
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		core.AlwaysWarn("Can't prompt to upgrade Neovim; stdin isn't a terminal (running via MCP, piped input, or similar). Re-run 'dfinstall install nvim' interactively. Action would be: %s.",
+		core.AlwaysWarn("Can't prompt to upgrade Neovim; stdin isn't a terminal (piped input or similar). Re-run 'dfinstall install nvim' interactively. Action would be: %s.",
 			srcDesc)
 		return false
 	}

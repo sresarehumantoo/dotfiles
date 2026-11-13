@@ -152,7 +152,7 @@ func configureGhosttyShader(ctx context.Context) {
 
 	software, renderer, certain := rendererIsSoftware(ctx)
 
-	// Non-interactive (MCP server, CI, piped stdin): never block on a prompt.
+	// Non-interactive (CI, piped stdin): never block on a prompt.
 	// Safe default is the cheap one, and only when we have reason to think the
 	// expensive one would hurt.
 	if !core.Interactive {

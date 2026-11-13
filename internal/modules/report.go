@@ -13,7 +13,7 @@ import (
 	"golang.org/x/term"
 )
 
-// Status and diff reporting, shared by the CLI and the MCP server.
+// Status and diff reporting.
 //
 // Both used to carry their own copy of this — identical logic with fmt.Printf
 // swapped for fmt.Fprintf into a strings.Builder. Copies of the same report
@@ -183,8 +183,7 @@ func tildePath(p string) string {
 	return p
 }
 
-// StatusHints is how a surface words its remediation commands: the CLI names
-// `dfinstall install`, the MCP server its own tools.
+// StatusHints is how the report words its remediation commands.
 type StatusHints struct {
 	// Install is a format string taking a module name.
 	Install string
@@ -281,7 +280,7 @@ var (
 )
 
 // painter colors text only when w is a terminal color is enabled for, so a
-// pipe, a file or the MCP server's buffer gets plain text.
+// pipe or a file gets plain text.
 func painter(w io.Writer) func(*color.Color, string) string {
 	if f, ok := w.(*os.File); ok && !color.NoColor && term.IsTerminal(int(f.Fd())) {
 		return func(c *color.Color, s string) string { return c.Sprint(s) }
@@ -555,10 +554,8 @@ func editedUnder(edited []string, root, src string) string {
 
 // Write renders the report.
 //
-// The two hints are the only thing that differs between surfaces: the CLI
-// tells the user to run `dfinstall install all`, the MCP server names its own
-// tool. They're separate strings because the original wording quoted the
-// command differently in each sentence.
+// The two hints are separate strings because the wording quotes the command
+// differently in each sentence.
 func (r DiffReport) Write(w io.Writer, fixHint, consolidateCmd string) {
 	paint := painter(w)
 	var inSync, skipped, absent int
