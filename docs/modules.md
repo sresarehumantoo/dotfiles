@@ -950,6 +950,6 @@ After installing, enables/starts the relevant systemd units (`qemu-guest-agent`,
 
 Sets zsh as the default login shell. Skips when the account's recorded login shell (`getent passwd`, or `dscl` on macOS) is already the zsh path resolved from `$PATH`; `$SHELL` is not used, because it only changes at the next login. A shell of `/usr/local/bin/zsh` against a resolved `/usr/bin/zsh` does *not* count as already set.
 
-With a terminal it runs plain `chsh -s <zsh>`, which asks for the user's own password and needs no root. Without one (under the MCP server, where stdin is the JSON-RPC stream, or a piped bootstrap), or when plain `chsh` fails, it uses `sudo chsh` only if sudo needs no password (a NOPASSWD rule, cached credentials, the bootstrap drop-in). Otherwise it warns with the `chsh -s <path>` command to run.
+With a terminal it runs plain `chsh -s <zsh>`, which asks for the user's own password and needs no root. Without one (a piped bootstrap, for example), or when plain `chsh` fails, it uses `sudo chsh` only if sudo needs no password (a NOPASSWD rule, cached credentials, the bootstrap drop-in). Otherwise it warns with the `chsh -s <path>` command to run.
 
 **Status:** Reports "zsh" if the account's login shell is zsh, or that shell's path.

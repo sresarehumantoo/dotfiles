@@ -228,7 +228,7 @@ if err := runCmd(ctx, "git", "clone", "--depth=1", url, dest); err != nil {
 
 - **Thread the context.** `Install(ctx)` receives it; pass it to every command,
   and to every helper that runs one. The CLI binds it to SIGINT so Ctrl-C tears
-  down a running `apt`; the MCP server binds it to the request.
+  down a running `apt`.
 - **Don't wire `Stdout`/`Stderr` yourself.** `runCmd` sends output to the
   terminal under `-v` and otherwise captures both streams, replaying the tail on
   failure. Hand-rolled routing is how failures used to surface as a bare
@@ -298,8 +298,7 @@ out under sudo across a real `$HOME`, and most install paths have no test.
 
 Every push and pull request runs:
 
-- **`go`**: `gofmt -s` formatting, `go vet`, build of the `dfinstall` and MCP
-  binaries, the test suite, and the suite again under the race detector.
+- **`go`**: `gofmt -s` formatting, `go vet`, build of `dfinstall`, the test suite, and the suite again under the race detector.
 - **`shellcheck`**: the standalone bash scripts in `config/devtools/` and
   `bootstrap/` (the two `scandir`s in `ci.yml`). A repo-wide scan is
   deliberately not run: it would pull in `config/shell/`: zsh files and

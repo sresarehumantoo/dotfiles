@@ -13,8 +13,7 @@ type ModuleStatus struct {
 // Module is the interface every install module implements.
 //
 // Install takes a context so a long-running install can be canceled: the CLI
-// binds it to SIGINT, and the MCP server passes the per-request context so a
-// disconnecting client doesn't leave apt running forever. Modules must pass it
+// binds it to SIGINT. Modules must pass it
 // down to every subprocess they spawn.
 type Module interface {
 	Name() string

@@ -37,7 +37,7 @@ key_fp="$(ssh-keygen -lf "$SSH_KEY" 2>/dev/null | awk '{print $2}')"
 if [[ -n "$key_fp" ]] && ! ssh-add -l 2>/dev/null | grep -qF -- "$key_fp"; then
   # Only ask when there is somebody to ask. A passphrase prompt during startup
   # blocks the terminal and writes to the tty, which also defeats P10k's instant
-  # prompt. Non-interactive shells — scripts, tmux respawns, the MCP server —
+  # prompt. Non-interactive shells — scripts, tmux respawns —
   # skip it silently instead of hanging on a prompt nobody can answer.
   if [[ -o interactive ]] && [[ -t 0 ]]; then
     ssh-add "$SSH_KEY" 2>/dev/null

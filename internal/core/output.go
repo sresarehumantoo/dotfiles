@@ -37,8 +37,7 @@ var (
 var capture io.Writer
 
 // CaptureOutput copies every line printed from here on into w until the
-// returned func is called. The MCP server uses it to return what a step
-// reported, since nothing it prints reaches the user.
+// returned func is called.
 func CaptureOutput(w io.Writer) (stop func()) {
 	outMu.Lock()
 	capture = w

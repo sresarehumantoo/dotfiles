@@ -50,9 +50,7 @@ func ReadCanonicalDir() string {
 
 // AdoptCanonical records dir as this machine's canonical dotfiles clone if it
 // isn't already, and resets the cached DotfilesDir so the rest of the run links
-// into it (repointing any symlinks left pointing at other clones). Shared by
-// the CLI's `install all` and the MCP install-all handler so both consolidate a
-// multi-clone host identically. Returns the previous canonical dir and whether
+// into it (repointing any symlinks left pointing at other clones). Returns the previous canonical dir and whether
 // it changed.
 func AdoptCanonical(dir string) (prev string, changed bool) {
 	prev = ReadCanonicalDir()

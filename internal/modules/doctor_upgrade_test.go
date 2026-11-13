@@ -35,6 +35,22 @@ func TestBinaryOnPathResult_NotOnPath(t *testing.T) {
 	}
 }
 
+func TestRetiredBinaryResult(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("PATH", dir)
+	if r, ok := retiredBinaryResult(); ok {
+		t.Errorf("no dfinstall-mcp on PATH reported a row: %+v", r)
+	}
+	mcp := filepath.Join(dir, "dfinstall-mcp")
+	if err := os.WriteFile(mcp, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r, ok := retiredBinaryResult()
+	if !ok || r.OK || !strings.Contains(r.Detail, mcp) {
+		t.Errorf("a leftover dfinstall-mcp should fail naming it: ok=%v %+v", ok, r)
+	}
+}
+
 // A link whose source is another managed file in the home, not the checkout,
 // is not a missing checkout file before that module is installed.
 func TestCheckoutFilesResult_OnlyCountsTheCheckout(t *testing.T) {

@@ -96,7 +96,7 @@ func TestEnsureSudo_RePrimesAfterRelease(t *testing.T) {
 	core.EnsureSudo(ctx)
 	got := strings.Join(sudoCalls(t, log), "|")
 	if want := "-n true|-n true"; got != want {
-		t.Fatalf("sudo calls = %q, want %q (a long-lived MCP server must re-prime)", got, want)
+		t.Fatalf("sudo calls = %q, want %q (a long-lived process must re-prime)", got, want)
 	}
 }
 

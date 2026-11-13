@@ -105,15 +105,12 @@ func TestExtractBinaries_WritesOnlyKnownBinaries(t *testing.T) {
 	if err != nil {
 		t.Fatalf("extractBinaries: %v", err)
 	}
-	for name, body := range map[string]string{"dfinstall": "cli", "dfinstall-mcp": "mcp"} {
-		b, err := os.ReadFile(got[name])
-		if err != nil || string(b) != body {
-			t.Errorf("%s = %q (err=%v), want %q", name, b, err, body)
-		}
+	if b, err := os.ReadFile(got["dfinstall"]); err != nil || string(b) != "cli" {
+		t.Errorf("dfinstall = %q (err=%v), want %q", b, err, "cli")
 	}
 	entries, _ := os.ReadDir(out)
-	if len(entries) != 2 {
-		t.Errorf("wrote %d files, want 2", len(entries))
+	if len(entries) != 1 {
+		t.Errorf("wrote %d files, want 1", len(entries))
 	}
 	if _, err := os.Stat(filepath.Join(dir, "..", "outside")); err == nil {
 		t.Error("an archive path escaped the target directory")
@@ -164,13 +161,10 @@ func readFile(t *testing.T, p string) string {
 	return string(b)
 }
 
-func TestInstallRelease_ReplacesInstalledBinaries(t *testing.T) {
+func TestInstallRelease_ReplacesInstalledBinary(t *testing.T) {
 	noGitHubMirror(t)
 	name := releaseArchiveName("v9.0.0", runtime.GOOS, runtime.GOARCH)
-	asset := serveRelease(t, name, makeTarGz(t, []tarEntry{
-		{name: "dfinstall", body: "new cli"},
-		{name: "dfinstall-mcp", body: "new mcp"},
-	}), "")
+	asset := serveRelease(t, name, makeTarGz(t, []tarEntry{{name: "dfinstall", body: "new cli"}}), "")
 	dir, exe := installedBin(t, map[string]string{"dfinstall": "old cli", "dfinstall-mcp": "old mcp"})
 
 	if err := installRelease(context.Background(), "v9.0.0", []ghAsset{{Name: "other.tar.gz"}, asset}, exe); err != nil {
@@ -179,8 +173,8 @@ func TestInstallRelease_ReplacesInstalledBinaries(t *testing.T) {
 	if got := readFile(t, exe); got != "new cli" {
 		t.Errorf("dfinstall = %q, want the new release", got)
 	}
-	if got := readFile(t, filepath.Join(dir, "dfinstall-mcp")); got != "new mcp" {
-		t.Errorf("dfinstall-mcp = %q, want the new release", got)
+	if _, err := os.Lstat(filepath.Join(dir, "dfinstall-mcp")); err == nil {
+		t.Error("the retired dfinstall-mcp was left beside the updated binary")
 	}
 	if fi, err := os.Stat(exe); err != nil || fi.Mode().Perm()&0o111 == 0 {
 		t.Errorf("updated binary is not executable: %v %v", fi.Mode(), err)
@@ -190,24 +184,6 @@ func TestInstallRelease_ReplacesInstalledBinaries(t *testing.T) {
 		if strings.HasPrefix(e.Name(), ".dfinstall-update-") {
 			t.Errorf("scratch dir left behind: %s", e.Name())
 		}
-	}
-}
-
-// The MCP server is only replaced where it was installed.
-func TestInstallRelease_LeavesMissingSiblingAbsent(t *testing.T) {
-	noGitHubMirror(t)
-	name := releaseArchiveName("v9.0.0", runtime.GOOS, runtime.GOARCH)
-	asset := serveRelease(t, name, makeTarGz(t, []tarEntry{
-		{name: "dfinstall", body: "new cli"},
-		{name: "dfinstall-mcp", body: "new mcp"},
-	}), "")
-	dir, exe := installedBin(t, map[string]string{"dfinstall": "old cli"})
-
-	if err := installRelease(context.Background(), "v9.0.0", []ghAsset{asset}, exe); err != nil {
-		t.Fatalf("installRelease: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, "dfinstall-mcp")); err == nil {
-		t.Error("dfinstall-mcp installed where it was not before")
 	}
 }
 
