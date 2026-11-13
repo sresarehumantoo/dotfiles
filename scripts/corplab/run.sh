@@ -43,7 +43,9 @@ if [[ ${#scenarios[@]} -eq 0 ]]; then
 fi
 command -v docker >/dev/null || { echo "docker not found" >&2; exit 1; }
 
-mkdir -p "$state/ca" "$state/bin" "$state/policy"
+mkdir -p "$state/ca" "$state/bin" "$state/policy" "$state/log"
+# Created here, so it belongs to this user and not to the proxy's root.
+: > "$state/log/requests"
 if [[ ! -f "$state/ca/corp-ca.crt" ]]; then
     # The shape corporate IT hands out: a root CA as PEM .crt, and as DER .cer.
     openssl req -x509 -newkey rsa:2048 -nodes -days 365 -sha256 \
@@ -58,6 +60,12 @@ fi
 
 echo "Building dfinstall..."
 (cd "$repo" && CGO_ENABLED=0 go build -o "$state/bin/dfinstall" ./cmd/dfinstall)
+# A release build of the newest tag, so it installs that release's published
+# content archive.
+tag="$(git -C "$repo" describe --tags --abbrev=0)"
+core=github.com/sresarehumantoo/dotfiles/v2/internal/core
+(cd "$repo" && CGO_ENABLED=0 go build -ldflags "-X $core.Version=$tag -X $core.Channel=release" \
+    -o "$state/bin/dfinstall-release" ./cmd/dfinstall)
 
 export REPO="$repo"
 compose=(docker compose -f "$here/compose.yaml")
@@ -69,6 +77,7 @@ failed=()
 for s in "${scenarios[@]}"; do
     printf '\n== %s\n' "$s"
     : > "$state/policy/blocklist"
+    : > "$state/log/requests"
     if ! "${compose[@]}" exec -T -u dev dev bash "/src/scripts/corplab/scenarios/$s.sh"; then
         failed+=("$s")
     fi
