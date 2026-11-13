@@ -25,15 +25,15 @@ builds:
     flags: [-trimpath]
     ldflags:
       - -s -w
-      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version={{ .Tag }}
-      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Channel=release
+      - -X github.com/sresarehumantoo/dotfiles/v3/internal/core.Version={{ .Tag }}
+      - -X github.com/sresarehumantoo/dotfiles/v3/internal/core.Channel=release
   - <<: *build
     id: dfinstall-deb
     goos: [linux]
     ldflags:
       - -s -w
-      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Version={{ .Tag }}
-      - -X github.com/sresarehumantoo/dotfiles/v2/internal/core.Channel=deb
+      - -X github.com/sresarehumantoo/dotfiles/v3/internal/core.Version={{ .Tag }}
+      - -X github.com/sresarehumantoo/dotfiles/v3/internal/core.Channel=deb
 
 archives:
   - id: release

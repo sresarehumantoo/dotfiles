@@ -1,4 +1,4 @@
-module github.com/sresarehumantoo/dotfiles/v2
+module github.com/sresarehumantoo/dotfiles/v3
 
 go 1.26.0
 

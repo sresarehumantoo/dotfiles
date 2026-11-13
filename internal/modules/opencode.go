@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v3/internal/core"
 )
 
 // OpencodeModule installs opencode set up for Anthropic API key and Bedrock

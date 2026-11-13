@@ -14,7 +14,7 @@ package modules
 import (
     "context"
 
-    "github.com/sresarehumantoo/dotfiles/v2/internal/core"
+    "github.com/sresarehumantoo/dotfiles/v3/internal/core"
 )
 
 type FooModule struct{}
@@ -268,7 +268,7 @@ spinner concurrency, and GitHub release asset selection from a fixture.
 make test       # go test ./cmd/... ./internal/... ./tests/...
 make test-race  # go test -race ./cmd/... ./internal/... ./tests/...
 make lint       # go vet
-make ci         # fmt-check + lint + build both binaries + test + test-race
+make ci         # fmt-check + lint + build + test + test-race
 ```
 
 Tests use `t.TempDir()` and `t.Setenv` and don't touch real system files. Each
