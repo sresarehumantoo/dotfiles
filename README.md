@@ -83,7 +83,7 @@ dfinstall install all
 
 The bootstrap scripts start from nothing and end with `dfinstall install all`. [The bootstrap guide](docs/bootstrap.md) covers their flags, mirrors, company-managed Macs and TLS-inspecting proxies.
 
-**WSL**, from PowerShell: creates a Debian distro and user, builds Neovim, installs Ghostty and dfinstall (from its apt repository), then the dotfiles.
+**WSL**, from PowerShell: creates a Debian distro and user, builds Neovim, installs Ghostty and dfinstall (from its apt repository), then the dotfiles from the configs the package ships (`-Clone` for a git clone).
 
 ```powershell
 git clone https://github.com/sresarehumantoo/dotfiles
@@ -93,7 +93,7 @@ powershell -ExecutionPolicy Bypass -File .\bootstrap\wsl-bootstrap.ps1
 
 `-ExecutionPolicy Bypass` is needed because Windows refuses to run scripts by default; it applies to that one PowerShell process and changes no setting on the machine.
 
-**macOS**: installs the Xcode Command Line Tools, Homebrew, Ghostty and dfinstall (from the Homebrew tap), clones to `~/dotfiles`, then installs the dotfiles. It asks before every step that changes the machine, and on a company-managed Mac nothing after it needs admin rights.
+**macOS**: installs the Xcode Command Line Tools, Homebrew, Ghostty and dfinstall (from the Homebrew tap), then installs the dotfiles from the configs the formula ships (`--clone` for a git clone). It asks before every step that changes the machine, and on a company-managed Mac nothing after it needs admin rights.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash

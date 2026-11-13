@@ -10,7 +10,7 @@ The bootstrap scripts take a machine with nothing on it to a full `dfinstall ins
 
 ## WSL from PowerShell
 
-`bootstrap/wsl-bootstrap.ps1` sets up a WSL Debian distro from nothing: it creates a user, installs packages, builds Neovim, installs Ghostty, installs dfinstall from its apt repository, and runs the full dotfiles install.
+`bootstrap/wsl-bootstrap.ps1` sets up a WSL Debian distro from nothing: it creates a user, installs packages, builds Neovim, installs Ghostty, installs dfinstall from its apt repository, and runs the full dotfiles install with the configs the package ships. No clone is made inside the distro unless asked for.
 
 ```powershell
 git clone https://github.com/sresarehumantoo/dotfiles
@@ -29,35 +29,37 @@ The wizard prompts for a distro and a username. These flags skip the prompts or 
 | `-SkipGhostty` | Skip the Ghostty install |
 | `-SkipDotfiles` | Core tools only |
 | `-Branch <name>` | Use another branch, building dfinstall from source |
-| `-FromSource` | Build dfinstall from the clone even on `main` |
+| `-Clone` | Keep the dotfiles in a git clone at `~/dotfiles`, copied from the repo the script runs from |
+| `-FromSource` | Build dfinstall from a clone even on `main` (implies `-Clone`) |
 | `-CorpCert <path>` | Install a corporate root CA (PEM or DER) into the distro's trust store before any network step, for a TLS-inspecting network |
 | `-PreHook <path>` | Run a script inside the distro after root setup, before Neovim and Ghostty (proxy or repository setup, say) |
 | `-PostHook <path>` | Run a script inside the distro as the last step |
 
 The flags combine: `-SkipDotfiles -SkipNeovim -SkipGhostty` is the bare minimum.
 
-The released dfinstall is used only on `main`, which releases are cut from. Another branch's configs may need code no release has yet, so on any other branch (or with `-FromSource`) the bootstrap builds dfinstall from the clone with Go. It does the same when the apt repository cannot be reached. Set `DFINSTALL_APT_URL` in the distro to install from a mirror of the repository instead.
+The released dfinstall is used only on `main`, which releases are cut from. Another branch's configs may need code no release has yet, so on any other branch (or with `-FromSource`) the bootstrap copies the clone into the distro and builds dfinstall from it with Go. It does the same when the apt repository cannot be reached. Set `DFINSTALL_APT_URL` in the distro to install from a mirror of the repository instead.
 
 ## macOS
 
-`bootstrap/macos-setup.sh` installs the Xcode Command Line Tools, Homebrew and Ghostty, then dfinstall from the Homebrew tap. It clones to `~/dotfiles` and runs `dfinstall install all`.
+`bootstrap/macos-setup.sh` installs the Xcode Command Line Tools, Homebrew and Ghostty, then dfinstall from the Homebrew tap. It runs `dfinstall init`, which uses the configs the formula ships (no clone, no git), and `dfinstall install all`.
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/sresarehumantoo/dotfiles/main/bootstrap/macos-setup.sh | bash
 ```
 
-Run from an existing clone (`./bootstrap/macos-setup.sh`), it uses that clone instead.
+Run from an existing clone (`./bootstrap/macos-setup.sh`), it uses that clone instead. `--clone` clones to `~/dotfiles`.
 
 | Flag or variable | Effect |
 |------------------|--------|
 | `--skip-ghostty`, `--skip-dotfiles` | Trim the scope |
-| `--from-source` | Install Go and build dfinstall from the clone (`make install`) |
+| `--clone`, `--dir <path>` | Keep the dotfiles in a git clone (`~/dotfiles`, or the path given) |
+| `--from-source` | Clone, install Go and build dfinstall from the clone (`make install`) |
 | `--brew-prefix <path>` | Install a separate Homebrew this account owns ([below](#which-homebrew)) |
 | `--yes` | Answer every prompt |
 | `DFINSTALL_TAP_URL` | Clone the tap from a mirror |
 | `HOMEBREW_ARTIFACT_DOMAIN` | Homebrew's own setting, to mirror the downloads |
 
-On a branch other than `main`, or when the tap cannot be reached, it builds from source as `--from-source` does.
+On a branch other than `main`, or when the tap cannot be reached, it clones and builds from source as `--from-source` does.
 
 The bootstrap shows its plan and asks before every step that changes the machine. Declining stops there with nothing further changed, and re-running picks up where it left off. Linux-only modules (konsole, sway, wsl, vmguest, windev) skip themselves on macOS.
 
