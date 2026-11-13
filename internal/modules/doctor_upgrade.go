@@ -133,12 +133,18 @@ func retiredBinaryResult() (DoctorResult, bool) {
 func checkoutFilesResult() DoctorResult {
 	const name = "checkout files"
 	missing, first := 0, ""
+	// Some links chain to another managed file in the home (tmux's ~/.tmux.conf),
+	// which exists only once that module is installed.
+	root := core.DotfilesDir() + string(filepath.Separator)
 	for _, m := range core.AllModules() {
 		le, ok := m.(core.LinkExporter)
 		if !ok {
 			continue
 		}
 		for _, l := range le.Links() {
+			if !strings.HasPrefix(l.Src, root) {
+				continue
+			}
 			if _, err := os.Stat(l.Src); err != nil {
 				missing++
 				if first == "" {
