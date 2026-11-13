@@ -63,7 +63,7 @@ echo "Building dfinstall..."
 # A release build of the newest tag, so it installs that release's published
 # content archive.
 tag="$(git -C "$repo" describe --tags --abbrev=0)"
-core=github.com/sresarehumantoo/dotfiles/v2/internal/core
+core=github.com/sresarehumantoo/dotfiles/v3/internal/core
 (cd "$repo" && CGO_ENABLED=0 go build -ldflags "-X $core.Version=$tag -X $core.Channel=release" \
     -o "$state/bin/dfinstall-release" ./cmd/dfinstall)
 

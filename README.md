@@ -60,7 +60,7 @@ sudo apt-get update && sudo apt-get install dfinstall
 #   gpg --show-keys /etc/apt/keyrings/dfinstall.gpg
 
 # With Go: builds through GOPROXY, so a corporate Go mirror serves it
-go install github.com/sresarehumantoo/dotfiles/v2/cmd/dfinstall@latest
+go install github.com/sresarehumantoo/dotfiles/v3/cmd/dfinstall@latest
 
 # Anywhere else: unpack dfinstall_<version>_<os>_<arch>.tar.gz from the release onto your PATH
 ```

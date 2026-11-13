@@ -9,7 +9,7 @@ import (
 	"io/fs"
 	"os"
 
-	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v3/internal/core"
 )
 
 // A LaunchAgent is a login item: macOS announces it and an MDM may forbid it,
