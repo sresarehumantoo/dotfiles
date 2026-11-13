@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v3/internal/core"
 )
 
 // A second install must not report rustup as installed again. On macOS it

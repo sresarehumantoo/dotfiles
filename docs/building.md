@@ -26,7 +26,7 @@ The compiled binary is written to `bin/dfinstall`.
 
 ```bash
 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=$(pwd)" \
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v3/internal/core.DefaultDotfilesDir=$(pwd)" \
   -o bin/dfinstall ./cmd/dfinstall
 ```
 
@@ -74,9 +74,9 @@ git push origin v1.11.0
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`:
 
-1. **GoReleaser** (`.goreleaser.yaml`) builds both binaries for linux and darwin on amd64 and arm64 and publishes the GitHub release: one `dfinstall_<version>_<os>_<arch>.tar.gz` per platform, a `.deb` per Linux arch, `dfinstall-content_<version>.tar.gz`, and `checksums.txt`. Each binary is built twice, with `core.Channel=release` for the archives and `core.Channel=deb` for the packages. ⚠ `modules.releaseArchiveName` looks for exactly that archive name to self-update, so the `name_template` must not change without it.
+1. **GoReleaser** (`.goreleaser.yaml`) builds dfinstall for linux and darwin on amd64 and arm64 and publishes the GitHub release: one `dfinstall_<version>_<os>_<arch>.tar.gz` per platform, a `.deb` per Linux arch, `dfinstall-content_<version>.tar.gz`, and `checksums.txt`. It is built twice, with `core.Channel=release` for the archives and `core.Channel=deb` for the packages. ⚠ `modules.releaseArchiveName` looks for exactly that archive name to self-update, so the `name_template` must not change without it.
 
-   The content tarball holds the `config/` tree and its stamp, `.dfinstall-content.json` (each file's sha256 and mode, plus the release tag), for installs that have no clone. `scripts/release/content.sh` stages it from `git archive HEAD`, never the working tree, so gitignored machine-local files such as `config/sway/outputs.conf` cannot reach a release. The `.deb` installs the same tree to `/usr/share/dfinstall/`, owned by root. Nothing reads the packaged content yet; a binary run from inside that directory does not take it for a checkout.
+   The content tarball holds the `config/` tree and its stamp, `.dfinstall-content.json` (each file's sha256 and mode, plus the release tag), for installs that have no clone. `scripts/release/content.sh` stages it from `git archive HEAD`, never the working tree, so gitignored machine-local files such as `config/sway/outputs.conf` cannot reach a release. The `.deb` installs the same tree to `/usr/share/dfinstall/`, owned by root, and the formula to the keg's `share/dfinstall`. `dfinstall init` copies it from there (a release binary downloads the tarball) into the read-only store at `~/.local/share/dfinstall/content/<version>`, which is what managed links point at; a package upgrade's new content is synced on the next `install` or `update`.
 2. **Homebrew**: `scripts/release/brew-formula.sh` writes `Formula/dfinstall.rb` from `checksums.txt` and pushes it to `sresarehumantoo/homebrew-tap`. The formula installs the release archive, with the content tarball as a resource under `share/dfinstall`, and a release binary running from a Cellar reports the `brew` channel. GoReleaser's own formula support is deprecated in favor of casks, which quarantine what they download.
 3. **apt**: `scripts/release/apt-repo.sh` adds the `.deb`s to a signed repository (suite `stable`, component `main`, newest three versions kept) on the `gh-pages` branch under `apt/`, served by GitHub Pages.
 
@@ -168,12 +168,12 @@ Go supports cross-compilation natively. To build for a different platform:
 ```bash
 # Linux ARM64 (e.g. Raspberry Pi)
 GOOS=linux GOARCH=arm64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v3/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
   -o bin/dfinstall-arm64 ./cmd/dfinstall
 
 # Linux AMD64
 GOOS=linux GOARCH=amd64 go build \
-  -ldflags "-X github.com/sresarehumantoo/dotfiles/v2/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
+  -ldflags "-X github.com/sresarehumantoo/dotfiles/v3/internal/core.DefaultDotfilesDir=/home/user/dotfiles" \
   -o bin/dfinstall-amd64 ./cmd/dfinstall
 ```
 
@@ -314,7 +314,7 @@ scripts/corplab/compose.yaml down -v` removes it with Nexus's cache).
 | `tls-inspection` | `wsl-setup.sh check-tls` before and after `install-cert` of the DER certificate; curl, git, node, npm, pip, `dfinstall install delta`/`opencode` and opencode's own API calls, first with the CA in the system store, then without root through the per-user variables `macos-setup.sh` writes |
 | `nexus` | The internet blocked outright: the `package mirrors` doctor row, opencode from npm through Nexus, delta from the GitHub release through Nexus's GitHub proxy, and a clear failure once that proxy is offline too |
 | `ghostty-macos` | The macOS bootstrap's Ghostty step: Homebrew while Ghostty's site answers, the verified GitHub nightly once it is blocked, and a clear failure when GitHub is blocked as well. `brew`, `ditto` and `shasum` are stand-ins; the bootstrap code is not |
-| `self-update` | A release binary on the blocked network: the published v2.0.1 archive fetched through Nexus, `dfinstall update` finding the latest release and replacing both binaries through Nexus's GitHub proxies, then nothing newer on a second run, and with both proxies offline a warning, the old binary kept and a clean exit |
+| `self-update` | A release binary on the blocked network: the published v2.0.1 archive fetched through Nexus, `dfinstall update` finding the latest release and replacing the binary through Nexus's GitHub proxies, then nothing newer on a second run, and with both proxies offline a warning, the old binary kept and a clean exit |
 
 ### macOS harness
 

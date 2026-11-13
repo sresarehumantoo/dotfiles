@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v3/internal/core"
 )
 
 // fakeApt puts apt-get, apt-cache, dpkg-query and sudo on PATH. dpkg-query

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v3/internal/core"
 )
 
 // An older dfinstall first on PATH (a source build left in ~/.local/bin after

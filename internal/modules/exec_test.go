@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sresarehumantoo/dotfiles/v2/internal/core"
+	"github.com/sresarehumantoo/dotfiles/v3/internal/core"
 )
 
 // TestProbeErr_CarriesStderr pins that a failed probe explains itself. Cmd.Output()

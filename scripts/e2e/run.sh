@@ -37,7 +37,7 @@ echo "Building dfinstall..."
 # content a .deb carries; lib.sh's build_deb packages them in the container.
 if grep -qx '# e2e: packages' "$here/scenarios/$scenario.sh"; then
     echo "Building packages..."
-    core=github.com/sresarehumantoo/dotfiles/v2/internal/core
+    core=github.com/sresarehumantoo/dotfiles/v3/internal/core
     for n in 1 2; do
         mkdir -p "$work/pkg/$n"
         (cd "$repo" && CGO_ENABLED=0 go build \

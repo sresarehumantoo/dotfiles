@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"github.com/sresarehumantoo/dotfiles/v2/internal/modules"
+	"github.com/sresarehumantoo/dotfiles/v3/internal/modules"
 )
 
 func TestResolveTargets(t *testing.T) {
