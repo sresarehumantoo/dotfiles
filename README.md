@@ -229,6 +229,12 @@ For git, `~/.gitconfig.local` stays the place for identity and site settings, si
 
 `~/.zshenv`, extra files in `~/.zsh.d/`, and anything else dfinstall does not link are never touched.
 
+### With packaged configs
+
+After `dfinstall init` without `--clone`, managed links point into a read-only copy of the configs at `~/.local/share/dfinstall/content/current`, one directory per release. Upgrading the package (`brew upgrade`, apt) does not touch your home: the next `install` or `update` copies in the new release's configs and moves `current` to them, so the links themselves never change. There is no clone, so `update` pulls nothing; it updates dfinstall as the table above says, and the rest of the steps run as usual.
+
+The store is read-only, so local changes go in the override files above. Files that programs rewrite themselves, such as htop's `htoprc`, `~/.p10k.zsh` (`p10k configure`) and waybar's config, are copied rather than linked. A copy you have not changed is replaced with each release's version. One you have changed is kept, and the release's version is put under `~/.local/share/dfinstall/pending/` for you to merge; `dfinstall doctor` and `dfinstall diff` list each one. Delete the pending file once merged.
+
 ### Drift warnings
 
 A new zsh checks, in the background, whether something changed a managed file behind dfinstall's back:
@@ -246,6 +252,23 @@ The result shows once, at a later prompt:
 ```
 
 It adds nothing to startup, runs at most every ten minutes, prints each finding once rather than in every pane, and never fixes anything itself. Links that were never installed are not reported. `DF_NO_DRIFT_CHECK=1` turns it off.
+
+<details>
+<summary><b>From 2.x to 3.0</b></summary>
+
+### From 2.x to 3.0
+
+Nothing needs doing: 3.0 keeps linking from the clone a 2.x install recorded. What changed:
+
+- **`init` uses the packaged configs by default.** With nothing recorded yet, `dfinstall init` sets up the configs shipped with the binary instead of cloning; `--clone` clones. A `go install` or source build ships none, so it still clones. The bootstraps follow suit, with `--clone` (`-Clone` on Windows) for a clone.
+- **`dfinstall-mcp` is gone.** Homebrew and apt remove it on upgrade. A release binary updating itself from 2.x leaves it in place, and `dfinstall doctor` reports one still on `PATH`; delete it. If you registered it with Claude Code, `claude mcp remove -s user dfinstall`.
+- **The `.deb` recommends git rather than depending on it.** apt keeps an installed git either way.
+- **`go install` moves to `/v3`:** `go install github.com/sresarehumantoo/dotfiles/v3/cmd/dfinstall@latest`. The old `/v2` path stays on 2.x.
+- **`~/.config/nvim/lazy-lock.json` is no longer managed.** An existing link keeps working; replace it with a plain file to let lazy.nvim own it.
+
+Moving an existing clone install to the packaged configs is optional: `dfinstall init --packaged`. It moves the links and leaves the clone where it is. It refuses while the clone has uncommitted edits or unpushed commits, since those would stop applying: run `dfinstall update` first to move edits into override files, or pass `--force`. `dfinstall init --dir <clone>` moves back.
+
+</details>
 
 <details>
 <summary><b>From 1.x to 2.0</b></summary>
