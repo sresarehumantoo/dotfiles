@@ -80,7 +80,7 @@ $linux_amd64
   end
 
   def install
-    bin.install "dfinstall", "dfinstall-mcp"
+    bin.install "dfinstall"
     resource("content").stage { pkgshare.install "config", ".dfinstall-content.json" }
   end
 

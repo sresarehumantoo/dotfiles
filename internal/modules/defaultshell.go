@@ -34,8 +34,7 @@ func (DefaultShellModule) Install(ctx context.Context) error {
 	core.Info("Changing default shell to zsh...")
 
 	// Plain chsh needs no root: it asks for the user's own password. That
-	// needs a terminal, and under the MCP server stdin is the JSON-RPC stream,
-	// where reading a password would consume protocol bytes.
+	// needs a terminal.
 	if core.Interactive && term.IsTerminal(int(os.Stdin.Fd())) {
 		cmd := exec.CommandContext(ctx, "chsh", "-s", zshPath)
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

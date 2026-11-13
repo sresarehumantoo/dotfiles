@@ -27,7 +27,7 @@ formula="$(brew --repository "$tap")/Formula/dfinstall.rb"
 echo "== install"
 check "brew install $tap/dfinstall" brew install "$tap/dfinstall"
 bin="$(brew --prefix)/bin"
-check "dfinstall and dfinstall-mcp are linked into $bin" test -x "$bin/dfinstall" -a -x "$bin/dfinstall-mcp"
+check "dfinstall is linked into $bin" test -x "$bin/dfinstall"
 check_output "--version reports the brew channel" '\(brew\)$' "$bin/dfinstall" --version
 check_output "the binary is the one from the Cellar" '/Cellar/dfinstall/' readlink -f "$bin/dfinstall"
 share="$(brew --prefix dfinstall)/share/dfinstall"

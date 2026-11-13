@@ -810,12 +810,11 @@ func rebuildSelf(ctx context.Context, dir string) string {
 		}
 		return p
 	}
-	// The CLI or the MCP server; both targets build both binaries.
 	name := filepath.Base(exe)
 	var target string
 	switch exe {
 	case resolve(filepath.Join(dir, "bin", name)):
-		target = "build-all"
+		target = "build"
 	case resolve(core.HomeTarget(".local", "bin", name)):
 		target = "install-bin"
 	default:

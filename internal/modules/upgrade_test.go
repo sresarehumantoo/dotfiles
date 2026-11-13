@@ -344,8 +344,7 @@ func TestConvergeClone_DryRunChangesNothing(t *testing.T) {
 	}
 }
 
-// The MCP server has no terminal to print to, so a dry run's report has to
-// reach CaptureOutput at the default quiet level.
+// A dry run's report has to reach CaptureOutput at the default quiet level.
 func TestUpgradeClone_DryRunReportsWhatItWouldDo(t *testing.T) {
 	up, clone := upgradeFixture(t)
 	commitUpstream(t, up, "cmd/dfinstall/main.go", "package main\n\nfunc main() {}\n")
