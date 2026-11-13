@@ -42,10 +42,12 @@ stage_repo() {
     chown -R "$user:" "$home/dotfiles" "$home/.config"
 }
 
-# build_deb N CONTENT OUT: a .deb of /e2e/pkg/N/dfinstall laid out as the
-# release's nfpms config lays it out, with CONTENT as /usr/share/dfinstall.
+# build_deb N CONTENT OUT [RELATIONS]: a .deb of /e2e/pkg/N/dfinstall laid out
+# as the release's nfpms config lays it out, with CONTENT as
+# /usr/share/dfinstall. RELATIONS are its control file's Depends and
+# Recommends lines, by default the release's.
 build_deb() {
-    local n="$1" content="$2" out="$3" root
+    local n="$1" content="$2" out="$3" relations="${4:-$'Depends: curl\nRecommends: git'}" root
     root="$(mktemp -d)"
     mkdir -p "$root/DEBIAN" "$root/usr/bin" "$root/usr/share/dfinstall"
     install -m 755 "/e2e/pkg/$n/dfinstall" "$root/usr/bin/dfinstall"
@@ -55,7 +57,7 @@ Package: dfinstall
 Version: 3.0.0~e2e.$n
 Architecture: $(dpkg --print-architecture)
 Maintainer: e2e <e2e@example.invalid>
-Depends: git, curl
+$relations
 Description: dfinstall e2e build $n
 EOF
     dpkg-deb --root-owner-group -Zgzip --build "$root" "$out" >/dev/null
