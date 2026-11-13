@@ -10,7 +10,7 @@
     - Installs base development packages
     - Builds Neovim from source
     - Installs latest Ghostty terminal
-    - Clones and builds the dotfiles repo
+    - Installs dfinstall and the configs it ships (or, with -Clone, a clone)
 
     Run from PowerShell on Windows. Requires WSL to be installed.
 
@@ -26,7 +26,12 @@
     the clone, since its configs may need code no release has yet.
 
 .PARAMETER FromSource
-    Build dfinstall from the clone even on main.
+    Build dfinstall from a clone even on main.
+
+.PARAMETER Clone
+    Keep the dotfiles in a git clone at ~/dotfiles, copied from the repo this
+    script runs from, rather than use the configs the dfinstall package ships.
+    Implied by -FromSource and by any branch other than main.
 
 .PARAMETER SkipNeovim
     Skip building Neovim from source.
@@ -35,7 +40,7 @@
     Skip installing Ghostty terminal.
 
 .PARAMETER SkipDotfiles
-    Skip cloning and installing dotfiles. Useful for quick WSL setup with just core tools.
+    Skip installing dotfiles. Useful for quick WSL setup with just core tools.
 
 .PARAMETER PreHook
     Path to a script to run after root setup (e.g. proxy/repo configuration).
@@ -74,6 +79,7 @@ param(
     [string]$Username,
     [string]$Branch = "main",
     [switch]$FromSource,
+    [switch]$Clone,
     [switch]$SkipNeovim,
     [switch]$SkipGhostty,
     [switch]$SkipDotfiles,
@@ -456,7 +462,8 @@ function Main {
     Write-Info "Branch:   $Branch"
     Write-Info "Neovim:   $(if ($SkipNeovim) { 'skip' } else { 'build from source' })"
     Write-Info "Ghostty:  $(if ($SkipGhostty) { 'skip' } else { 'latest .deb' })"
-    Write-Info "Dotfiles: $(if ($SkipDotfiles) { 'skip' } else { 'clone + install' })"
+    $useClone = $Clone -or $FromSource -or $Branch -ne 'main'
+    Write-Info "Dotfiles: $(if ($SkipDotfiles) { 'skip' } elseif ($useClone) { 'clone + install' } else { 'packaged configs + install' })"
     if (-not $SkipDotfiles) {
         Write-Info "dfinstall: $(if ($FromSource -or $Branch -ne 'main') { 'build from source' } else { 'release from apt, else build from source' })"
     }
@@ -555,7 +562,8 @@ function Main {
         if (-not $SkipDotfiles) {
             Write-Header "Dotfiles"
             $sourceFlag = if ($FromSource) { " --from-source" } else { "" }
-            $repoPath = Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser
+            if ($Clone) { $sourceFlag += " --clone" }
+            $repoPath = if ($useClone) { Copy-RepoToDistro -DistroName $selectedDistro -LinuxUser $linuxUser } else { "" }
             if ($repoPath) {
                 Invoke-Phase `
                     -Name "Install dotfiles" `

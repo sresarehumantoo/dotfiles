@@ -49,7 +49,7 @@ check-decoupling: ## Fail if site-specific content leaked into tracked files
 
 ci: fmt-check lint check-decoupling build test test-race ## Run every check CI runs (fmt/vet/decoupling/build/test/race)
 
-e2e: ## Run the end-to-end scenarios in Docker (slow; SCENARIO=sudo|bootstrap|rootless|packaged|migration for one)
+e2e: ## Run the end-to-end scenarios in Docker (slow; SCENARIO=sudo|bootstrap|bootstrap-packaged|rootless|packaged|migration for one)
 	@for s in $(or $(SCENARIO),$(basename $(notdir $(wildcard scripts/e2e/scenarios/*.sh)))); do \
 	  echo "== e2e: $$s"; scripts/e2e/run.sh $$s || exit 1; done
 

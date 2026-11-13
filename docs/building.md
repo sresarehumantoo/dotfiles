@@ -272,6 +272,7 @@ minutes each; CI does not run them.
 |----------|--------|
 | `sudo` | How many sudo password prompts each command causes (none for anything installed into `~`, one per run otherwise), that dfinstall drops credentials it obtained and keeps ones the user already had, and where Neovim, tree-sitter, delta and Terraform land |
 | `bootstrap` | `bootstrap/wsl-setup.sh` in the order `wsl-bootstrap.ps1` runs it: the temporary NOPASSWD drop-in, `install all` without a password, and its removal plus the expired fallback password at the end |
+| `bootstrap-packaged` | `wsl-setup.sh install-dotfiles main` with the `.deb` already installed: no clone, the store is the dotfiles content, no sudo prompt |
 | `rootless` | `install extras` with a systemd user session. A user already in the `docker` group is left as they are, with no rootless packages; for anyone else Docker runs rootless with its own context, a re-run asks nothing, `sudo docker` still reaches the system daemon, and the user never joins the `docker` group |
 
 A scenario whose script contains the line `# e2e: systemd` runs in a privileged

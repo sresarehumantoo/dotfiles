@@ -328,17 +328,19 @@ install_release() {
     return 1
 }
 
-# install-dotfiles [branch] [source_dir] [--from-source]
+# install-dotfiles [branch] [source_dir] [--from-source] [--clone]
 #
 # Installs the released dfinstall when the branch is main, since a release is
-# cut from main; another branch's configs may need code no release has yet, so
-# it is built from the checkout instead, as it is with --from-source or when
-# the release cannot be installed.
+# cut from main, and links the configs the package ships: no clone, no git.
+# Another branch's configs may need code no release has yet, so it is built
+# from a clone instead, as it is with --from-source or when the release cannot
+# be installed. --clone, or a source_dir, keeps a clone with the release.
 install_dotfiles() {
-    local from_source=false args=() a
+    local from_source=false clone=false args=() a
     for a in "$@"; do
         case "$a" in
             --from-source) from_source=true ;;
+            --clone) clone=true ;;
             *) args+=("$a") ;;
         esac
     done
@@ -350,6 +352,14 @@ install_dotfiles() {
         dfinstall=dfinstall
     else
         from_source=true
+    fi
+
+    if [[ "$from_source" != true && "$clone" != true && -z "$source_dir" ]]; then
+        header "Setting up dotfiles"
+        "$dfinstall" init
+        header "Running dfinstall install all"
+        "$dfinstall" install all
+        return
     fi
 
     header "Setting up dotfiles"
@@ -468,7 +478,7 @@ check_tls() {
 
 # ── Full standalone setup ────────────────────────────────────────
 setup() {
-    local username="" branch="main" from_source=""
+    local username="" branch="main" from_source="" clone=""
     local do_neovim=true do_ghostty=true do_dotfiles=true
     local pre_hook="" post_hook="" corp_cert=""
 
@@ -480,6 +490,7 @@ setup() {
             --skip-ghostty)  do_ghostty=false; shift ;;
             --skip-dotfiles) do_dotfiles=false; shift ;;
             --from-source)   from_source=--from-source; shift ;;
+            --clone)         clone=--clone; shift ;;
             --pre-hook)      pre_hook="$2"; shift 2 ;;
             --post-hook)     post_hook="$2"; shift 2 ;;
             --corp-cert)     corp_cert="$2"; shift 2 ;;
@@ -539,9 +550,9 @@ setup() {
     if [[ "$do_dotfiles" == true ]]; then
         if [[ "$(id -u)" -eq 0 ]]; then
             info "Switching to ${username} for dotfiles install..."
-            su - "$username" -c "$(readlink -f "$0") install-dotfiles '$branch' '' $from_source"
+            su - "$username" -c "$(readlink -f "$0") install-dotfiles '$branch' '' $from_source $clone"
         else
-            install_dotfiles "$branch" "" ${from_source:+"$from_source"}
+            install_dotfiles "$branch" "" ${from_source:+"$from_source"} ${clone:+"$clone"}
         fi
     fi
 
@@ -564,20 +575,23 @@ Commands:
   check-tls           Probe HTTPS; exit 2 if a corp CA is needed, 1 on other failure
   build-neovim        Build and install Neovim from source
   install-ghostty     Install latest Ghostty .deb for this distro
-  install-dotfiles [branch] [source_dir] [--from-source]
+  install-dotfiles [branch] [source_dir] [--from-source] [--clone]
                       Install dfinstall (the release on main, else built from
-                      the clone), clone the dotfiles, run dfinstall install all
+                      a clone), set up the dotfiles (the configs the package
+                      ships, or a clone), run dfinstall install all
   finish-bootstrap <user>
                       Revoke bootstrap sudo; set a password if the user has none
 
 Setup options:
   --username <name>   Linux username (prompted if omitted)
-  --branch <branch>   Dotfiles branch (default: main; any other branch builds
-                      dfinstall from source)
-  --from-source       Build dfinstall from the clone even on main
+  --branch <branch>   Dotfiles branch (default: main; any other branch clones
+                      it and builds dfinstall from source)
+  --from-source       Clone, and build dfinstall from the clone even on main
+  --clone             Keep the dotfiles in a git clone at ~/dotfiles rather
+                      than use the configs the package ships
   --skip-neovim       Skip building Neovim
   --skip-ghostty      Skip installing Ghostty
-  --skip-dotfiles     Skip dotfiles clone and install
+  --skip-dotfiles     Skip the dotfiles install
   --pre-hook <path>   Script to run after root setup (e.g. proxy/repo config)
   --post-hook <path>  Script to run after dotfiles install (e.g. extra tools)
   --corp-cert <path>  Corporate root CA (PEM or DER); trusted before network phases
