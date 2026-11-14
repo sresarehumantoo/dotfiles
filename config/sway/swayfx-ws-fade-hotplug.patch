@@ -1,0 +1,42 @@
+--- a/sway/desktop/transaction.c
++++ b/sway/desktop/transaction.c
+@@ -892,7 +892,12 @@
+ 	struct sway_workspace *new_active = output->current.active_workspace;
+ 	struct sway_workspace *old_active = output->prev_active_workspace;
+ 
+-	bool is_ws_switch = old_active && old_active != new_active
++	// LOCAL DELTA: old_active may have moved to another output since the
++	// last arrange (output hotplug, move workspace to output). Fading it out
++	// from here would leave it at alpha 0, invisible, on the output that now
++	// shows it.
++	bool is_ws_switch = old_active && new_active && old_active != new_active
++		&& old_active->output == output
+ 		&& output->wlr_output->enabled && config->animation_duration_ms > 0 &&
+ 		!(old_active->current.fullscreen || new_active->current.fullscreen);
+ 
+@@ -938,6 +943,10 @@
+ 		}
+ 
+ 		if (activated) {
++			// The active workspace must never be left faded out, whatever
++			// happened to it on another output.
++			child->animation_state.to_alpha = 1.0f;
++
+ 			struct sway_container *fs = child->current.fullscreen;
+ 			wlr_scene_node_set_enabled(&child->layers.tiling->node, !fs);
+ 			wlr_scene_node_set_enabled(&child->layers.fullscreen->node, fs);
+--- a/sway/tree/workspace.c
++++ b/sway/tree/workspace.c
+@@ -300,6 +300,12 @@
+ 	if (workspace->animation_state.animation.initialized) {
+ 		finish_animation(&workspace->animation_state.animation);
+ 	}
++	struct sway_output *output;
++	wl_list_for_each(output, &root->all_outputs, link) {
++		if (output->prev_active_workspace == workspace) {
++			output->prev_active_workspace = NULL;
++		}
++	}
+ 	free(workspace);
+ }
+ 
