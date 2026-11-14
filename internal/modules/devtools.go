@@ -89,6 +89,14 @@ func (DevtoolsModule) Links() core.LinkSet {
 			Dst: core.HomeTarget(".local", "bin", name),
 		})
 	}
+	// FreeRDP 3's X11 client has the same RemoteApp bugs as 2.x, so the
+	// wrapper also shadows it; it execs whichever name it was called by.
+	if !core.IsMac() {
+		ls = append(ls, core.LinkPair{
+			Src: core.ConfigPath("devtools", "xfreerdp"),
+			Dst: core.HomeTarget(".local", "bin", "xfreerdp3"),
+		})
+	}
 	return ls
 }
 

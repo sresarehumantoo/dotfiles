@@ -1,5 +1,5 @@
 /*
- * LD_PRELOAD shim for xfreerdp 2.x, built and loaded by the xfreerdp wrapper.
+ * LD_PRELOAD shim for xfreerdp 2.x and xfreerdp3, built and loaded by the xfreerdp wrapper.
  *
  * A tiling compositor marks every tiled X11 window _NET_WM_STATE_MAXIMIZED_*.
  * In RemoteApp mode xfreerdp forwards that to the server as a maximize, so the
