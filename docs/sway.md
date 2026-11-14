@@ -1295,6 +1295,7 @@ That is the entire reason this was affordable.
 # Copies of all three are kept in ~/projects/sway-migration/swayfx-0.6/.
 tar xf swayfx-0.6.tar.gz && tar xf scenefx-0.5.tar.gz
 cd swayfx-0.6 && patch -p1 < <dotfiles>/config/sway/swayfx-close-anim.patch
+patch -p1 < <dotfiles>/config/sway/swayfx-ws-fade-hotplug.patch
 mkdir -p subprojects
 cp -r ../scenefx-0.5 subprojects/scenefx
 cp -r ../wlroots-0.20.1 subprojects/wlroots
@@ -1353,6 +1354,36 @@ doas install -m0644 <dotfiles>/config/sway/swayfx.desktop /usr/share/wayland-ses
 > The pre-patch binary is kept at `/opt/swayfx/bin/sway.orig-0.6`. The
 > prebuilt prefix that `~/projects/sway-migration/swayfx-0.6/install.sh`
 > copies carries the patched `sway` too, so a reinstall keeps the fix.
+
+> [!IMPORTANT]
+> **`swayfx-ws-fade-hotplug.patch` is a second LOCAL DELTA (2026-11-14).** After
+> the DisplayLink dock dropped and came back, everything on the workspace that
+> had been on it drew fully transparent: windows in `get_tree` with
+> `visible: true`, new windows included, but `grim` showed only wallpaper.
+> Moving the workspace to another output did not help. Cause: the workspace
+> switch fade in `arrange_output`. `output->prev_active_workspace` still named a
+> workspace that had moved to another output, so the old output faded it out
+> (`to_alpha = 0`), and the output now showing it had no previous workspace and
+> never faded it back in. Container alpha is multiplied by the workspace's, so
+> nothing on it rendered. The patch only fades out a workspace still on the
+> output, forces the active workspace to `to_alpha = 1`, and clears a destroyed
+> workspace from every output's `prev_active_workspace`. Only reachable with
+> `animation_duration_ms > 0`; setting it to 0 is the workaround on a stock
+> build.
+>
+> Reproduced headless rather than on the dock: two `create_output` outputs, a
+> window on workspace 1 of the second, `output HEADLESS-2 unplug`, then a
+> `create_output` that `workspace 1 output HEADLESS-2 HEADLESS-3` restores it to.
+> Stock 0.6 draws 0 window pixels on the new output; patched draws the window.
+> The nested sway's `XDG_RUNTIME_DIR` must be short (`/tmp/...`): a long path
+> overflows the 108-byte socket limit and sway aborts at startup. The binary it
+> replaced is kept at `/opt/swayfx/bin/sway.pre-wsfade`.
+
+> [!TIP]
+> **Recovering a session hit by it without restarting sway:** move the windows
+> off the broken workspace (`focus output <out>; workspace <new>`, then
+> `[con_id=N] move container to workspace <new>`), switch away so the empty
+> workspace is destroyed, and `rename workspace <new> to <old>`.
 
 > [!WARNING]
 > **Never pipe `ninja` into `tail`.** The pipeline's exit status is `tail`'s, so
