@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Shadows xfreerdp on PATH to make RemoteApp (RAIL) usable under a Wayland
-# compositor through Xwayland. Two xfreerdp 2.x problems, both in multimon
-# RemoteApp sessions:
+# compositor through Xwayland. Also linked as xfreerdp3, and runs the real
+# binary of the name it was called by. Two problems shared by xfreerdp 2.x and
+# 3.x, both in multimon RemoteApp sessions:
 #
 #  1. It treats X monitor 0 as the remote primary and never applies the
 #     resulting coordinate shift to RemoteApp windows or input, so unless
@@ -21,16 +22,17 @@ is_wrapper() {
         grep -q '^# Shadows xfreerdp on PATH' "$1" 2>/dev/null
 }
 
+name=${0##*/}
 real=
 IFS=: read -ra dirs <<<"$PATH"
 for d in "${dirs[@]}"; do
-    if [[ -n $d && -x $d/xfreerdp ]] && ! is_wrapper "$d/xfreerdp"; then
-        real=$d/xfreerdp
+    if [[ -n $d && -x $d/$name ]] && ! is_wrapper "$d/$name"; then
+        real=$d/$name
         break
     fi
 done
 if [[ -z $real ]]; then
-    echo "xfreerdp: command not found" >&2
+    echo "$name: command not found" >&2
     exit 127
 fi
 

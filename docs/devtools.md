@@ -171,12 +171,12 @@ Linked as `~/.local/bin/gh`, the same way, for what reaches GitHub without passi
 
 ### xfreerdp
 
-Linked as `~/.local/bin/xfreerdp`, ahead of the real one, for RemoteApp (`.rdp` files with `remoteapplicationmode:i:1`) through Xwayland. Without it, xfreerdp 2.x under sway gives RemoteApp windows that ignore clicks or only repaint when focus changes. Two causes, each fixed before the real xfreerdp starts:
+Linked as `~/.local/bin/xfreerdp` and `~/.local/bin/xfreerdp3`, ahead of the real ones, for RemoteApp (`.rdp` files with `remoteapplicationmode:i:1`) through Xwayland. Without it, xfreerdp (2.x) and xfreerdp3 (3.x) under sway give RemoteApp windows that ignore clicks or only repaint when focus changes. Two causes, each fixed before the real xfreerdp starts:
 
 - **Monitor origin.** In a multimon session xfreerdp makes X monitor 0 the remote primary and computes the offset from local 0,0, but nothing in its X11 client applies that offset to RemoteApp windows or mouse input. XRandR lists the primary monitor first, and Xwayland has none (sway sets none, and Xwayland is restarted whenever its last X client exits), so the wrapper makes the output at `+0+0` primary when no primary is set.
 - **Maximize forwarding.** Sway marks tiled X11 windows `_NET_WM_STATE_MAXIMIZED_*`, and xfreerdp forwards that to the server as a maximize across the whole desktop. `_xfreerdp-nomax.c` is an `LD_PRELOAD` shim that hides those two atoms from xfreerdp's own property reads, so a tile is forwarded as an ordinary move/resize. The wrapper builds it with `cc` on first use into `~/.cache/dfinstall/libxfreerdp-nomax.so` (needs `libx11-dev`), and rebuilds it when the source changes.
 
-Outside a Wayland session the wrapper is a plain `exec`. If the shim cannot be built it says so and runs xfreerdp without it.
+FreeRDP 3 uses the XRandR primary when one is set, but otherwise still falls back to monitor 0, and still applies the offset only to the full-desktop window. Each name runs the real binary of the same name. Outside a Wayland session the wrapper is a plain `exec`. If the shim cannot be built it says so and runs xfreerdp without it.
 
 ### wsl-resize-disk
 
