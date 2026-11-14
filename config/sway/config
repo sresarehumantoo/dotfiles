@@ -175,6 +175,11 @@ output * bg $HOME/.config/background fill
 # Get them with:  swaymsg -t get_outputs | grep -E 'make|model|serial'
 include $HOME/.config/sway/outputs.conf
 
+# Positions that change with the dock belong in a kanshi config
+# (~/.config/kanshi/config), not outputs.conf. A reload sends kanshi SIGHUP so
+# it re-reads that file and reapplies the current profile.
+exec_always sh -c 'command -v kanshi >/dev/null 2>&1 && [ -f "$HOME/.config/kanshi/config" ] || exit 0; pkill -HUP -x kanshi || kanshi &'
+
 ### Input ------------------------------------------------------------------
 # "Don't reject the mouse": click-to-focus, not follow-mouse.
 focus_follows_mouse no
