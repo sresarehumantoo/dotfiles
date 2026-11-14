@@ -651,9 +651,12 @@ exec nm-applet --indicator
 # pairing, and blueman-manager is reached from the swaync panel.
 exec blueman-applet
 
-# Hand the session env to the portals / systemd user units.
-exec systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP
-exec dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway
+# Hand the session env to the portals / systemd user units, then drop the
+# portals the last session left behind. They live in the user manager, not the
+# session, so they survive a logout holding its dead DISPLAY; their backends hit
+# the restart limit, and waybar's first Settings query then waited 25s for one.
+# Stopped, the next D-Bus request starts them fresh with this session's env.
+exec sh -c 'systemctl --user import-environment WAYLAND_DISPLAY XDG_CURRENT_DESKTOP; dbus-update-activation-environment --systemd WAYLAND_DISPLAY XDG_CURRENT_DESKTOP=sway; systemctl --user stop xdg-desktop-portal.service "xdg-desktop-portal-*.service"; systemctl --user reset-failed "xdg-desktop-portal*"'
 
 # Dark appearance for GTK4/libadwaita apps.
 #
