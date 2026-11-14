@@ -143,6 +143,14 @@ Copy `config/sway/outputs.conf.example` to `~/.config/sway/outputs.conf` and fil
 in your own. A missing include is silently tolerated by sway, so a machine
 without one simply gets default auto-placement.
 
+Positions that depend on what is plugged in (docked vs. laptop alone) go in a
+[kanshi](https://sr.ht/~emersion/kanshi/) config at `~/.config/kanshi/config`
+instead, one `profile` per set of connected outputs. sway starts kanshi when
+that file exists and sends it `SIGHUP` on reload. Keep the panel you use alone
+at `0,0` in its profile: xfreerdp's RemoteApp mode needs a monitor at `0,0`
+(see `docs/devtools.md`, xfreerdp), and a docked position left in
+`outputs.conf` leaves the undocked desktop starting off-screen.
+
 Discover your identifiers with:
 
 ```bash
