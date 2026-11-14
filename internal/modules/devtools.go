@@ -38,6 +38,7 @@ var devtoolsScripts = []string{
 	"tmux-copy-clean",
 	"jwt-decode",
 	"jwt-encode",
+	"xfreerdp",
 }
 
 // linuxOnlyDevtools drive WSL or read /proc, /sys or /dev/dri, so they are not
@@ -50,6 +51,7 @@ var linuxOnlyDevtools = map[string]bool{
 	"demorec":         true,
 	"wsl-ffmpeg":      true,
 	"ghostty-shader":  true,
+	"xfreerdp":        true,
 }
 
 // gitHooks are the githooks(5) names, the same list config/devtools/git keeps.

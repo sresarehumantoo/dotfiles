@@ -169,6 +169,15 @@ Linked as `~/.local/bin/gh`, the same way, for what reaches GitHub without passi
 
 `pr merge --body` matters because the squash or merge commit is created on GitHub, out of the git wrapper's reach. JSON and GraphQL are cleaned where a line break is the two characters `\n`, so `--input` bodies and `gh api graphql -f query=...` mutations with an inline body are covered, and the JSON stays valid. Body files are cleaned into a temporary copy; the original is never modified. Every other command is a plain `exec`. Not covered: `gh` aliases that expand to one of these, bodies typed into gh's interactive editor, and anything that reaches the API without `gh` (curl, the GitHub MCP server, the web UI).
 
+### xfreerdp
+
+Linked as `~/.local/bin/xfreerdp`, ahead of the real one, for RemoteApp (`.rdp` files with `remoteapplicationmode:i:1`) through Xwayland. Without it, xfreerdp 2.x under sway gives RemoteApp windows that ignore clicks or only repaint when focus changes. Two causes, each fixed before the real xfreerdp starts:
+
+- **Monitor origin.** In a multimon session xfreerdp makes X monitor 0 the remote primary and computes the offset from local 0,0, but nothing in its X11 client applies that offset to RemoteApp windows or mouse input. XRandR lists the primary monitor first, and Xwayland has none (sway sets none, and Xwayland is restarted whenever its last X client exits), so the wrapper makes the output at `+0+0` primary when no primary is set.
+- **Maximize forwarding.** Sway marks tiled X11 windows `_NET_WM_STATE_MAXIMIZED_*`, and xfreerdp forwards that to the server as a maximize across the whole desktop. `_xfreerdp-nomax.c` is an `LD_PRELOAD` shim that hides those two atoms from xfreerdp's own property reads, so a tile is forwarded as an ordinary move/resize. The wrapper builds it with `cc` on first use into `~/.cache/dfinstall/libxfreerdp-nomax.so` (needs `libx11-dev`), and rebuilds it when the source changes.
+
+Outside a Wayland session the wrapper is a plain `exec`. If the shim cannot be built it says so and runs xfreerdp without it.
+
 ### wsl-resize-disk
 
 Compacts the WSL2 virtual disk (ext4.vhdx). WSL-only.

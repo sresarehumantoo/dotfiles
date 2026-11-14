@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# Shadows xfreerdp on PATH to make RemoteApp (RAIL) usable under a Wayland
+# compositor through Xwayland. Two xfreerdp 2.x problems, both in multimon
+# RemoteApp sessions:
+#
+#  1. It treats X monitor 0 as the remote primary and never applies the
+#     resulting coordinate shift to RemoteApp windows or input, so unless
+#     monitor 0 sits at 0,0 every click lands offset. XRandR lists the primary
+#     first, and Xwayland has none (and is restarted whenever its last client
+#     exits), so the output at 0,0 is made primary just before connecting.
+#  2. It forwards a tiled window's maximized state to the server as a maximize
+#     across the whole desktop. _xfreerdp-nomax.c hides that state from it.
+#
+# Either step is skipped, not fatal, when it cannot be done.
+set -uo pipefail
+
+is_wrapper() {
+    local head
+    [[ $1 -ef ${BASH_SOURCE[0]} ]] && return 0
+    IFS= read -r -n 2 head <"$1" 2>/dev/null && [[ $head == '#!' ]] &&
+        grep -q '^# Shadows xfreerdp on PATH' "$1" 2>/dev/null
+}
+
+real=
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+    if [[ -n $d && -x $d/xfreerdp ]] && ! is_wrapper "$d/xfreerdp"; then
+        real=$d/xfreerdp
+        break
+    fi
+done
+if [[ -z $real ]]; then
+    echo "xfreerdp: command not found" >&2
+    exit 127
+fi
+
+if [[ -z ${WAYLAND_DISPLAY:-} ]] || ! command -v xrandr >/dev/null; then
+    exec "$real" "$@"
+fi
+
+monitors=$(xrandr --listmonitors 2>/dev/null)
+if [[ -n $monitors && $monitors != *'*'* ]]; then
+    origin=$(awk '$3 ~ /\+0\+0$/ { print $NF; exit }' <<<"$monitors")
+    [[ -n $origin ]] && xrandr --output "$origin" --primary 2>/dev/null
+fi
+
+src=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/_xfreerdp-nomax.c
+lib=${XDG_CACHE_HOME:-$HOME/.cache}/dfinstall/libxfreerdp-nomax.so
+if [[ -f $src && (! -f $lib || $src -nt $lib) ]]; then
+    mkdir -p "${lib%/*}"
+    if ! cc -shared -fPIC -O2 -o "$lib.tmp" "$src" -ldl 2>/dev/null || ! mv "$lib.tmp" "$lib"; then
+        rm -f "$lib.tmp"
+        echo "xfreerdp wrapper: could not build $lib (needs cc and libx11-dev); tiled RemoteApp windows will misbehave" >&2
+    fi
+fi
+[[ -f $lib ]] && export LD_PRELOAD=$lib${LD_PRELOAD:+:$LD_PRELOAD}
+
+exec "$real" "$@"
