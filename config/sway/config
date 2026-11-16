@@ -430,6 +430,9 @@ for_window [app_id="pavucontrol"]        floating enable
 # in docs/sway.md and the script's docstring.
 for_window [app_id="blueman-manager"]    floating enable
 for_window [app_id="nm-connection-editor"] floating enable
+# A RemoteApp server's invisible helper window, which xfreerdp maps as a black
+# box. Scratchpad, not kill: closing it would close it on the server too.
+for_window [instance="^RAIL$" title="^RemoteApp Marker Window$"] move scratchpad
 
 ### Idle / lock -----------------------------------------------------------
 # after-resume relights the outputs on every wake, so a suspend taken while the
